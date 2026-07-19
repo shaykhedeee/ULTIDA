@@ -1,0 +1,9 @@
+{
+  "schema": "scene.v1", "units": "mm", "projectId": "golden-living", "floorPlanVersionId": "plan-living-1",
+  "rooms": [{ "id": "living", "name": "Living Room", "type": "living", "boundary": [{"xMm":0,"yMm":0},{"xMm":4800,"yMm":0},{"xMm":4800,"yMm":3600},{"xMm":0,"yMm":3600}] }],
+  "walls": [{ "id":"wall-tv", "start":{"xMm":0,"yMm":0}, "end":{"xMm":4800,"yMm":0}, "thicknessMm":150, "heightMm":2850 }],
+  "openings": [],
+  "modules": [{ "id":"sofa-2400", "roomId":"living", "family":"sofa", "widthMm":2400, "depthMm":900, "heightMm":850, "position":{"xMm":1200,"yMm":2550}, "rotationDeg":180 }],
+  "materials": [{"id":"fabric-1","name":"Sage performance fabric","code":"FAB-SG-01"}],
+  "metadata": {"branch":"main","status":"draft","changeReason":"Golden living fixture"}
+}

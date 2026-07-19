@@ -1,0 +1,9 @@
+{
+  "schema": "scene.v1", "units": "mm", "projectId": "golden-kitchen", "floorPlanVersionId": "plan-kitchen-1",
+  "rooms": [{ "id": "kitchen", "name": "Kitchen", "type": "kitchen", "boundary": [{"xMm":0,"yMm":0},{"xMm":3600,"yMm":0},{"xMm":3600,"yMm":3000},{"xMm":0,"yMm":3000}] }],
+  "walls": [{ "id":"wall-a", "start":{"xMm":0,"yMm":0}, "end":{"xMm":3600,"yMm":0}, "thicknessMm":150, "heightMm":2700 }],
+  "openings": [],
+  "modules": [{ "id":"base-600", "roomId":"kitchen", "family":"kitchen-base", "widthMm":600, "depthMm":600, "heightMm":720, "position":{"xMm":0,"yMm":150}, "rotationDeg":0 }],
+  "materials": [{"id":"laminate-1","name":"Warm oak laminate","code":"LAM-WO-01"}],
+  "metadata": {"branch":"main","status":"draft","changeReason":"Golden kitchen fixture"}
+}
