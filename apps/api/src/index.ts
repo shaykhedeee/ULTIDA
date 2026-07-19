@@ -17,6 +17,20 @@ app.get('/api/health', (_request, response) => {
 
 app.get('/api/providers', (_request, response) => response.json({ success: true, providers: gateway.status() }));
 
+app.post('/api/plan/analyze', (request, response) => {
+  const { projectId, fileName, mimeType, dataUrl } = request.body ?? {};
+  if (typeof projectId !== 'string' || typeof fileName !== 'string' || typeof mimeType !== 'string' || typeof dataUrl !== 'string') {
+    return response.status(400).json({ success: false, code: 'INVALID_PLAN_UPLOAD', message: 'A project, file name, MIME type and file payload are required.' });
+  }
+  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+  if (!match || !['image/png', 'image/jpeg', 'application/pdf'].includes(mimeType)) {
+    return response.status(400).json({ success: false, code: 'UNSUPPORTED_PLAN', message: 'Upload a PNG, JPEG or PDF floor plan.' });
+  }
+  const bytes = Buffer.byteLength(match[2], 'base64');
+  if (bytes > 25 * 1024 * 1024) return response.status(413).json({ success: false, code: 'PLAN_TOO_LARGE', message: 'Floor plans must be smaller than 25 MB.' });
+  return response.status(202).json({ success: true, analysis: { projectId, fileName, mimeType, bytes, status: 'review_required', confidence: 0, walls: [], rooms: [], openings: [], dimensions: [], message: 'Plan received. Calibrate one known wall, then run geometry detection.' } });
+});
+
 app.post('/api/visual-proposals', async (request, response) => {
   const parsed = VisualProposalRequestSchema.safeParse(request.body);
   if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_REQUEST', issues: parsed.error.issues });
