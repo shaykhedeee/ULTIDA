@@ -11,6 +11,7 @@ create table public.organizations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   slug text not null unique,
+  created_by uuid not null references auth.users(id),
   created_at timestamptz not null default now()
 );
 
@@ -150,6 +151,16 @@ grant execute on function private.is_org_member(uuid) to authenticated;
 
 create policy organizations_member_select on public.organizations for select to authenticated
 using ((select private.is_org_member(id)));
+
+create policy organizations_owner_insert on public.organizations for insert to authenticated
+with check (created_by = (select auth.uid()));
+
+create policy organizations_owner_update on public.organizations for update to authenticated
+using (created_by = (select auth.uid()))
+with check (created_by = (select auth.uid()));
+
+create policy members_self_insert on public.organization_members for insert to authenticated
+with check (user_id = (select auth.uid()) and role = 'owner');
 
 create policy members_same_org_select on public.organization_members for select to authenticated
 using ((select private.is_org_member(organization_id)));
