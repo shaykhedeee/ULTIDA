@@ -17,4 +17,6 @@ ULTIDA is a measured interior-design operating system. Approved plan and scene v
 3. Run `npm run dev`.
 4. Open `http://127.0.0.1:5173`.
 
+If port `5173` is already occupied, Vite may start the web workspace on the next available port. Use the URL printed by Vite in the terminal.
+
 Provider keys are optional. Missing providers are shown as unavailable and never replaced with an unrelated stock image.

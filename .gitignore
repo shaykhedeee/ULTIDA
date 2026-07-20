@@ -8,3 +8,6 @@ test-results/
 *.log
 storage/
 *.tsbuildinfo
+apps/*/dist/
+apps/*/node_modules/
+apps/*/tsconfig.tsbuildinfo

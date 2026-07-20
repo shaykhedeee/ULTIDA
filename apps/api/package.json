@@ -6,12 +6,17 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/dxf.test.ts"
   },
   "dependencies": {
+    "@ultida/aura-tools": "*",
     "@supabase/supabase-js": "^2.55.0",
     "@ultida/contracts": "0.1.0",
     "@ultida/provider-gateway": "0.1.0",
+    "@ultida/scene-core": "0.1.0",
+    "@ultida/catalog-core": "0.1.0",
+    "@ultida/plan-core": "0.1.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
