@@ -8,6 +8,15 @@ if (existsSync(rootEnv)) {
   dotenv.config({ path: rootEnv });
 }
 
+// Local browser configuration is intentionally separate from server secrets.
+// The API can use the publishable key for caller-scoped JWT validation in development.
+const localEnv = resolve(process.cwd(), '.env.local');
+if (existsSync(localEnv)) {
+  dotenv.config({ path: localEnv });
+  process.env.SUPABASE_URL ||= process.env.VITE_SUPABASE_URL;
+  process.env.SUPABASE_PUBLISHABLE_KEY ||= process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+}
+
 const commands = [
   ['api', ['run', 'dev', '--workspace', '@ultida/api']],
   ['web', ['run', 'dev', '--workspace', '@ultida/web']],

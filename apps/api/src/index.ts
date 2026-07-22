@@ -10,6 +10,12 @@ const rootEnv = [resolve(currentDir, '../.env'), resolve(currentDir, '../../.env
 if (rootEnv) {
   dotenv.config({ path: rootEnv, override: true });
 }
+const localEnv = resolve(currentDir, '../../../.env.local');
+if (existsSync(localEnv)) {
+  dotenv.config({ path: localEnv });
+  process.env.SUPABASE_URL ||= process.env.VITE_SUPABASE_URL;
+  process.env.SUPABASE_PUBLISHABLE_KEY ||= process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+}
 
 import { getRequestSupabaseClient } from './supabase.js';
 import { authenticateProjectUser, requireProjectUser } from './api-auth.js';
