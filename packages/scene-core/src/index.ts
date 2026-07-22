@@ -37,19 +37,24 @@ export type SceneV1 = z.infer<typeof SceneV1Schema>;
 export const SCENE_SCHEMA_VERSION = 'scene.v1';
 export function migrateScene(input: unknown): SceneV1 {
   const candidate = (input && typeof input === 'object' ? { ...input } : {}) as Record<string, unknown>;
-  if (candidate.schema === 'scene.v1' && !candidate.coordinateSystem) candidate.coordinateSystem = 'right-handed-z-up';
+  if (!candidate.schema) candidate.schema = 'scene.v1';
+  if (!candidate.units) candidate.units = 'mm';
+  if (!candidate.coordinateSystem) candidate.coordinateSystem = 'right-handed-z-up';
   if (!Array.isArray(candidate.floors)) candidate.floors = [{ id: 'floor-1', name: 'Ground Floor', elevationMm: 0, heightMm: 2700 }];
   if (!Array.isArray(candidate.spaces)) candidate.spaces = [{ id: 'space-1', floorId: 'floor-1', name: 'Main Space', type: 'living' }];
-  if (!Array.isArray(candidate.rooms)) candidate.rooms = [];
-  else candidate.rooms = (candidate.rooms as any[]).map((r, i) => {
-    let boundary = Array.isArray(r.boundary) ? [...r.boundary] : [{ xMm: 0, yMm: 0 }, { xMm: 1000, yMm: 0 }, { xMm: 1000, yMm: 1000 }, { xMm: 0, yMm: 0 }];
-    if (boundary.length >= 3) {
-      const first = boundary[0];
-      const last = boundary[boundary.length - 1];
-      if (first.xMm !== last.xMm || first.yMm !== last.yMm) boundary.push({ xMm: first.xMm, yMm: first.yMm });
-    }
-    return { ...r, spaceId: r.spaceId ?? 'space-1', name: r.name ?? `Room ${i + 1}`, type: r.type ?? 'living', boundary, confidence: r.confidence ?? 1 };
-  });
+  if (!Array.isArray(candidate.rooms) || candidate.rooms.length === 0) {
+    candidate.rooms = [{ id: 'room-1', spaceId: 'space-1', name: 'Living Room', type: 'living', boundary: [{ xMm: 0, yMm: 0 }, { xMm: 1000, yMm: 0 }, { xMm: 1000, yMm: 1000 }, { xMm: 0, yMm: 0 }], confidence: 1 }];
+  } else {
+    candidate.rooms = (candidate.rooms as any[]).map((r, i) => {
+      let boundary = Array.isArray(r.boundary) ? [...r.boundary] : [{ xMm: 0, yMm: 0 }, { xMm: 1000, yMm: 0 }, { xMm: 1000, yMm: 1000 }, { xMm: 0, yMm: 0 }];
+      if (boundary.length >= 3) {
+        const first = boundary[0];
+        const last = boundary[boundary.length - 1];
+        if (first.xMm !== last.xMm || first.yMm !== last.yMm) boundary.push({ xMm: first.xMm, yMm: first.yMm });
+      }
+      return { ...r, id: r.id ?? `room-${i + 1}`, spaceId: r.spaceId ?? 'space-1', name: r.name ?? `Room ${i + 1}`, type: r.type ?? 'living', boundary, confidence: r.confidence ?? 1 };
+    });
+  }
 
   if (!Array.isArray(candidate.walls)) candidate.walls = [];
   else candidate.walls = (candidate.walls as any[]).map((w) => ({ ...w, floorId: w.floorId ?? 'floor-1', baseElevationMm: w.baseElevationMm ?? 0, spaceIds: Array.isArray(w.spaceIds) ? w.spaceIds : ['space-1'], confidence: w.confidence ?? 1 }));
@@ -60,7 +65,7 @@ export function migrateScene(input: unknown): SceneV1 {
   if (!Array.isArray(candidate.fixedFixtures)) candidate.fixedFixtures = [];
 
   if (!Array.isArray(candidate.modules)) candidate.modules = [];
-  else candidate.modules = (candidate.modules as any[]).map((m) => ({ ...m, anchor: m.anchor ?? 'floor', confidence: m.confidence ?? 1 }));
+  else candidate.modules = (candidate.modules as any[]).map((m) => ({ ...m, roomId: m.roomId ?? 'room-1', position: m.position ?? { xMm: 0, yMm: 0 }, rotationDeg: m.rotationDeg ?? 0, anchor: m.anchor ?? 'floor', confidence: m.confidence ?? 1 }));
 
   if (!Array.isArray(candidate.materials)) candidate.materials = [];
   if (!Array.isArray(candidate.lighting)) candidate.lighting = [];

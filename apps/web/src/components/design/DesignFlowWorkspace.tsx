@@ -72,6 +72,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const [pdfState, setPdfState] = useState('Export PDF');
   const [placementNotice, setPlacementNotice] = useState('Placement rules are checked before a module enters the scene.');
   const [renders, setRenders] = useState<StoredRender[]>([]);
+  const [selectedRenderId, setSelectedRenderId] = useState<string | null>(null);
   const [activeVisualJobId, setActiveVisualJobId] = useState<string | null>(null);
   const [reviewVisualJobId, setReviewVisualJobId] = useState<string | null>(null);
   const [visualBusy, setVisualBusy] = useState(false);
@@ -104,8 +105,13 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     try {
       const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { headers: await authenticatedHeaders() });
       const payload = await response.json();
-      setRenders(response.ok && Array.isArray(payload.renders) ? payload.renders : []);
-    } catch { setRenders([]); }
+      const next: StoredRender[] = response.ok && Array.isArray(payload.renders) ? payload.renders : [];
+      setRenders(next);
+      setSelectedRenderId((current) => current && next.some((render) => render.id === current) ? current : next[0]?.id ?? null);
+    } catch {
+      setRenders([]);
+      setSelectedRenderId(null);
+    }
   }
 
   useEffect(() => {
@@ -125,9 +131,9 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
         const payload = await response.json();
         const status = payload.result?.status;
         if (status === 'succeeded' && payload.result?.signedUrl) {
-          setVisualState('Render stored and ready for review.'); setVisualBusy(false); await loadRenders();
+          setVisualState('Render stored privately and ready for review.'); setVisualBusy(false); setActiveVisualJobId(null); await loadRenders();
         } else if (status === 'failed') {
-          setVisualState(payload.result?.reason ?? 'Render generation failed.'); setVisualBusy(false); setActiveVisualJobId(null);
+          setVisualState(payload.result?.reason ?? payload.result?.error ?? 'Render generation failed. No image was stored.'); setVisualBusy(false); setActiveVisualJobId(null);
         } else setVisualState(status === 'running' ? 'Rendering in progress...' : 'Render queued...');
       } catch { setVisualState('Render status is temporarily unavailable.'); }
     }, 3000);
@@ -169,14 +175,14 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
       if (!response.ok || !payload.success) {
         setVisualBusy(false);
         if (payload.result?.code === 'IMAGE_PROVIDER_NOT_CONFIGURED') {
-          setVisualState('Photoreal rendering is not configured. Technical preview remains available.');
+          setVisualState('No real image provider is configured. No render was generated or substituted.');
           return;
         }
         setVisualState(payload.result?.message ?? payload.result?.reason ?? payload.message ?? 'Image generation failed.');
         return;
       }
       if (payload.result?.jobId) { setReviewVisualJobId(payload.result.jobId); setActiveVisualJobId(payload.result.jobId); }
-      if (payload.result?.status === 'succeeded' && payload.result?.signedUrl) { setVisualBusy(false); setVisualState('Render stored and ready for review.'); await loadRenders(); return; }
+      if (payload.result?.status === 'succeeded' && payload.result?.signedUrl) { setVisualBusy(false); setVisualState('Render stored privately and ready for review.'); await loadRenders(); return; }
       if (payload.result?.jobId) { setActiveVisualJobId(payload.result.jobId); setVisualState('Render queued with scene provenance.'); return; }
       setVisualBusy(false); setVisualState('Render request returned no durable job.');
     } catch { setVisualBusy(false); setVisualState('Visual service unavailable. The approved scene is unchanged.'); }
@@ -231,7 +237,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   }
 
   if (stage === 'Visualize') {
-    const latest = renders[0];
+    const latest = renders.find((render) => render.id === selectedRenderId) ?? renders[0];
     return (
       <section className="design-flow-workspace">
         <div className="workspace-heading">
@@ -369,7 +375,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
               <div className="render-variants">
                 <small>RECENT OUTPUTS</small>
                 {renders.slice(0, 4).map((render) => (
-                  <button key={render.id} className="render-variant" type="button">
+                  <button key={render.id} className="render-variant" type="button" aria-pressed={render.id === latest?.id} onClick={() => setSelectedRenderId(render.id)}>
                     <span>{render.stale ? 'Stale' : render.status}</span>
                     <small>{new Date(render.created_at).toLocaleDateString()}</small>
                   </button>

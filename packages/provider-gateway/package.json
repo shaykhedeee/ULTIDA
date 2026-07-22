@@ -8,6 +8,7 @@
   "dependencies": {
     "@ultida/agent-core": "0.1.0",
     "@ultida/contracts": "0.1.0",
-    "@supabase/supabase-js": "^2.55.0"
+    "@supabase/supabase-js": "^2.55.0",
+    "sharp": "^0.34.5"
   }
 }

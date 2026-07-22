@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { analyzePlanWithProvider } from './plan-analyzer.js';
 
@@ -65,15 +66,34 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
   return { status: job.data.status, jobId: job.data.id, analysis: job.data.output, error: job.data.error, createdAt: job.data.created_at, updatedAt: job.data.updated_at };
 }
 
-export async function processPlanAnalysisJobs(environment: Environment) {
+export async function dispatchPlanAnalysisJob(environment: Environment, jobId: string) {
+  const workerUrl = environment.CLOUDFLARE_WORKER_URL;
+  const sharedSecret = environment.ULTIDA_WORKER_SHARED_SECRET;
+  if (!workerUrl || !sharedSecret) {
+    return { dispatched: false as const, reason: 'Cloudflare Worker dispatch is not configured.' };
+  }
+  const response = await fetch(`${workerUrl.replace(/\/$/, '')}/dispatch`, {
+    method: 'POST',
+    headers: { 'x-ultida-worker-secret': sharedSecret, 'content-type': 'application/json' },
+    body: JSON.stringify({ jobId, kind: 'plan-analysis' })
+  });
+  if (!response.ok) return { dispatched: false as const, reason: `Cloudflare Worker returned HTTP ${response.status}.` };
+  return { dispatched: true as const };
+}
+
+export async function processPlanAnalysisJobs(environment: Environment, limit = 2) {
   const client = serverClient(environment);
   if (!client) return;
-  const queued = await client.from('jobs').select('*').eq('kind', 'plan-analysis').eq('status', 'queued').lte('available_at', new Date().toISOString()).order('created_at', { ascending: true }).limit(2);
-  for (const job of queued.data ?? []) {
-    const claimed = await client.from('jobs').update({ status: 'running', attempts: (job.attempts ?? 0) + 1, locked_at: new Date().toISOString(), locked_by: 'api-plan-worker', updated_at: new Date().toISOString() }).eq('id', job.id).eq('status', 'queued').select('*').maybeSingle();
-    if (!claimed.data) continue;
+  const workerId = environment.ULTIDA_WORKER_ID || 'api-plan-worker';
+  const claimed = await client.rpc('claim_jobs', {
+    requested_kind: 'plan-analysis',
+    worker_id: workerId,
+    claim_limit: Math.max(1, Math.min(limit, 10))
+  });
+  if (claimed.error) throw new Error(`Plan job claim failed: ${claimed.error.message}`);
+  for (const job of claimed.data ?? []) {
     try {
-      const input = claimed.data.input as { storagePath?: string; mimeType?: string; fileName?: string };
+      const input = job.input as { sourceAssetId?: string; storagePath?: string; mimeType?: string; fileName?: string };
       if (!input.storagePath || !input.mimeType || !input.fileName) throw new Error('Plan analysis job has incomplete source metadata.');
       const downloaded = await client.storage.from('project-assets').download(input.storagePath);
       if (downloaded.error || !downloaded.data) throw new Error(downloaded.error?.message ?? 'The uploaded plan asset could not be downloaded.');
@@ -82,18 +102,31 @@ export async function processPlanAnalysisJobs(environment: Environment) {
       const analysisMimeType = input.mimeType === 'application/pdf' ? 'image/png' : input.mimeType;
       const analysis = await analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType });
       if (!analysis) throw new Error('No configured floor-plan analysis provider is available.');
-      await client.from('jobs').update({ status: 'succeeded', output: { ...analysis, sourceAssetId: (claimed.data.input as { sourceAssetId?: string }).sourceAssetId, sourceMimeType: input.mimeType }, error: null, locked_at: null, updated_at: new Date().toISOString() }).eq('id', job.id);
+      const output = { ...analysis, sourceAssetId: input.sourceAssetId, sourceMimeType: input.mimeType };
+      const outputHash = createHash('sha256').update(JSON.stringify(output)).digest('hex');
+      const providerRuns = Array.isArray(analysis.providerRuns) ? analysis.providerRuns : [];
+      if (providerRuns.length) {
+        const auditRows = providerRuns.map((run) => ({
+          organization_id: job.organization_id,
+          project_id: job.project_id,
+          job_id: job.id,
+          asset_id: input.sourceAssetId,
+          task_type: 'floor_plan_vision_analysis',
+          provider: run.provider,
+          model: run.model,
+          prompt_version: analysis.analysisVersion,
+          asset_hash: analysis.source?.checksumSha256 ?? null,
+          output_hash: run.status === 'succeeded' ? outputHash : null,
+          latency_ms: run.latencyMs,
+          status: run.status,
+          error: 'error' in run && run.error ? { code: 'PROVIDER_RUN_FAILED', message: run.error } : null
+        }));
+        const audit = await client.from('ai_runs').insert(auditRows);
+        if (audit.error) throw new Error(`AI provenance could not be stored: ${audit.error.message}`);
+      }
+      await client.from('jobs').update({ status: 'succeeded', output, error: null, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
     } catch (error) {
-      await client.from('jobs').update({ status: 'failed', error: { code: 'PLAN_ANALYSIS_FAILED', message: error instanceof Error ? error.message : 'Plan analysis failed.' }, locked_at: null, updated_at: new Date().toISOString() }).eq('id', job.id);
+      await client.from('jobs').update({ status: 'failed', error: { code: 'PLAN_ANALYSIS_FAILED', message: error instanceof Error ? error.message : 'Plan analysis failed.' }, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
     }
   }
-}
-
-export function schedulePlanAnalysisWorker(environment: Environment) {
-  const run = () => void processPlanAnalysisJobs(environment).catch(() => undefined);
-  run();
-  const timer = setInterval(run, 2_000);
-  // Do not keep CLI tests and one-shot API imports alive solely for polling.
-  timer.unref();
-  return timer;
 }

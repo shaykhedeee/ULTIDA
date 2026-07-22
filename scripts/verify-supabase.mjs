@@ -16,8 +16,14 @@ for (const table of ['projects', 'project_assets', 'floor_plan_versions', 'scene
   if (!response.ok) throw new Error(`Supabase table check failed for ${table}: ${response.status} ${await response.text()}`);
   console.log(`PASS table ${table}`);
 }
-const bucket = await fetch(`${url}/storage/v1/bucket/project-assets`, { headers });
-if (!bucket.ok && !(env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY)) { console.warn(`WARN storage bucket API check requires a server-only Supabase secret key (${bucket.status}); verify with Supabase dashboard or MCP.`); console.log('Supabase verification complete with publishable-key checks.'); process.exit(0); }
+const storageKey = env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY;
+if (!storageKey) {
+  console.warn('WARN storage bucket API check requires a server-only Supabase secret key; verify with Supabase dashboard or MCP.');
+  console.log('Supabase verification complete with publishable-key checks.');
+  process.exit(0);
+}
+const bucketHeaders = { apikey: storageKey, Authorization: `Bearer ${storageKey}` };
+const bucket = await fetch(`${url}/storage/v1/bucket/project-assets`, { headers: bucketHeaders });
 if (!bucket.ok) throw new Error(`Supabase project-assets bucket check failed: ${bucket.status} ${await bucket.text()}`);
 const bucketData = await bucket.json();
 if (bucketData.public === true) throw new Error('project-assets must remain private.');

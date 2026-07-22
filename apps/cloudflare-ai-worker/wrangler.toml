@@ -1,0 +1,17 @@
+name = "ultida-ai-worker"
+main = "src/index.ts"
+compatibility_date = "2026-07-23"
+
+[vars]
+API_BASE = "https://ultida-api.vercel.app/api"
+
+[[queues.producers]]
+binding = "AI_JOBS"
+queue = "ultida-ai-jobs"
+
+[[queues.consumers]]
+queue = "ultida-ai-jobs"
+max_batch_size = 1
+max_batch_timeout = 5
+max_retries = 3
+retry_delay = 10

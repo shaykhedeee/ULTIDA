@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { generateCandidates, validatePlacements, approveLayout, invalidateDownstream, restoreApprovedVersion, shapeCatalogFor } from '../src/index.js';
+import { generateCandidates, validatePlacements, approveLayout, invalidateDownstream, restoreApprovedVersion, shapeCatalogFor, evaluateVastuCompliance } from '../src/index.js';
 
 describe('layout-core', () => {
   test('shape catalog exposes required kitchen/tv/wardrobe/living/bedroom shapes', () => {
@@ -70,5 +70,28 @@ describe('layout-core', () => {
     ];
     const restored = restoreApprovedVersion(versions);
     assert.strictEqual(restored?.id, 'v2');
+  });
+
+  test('Vastu compliance returns EXCELLENT for ideal kitchen south-east and bedroom south-west', () => {
+    const bounds = { minX: 0, minY: 0, maxX: 10000, maxY: 10000 };
+    const spaces = [
+      { id: 's1', roomType: 'kitchen', center: { xMm: 8500, yMm: 8500 } },  // SOUTH_EAST
+      { id: 's2', roomType: 'master bedroom', center: { xMm: 1500, yMm: 8500 } }, // SOUTH_WEST
+    ];
+    const result = evaluateVastuCompliance(spaces, bounds);
+    assert.strictEqual(result.zoneEvaluations.find(e => e.spaceId === 's1')?.status, 'IDEAL', 'kitchen in south-east should be IDEAL');
+    assert.strictEqual(result.zoneEvaluations.find(e => e.spaceId === 's2')?.status, 'IDEAL', 'master bedroom in south-west should be IDEAL');
+    assert.ok(result.score >= 85, `overall score should be EXCELLENT, got ${result.score}`);
+  });
+
+  test('Vastu compliance flags toilet in north-east as NON_COMPLIANT with remedy', () => {
+    const bounds = { minX: 0, minY: 0, maxX: 10000, maxY: 10000 };
+    const spaces = [
+      { id: 't1', roomType: 'toilet', center: { xMm: 8500, yMm: 1500 } }, // NORTH_EAST
+    ];
+    const result = evaluateVastuCompliance(spaces, bounds);
+    const toiletEval = result.zoneEvaluations.find(e => e.spaceId === 't1');
+    assert.strictEqual(toiletEval?.status, 'NON_COMPLIANT', 'toilet in north-east should be NON_COMPLIANT');
+    assert.ok(toiletEval?.remedy, 'should have a remedy suggestion');
   });
 });

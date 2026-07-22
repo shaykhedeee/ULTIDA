@@ -94,8 +94,8 @@ test('plan analyzer never claims success without an analyzer key or explicit bas
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ projectId: 'p1', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', fileName: 'f1.png', mimeType: 'image/png' })
     });
-    assert.equal(res.status, 503);
-    assert.equal((await res.json()).code, 'AI_PROVIDER_NOT_CONFIGURED');
+    assert.equal(res.status, 401);
+    assert.equal((await res.json()).code, 'AUTH_REQUIRED');
     });
   } finally {
     if (previousOpenAi === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previousOpenAi;
@@ -109,11 +109,12 @@ test('plan analyzer never claims success without an analyzer key or explicit bas
 test('cutlist route creates review-required rectangular panel parts from an approved scene', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/production/cutlist`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'project-1', sceneVersionId: 'scene-1', scene: { metadata: { status: 'approved' }, modules: [{ id: 'module-1', family: 'wardrobe', widthMm: 900, depthMm: 600, heightMm: 2400 }] } }) });
-    assert.equal(response.status, 202);
+    assert.equal(response.status, 200);
     const payload = await response.json();
     assert.equal(payload.cutlist.partCount, 7);
     assert.equal(payload.cutlist.parts[0].status, 'review_required');
     assert.equal(payload.cutlist.parts[0].lengthMm, 2400);
+    assert.equal(payload.cutlist.parts[0].edgeBandMm, 6000);
   });
 });
 
@@ -122,7 +123,11 @@ test('elevation and cutlist exports return real scene-linked files', async () =>
     const body = { projectId: 'project-1', sceneVersionId: 'scene-1', scene: approvedScene };
     const elevation = await fetch(`${baseUrl}/api/drawings/elevations.svg`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal(elevation.status, 200);
-    assert.match(await elevation.text(), /<svg/);
+    assert.match(await elevation.text(), /drawing\.projection\.v1|Floor plan|wall-elevations/);
+    const pdf = await fetch(`${baseUrl}/api/drawings/elevations.pdf`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal(pdf.status, 200);
+    assert.match(pdf.headers.get('content-type') ?? '', /^application\/pdf/);
+    assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString('ascii'), '%PDF-');
     const csv = await fetch(`${baseUrl}/api/production/cutlist.csv`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal(csv.status, 200);
     assert.match(await csv.text(), /part_id,module_id,family/);

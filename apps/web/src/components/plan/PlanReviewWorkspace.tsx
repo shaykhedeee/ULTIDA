@@ -50,11 +50,21 @@ export type PlanElement = {
     x?: number; y?: number; width?: number; height?: number;
     polygon?: Point[];
   };
+  sourceGeometry?: PlanElement['geometry'];
+  worldGeometry?: {
+    start?: { xMm: number; yMm: number };
+    end?: { xMm: number; yMm: number };
+    polygon?: Array<{ xMm: number; yMm: number }>;
+    xMm?: number; yMm?: number; widthMm?: number; heightMm?: number;
+  };
+  wallId?: string;
+  offsetAlongWallMm?: number;
   dimensionMm?: number;
   areaSqm?: number;
   note?: string;
   usableWalls?: number;
   potentialTvWall?: string;
+  heightMm?: number;
 };
 
 export type IssueItem = {
@@ -67,7 +77,9 @@ export type IssueItem = {
 };
 
 export type CanonicalPlanModel = {
+  schemaVersion: 'plan.v1';
   units: 'mm';
+  coordinateSystem: 'x-right-y-down-source-x-right-z-forward-world';
   scale: ScaleCalibration | null;
   ceilingHeightMm: number;
   walls: PlanElement[];
@@ -89,7 +101,10 @@ type CanvasTool =
   | 'add_room'
   | 'add_door'
   | 'add_window'
-  | 'add_column';
+  | 'add_column'
+  | 'move'
+  | 'split_wall'
+  | 'merge_walls';
 
 type Props = {
   fileName?: string;
@@ -97,79 +112,29 @@ type Props = {
   status: string;
   analysed: boolean;
   proposals?: Array<{ id: string; kind: string; confidence: number; status: string; note: string; geometry?: Record<string, number> }>;
+  analysisIssues?: Array<{ code: string; severity: 'warning' | 'critical'; entityId?: string; message: string }>;
   initialSnapshot?: any;
   layoutConfig?: any;
   onFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAnalyze?: () => void;
   onApprove: (canonicalModel: CanonicalPlanModel) => void;
-  onSaveScene?: (snapshot: any) => void;
+  onSaveDraft?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null }) => void;
 };
 
 // ─── Default Detection Data ───────────────────────────────────────
 const INITIAL_LAYERS: Record<LayerKey, { label: string; visible: boolean; count: number }> = {
   source_plan: { label: 'Source Floor Plan', visible: true, count: 1 },
-  walls:       { label: 'Walls (A-WALL)',    visible: true, count: 4 },
-  rooms:       { label: 'Rooms (Polygons)',  visible: true, count: 3 },
-  doors:       { label: 'Doors & Swings',    visible: true, count: 2 },
-  windows:     { label: 'Windows & Gaps',    visible: true, count: 2 },
-  columns:     { label: 'Columns & Shafts',  visible: true, count: 2 },
+  walls:       { label: 'Walls (A-WALL)',    visible: true, count: 0 },
+  rooms:       { label: 'Rooms (Polygons)',  visible: true, count: 0 },
+  doors:       { label: 'Doors & Swings',    visible: true, count: 0 },
+  windows:     { label: 'Windows & Gaps',    visible: true, count: 0 },
+  columns:     { label: 'Columns & Shafts',  visible: true, count: 0 },
   beams:       { label: 'Ceiling Beams',     visible: false, count: 0 },
   services:    { label: 'Plumbing & Elec',   visible: false, count: 3 },
-  dimensions:  { label: 'Dimension Lines',   visible: true, count: 4 },
-  annotations: { label: 'Annotations & Text',visible: true, count: 3 },
-  unresolved:  { label: 'Uncertain Items',   visible: true, count: 2 },
+  dimensions:  { label: 'Dimension Lines',   visible: true, count: 0 },
+  annotations: { label: 'Annotations & Text',visible: true, count: 0 },
+  unresolved:  { label: 'Uncertain Items',   visible: true, count: 0 },
 };
-
-const DEFAULT_ELEMENTS: PlanElement[] = [
-  // Walls
-  { id: 'wall-1', kind: 'wall', label: 'North Outer Wall (L-01)', confidence: 0.96, status: 'accepted', color: '#2563eb', geometry: { x1: 100, y1: 100, x2: 900, y2: 100 }, dimensionMm: 5200 },
-  { id: 'wall-2', kind: 'wall', label: 'East Wall (L-02)', confidence: 0.94, status: 'accepted', color: '#2563eb', geometry: { x1: 900, y1: 100, x2: 900, y2: 750 }, dimensionMm: 3800 },
-  { id: 'wall-3', kind: 'wall', label: 'South Wall (L-03)', confidence: 0.95, status: 'accepted', color: '#2563eb', geometry: { x1: 900, y1: 750, x2: 100, y2: 750 }, dimensionMm: 5200 },
-  { id: 'wall-4', kind: 'wall', label: 'West Wall (L-04)', confidence: 0.92, status: 'accepted', color: '#2563eb', geometry: { x1: 100, y1: 750, x2: 100, y2: 100 }, dimensionMm: 3800 },
-  { id: 'wall-div', kind: 'wall', label: 'Partition Wall (P-01)', confidence: 0.88, status: 'accepted', color: '#3b82f6', geometry: { x1: 520, y1: 100, x2: 520, y2: 750 }, dimensionMm: 3800 },
-
-  // Rooms
-  {
-    id: 'room-living', kind: 'room', label: 'Living Room', confidence: 0.94, status: 'accepted', color: 'rgba(197,156,45,0.18)',
-    areaSqm: 19.8, usableWalls: 3, potentialTvWall: 'Partition Wall (P-01)',
-    geometry: { polygon: [{ x: 100, y: 100 }, { x: 520, y: 100 }, { x: 520, y: 750 }, { x: 100, y: 750 }] }
-  },
-  {
-    id: 'room-bed', kind: 'room', label: 'Master Bedroom', confidence: 0.91, status: 'accepted', color: 'rgba(59,130,246,0.15)',
-    areaSqm: 14.4, usableWalls: 3, potentialTvWall: 'East Wall (L-02)',
-    geometry: { polygon: [{ x: 520, y: 100 }, { x: 900, y: 100 }, { x: 900, y: 500 }, { x: 520, y: 500 }] }
-  },
-  {
-    id: 'room-kitchen', kind: 'room', label: 'Kitchen & Utility', confidence: 0.87, status: 'needs_review', color: 'rgba(16,185,129,0.15)',
-    areaSqm: 9.5, usableWalls: 2, potentialTvWall: 'None',
-    geometry: { polygon: [{ x: 520, y: 500 }, { x: 900, y: 500 }, { x: 900, y: 750 }, { x: 520, y: 750 }] }
-  },
-
-  // Openings
-  { id: 'door-main', kind: 'door', label: 'Main Entrance Door', confidence: 0.93, status: 'accepted', color: '#059669', geometry: { x: 100, y: 400, width: 90, height: 900 }, dimensionMm: 900 },
-  { id: 'door-bed', kind: 'door', label: 'Bedroom Door', confidence: 0.89, status: 'accepted', color: '#059669', geometry: { x: 520, y: 300, width: 80, height: 800 }, dimensionMm: 800 },
-  { id: 'win-living', kind: 'window', label: 'Living Balcony Window', confidence: 0.95, status: 'accepted', color: '#d97706', geometry: { x: 300, y: 100, width: 150, height: 1500 }, dimensionMm: 1500 },
-  { id: 'win-bed', kind: 'window', label: 'Bedroom Window', confidence: 0.91, status: 'accepted', color: '#d97706', geometry: { x: 900, y: 280, width: 120, height: 1200 }, dimensionMm: 1200 },
-
-  // Structural
-  { id: 'col-1', kind: 'column', label: 'Column C-01 (300×300)', confidence: 0.97, status: 'accepted', color: '#ef4444', geometry: { x: 505, y: 85, width: 30, height: 30 }, dimensionMm: 300 },
-  { id: 'col-2', kind: 'column', label: 'Column C-02 (300×300)', confidence: 0.96, status: 'accepted', color: '#ef4444', geometry: { x: 505, y: 735, width: 30, height: 30 }, dimensionMm: 300 },
-];
-
-const DEFAULT_ISSUES: IssueItem[] = [
-  {
-    id: 'issue-1', elementId: 'win-living',
-    question: 'Is the opening on the North wall a full-height balcony slider or a standard window?',
-    optionA: 'Balcony Sliding Door (2100mm ht)',
-    optionB: 'Standard Window (1200mm ht)',
-  },
-  {
-    id: 'issue-2', elementId: 'room-kitchen',
-    question: 'Is space 3 a Kitchen only, or a Kitchen with integrated Utility?',
-    optionA: 'Open Kitchen + Utility',
-    optionB: 'Kitchen Only',
-  },
-];
 
 // ─── Main Component ───────────────────────────────────────────────
 export function PlanReviewWorkspace({
@@ -178,32 +143,83 @@ export function PlanReviewWorkspace({
   status,
   analysed,
   proposals = [],
+  analysisIssues = [],
+  initialSnapshot,
   onFile,
   onAnalyze,
   onApprove,
+  onSaveDraft,
 }: Props) {
   // State
   const [layers, setLayers] = useState(INITIAL_LAYERS);
-  const [elements, setElements] = useState<PlanElement[]>(DEFAULT_ELEMENTS);
-  const [issues, setIssues] = useState<IssueItem[]>(DEFAULT_ISSUES);
+  const [elements, setElements] = useState<PlanElement[]>([]);
+  const [issues, setIssues] = useState<IssueItem[]>([]);
   const [activeTool, setActiveTool] = useState<CanvasTool>('select');
-  const [selectedId, setSelectedId] = useState<string | null>('room-living');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<{ id: string; point: Point } | null>(null);
+  const [mergeSelection, setMergeSelection] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
 
   // Calibration state
   const [calibrating, setCalibrating] = useState(false);
   const [calibPoints, setCalibPoints] = useState<Point[]>([]);
-  const [knownMmInput, setKnownMmInput] = useState('3800');
-  const [scale, setScale] = useState<ScaleCalibration | null>({
-    pointA: { x: 900, y: 100 },
-    pointB: { x: 900, y: 750 },
-    pixelDistance: 650,
-    realDistanceMm: 3800,
-    mmPerPixel: 5.84,
-  });
+  const [knownMmInput, setKnownMmInput] = useState('');
+  const [scale, setScale] = useState<ScaleCalibration | null>(null);
+  const [ceilingHeightMm, setCeilingHeightMm] = useState<number | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    if (analysed || !initialSnapshot || typeof initialSnapshot !== 'object') return;
+    if (Array.isArray(initialSnapshot.elements)) setElements(initialSnapshot.elements);
+    if (Array.isArray(initialSnapshot.issues)) setIssues(initialSnapshot.issues);
+    if (initialSnapshot.scale?.mmPerPixel > 0) setScale(initialSnapshot.scale);
+    if (Number(initialSnapshot.ceilingHeightMm) > 0) setCeilingHeightMm(Number(initialSnapshot.ceilingHeightMm));
+  }, [analysed, initialSnapshot]);
+
+  useEffect(() => {
+    if (!onSaveDraft || !elements.length) return;
+    const timer = window.setTimeout(() => onSaveDraft({ elements, issues, scale, ceilingHeightMm }), 700);
+    return () => window.clearTimeout(timer);
+  }, [elements, issues, scale, ceilingHeightMm, onSaveDraft]);
+
+  useEffect(() => {
+    if (!analysed) return;
+    const mapped = proposals.map((proposal, index) => {
+      const geometry = proposal.geometry ?? {};
+      const proposalKind = proposal.kind === 'opening'
+        ? (geometry.kind === 1 ? 'window' : 'door')
+        : proposal.kind === 'dimension' ? 'annotation' : proposal.kind;
+      const polygon = proposalKind === 'room' && geometry.x !== undefined && geometry.y !== undefined && geometry.width !== undefined && geometry.height !== undefined
+        ? [
+            { x: geometry.x, y: geometry.y },
+            { x: geometry.x + geometry.width, y: geometry.y },
+            { x: geometry.x + geometry.width, y: geometry.y + geometry.height },
+            { x: geometry.x, y: geometry.y + geometry.height },
+          ]
+        : undefined;
+      return {
+      id: proposal.id || `proposal-${index + 1}`,
+      kind: proposalKind as PlanElement['kind'],
+      label: proposal.note || `${proposal.kind} proposal ${index + 1}`,
+      confidence: proposal.confidence,
+      status: (proposal.status === 'accepted' || proposal.status === 'rejected' ? proposal.status : 'needs_review') as PlanElement['status'],
+      color: proposal.kind === 'wall' ? '#2563eb' : proposal.kind === 'room' ? 'rgba(197,156,45,0.18)' : '#059669',
+      geometry: { ...geometry, ...(polygon ? { polygon } : {}) },
+      dimensionMm: proposal.kind === 'dimension' ? geometry.valueMm : undefined,
+    };
+    });
+    setElements(mapped);
+    setIssues(analysisIssues.map((issue, index) => ({
+      id: `${issue.code}-${issue.entityId ?? index}`,
+      elementId: issue.entityId,
+      question: issue.message,
+      optionA: 'Resolve after designer review',
+      optionB: 'Reject affected proposal',
+    })));
+    setSelectedId(mapped[0]?.id ?? null);
+  }, [analysed, proposals, analysisIssues]);
 
   // Toggle layer visibility
   const toggleLayer = (key: LayerKey) => {
@@ -215,6 +231,17 @@ export function PlanReviewWorkspace({
 
   // Selected element
   const selectedElement = elements.find((e) => e.id === selectedId) ?? null;
+  const approvalReady = analysed && elements.length > 0 && Boolean(scale) && Number(ceilingHeightMm) > 0 && issues.length === 0 && !elements.some((element) => element.status === 'needs_review' || element.status === 'proposed');
+  const analysisInFlight = /uploading|queued|processing|waiting|preparing/i.test(status);
+  const layerCount = (key: LayerKey) => {
+    const kinds: Partial<Record<LayerKey, PlanElement['kind'][]>> = {
+      walls: ['wall'], rooms: ['room'], doors: ['door'], windows: ['window'], columns: ['column'],
+      services: ['service'], annotations: ['annotation'],
+    };
+    if (key === 'source_plan') return preview ? 1 : 0;
+    if (key === 'unresolved') return issues.length + elements.filter((element) => element.status === 'needs_review').length;
+    return kinds[key]?.length ? elements.filter((element) => kinds[key]?.includes(element.kind)).length : 0;
+  };
 
   // Update element property
   const updateElement = (id: string, patch: Partial<PlanElement>) => {
@@ -229,12 +256,84 @@ export function PlanReviewWorkspace({
     if (selectedId === id) setSelectedId(null);
   };
 
+  const canvasPoint = (event: React.MouseEvent<SVGSVGElement | SVGGElement>) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return {
+      x: Math.round(((event.clientX - rect.left) / rect.width) * 1000),
+      y: Math.round(((event.clientY - rect.top) / rect.height) * 850),
+    };
+  };
+
+  const translateElement = (id: string, delta: Point) => {
+    setElements((previous) => previous.map((element) => {
+      if (element.id !== id) return element;
+      const geometry = { ...element.geometry };
+      for (const key of ['x', 'x1', 'x2'] as const) if (geometry[key] !== undefined) geometry[key] += delta.x;
+      for (const key of ['y', 'y1', 'y2'] as const) if (geometry[key] !== undefined) geometry[key] += delta.y;
+      if (geometry.polygon) geometry.polygon = geometry.polygon.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y }));
+      return { ...element, geometry };
+    }));
+  };
+
+  const splitSelectedWall = (point: Point) => {
+    const wall = elements.find((element) => element.id === selectedId && element.kind === 'wall');
+    if (!wall || wall.geometry.x1 === undefined || wall.geometry.y1 === undefined || wall.geometry.x2 === undefined || wall.geometry.y2 === undefined) return;
+    const deltaX = wall.geometry.x2 - wall.geometry.x1;
+    const deltaY = wall.geometry.y2 - wall.geometry.y1;
+    const lengthSquared = deltaX ** 2 + deltaY ** 2;
+    if (lengthSquared === 0) return;
+    const ratio = Math.max(0, Math.min(1, ((point.x - wall.geometry.x1) * deltaX + (point.y - wall.geometry.y1) * deltaY) / lengthSquared));
+    const splitPoint = { x: Math.round(wall.geometry.x1 + ratio * deltaX), y: Math.round(wall.geometry.y1 + ratio * deltaY) };
+    const distanceFromStart = Math.hypot(splitPoint.x - wall.geometry.x1, splitPoint.y - wall.geometry.y1);
+    const distanceFromEnd = Math.hypot(splitPoint.x - wall.geometry.x2, splitPoint.y - wall.geometry.y2);
+    if (distanceFromStart < 8 || distanceFromEnd < 8) return;
+    const first: PlanElement = { ...wall, id: `${wall.id}-a`, label: `${wall.label} A`, geometry: { ...wall.geometry, x2: splitPoint.x, y2: splitPoint.y } };
+    const second: PlanElement = { ...wall, id: `${wall.id}-b`, label: `${wall.label} B`, geometry: { ...wall.geometry, x1: splitPoint.x, y1: splitPoint.y } };
+    setElements((previous) => previous.flatMap((element) => element.id === wall.id ? [first, second] : [element]));
+    setSelectedId(first.id);
+    setActiveTool('select');
+  };
+
+  const chooseWallForMerge = (id: string) => {
+    const wall = elements.find((element) => element.id === id && element.kind === 'wall');
+    if (!wall) return;
+    setMergeSelection((previous) => {
+      if (!previous.length) return [id];
+      if (previous[0] === id) return [];
+      const first = elements.find((element) => element.id === previous[0]);
+      if (!first || first.geometry.x1 === undefined || first.geometry.y1 === undefined || first.geometry.x2 === undefined || first.geometry.y2 === undefined || wall.geometry.x1 === undefined || wall.geometry.y1 === undefined || wall.geometry.x2 === undefined || wall.geometry.y2 === undefined) return previous;
+      const firstVector = { x: first.geometry.x2 - first.geometry.x1, y: first.geometry.y2 - first.geometry.y1 };
+      const secondVector = { x: wall.geometry.x2 - wall.geometry.x1, y: wall.geometry.y2 - wall.geometry.y1 };
+      const firstLength = Math.hypot(firstVector.x, firstVector.y);
+      const secondLength = Math.hypot(secondVector.x, secondVector.y);
+      const normalizedCross = firstLength && secondLength ? Math.abs(firstVector.x * secondVector.y - firstVector.y * secondVector.x) / (firstLength * secondLength) : 1;
+      if (normalizedCross > 0.03) return previous;
+      const candidates = [
+        { distance: Math.hypot(first.geometry.x1 - wall.geometry.x1, first.geometry.y1 - wall.geometry.y1), start: { x: first.geometry.x2, y: first.geometry.y2 }, end: { x: wall.geometry.x2, y: wall.geometry.y2 } },
+        { distance: Math.hypot(first.geometry.x1 - wall.geometry.x2, first.geometry.y1 - wall.geometry.y2), start: { x: first.geometry.x2, y: first.geometry.y2 }, end: { x: wall.geometry.x1, y: wall.geometry.y1 } },
+        { distance: Math.hypot(first.geometry.x2 - wall.geometry.x1, first.geometry.y2 - wall.geometry.y1), start: { x: first.geometry.x1, y: first.geometry.y1 }, end: { x: wall.geometry.x2, y: wall.geometry.y2 } },
+        { distance: Math.hypot(first.geometry.x2 - wall.geometry.x2, first.geometry.y2 - wall.geometry.y2), start: { x: first.geometry.x1, y: first.geometry.y1 }, end: { x: wall.geometry.x1, y: wall.geometry.y1 } },
+      ].sort((a, b) => a.distance - b.distance);
+      const match = candidates[0];
+      if (!match || match.distance > 24) return previous;
+      setElements((current) => current.filter((element) => element.id !== wall.id).map((element) => element.id === first.id ? { ...element, label: `${first.label} + ${wall.label}`, geometry: { ...element.geometry, x1: match.start.x, y1: match.start.y, x2: match.end.x, y2: match.end.y } } : element));
+      setSelectedId(first.id);
+      setActiveTool('select');
+      return [];
+    });
+  };
+
   // Handle SVG Canvas click for tools
   const handleCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!svgRef.current) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    const x = Math.round(((e.clientX - rect.left) / rect.width) * 1000);
-    const y = Math.round(((e.clientY - rect.top) / rect.height) * 1000);
+    const point = canvasPoint(e);
+    if (!point) return;
+    const { x, y } = point;
+
+    if (activeTool === 'split_wall') {
+      splitSelectedWall(point);
+      return;
+    }
 
     if (activeTool === 'calibrate') {
       if (calibPoints.length === 0) {
@@ -243,13 +342,15 @@ export function PlanReviewWorkspace({
         const ptA = calibPoints[0];
         const ptB = { x, y };
         const pixDist = Math.hypot(ptB.x - ptA.x, ptB.y - ptA.y);
-        const realMm = parseFloat(knownMmInput) || 3800;
+        const realMm = parseFloat(knownMmInput);
+        if (!Number.isFinite(realMm) || realMm <= 0 || pixDist <= 0) return;
         const DerivedScale: ScaleCalibration = {
           pointA: ptA, pointB: ptB,
           pixelDistance: pixDist, realDistanceMm: realMm,
           mmPerPixel: Math.round((realMm / pixDist) * 100) / 100,
         };
         setScale(DerivedScale);
+        setIssues((previous) => previous.filter((issue) => !issue.id.startsWith('CALIBRATION_REQUIRED-')));
         setCalibPoints([]);
         setActiveTool('select');
         setCalibrating(false);
@@ -257,20 +358,67 @@ export function PlanReviewWorkspace({
     }
   };
 
+  const handleCanvasMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    if (!dragging) return;
+    const point = canvasPoint(event);
+    if (!point) return;
+    translateElement(dragging.id, { x: point.x - dragging.point.x, y: point.y - dragging.point.y });
+    setDragging({ ...dragging, point });
+  };
+
   // Resolve an issue in the queue
   const resolveIssue = (issueId: string, choice: string) => {
+    const issue = issues.find((item) => item.id === issueId);
+    if (issue?.id.startsWith('CALIBRATION_REQUIRED-') && !scale) return;
+    if (choice === issue?.optionB && issue.elementId) rejectElement(issue.elementId);
     setIssues((prev) => prev.filter((i) => i.id !== issueId));
   };
 
   // Final Plan Approval
   const handleApprovePlan = () => {
+    if (!approvalReady) return;
+    const mmPerPixel = scale!.mmPerPixel;
+    const withWorldGeometry = (element: PlanElement): PlanElement => {
+      const geometry = element.geometry;
+      const worldGeometry: PlanElement['worldGeometry'] = geometry.polygon
+        ? { polygon: geometry.polygon.map((point) => ({ xMm: Math.round(point.x * mmPerPixel), yMm: Math.round(point.y * mmPerPixel) })) }
+        : geometry.x1 !== undefined && geometry.y1 !== undefined && geometry.x2 !== undefined && geometry.y2 !== undefined
+          ? { start: { xMm: Math.round(geometry.x1 * mmPerPixel), yMm: Math.round(geometry.y1 * mmPerPixel) }, end: { xMm: Math.round(geometry.x2 * mmPerPixel), yMm: Math.round(geometry.y2 * mmPerPixel) } }
+          : { xMm: Math.round((geometry.x ?? 0) * mmPerPixel), yMm: Math.round((geometry.y ?? 0) * mmPerPixel), widthMm: Math.round((geometry.width ?? 0) * mmPerPixel), heightMm: Math.round((geometry.height ?? 0) * mmPerPixel) };
+      return { ...element, sourceGeometry: geometry, worldGeometry };
+    };
+    const walls = elements.filter((element) => element.kind === 'wall' && element.status !== 'rejected').map((element) => ({ ...withWorldGeometry(element), heightMm: ceilingHeightMm! }));
+    const rooms = elements.filter((element) => element.kind === 'room' && element.status !== 'rejected').map((element) => {
+      const mapped = withWorldGeometry(element);
+      const polygon = mapped.worldGeometry?.polygon ?? [];
+      const areaMm2 = polygon.reduce((sum, point, index) => {
+        const next = polygon[(index + 1) % polygon.length];
+        return sum + point.xMm * next.yMm - next.xMm * point.yMm;
+      }, 0) / 2;
+      return { ...mapped, areaSqm: polygon.length >= 3 ? Math.round(Math.abs(areaMm2) / 10_000) / 100 : element.areaSqm, ceilingHeightMm: ceilingHeightMm! } as PlanElement & { ceilingHeightMm: number };
+    });
+    const openings = elements.filter((element) => (element.kind === 'door' || element.kind === 'window') && element.status !== 'rejected').map((element) => {
+      const mapped = withWorldGeometry(element);
+      const point = { x: element.geometry.x ?? 0, y: element.geometry.y ?? 0 };
+      const nearest = walls.map((wall) => {
+        const source = wall.sourceGeometry ?? wall.geometry;
+        const x1 = source.x1 ?? 0; const y1 = source.y1 ?? 0; const x2 = source.x2 ?? 0; const y2 = source.y2 ?? 0;
+        const length2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+        const ratio = length2 ? Math.max(0, Math.min(1, ((point.x - x1) * (x2 - x1) + (point.y - y1) * (y2 - y1)) / length2)) : 0;
+        const projected = { x: x1 + ratio * (x2 - x1), y: y1 + ratio * (y2 - y1) };
+        return { wall, ratio, distance: Math.hypot(point.x - projected.x, point.y - projected.y) };
+      }).sort((a, b) => a.distance - b.distance)[0];
+      return { ...mapped, wallId: nearest?.wall.id, offsetAlongWallMm: nearest ? Math.round((nearest.wall.dimensionMm ?? 0) * nearest.ratio) : undefined };
+    });
     const canonicalModel: CanonicalPlanModel = {
+      schemaVersion: 'plan.v1',
       units: 'mm',
+      coordinateSystem: 'x-right-y-down-source-x-right-z-forward-world',
       scale,
-      ceilingHeightMm: 2700,
-      walls: elements.filter((e) => e.kind === 'wall' && e.status !== 'rejected'),
-      rooms: elements.filter((e) => e.kind === 'room' && e.status !== 'rejected'),
-      openings: elements.filter((e) => (e.kind === 'door' || e.kind === 'window') && e.status !== 'rejected'),
+      ceilingHeightMm: ceilingHeightMm!,
+      walls,
+      rooms,
+      openings,
       columns: elements.filter((e) => e.kind === 'column' && e.status !== 'rejected'),
       services: elements.filter((e) => e.kind === 'service' && e.status !== 'rejected'),
       annotations: elements.filter((e) => e.kind === 'annotation'),
@@ -292,25 +440,28 @@ export function PlanReviewWorkspace({
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid var(--line)', borderRadius: 7, background: 'var(--surface)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
               <Upload size={14} /> Upload Plan File
-              <input type="file" accept="image/*,.pdf,.dxf,.dwg,.svg" onChange={onFile} style={{ display: 'none' }} />
+              <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={onFile} style={{ display: 'none' }} />
             </label>
             {onAnalyze && (
               <button
                 onClick={onAnalyze}
+                disabled={!fileName || analysisInFlight}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'var(--brown-mid)', color: '#fff', border: 0, borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
               >
-                <Sparkles size={14} /> Run Deep AI Analysis
+                {analysisInFlight ? <RefreshCw size={14} className="spin" /> : <Sparkles size={14} />} {analysisInFlight ? 'Analysing source' : 'Run AI Analysis'}
               </button>
             )}
             <button
               onClick={handleApprovePlan}
+              disabled={!approvalReady}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 18px', background: 'var(--gold)', color: '#fff', border: 0, borderRadius: 7, fontSize: 13, fontWeight: 800, cursor: 'pointer' }}
             >
               Approve Plan & Continue to Spaces <ArrowRight size={14} />
             </button>
           </div>
         </div>
-        {status && <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '6px 0 0' }}>{status}</p>}
+        {status && <p role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '6px 0 0' }}>{status}</p>}
+        {!approvalReady && analysed && <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>Approval unlocks after every proposal is accepted or rejected, critical issues are resolved, and one trusted dimension is calibrated.</p>}
       </div>
 
       {/* 3-PANEL GRID LAYOUT */}
@@ -334,7 +485,7 @@ export function PlanReviewWorkspace({
                   >
                     {layer.visible ? <Eye size={13} style={{ color: 'var(--gold)' }} /> : <EyeOff size={13} style={{ color: '#9ca3af' }} />}
                     <span className="layer-label">{layer.label}</span>
-                    <span className="layer-count">{layer.count}</span>
+                    <span className="layer-count">{layerCount(key)}</span>
                   </button>
                 );
               })}
@@ -390,6 +541,27 @@ export function PlanReviewWorkspace({
               >
                 <DoorOpen size={14} /> Add Door
               </button>
+              <button
+                className={`tool-btn${activeTool === 'move' ? ' active' : ''}`}
+                onClick={() => setActiveTool('move')}
+                title="Drag a selected entity"
+              >
+                <Move size={14} /> Move
+              </button>
+              <button
+                className={`tool-btn${activeTool === 'split_wall' ? ' active' : ''}`}
+                onClick={() => setActiveTool('split_wall')}
+                title="Select a wall, then click its split point"
+              >
+                <Split size={14} /> Split Wall
+              </button>
+              <button
+                className={`tool-btn${activeTool === 'merge_walls' ? ' active' : ''}`}
+                onClick={() => { setActiveTool('merge_walls'); setMergeSelection([]); }}
+                title="Click two connected walls to merge them"
+              >
+                <Combine size={14} /> Merge Walls
+              </button>
             </div>
 
             {/* Calibration details */}
@@ -439,6 +611,9 @@ export function PlanReviewWorkspace({
               viewBox="0 0 1000 850"
               className="interactive-svg-canvas"
               onClick={handleCanvasClick}
+              onMouseMove={handleCanvasMove}
+              onMouseUp={() => setDragging(null)}
+              onMouseLeave={() => setDragging(null)}
               style={{
                 transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
                 transformOrigin: 'center center',
@@ -497,7 +672,20 @@ export function PlanReviewWorkspace({
                 const isSelected = wall.id === selectedId;
                 const { x1 = 0, y1 = 0, x2 = 0, y2 = 0 } = wall.geometry;
                 return (
-                  <g key={wall.id} onClick={(e) => { e.stopPropagation(); setSelectedId(wall.id); }}>
+                  <g
+                    key={wall.id}
+                    onMouseDown={(event) => {
+                      if (activeTool !== 'move') return;
+                      const point = canvasPoint(event);
+                      if (point) setDragging({ id: wall.id, point });
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (activeTool === 'merge_walls') chooseWallForMerge(wall.id);
+                      else setSelectedId(wall.id);
+                    }}
+                  >
                     <line
                       x1={x1} y1={y1} x2={x2} y2={y2}
                       stroke={isSelected ? '#c59c2d' : wall.color}
@@ -595,6 +783,19 @@ export function PlanReviewWorkspace({
                 <small>Walls Found</small>
                 <strong>{elements.filter((e) => e.kind === 'wall').length}</strong>
               </div>
+            </div>
+            <div className="form-field" style={{ marginTop: 12 }}>
+              <label>Confirmed ceiling height (mm)</label>
+              <input
+                type="number"
+                min={1}
+                value={ceilingHeightMm ?? ''}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  setCeilingHeightMm(Number.isFinite(value) && value > 0 ? value : null);
+                }}
+                placeholder="Required before plan approval"
+              />
             </div>
           </div>
 

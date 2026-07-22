@@ -13,23 +13,18 @@ async function withServer<T>(callback: (baseUrl: string) => Promise<T>) {
 
 test('E2E project flow: Brief -> Plan -> Scene (confirm mutation) -> Document (PDF elevations) -> Commercial -> Deliver', async () => {
   await withServer(async (baseUrl) => {
-    // 1. Plan analyzer baseline check
+    // 1. Plan analysis is authenticated and never falls back to baseline geometry.
     process.env.PLAN_ANALYZER_MODE = 'baseline';
     const planRes = await fetch(`${baseUrl}/api/plan/analyze`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        projectId: 'project-test',
-        fileName: 'floor-plan.png',
-        mimeType: 'image/png',
-        dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+        projectId: 'project-test', fileName: 'floor-plan.png', mimeType: 'image/png', sourceAssetId: 'asset-test'
       })
     });
-    assert.equal(planRes.status, 202);
+    assert.equal(planRes.status, 401);
     const planData = await planRes.json();
-    assert.ok(planData.success);
-    assert.equal(planData.analysis.provider, 'baseline');
-    assert.ok(planData.analysis.proposals.length > 0);
+    assert.equal(planData.code, 'AUTH_REQUIRED');
 
     // 2. Scene materialization
     const spatialModel = {

@@ -428,3 +428,141 @@ export function invalidateDownstream(version: LayoutVersion, reason: string, tar
 export function restoreApprovedVersion(versions: LayoutVersion[]): LayoutVersion | null {
   return versions.slice().reverse().find((v) => v.active && v.approvedAt) ?? null;
 }
+
+export type VastuZone = 'NORTH_EAST' | 'EAST' | 'SOUTH_EAST' | 'SOUTH' | 'SOUTH_WEST' | 'WEST' | 'NORTH_WEST' | 'NORTH' | 'CENTER';
+
+export type VastuEvaluationResult = {
+  score: number;
+  overallStatus: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'NEEDS_REMEDY';
+  zoneEvaluations: Array<{
+    spaceId: string;
+    roomType: string;
+    zone: VastuZone;
+    zoneName: string;
+    complianceScore: number;
+    status: 'IDEAL' | 'ACCEPTABLE' | 'NON_COMPLIANT';
+    recommendation: string;
+    remedy?: string;
+  }>;
+  generalRemedies: string[];
+};
+
+export function evaluateVastuCompliance(
+  spaces: Array<{
+    id: string;
+    roomType: string;
+    name?: string;
+    center: { xMm: number; yMm: number };
+  }>,
+  planBounds: { minX: number; minY: number; maxX: number; maxY: number }
+): VastuEvaluationResult {
+  const width = planBounds.maxX - planBounds.minX;
+  const depth = planBounds.maxY - planBounds.minY;
+
+  if (width <= 0 || depth <= 0 || !spaces.length) {
+    return {
+      score: 100,
+      overallStatus: 'GOOD',
+      zoneEvaluations: [],
+      generalRemedies: ['Maintain clean Brahmasthan (center zone) free of heavy furniture and toilets.']
+    };
+  }
+
+  const getZone = (x: number, y: number): VastuZone => {
+    const normX = (x - planBounds.minX) / width;
+    const normY = (y - planBounds.minY) / depth;
+
+    const col = normX < 0.33 ? 0 : normX < 0.66 ? 1 : 2;
+    const row = normY < 0.33 ? 0 : normY < 0.66 ? 1 : 2;
+
+    if (row === 0 && col === 0) return 'NORTH_WEST';
+    if (row === 0 && col === 1) return 'NORTH';
+    if (row === 0 && col === 2) return 'NORTH_EAST';
+    if (row === 1 && col === 0) return 'WEST';
+    if (row === 1 && col === 1) return 'CENTER';
+    if (row === 1 && col === 2) return 'EAST';
+    if (row === 2 && col === 0) return 'SOUTH_WEST';
+    if (row === 2 && col === 1) return 'SOUTH';
+    if (row === 2 && col === 2) return 'SOUTH_EAST';
+    return 'CENTER';
+  };
+
+  const zoneNames: Record<VastuZone, string> = {
+    NORTH_EAST: 'North-East (Ishan - Water & Wisdom)',
+    EAST: 'East (Indra - Light & Growth)',
+    SOUTH_EAST: 'South-East (Agni - Fire & Energy)',
+    SOUTH: 'South (Yama - Stability)',
+    SOUTH_WEST: 'South-West (Nairutya - Earth & Strength)',
+    WEST: 'West (Varun - Prosperity)',
+    NORTH_WEST: 'North-West (Vayu - Air & Movement)',
+    NORTH: 'North (Kuber - Wealth)',
+    CENTER: 'Brahmasthan (Cosmic Center)'
+  };
+
+  let totalScoreSum = 0;
+  const zoneEvaluations = spaces.map((space) => {
+    const zone = getZone(space.center.xMm, space.center.yMm);
+    const category = (space.roomType || 'other').toLowerCase();
+
+    let complianceScore = 75;
+    let status: 'IDEAL' | 'ACCEPTABLE' | 'NON_COMPLIANT' = 'ACCEPTABLE';
+    let recommendation = 'Acceptable placement according to Vastu principles.';
+    let remedy: string | undefined = undefined;
+
+    if (category.includes('bed') || category.includes('master')) {
+      if (zone === 'SOUTH_WEST') {
+        complianceScore = 100; status = 'IDEAL'; recommendation = 'Ideal placement for Master Bedroom in South-West (Nairutya) for stability and rest.';
+      } else if (zone === 'NORTH_EAST') {
+        complianceScore = 30; status = 'NON_COMPLIANT'; recommendation = 'Bedrooms in North-East can cause restlessness.'; remedy = 'Place heavy wooden furniture in South-West corner of the room and use warm earth-tone colors.';
+      } else if (zone === 'SOUTH_EAST') {
+        complianceScore = 40; status = 'NON_COMPLIANT'; recommendation = 'Bedrooms in South-East may cause conflict.'; remedy = 'Ensure bed headboard faces East or South and use soft green/cream textiles.';
+      }
+    } else if (category.includes('kitchen')) {
+      if (zone === 'SOUTH_EAST') {
+        complianceScore = 100; status = 'IDEAL'; recommendation = 'Ideal placement for Kitchen in South-East (Agni) fire zone.';
+      } else if (zone === 'NORTH_WEST') {
+        complianceScore = 85; status = 'ACCEPTABLE'; recommendation = 'North-West is an acceptable secondary kitchen zone.';
+      } else if (zone === 'NORTH_EAST') {
+        complianceScore = 20; status = 'NON_COMPLIANT'; recommendation = 'Kitchen in North-East (Ishan) water zone clashes with fire element.'; remedy = 'Install a green marble or granite slab under cooking stove and place a crystal pyramid in North-East.';
+      }
+    } else if (category.includes('pooja') || category.includes('temple') || category.includes('mandir')) {
+      if (zone === 'NORTH_EAST' || zone === 'EAST' || zone === 'NORTH') {
+        complianceScore = 100; status = 'IDEAL'; recommendation = 'Ideal placement for Pooja room in Ishan (North-East) corner.';
+      } else if (zone === 'SOUTH_WEST') {
+        complianceScore = 25; status = 'NON_COMPLIANT'; recommendation = 'Pooja room in South-West is not recommended.'; remedy = 'Ensure idols face East and use white/light yellow marble or brass accents.';
+      }
+    } else if (category.includes('toilet') || category.includes('bath') || category.includes('wc')) {
+      if (zone === 'NORTH_WEST') {
+        complianceScore = 100; status = 'IDEAL'; recommendation = 'Ideal placement for Toilet/Bath in North-West (Vayu) movement zone.';
+      } else if (zone === 'NORTH_EAST' || zone === 'CENTER') {
+        complianceScore = 15; status = 'NON_COMPLIANT'; recommendation = 'Toilet in North-East or Center severely blocks positive energy flow.'; remedy = 'Keep toilet door strictly closed, place a bowl of sea salt inside, and add a Vastu energy plate above doorway.';
+      }
+    }
+
+    totalScoreSum += complianceScore;
+    return {
+      spaceId: space.id,
+      roomType: space.roomType,
+      zone,
+      zoneName: zoneNames[zone],
+      complianceScore,
+      status,
+      recommendation,
+      remedy
+    };
+  });
+
+  const overallScore = Math.round(totalScoreSum / Math.max(1, spaces.length));
+  const overallStatus = overallScore >= 85 ? 'EXCELLENT' : overallScore >= 70 ? 'GOOD' : overallScore >= 50 ? 'FAIR' : 'NEEDS_REMEDY';
+
+  return {
+    score: overallScore,
+    overallStatus,
+    zoneEvaluations,
+    generalRemedies: [
+      'Keep the Brahmasthan (center of floor plan) uncluttered and well-lit.',
+      'Ensure main entrance opens clockwise towards North or East.',
+      'Maintain North-East zone lighter and lower in elevation than South-West zone.'
+    ]
+  };
+}

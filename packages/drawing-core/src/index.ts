@@ -415,6 +415,14 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
   doc.end();
 }
 
+export type EdgeSchedule = {
+  l1Mm: number; // Length side 1
+  l2Mm: number; // Length side 2
+  w1Mm: number; // Width side 1
+  w2Mm: number; // Width side 2
+  tapeType: string; // e.g., '0.8mm PVC', '2.0mm PVC'
+};
+
 export type CutlistPart = {
   id: string;
   moduleId: string;
@@ -424,21 +432,224 @@ export type CutlistPart = {
   widthMm: number;
   thicknessMm: number;
   edging: 'front_only' | 'all_sides' | 'none';
+  edgeSchedule?: EdgeSchedule;
+  grainDirection?: 'horizontal' | 'vertical' | 'none';
+  materialCode: string;
   quantity: number;
   status: string;
+  sheetId?: string;
+  placedPos?: { xMm: number; yMm: number; rotated: boolean };
 };
 
 export type HardwareItem = {
   name: string;
+  category: 'hinge' | 'slide' | 'fastener' | 'handle' | 'accessory';
   quantity: number;
   unit: string;
+};
+
+export type PlacedPanel = {
+  partId: string;
+  partName: string;
+  moduleId: string;
+  xMm: number;
+  yMm: number;
+  widthMm: number;
+  lengthMm: number;
+  rotated: boolean;
+};
+
+export type NestingSheet = {
+  sheetId: string;
+  materialCode: string;
+  thicknessMm: number;
+  sheetWidthMm: number;
+  sheetHeightMm: number;
+  placedPanels: PlacedPanel[];
+  usedAreaSqm: number;
+  utilizationPercentage: number;
+};
+
+export type EdgeBandingSummary = {
+  tapeType: string;
+  thicknessMm: number;
+  totalMeters: number;
 };
 
 export type NestingResult = {
   plywoodSheets18mm: number;
   mdfSheets8mm: number;
   wastageFactor: number;
+  sheets: NestingSheet[];
+  edgeBandingSummary: EdgeBandingSummary[];
+  totalAreaSqm18mm: number;
+  totalAreaSqm8mm: number;
 };
+
+// Deterministic 2D MaxRects Bin Packing Engine with 3mm Saw Kerf
+export function nestPanels2D(
+  parts: CutlistPart[],
+  sheetWidthMm = 2440,
+  sheetHeightMm = 1220,
+  kerfMm = 3
+): { sheets: NestingSheet[]; updatedParts: CutlistPart[] } {
+  const updatedParts = parts.map((p) => ({ ...p }));
+  const sheets: NestingSheet[] = [];
+
+  // Group parts by material code & thickness
+  const groups = new Map<string, CutlistPart[]>();
+  for (const part of updatedParts) {
+    const key = `${part.materialCode || '18mm-plywood'}_${part.thicknessMm}`;
+    if (!groups.has(key)) groups.set(key, []);
+    const list = groups.get(key)!;
+    for (let q = 0; q < part.quantity; q++) {
+      list.push(part);
+    }
+  }
+
+  for (const [key, groupParts] of groups.entries()) {
+    const [materialCode, thickStr] = key.split('_');
+    const thicknessMm = Number(thickStr) || 18;
+
+    // Sort parts descending by area for efficient packing
+    const unplaced = [...groupParts].sort((a, b) => b.lengthMm * b.widthMm - a.lengthMm * a.widthMm);
+
+    let sheetCount = 0;
+    while (unplaced.length > 0) {
+      sheetCount++;
+      const sheetId = `sheet-${materialCode}-${thicknessMm}mm-#${sheetCount}`;
+      const freeRects = [{ x: 0, y: 0, w: sheetWidthMm, h: sheetHeightMm }];
+      const placedPanels: PlacedPanel[] = [];
+      let usedAreaSqMm = 0;
+
+      for (let i = unplaced.length - 1; i >= 0; i--) {
+        const part = unplaced[i];
+        let bestRectIdx = -1;
+        let bestRotated = false;
+        let bestShortSideFit = Infinity;
+
+        const partW = part.widthMm + kerfMm;
+        const partL = part.lengthMm + kerfMm;
+
+        // Try normal and rotated (unless restricted by grain)
+        const allowRotate = part.grainDirection !== 'vertical' && part.grainDirection !== 'horizontal';
+
+        for (let r = 0; r < freeRects.length; r++) {
+          const free = freeRects[r];
+
+          // Normal orientation: length along X, width along Y
+          if (free.w >= partL && free.h >= partW) {
+            const leftoverShort = Math.min(free.w - partL, free.h - partW);
+            if (leftoverShort < bestShortSideFit) {
+              bestShortSideFit = leftoverShort;
+              bestRectIdx = r;
+              bestRotated = false;
+            }
+          }
+
+          // Rotated orientation
+          if (allowRotate && free.w >= partW && free.h >= partL) {
+            const leftoverShort = Math.min(free.w - partW, free.h - partL);
+            if (leftoverShort < bestShortSideFit) {
+              bestShortSideFit = leftoverShort;
+              bestRectIdx = r;
+              bestRotated = true;
+            }
+          }
+        }
+
+        if (bestRectIdx !== -1) {
+          const target = freeRects[bestRectIdx];
+          const actualW = bestRotated ? part.widthMm : part.lengthMm;
+          const actualH = bestRotated ? part.lengthMm : part.widthMm;
+          const kerfW = actualW + kerfMm;
+          const kerfH = actualH + kerfMm;
+
+          const placement: PlacedPanel = {
+            partId: part.id,
+            partName: part.partName,
+            moduleId: part.moduleId,
+            xMm: target.x,
+            yMm: target.y,
+            widthMm: actualW,
+            lengthMm: actualH,
+            rotated: bestRotated,
+          };
+          placedPanels.push(placement);
+          usedAreaSqMm += actualW * actualH;
+
+          // Update part metadata
+          part.sheetId = sheetId;
+          part.placedPos = { xMm: target.x, yMm: target.y, rotated: bestRotated };
+
+          // Split remaining free rectangle into right and top sub-rectangles (Guillotine cut style)
+          freeRects.splice(bestRectIdx, 1);
+          if (target.w - kerfW > 0) {
+            freeRects.push({ x: target.x + kerfW, y: target.y, w: target.w - kerfW, h: target.h });
+          }
+          if (target.h - kerfH > 0) {
+            freeRects.push({ x: target.x, y: target.y + kerfH, w: kerfW, h: target.h - kerfH });
+          }
+
+          unplaced.splice(i, 1);
+        }
+      }
+
+      const totalSheetArea = sheetWidthMm * sheetHeightMm;
+      const utilization = Math.min(100, Math.round((usedAreaSqMm / totalSheetArea) * 1000) / 10);
+
+      sheets.push({
+        sheetId,
+        materialCode,
+        thicknessMm,
+        sheetWidthMm,
+        sheetHeightMm,
+        placedPanels,
+        usedAreaSqm: Math.round((usedAreaSqMm / 1_000_000) * 100) / 100,
+        utilizationPercentage: utilization,
+      });
+    }
+  }
+
+  return { sheets, updatedParts };
+}
+
+export function calculateEdgeBandingSummary(parts: CutlistPart[]): EdgeBandingSummary[] {
+  const summaryMap = new Map<string, { thicknessMm: number; totalMm: number }>();
+
+  for (const part of parts) {
+    if (part.edging === 'none') continue;
+    const count = part.quantity || 1;
+    let l1 = 0, l2 = 0, w1 = 0, w2 = 0;
+
+    if (part.edgeSchedule) {
+      l1 = part.edgeSchedule.l1Mm || 0;
+      l2 = part.edgeSchedule.l2Mm || 0;
+      w1 = part.edgeSchedule.w1Mm || 0;
+      w2 = part.edgeSchedule.w2Mm || 0;
+    } else if (part.edging === 'all_sides') {
+      l1 = part.lengthMm; l2 = part.lengthMm;
+      w1 = part.widthMm; w2 = part.widthMm;
+    } else if (part.edging === 'front_only') {
+      l1 = part.lengthMm;
+    }
+
+    const totalMm = (l1 + l2 + w1 + w2) * count;
+    const tapeType = part.edgeSchedule?.tapeType || (part.edging === 'all_sides' ? '2.0mm PVC' : '0.8mm PVC');
+    const thick = tapeType.includes('2.0mm') ? 2 : 0.8;
+
+    if (!summaryMap.has(tapeType)) {
+      summaryMap.set(tapeType, { thicknessMm: thick, totalMm: 0 });
+    }
+    summaryMap.get(tapeType)!.totalMm += totalMm;
+  }
+
+  return Array.from(summaryMap.entries()).map(([tapeType, data]) => ({
+    tapeType,
+    thicknessMm: data.thicknessMm,
+    totalMeters: Math.round((data.totalMm / 1000) * 10) / 10,
+  }));
+}
 
 export function generateFullProductionCutlist(scene: SceneV1) {
   const parts: CutlistPart[] = [];
@@ -453,57 +664,379 @@ export function generateFullProductionCutlist(scene: SceneV1) {
     const d = module.depthMm;
     const h = module.heightMm;
 
-    // Side Panels
-    parts.push({ id: `${module.id}-left`, moduleId: module.id, family: module.family, partName: 'side-panel-left', lengthMm: h, widthMm: d, thicknessMm: 18, edging: 'front_only', quantity: 1, status: 'review_required' });
-    parts.push({ id: `${module.id}-right`, moduleId: module.id, family: module.family, partName: 'side-panel-right', lengthMm: h, widthMm: d, thicknessMm: 18, edging: 'front_only', quantity: 1, status: 'review_required' });
+    // Side Panels (L1 = front edge, L2 = back edge)
+    const sideEdge: EdgeSchedule = { l1Mm: h, l2Mm: 0, w1Mm: d, w2Mm: 0, tapeType: '0.8mm PVC' };
+    parts.push({
+      id: `${module.id}-left`,
+      moduleId: module.id,
+      family: module.family,
+      partName: 'side-panel-left',
+      lengthMm: h,
+      widthMm: d,
+      thicknessMm: 18,
+      edging: 'front_only',
+      edgeSchedule: sideEdge,
+      grainDirection: 'vertical',
+      materialCode: '18mm-plywood',
+      quantity: 1,
+      status: 'review_required'
+    });
+    parts.push({
+      id: `${module.id}-right`,
+      moduleId: module.id,
+      family: module.family,
+      partName: 'side-panel-right',
+      lengthMm: h,
+      widthMm: d,
+      thicknessMm: 18,
+      edging: 'front_only',
+      edgeSchedule: sideEdge,
+      grainDirection: 'vertical',
+      materialCode: '18mm-plywood',
+      quantity: 1,
+      status: 'review_required'
+    });
     totalPanelArea18mm += h * d * 2;
 
     // Top & Bottom Panels
     const innerWidth = w - 36;
-    parts.push({ id: `${module.id}-top`, moduleId: module.id, family: module.family, partName: 'top-panel', lengthMm: innerWidth, widthMm: d, thicknessMm: 18, edging: 'front_only', quantity: 1, status: 'review_required' });
-    parts.push({ id: `${module.id}-bottom`, moduleId: module.id, family: module.family, partName: 'bottom-panel', lengthMm: innerWidth, widthMm: d, thicknessMm: 18, edging: 'front_only', quantity: 1, status: 'review_required' });
+    const topBottomEdge: EdgeSchedule = { l1Mm: innerWidth, l2Mm: 0, w1Mm: 0, w2Mm: 0, tapeType: '0.8mm PVC' };
+    parts.push({
+      id: `${module.id}-top`,
+      moduleId: module.id,
+      family: module.family,
+      partName: 'top-panel',
+      lengthMm: innerWidth,
+      widthMm: d,
+      thicknessMm: 18,
+      edging: 'front_only',
+      edgeSchedule: topBottomEdge,
+      grainDirection: 'horizontal',
+      materialCode: '18mm-plywood',
+      quantity: 1,
+      status: 'review_required'
+    });
+    parts.push({
+      id: `${module.id}-bottom`,
+      moduleId: module.id,
+      family: module.family,
+      partName: 'bottom-panel',
+      lengthMm: innerWidth,
+      widthMm: d,
+      thicknessMm: 18,
+      edging: 'front_only',
+      edgeSchedule: topBottomEdge,
+      grainDirection: 'horizontal',
+      materialCode: '18mm-plywood',
+      quantity: 1,
+      status: 'review_required'
+    });
     totalPanelArea18mm += innerWidth * d * 2;
 
     // Back Panel (8mm MDF)
-    parts.push({ id: `${module.id}-back`, moduleId: module.id, family: module.family, partName: 'back-panel', lengthMm: h, widthMm: w, thicknessMm: 8, edging: 'none', quantity: 1, status: 'review_required' });
+    parts.push({
+      id: `${module.id}-back`,
+      moduleId: module.id,
+      family: module.family,
+      partName: 'back-panel',
+      lengthMm: h,
+      widthMm: w,
+      thicknessMm: 8,
+      edging: 'none',
+      grainDirection: 'none',
+      materialCode: '8mm-mdf',
+      quantity: 1,
+      status: 'review_required'
+    });
     totalPanelArea8mm += h * w;
 
-    // Door/Shutter Panels if applicable
-    if (['wardrobe', 'kitchen', 'cabinet'].includes(module.family)) {
+    // Door/Shutter Panels
+    if (['wardrobe', 'kitchen', 'cabinet', 'tv-unit'].includes(module.family)) {
       const doorCount = w >= 900 ? 2 : 1;
       const doorWidth = Math.round(w / doorCount) - 4;
       const doorHeight = h - 6;
+      const doorEdge: EdgeSchedule = { l1Mm: doorHeight, l2Mm: doorHeight, w1Mm: doorWidth, w2Mm: doorWidth, tapeType: '2.0mm PVC' };
+
       for (let i = 0; i < doorCount; i++) {
-        parts.push({ id: `${module.id}-door-${i + 1}`, moduleId: module.id, family: module.family, partName: `door-shutter-${i + 1}`, lengthMm: doorHeight, widthMm: doorWidth, thicknessMm: 18, edging: 'all_sides', quantity: 1, status: 'review_required' });
+        parts.push({
+          id: `${module.id}-door-${i + 1}`,
+          moduleId: module.id,
+          family: module.family,
+          partName: `door-shutter-${i + 1}`,
+          lengthMm: doorHeight,
+          widthMm: doorWidth,
+          thicknessMm: 18,
+          edging: 'all_sides',
+          edgeSchedule: doorEdge,
+          grainDirection: 'vertical',
+          materialCode: '18mm-plywood',
+          quantity: 1,
+          status: 'review_required'
+        });
         totalPanelArea18mm += doorHeight * doorWidth;
       }
 
       // Add hinges: 2 hinges per door, or 4 if tall wardrobe door
       const hingesPerDoor = doorHeight > 1200 ? 4 : 2;
-      const existingHinges = hardware.find(item => item.name === 'Auto-close hinge');
+      const totalHinges = doorCount * hingesPerDoor;
+      const existingHinges = hardware.find((item) => item.name === 'Auto-close hinge');
       if (existingHinges) {
-        existingHinges.quantity += doorCount * hingesPerDoor;
+        existingHinges.quantity += totalHinges;
       } else {
-        hardware.push({ name: 'Auto-close hinge', quantity: doorCount * hingesPerDoor, unit: 'pcs' });
+        hardware.push({ name: 'Auto-close hinge', category: 'hinge', quantity: totalHinges, unit: 'pcs' });
       }
 
       // Add Handles
-      const existingHandles = hardware.find(item => item.name === 'Stainless steel handle');
+      const existingHandles = hardware.find((item) => item.name === 'Stainless steel handle');
       if (existingHandles) {
         existingHandles.quantity += doorCount;
       } else {
-        hardware.push({ name: 'Stainless steel handle', quantity: doorCount, unit: 'pcs' });
+        hardware.push({ name: 'Stainless steel handle', category: 'handle', quantity: doorCount, unit: 'pcs' });
+      }
+
+      // Add Minifix & Dowels per carcass
+      const existingMinifix = hardware.find((item) => item.name === 'Minifix & Cam Lock set');
+      if (existingMinifix) {
+        existingMinifix.quantity += 12;
+      } else {
+        hardware.push({ name: 'Minifix & Cam Lock set', category: 'fastener', quantity: 12, unit: 'sets' });
+      }
+      const existingDowels = hardware.find((item) => item.name === 'Wooden dowel 8x30mm');
+      if (existingDowels) {
+        existingDowels.quantity += 16;
+      } else {
+        hardware.push({ name: 'Wooden dowel 8x30mm', category: 'fastener', quantity: 16, unit: 'pcs' });
       }
     }
   }
 
-  // Nesting Sheet calculation: 2440 x 1220 mm standard plywood sheets
+  // Calculate 2D sheet nesting
+  const { sheets, updatedParts } = nestPanels2D(parts);
+  const edgeBandingSummary = calculateEdgeBandingSummary(updatedParts);
+
   const sheetArea = 2440 * 1220; // 2,976,800 sq mm
   const nesting: NestingResult = {
-    plywoodSheets18mm: Math.max(1, Math.ceil(totalPanelArea18mm / (sheetArea * 0.8))), // 80% yield efficiency
-    mdfSheets8mm: Math.max(1, Math.ceil(totalPanelArea8mm / (sheetArea * 0.85))), // 85% yield efficiency
-    wastageFactor: 0.20
+    plywoodSheets18mm: sheets.filter((s) => s.thicknessMm === 18).length || Math.max(1, Math.ceil(totalPanelArea18mm / (sheetArea * 0.8))),
+    mdfSheets8mm: sheets.filter((s) => s.thicknessMm === 8).length || Math.max(1, Math.ceil(totalPanelArea8mm / (sheetArea * 0.85))),
+    wastageFactor: 0.18,
+    sheets,
+    edgeBandingSummary,
+    totalAreaSqm18mm: Math.round((totalPanelArea18mm / 1_000_000) * 100) / 100,
+    totalAreaSqm8mm: Math.round((totalPanelArea8mm / 1_000_000) * 100) / 100,
   };
 
-  return { parts, hardware, fillers, nesting };
+  return { parts: updatedParts, hardware, fillers, nesting };
 }
+
+export type BOQLineItem = {
+  category: 'board' | 'laminate' | 'edging' | 'hardware' | 'finish' | 'labor';
+  description: string;
+  quantity: number;
+  unit: 'sheet' | 'meter' | 'sqm' | 'pcs' | 'set' | 'lumpsum';
+  rateInr: number;
+  totalInr: number;
+};
+
+export type ProjectBOQResult = {
+  currency: 'INR' | 'USD';
+  items: BOQLineItem[];
+  subtotalInr: number;
+  taxInr: number;
+  totalInr: number;
+  summary: {
+    plywoodSheets18mm: number;
+    mdfSheets8mm: number;
+    laminateSheets: number;
+    edgeBandingMeters: number;
+    hardwarePieces: number;
+  };
+};
+
+export function generateProjectBOQ(scene: SceneV1, customRates?: Record<string, number>): ProjectBOQResult {
+  const cutlist = generateFullProductionCutlist(scene);
+  const defaultRates: Record<string, number> = {
+    'plywood_18mm': 2200,   // ₹2,200 per 8x4 sheet
+    'mdf_8mm': 850,         // ₹850 per 8x4 sheet
+    'laminate_sheet': 1200, // ₹1,200 per sheet
+    'edge_tape_meter': 25,  // ₹25 per meter
+    'hinge_pc': 180,        // ₹180 per soft-close hinge
+    'handle_pc': 250,       // ₹250 per handle
+    'minifix_set': 35,      // ₹35 per set
+    'dowel_pc': 3,          // ₹3 per dowel
+    'hardware_default': 50,
+    'paint_sqm': 450        // ₹450 per sqm
+  };
+  const rates = { ...defaultRates, ...(customRates || {}) };
+
+  const items: BOQLineItem[] = [];
+
+  const sheets18 = cutlist.nesting.plywoodSheets18mm;
+  items.push({
+    category: 'board',
+    description: '18mm HDMR / BWP Commercial Plywood Sheet (8ft x 4ft / 2440x1220mm)',
+    quantity: sheets18,
+    unit: 'sheet',
+    rateInr: rates['plywood_18mm'],
+    totalInr: sheets18 * rates['plywood_18mm']
+  });
+
+  const sheets8 = cutlist.nesting.mdfSheets8mm;
+  items.push({
+    category: 'board',
+    description: '8mm Backing MDF Board Sheet (8ft x 4ft / 2440x1220mm)',
+    quantity: sheets8,
+    unit: 'sheet',
+    rateInr: rates['mdf_8mm'],
+    totalInr: sheets8 * rates['mdf_8mm']
+  });
+
+  const laminateCount = Math.max(1, Math.ceil(cutlist.nesting.totalAreaSqm18mm / 2.8));
+  items.push({
+    category: 'laminate',
+    description: '1.0mm Decorative High-Pressure Laminate Sheet',
+    quantity: laminateCount,
+    unit: 'sheet',
+    rateInr: rates['laminate_sheet'],
+    totalInr: laminateCount * rates['laminate_sheet']
+  });
+
+  const totalEdgeMeters = cutlist.nesting.edgeBandingSummary.reduce((sum, item) => sum + item.totalMeters, 0);
+  items.push({
+    category: 'edging',
+    description: 'PVC Edge Banding Tape (0.8mm & 2.0mm mixed)',
+    quantity: Math.ceil(totalEdgeMeters),
+    unit: 'meter',
+    rateInr: rates['edge_tape_meter'],
+    totalInr: Math.ceil(totalEdgeMeters) * rates['edge_tape_meter']
+  });
+
+  let totalHardwarePcs = 0;
+  for (const hw of cutlist.hardware) {
+    totalHardwarePcs += hw.quantity;
+    const rateKey = hw.name.toLowerCase().includes('hinge')
+      ? 'hinge_pc'
+      : hw.name.toLowerCase().includes('handle')
+      ? 'handle_pc'
+      : hw.name.toLowerCase().includes('minifix')
+      ? 'minifix_set'
+      : hw.name.toLowerCase().includes('dowel')
+      ? 'dowel_pc'
+      : 'hardware_default';
+    const rate = rates[rateKey] || rates['hardware_default'];
+    items.push({
+      category: 'hardware',
+      description: `${hw.name} (${hw.unit})`,
+      quantity: hw.quantity,
+      unit: hw.unit === 'pcs' ? 'pcs' : hw.unit === 'sets' ? 'set' : 'pcs',
+      rateInr: rate,
+      totalInr: hw.quantity * rate
+    });
+  }
+
+  const paintAreaSqm = Math.round(cutlist.nesting.totalAreaSqm18mm * 1.2);
+  items.push({
+    category: 'finish',
+    description: 'Internal Surface Spray Painting / Polish Finish',
+    quantity: paintAreaSqm,
+    unit: 'sqm',
+    rateInr: rates['paint_sqm'],
+    totalInr: paintAreaSqm * rates['paint_sqm']
+  });
+
+  const subtotalInr = items.reduce((sum, item) => sum + item.totalInr, 0);
+  const taxInr = Math.round(subtotalInr * 0.18);
+  const totalInr = subtotalInr + taxInr;
+
+  return {
+    currency: 'INR',
+    items,
+    subtotalInr,
+    taxInr,
+    totalInr,
+    summary: {
+      plywoodSheets18mm: sheets18,
+      mdfSheets8mm: sheets8,
+      laminateSheets: laminateCount,
+      edgeBandingMeters: Math.ceil(totalEdgeMeters),
+      hardwarePieces: totalHardwarePcs
+    }
+  };
+}
+
+export function generateWallElevationSvg(scene: SceneV1, wallId: string): string {
+  const wall = (scene.walls ?? []).find((w) => w.id === wallId) || scene.walls?.[0];
+  const wallLength = wall ? Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm) : 5200;
+  const wallHeight = wall?.heightMm || 2700;
+
+  const svgW = 1000;
+  const svgH = 650;
+  const margin = 80;
+  const drawW = svgW - margin * 2;
+  const drawH = svgH - margin * 2;
+
+  const scaleX = drawW / Math.max(1000, wallLength);
+  const scaleY = drawH / Math.max(1000, wallHeight);
+  const scale = Math.min(scaleX, scaleY);
+
+  const originX = margin;
+  const originY = svgH - margin;
+
+  const modulesOnWall = (scene.modules ?? []).filter((m) => !wallId || (m as any).wallId === wallId || true);
+
+  let moduleSvgElements = '';
+  for (const mod of modulesOnWall) {
+    const mx = originX + (mod.position.xMm || 100) * scale;
+    const my = originY - ((mod.position.yMm || 0) + mod.heightMm) * scale;
+    const mw = Math.max(20, mod.widthMm * scale);
+    const mh = Math.max(20, mod.heightMm * scale);
+
+    moduleSvgElements += `
+      <g class="elevation-module" data-module-id="${mod.id}">
+        <rect x="${mx}" y="${my}" width="${mw}" height="${mh}" fill="#f1f5f9" stroke="#1e293b" stroke-width="2" />
+        ${mw > 40 ? `<line x1="${mx + mw / 2}" y1="${my}" x2="${mx + mw / 2}" y2="${my + mh}" stroke="#475569" stroke-width="1.5" stroke-dasharray="4 2" />` : ''}
+        <text x="${mx + mw / 2}" y="${my + mh / 2}" font-family="sans-serif" font-size="11" fill="#0f172a" text-anchor="middle" dominant-baseline="middle">${mod.family}</text>
+        <text x="${mx + mw / 2}" y="${my + mh / 2 + 14}" font-family="sans-serif" font-size="9" fill="#64748b" text-anchor="middle">${mod.widthMm} x ${mod.heightMm} mm</text>
+      </g>
+    `;
+  }
+
+  const wallRectW = wallLength * scale;
+  const wallRectH = wallHeight * scale;
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .wall-outline { fill: #ffffff; stroke: #0f172a; stroke-width: 3; }
+    .grid-line { stroke: #cbd5e1; stroke-width: 0.5; stroke-dasharray: 2 2; }
+    .dim-line { stroke: #2563eb; stroke-width: 1.5; }
+    .dim-text { font-family: monospace; font-size: 11px; fill: #1e40af; font-weight: bold; }
+    .title-text { font-family: sans-serif; font-size: 14px; font-weight: bold; fill: #0f172a; }
+  </style>
+
+  <rect width="100%" height="100%" fill="#f8fafc" />
+
+  <!-- Wall Background Boundary -->
+  <rect x="${originX}" y="${originY - wallRectH}" width="${wallRectW}" height="${wallRectH}" class="wall-outline" />
+
+  <!-- Dado line at 600mm -->
+  <line x1="${originX}" y1="${originY - 600 * scale}" x2="${originX + wallRectW}" y2="${originY - 600 * scale}" class="grid-line" />
+  <text x="${originX + wallRectW + 10}" y="${originY - 600 * scale + 4}" font-family="sans-serif" font-size="10" fill="#64748b">Dado 600mm</text>
+
+  <!-- Modules -->
+  ${moduleSvgElements}
+
+  <!-- Dimensions -->
+  <!-- Overall Width -->
+  <line x1="${originX}" y1="${originY + 25}" x2="${originX + wallRectW}" y2="${originY + 25}" class="dim-line" />
+  <text x="${originX + wallRectW / 2}" y="${originY + 45}" class="dim-text" text-anchor="middle">${Math.round(wallLength)} mm</text>
+
+  <!-- Overall Height -->
+  <line x1="${originX - 25}" y1="${originY}" x2="${originX - 25}" y2="${originY - wallRectH}" class="dim-line" />
+  <text x="${originX - 45}" y="${originY - wallRectH / 2}" class="dim-text" text-anchor="middle" transform="rotate(-90 ${originX - 45} ${originY - wallRectH / 2})">${Math.round(wallHeight)} mm</text>
+
+  <!-- Title Block -->
+  <text x="${originX}" y="40" class="title-text">WALL ELEVATION — ${wallId || 'MAIN WALL'}</text>
+  <text x="${originX}" y="56" font-family="sans-serif" font-size="11" fill="#64748b">Scale 1:${Math.round(1 / scale)} | Units: mm | ULTIDA CAD Spec Engine</text>
+</svg>`;
+}
+

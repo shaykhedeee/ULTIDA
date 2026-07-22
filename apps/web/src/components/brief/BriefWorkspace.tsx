@@ -15,7 +15,7 @@ type Props = {
   initialBrief: ClientBrief;
   fileName?: string;
   status?: string;
-  onSave: (brief: ClientBrief) => Promise<void>;
+  onSave: (brief: ClientBrief, isComplete?: boolean) => Promise<void>;
   onFile?: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAnalyze?: () => void;
 };
@@ -30,7 +30,17 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
   const update = (key: keyof ClientBrief, value: string) => setBrief((current) => ({ ...current, [key]: value }));
   const valid = brief.clientName.trim() && brief.projectName.trim() && brief.propertyType && brief.rooms.trim() && brief.budgetRange && brief.timeline;
   const summary = [brief.propertyType, brief.rooms && `${brief.rooms} rooms`, brief.style, brief.budgetRange].filter(Boolean).join(' | ') || 'Complete the brief to create a useful project summary.';
-  async function save() { if (!valid) { setState('Add client, project, property, rooms, budget and timeline before saving.'); return; } setState('Saving brief...'); try { await onSave(brief); setState('Brief saved.'); setEditing(false); } catch { setState('Brief could not be saved.'); } }
+  async function save(isComplete: boolean) {
+    if (isComplete && !valid) { setState('Add client, project, property, rooms, budget and timeline before completing the brief.'); return; }
+    setState(isComplete ? 'Completing brief...' : 'Saving draft...');
+    try {
+      await onSave(brief, isComplete);
+      setState(isComplete ? 'Brief completed.' : 'Draft saved.');
+      if (isComplete) setEditing(false);
+    } catch (error) {
+      setState(error instanceof Error ? error.message : 'Brief could not be saved.');
+    }
+  }
   const field = (key: keyof ClientBrief, label: string, placeholder: string, wide = false, options?: string[]) => <label className={wide ? 'brief-field brief-field-wide' : 'brief-field'}>{label}{options ? <select value={brief[key]} onChange={(event) => update(key, event.target.value)} disabled={!editing}><option value="">Select an option</option>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input value={brief[key]} onChange={(event) => update(key, event.target.value)} placeholder={placeholder} disabled={!editing} />}</label>;
   
   return <section className="brief-workspace">
@@ -70,7 +80,8 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
             {field('approvalNotes', 'Approval notes', 'Decisions, exclusions and client sign-off notes', true)}
           </div>
           <div className="brief-actions">
-            <Button onClick={save} disabled={!editing}><Save size={16} /> Save brief</Button>
+            <Button variant="outline" onClick={() => void save(false)} disabled={!editing}><Save size={16} /> Save draft</Button>
+            <Button onClick={() => void save(true)} disabled={!editing || !valid}><Check size={16} /> Complete brief</Button>
             {!editing && <Button variant="outline" onClick={() => setEditing(true)}>Edit brief</Button>}
             <span role="status">{state}</span>
           </div>
@@ -80,7 +91,7 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
         <small>ATTACHMENT</small>
         <FileUp size={24}/>
         <h2>Attach Floor Plan</h2>
-        <p>Upload a PNG, JPEG, WEBP, PDF, DXF, or DWG floor plan directly to this project.</p>
+        <p>Attach the source now. Analysis starts only when you explicitly request it.</p>
         <div 
           onClick={() => fileInputRef.current?.click()} 
           className="dropzone" 
@@ -88,11 +99,11 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
         >
           <Upload size={24} style={{ color: '#8a7762' }} />
           <strong style={{ color: '#4d3428' }}>{fileName ? fileName : 'Click to select floor plan'}</strong>
-          <span style={{ fontSize: '12px', color: '#746b62' }}>PNG, JPG, WEBP, PDF, DXF, DWG</span>
+          <span style={{ fontSize: '12px', color: '#746b62' }}>PNG, JPG, WEBP, PDF</span>
           <input 
             ref={fileInputRef}
             type="file" 
-            accept="image/*,.pdf,.dxf,.dwg" 
+            accept="image/png,image/jpeg,image/webp,application/pdf" 
             onChange={onFile} 
             style={{ display: 'none' }} 
           />

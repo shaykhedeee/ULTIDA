@@ -10,7 +10,7 @@
  * and reached through routes.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { X, Plus, ChevronRight } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
@@ -47,6 +47,36 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
   const [message, setMessage] = useState('');
   const [messageKind, setMessageKind] = useState<'error' | 'success'>('error');
   const [busy, setBusy] = useState(false);
+  const [canResendConfirmation, setCanResendConfirmation] = useState(false);
+
+  const redirectUrl = typeof window !== 'undefined' && window.location.origin
+    ? window.location.origin.replace(/\/$/, '')
+    : 'https://ultida.vercel.app';
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    const search = window.location.search;
+    const params = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : search);
+
+    const errorCode = params.get('error_code');
+    const errorDesc = params.get('error_description');
+    const messageParam = params.get('message');
+
+    if (errorCode || errorDesc) {
+      if (errorCode === 'otp_expired') {
+        setMessage('That verification link was already used or has expired. Sign in first. If that fails, send a new confirmation email below.');
+        setCanResendConfirmation(true);
+      } else {
+        setMessage(decodeURIComponent(errorDesc || errorCode || 'Authentication error occurred.'));
+      }
+      setMessageKind('error');
+      window.history.replaceState(null, '', window.location.pathname);
+    } else if (messageParam) {
+      setMessage(decodeURIComponent(messageParam));
+      setMessageKind('success');
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -67,7 +97,11 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
     }
 
     const result = mode === 'signup'
-      ? await supabase.auth.signUp({ email, password })
+      ? await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: redirectUrl }
+        })
       : await supabase.auth.signInWithPassword({ email, password });
 
     if (result.error) {
@@ -82,6 +116,38 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
     } else if (mode === 'signup') {
       setMessage('Account created. Confirm the verification email, then sign in.');
       setMessageKind('success');
+    }
+    setBusy(false);
+  }
+
+  async function resendConfirmation() {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
+      setMessage('Enter the email address used to create the account, then resend the confirmation email.');
+      setMessageKind('error');
+      return;
+    }
+    if (!supabase || !supabaseConfigured) {
+      setMessage('Supabase is not configured, so a confirmation email cannot be sent.');
+      setMessageKind('error');
+      return;
+    }
+
+    setBusy(true);
+    setMessage('');
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: normalizedEmail,
+      options: { emailRedirectTo: redirectUrl }
+    });
+
+    if (error) {
+      setMessage(error.message);
+      setMessageKind('error');
+    } else {
+      setMessage('A fresh confirmation email was sent. Open only its newest link once, in this browser.');
+      setMessageKind('success');
+      setCanResendConfirmation(false);
     }
     setBusy(false);
   }
@@ -124,12 +190,12 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
             <div className="form-field">
               <label>Email</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email"
                 placeholder="you@studio.com" autoFocus style={{ padding: '10px 12px', border: '1px solid #e8e0d4', borderRadius: 7, fontSize: 14 }} />
             </div>
             <div className="form-field">
               <label>Password</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
                 placeholder="At least 8 characters" style={{ padding: '10px 12px', border: '1px solid #e8e0d4', borderRadius: 7, fontSize: 14 }} />
             </div>
           </div>
@@ -151,6 +217,21 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
           >
             {busy ? 'Signing in…' : mode === 'signin' ? 'Sign in' : 'Create account'}
           </button>
+
+          {mode === 'signin' && canResendConfirmation && (
+            <button
+              type="button"
+              onClick={() => void resendConfirmation()}
+              disabled={busy}
+              style={{
+                width: '100%', padding: 10, background: '#f5f2eb', border: '1px solid #d4c5b2',
+                borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer',
+                opacity: busy ? .6 : 1, marginBottom: 12, color: '#3d2a1a'
+              }}
+            >
+              Resend confirmation email
+            </button>
+          )}
 
           {localDemoMode && (
             <button
@@ -208,6 +289,9 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
   const [planStatus, setPlanStatus] = useState('No plan uploaded');
   const [planAnalysed, setPlanAnalysed] = useState(false);
   const [planProposals, setPlanProposals] = useState<any[]>([]);
+  const [planAnalysisIssues, setPlanAnalysisIssues] = useState<Array<{ code: string; severity: 'warning' | 'critical'; entityId?: string; message: string }>>([]);
+  const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
+  const [analysisRefreshNonce, setAnalysisRefreshNonce] = useState(0);
   const [planApproved, setPlanApproved] = useState(false);
   const [sourceAssetId, setSourceAssetId] = useState<string | null>(null);
   const [approvedPlanVersionId, setApprovedPlanVersionId] = useState<string | null>(null);
@@ -245,6 +329,83 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
       });
   }, [projectId]);
 
+  useEffect(() => {
+    if (!supabase || !projectId) return;
+    let cancelled = false;
+    void (async () => {
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token) return;
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/projects/${projectId}/plan-draft`, { headers: { authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => null);
+      if (!cancelled && response.ok && payload?.draft) setDemoSnapshot(payload.draft);
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  const savePlanDraft = useCallback(async (draft: unknown) => {
+    if (!supabase || !projectId) return;
+    setDemoSnapshot(draft);
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) return;
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    await fetch(`${apiBase}/projects/${projectId}/plan-draft`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ draft })
+    });
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!supabase || !projectId) return;
+    let cancelled = false;
+    void (async () => {
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token) return;
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/projects/${projectId}/brief`, { headers: { authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => null);
+      if (cancelled || !response.ok || !payload?.brief) return;
+      setBrief({ ...emptyBrief, ...payload.brief });
+      setBriefSaved(Boolean(payload.isComplete));
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // Rehydrate only production-valid records. Older demo records without an
+  // immutable source asset must not silently unlock scene creation or rendering.
+  useEffect(() => {
+    if (!supabase || !projectId) return;
+    let cancelled = false;
+    void (async () => {
+      const [planResult, sceneResult] = await Promise.all([
+        supabase.from('floor_plan_versions').select('id,source_asset_id,interpretation,canonical_model,status,review_status,created_at').eq('project_id', projectId).eq('status', 'approved').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('scene_versions').select('id,version_number,status,scene,created_at').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+      ]);
+      if (cancelled) return;
+      const plan = planResult.data;
+      if (plan?.source_asset_id) {
+        setApprovedPlanVersionId(plan.id);
+        setSourceAssetId(plan.source_asset_id);
+        setReviewSnapshot(plan.interpretation ?? plan.canonical_model ?? null);
+        setPlanApproved(true);
+      } else if (plan) {
+        setPlanApproved(false);
+        setPlanStatus('This older plan approval has no immutable source file. Upload and analyse the plan again before creating a scene.');
+      }
+      const sceneRow = sceneResult.data;
+      if (sceneRow?.scene && ['approved', 'locked'].includes(String(sceneRow.status))) {
+        const storedScene = sceneRow.scene as { modules?: Array<any>; materials?: Array<any> };
+        setSceneVersionId(sceneRow.id);
+        setSceneVersionNumber(Number(sceneRow.version_number ?? 1));
+        setSceneModules((storedScene.modules ?? []).map((module) => ({ ...module, label: module.label ?? module.family })));
+        setSceneMaterials(storedScene.materials ?? []);
+        setSceneApproved(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
   // Provider status
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api'}/providers`)
@@ -257,8 +418,8 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
   const [serverStages, setServerStages] = useState<Record<string, boolean> | null>(null);
   const fetchProjectStatus = async () => {
     if (!projectId) return;
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     try {
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
       const res = await fetch(`${apiBase}/projects/${projectId}/status`);
       if (res.ok) {
         const payload = await res.json();
@@ -269,6 +430,55 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     }
   };
   useEffect(() => { void fetchProjectStatus(); }, [projectId]);
+
+  // Realtime shortens job and workflow updates while the polling loop below remains
+  // the durable recovery path for reconnects and suspended browser tabs.
+  useEffect(() => {
+    if (!supabase || !projectId) return;
+    const realtimeClient = supabase;
+
+    const channel = realtimeClient
+      .channel(`ultida-project-${projectId}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'jobs', filter: `project_id=eq.${projectId}`
+      }, () => setAnalysisRefreshNonce((value) => value + 1))
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'workflow_stage_status', filter: `project_id=eq.${projectId}`
+      }, () => void fetchProjectStatus())
+      .subscribe();
+
+    return () => { void realtimeClient.removeChannel(channel); };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!analysisJobId || !projectId || planAnalysed) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+        const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token ?? '' : '';
+        const response = await fetch(`${apiBase}/plan/analyze/${analysisJobId}?projectId=${encodeURIComponent(projectId)}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+        const payload = await response.json();
+        if (stopped) return;
+        if (payload.status === 'succeeded' && payload.analysis?.proposals) {
+          setPlanProposals(payload.analysis.proposals);
+          setPlanAnalysisIssues(payload.analysis.topologyIssues ?? []);
+          setPlanAnalysed(true);
+          setPlanStatus('Provider analysis complete. Review and calibrate every proposal.');
+        } else if (payload.status === 'failed') {
+          setPlanStatus(payload.error?.message ?? 'Provider analysis failed. No geometry was generated.');
+          setAnalysisJobId(null);
+        } else {
+          setPlanStatus(`Analysis ${payload.status ?? 'processing'}...`);
+        }
+      } catch {
+        if (!stopped) setPlanStatus('Analysis status could not be refreshed. Retrying...');
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [analysisJobId, analysisRefreshNonce, planAnalysed, projectId]);
 
   // Determine workflow stages statuses
   const serverStageMap: Record<string, boolean> = serverStages ?? {};
@@ -308,6 +518,9 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     if (!file) return;
     setPlanFile(file);
     setPlanAnalysed(false);
+    setAnalysisJobId(null);
+    setPlanProposals([]);
+    setPlanAnalysisIssues([]);
     setPlanStatus(`Attached ${file.name}. Run analysis to process.`);
     const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
     if (file.type.startsWith('image/') || ['.png','.jpg','.jpeg','.webp','.svg'].includes(ext)) {
@@ -319,66 +532,74 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
 
   async function analysePlan() {
     if (!planFile) return setPlanStatus('Choose a floor plan first.');
+    if (!projectId) return setPlanStatus('Create or open a project before analysing a floor plan.');
+    if (!supabase) return setPlanStatus('Supabase is required for professional plan analysis. Sign in and try again.');
     setPlanStatus('Uploading and preparing review...');
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = reject;
-      reader.readAsDataURL(planFile);
-    });
-
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     let uploadedAssetId: string | null = null;
     let accessToken: string | null = null;
 
-    if (supabase && projectId && activeOrganizationId) {
-      const path = `${activeOrganizationId}/${projectId}/${crypto.randomUUID()}-${planFile.name.replace(/[^a-zA-Z0-9._-]/g, '-')}`;
-      const stored = await supabase.storage.from('project-assets').upload(path, planFile, { contentType: planFile.type, upsert: false });
-      if (stored.error) return setPlanStatus(stored.error.message);
-      const userId = (await supabase.auth.getUser()).data.user?.id;
-      const asset = await supabase.from('project_assets').insert({
-        project_id: projectId, organization_id: activeOrganizationId,
-        kind: 'floor_plan', storage_path: path, mime_type: planFile.type,
-        metadata: { originalName: planFile.name, size: planFile.size }, created_by: userId
-      }).select('id').single();
-      if (asset.error) return setPlanStatus(asset.error.message);
-      uploadedAssetId = asset.data.id;
+    if (supabase && projectId) {
+      const session = await supabase.auth.getSession();
+      accessToken = session.data.session?.access_token ?? null;
+      if (!accessToken) return setPlanStatus('Your session has expired. Sign in again before uploading a floor plan.');
+      const authHeaders = { 'Content-Type': 'application/json', authorization: `Bearer ${accessToken}` };
+      setPlanStatus('Preparing a secure upload...');
+      const initiated = await fetch(`${apiBase}/projects/${projectId}/floor-plans/initiate`, {
+        method: 'POST', headers: authHeaders,
+        body: JSON.stringify({ fileName: planFile.name, mimeType: planFile.type, fileSize: planFile.size })
+      });
+      const initiation = await initiated.json().catch(() => null);
+      if (!initiated.ok || !initiation?.token || !initiation?.storagePath) return setPlanStatus(initiation?.message ?? 'Secure floor-plan upload could not be initiated.');
+      setPlanStatus('Uploading original floor plan...');
+      const stored = await supabase.storage.from(initiation.bucket ?? 'project-assets').uploadToSignedUrl(initiation.storagePath, initiation.token, planFile, { contentType: planFile.type });
+      if (stored.error) return setPlanStatus(`Upload failed: ${stored.error.message}`);
+      setPlanStatus('Verifying upload and registering analysis...');
+      const completed = await fetch(`${apiBase}/projects/${projectId}/floor-plans/complete`, {
+        method: 'POST', headers: authHeaders,
+        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: planFile.type, fileSize: planFile.size })
+      });
+      const completion = await completed.json().catch(() => null);
+      if (!completed.ok || !completion?.asset?.id) return setPlanStatus(completion?.message ?? 'The uploaded floor plan could not be registered.');
+      uploadedAssetId = completion.asset.id;
       setSourceAssetId(uploadedAssetId);
-      accessToken = (await supabase.auth.getSession()).data.session?.access_token ?? null;
+      if (completion.jobId) setAnalysisJobId(completion.jobId);
     }
 
     try {
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (accessToken) headers.authorization = `Bearer ${accessToken}`;
       const response = await fetch(`${apiBase}/plan/analyze`, {
         method: 'POST', headers,
-        body: JSON.stringify({ projectId: projectId ?? 'demo-project', sourceAssetId: uploadedAssetId ?? undefined, fileName: planFile.name, mimeType: planFile.type, dataUrl, demoMode: localDemoMode })
+        body: JSON.stringify({ projectId, sourceAssetId: uploadedAssetId, fileName: planFile.name, mimeType: planFile.type, idempotencyKey: `plan:${projectId}:${uploadedAssetId}` })
       });
-      const payload = await response.json();
+      const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        if (localDemoMode) {
-          setPlanProposals(demoSnapshot?.proposals ?? [{ type: 'wall', confidence: 0.72, points: [{ x: 0, y: 0 }, { x: 2400, y: 0 }] }]);
-          setPlanAnalysed(true);
-          setPlanStatus('Demo review ready. Connect the API for provider-backed analysis.');
-          return;
-        }
-        return setPlanStatus(payload.message ?? 'Plan intake failed.');
+        const detail = payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+          ? payload.message
+          : `Plan intake failed with HTTP ${response.status}.`;
+        return setPlanStatus(detail);
       }
-      setPlanProposals(payload.analysis?.proposals ?? []);
-      setPlanAnalysed(true);
-      setPlanStatus('Intake complete. Review geometry before approval.');
-    } catch {
-      if (localDemoMode) {
-        setPlanProposals(demoSnapshot?.proposals ?? [{ type: 'wall', confidence: 0.72, points: [{ x: 0, y: 0 }, { x: 2400, y: 0 }] }]);
+      if (payload.status === 'succeeded' && payload.output?.proposals) {
+        setPlanProposals(payload.output.proposals);
+        setPlanAnalysisIssues(payload.output.topologyIssues ?? []);
         setPlanAnalysed(true);
-        setPlanStatus('Demo review ready. Connect the API for provider-backed analysis.');
-        return;
+        setPlanStatus('Provider analysis complete. Review and calibrate every proposal.');
+      } else {
+        setAnalysisJobId(payload.jobId ?? null);
+        setPlanStatus(`Analysis queued (${payload.jobId}). Waiting for the provider worker...`);
       }
-      setPlanStatus('Plan service unavailable. Check API and try again.');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Network request failed.';
+      setPlanStatus(`Plan service could not be reached at ${apiBase}. ${detail}`);
     }
   }
 
   async function approvePlan(snapshot: unknown) {
+    if (!sourceAssetId) {
+      setPlanStatus('Upload and analyse an immutable floor-plan source before approval.');
+      return;
+    }
     setReviewSnapshot(snapshot);
     let serverVersionId = approvedPlanVersionId;
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
@@ -386,36 +607,21 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       const accessToken = supabase ? (await supabase.auth.getSession()).data.session?.access_token ?? '' : '';
       if (accessToken) headers.authorization = `Bearer ${accessToken}`;
-      const canonicalModel = {
-        scale: { pixelPerMm: 0.18, source: 'designer-review' },
-        verification: { verified: false, reviewerNote: 'Pending canonical compile' },
-        sourceAsset: sourceAssetId,
-        spaces: (snapshot as any)?.spaces ?? [],
-      };
+      const canonicalModel = snapshot;
       const response = await fetch(`${apiBase}/projects/${projectId}/plan/approve`, {
         method: 'POST', headers,
-        body: JSON.stringify({ projectId: projectId ?? 'demo-project', canonicalModel, approvedBy: null, floorPlanVersionId: approvedPlanVersionId ?? undefined })
+        body: JSON.stringify({ projectId, sourceAssetId, canonicalModel, approvedBy: null, floorPlanVersionId: approvedPlanVersionId ?? undefined })
       });
       const payload = await response.json();
-      if (response.ok && payload?.success) serverVersionId = payload.floorPlanVersionId;
-    } catch {
-      // local fallback
+      if (!response.ok || !payload?.success) throw new Error(payload?.message ?? 'Plan approval failed.');
+      serverVersionId = payload.floorPlanVersionId;
+    } catch (error) {
+      setPlanStatus(error instanceof Error ? error.message : 'Plan approval failed.');
+      return;
     }
-    if (supabase && projectId && activeOrganizationId) {
-      const userId = (await supabase.auth.getUser()).data.user?.id;
-      if (!serverVersionId) {
-        const plan = await supabase.from('floor_plan_versions').insert({
-          project_id: projectId, organization_id: activeOrganizationId,
-          version_number: 1, status: 'approved',
-          source_asset_id: sourceAssetId, spatial_model: snapshot,
-          confidence: 0.9, change_reason: 'Designer approved reviewed floor plan',
-          created_by: userId
-        }).select('id').single();
-        if (!plan.error) serverVersionId = plan.data.id;
-      }
-      await supabase.from('projects').update({ workflow_stage: 'spaces' }).eq('id', projectId);
-    } else {
-      serverVersionId = serverVersionId ?? crypto.randomUUID();
+    if (!serverVersionId) {
+      setPlanStatus('Plan approval requires an authenticated Supabase project.');
+      return;
     }
     setApprovedPlanVersionId(serverVersionId);
     setPlanApproved(true);
@@ -424,27 +630,25 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     void fetchProjectStatus();
   }
 
-  async function saveBrief(nextBrief: ClientBrief) {
+  async function saveBrief(nextBrief: ClientBrief, isComplete = true) {
     if (projectId && supabase) {
       const session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token) throw new Error('Your session expired. Sign in again before saving the brief.');
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
       const response = await fetch(`${apiBase}/projects/${projectId}/brief`, {
-        method: 'POST',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { authorization: `Bearer ${session.access_token}` } : {}) },
-        body: JSON.stringify({ brief: nextBrief, isComplete: true })
+        body: JSON.stringify({ brief: nextBrief, isComplete })
       });
-      if (!response.ok && !localDemoMode) {
+      if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.message ?? 'Brief could not be saved.');
+        const fieldDetails = payload?.fieldErrors ? ` ${Object.values(payload.fieldErrors).join(' ')}` : '';
+        throw new Error(`${payload?.message ?? 'Brief could not be saved.'}${fieldDetails}`);
       }
-      await supabase.from('projects').update({
-        client_name: nextBrief.clientName, name: nextBrief.projectName,
-        workflow_stage: 'plan', current_step: 'plan', updated_at: new Date().toISOString()
-      }).eq('id', projectId);
     }
     setBrief(nextBrief);
-    setBriefSaved(true);
-    navigate(`/projects/${projectId}/plan`);
+    setBriefSaved(isComplete);
+    if (isComplete) navigate(`/projects/${projectId}/plan`);
     void fetchProjectStatus();
   }
 
@@ -486,17 +690,63 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
   async function saveScene(id: string, modules: typeof sceneModules, materials: any[] = []) {
     const nextNumber = sceneVersionNumber + 1;
     let savedId = id;
-    if (supabase && projectId && activeOrganizationId && approvedPlanVersionId) {
+    if (supabase && projectId && approvedPlanVersionId) {
+      let organizationId = activeOrganizationId;
+      if (!organizationId) {
+        const project = await supabase.from('projects').select('organization_id').eq('id', projectId).single();
+        if (project.error || !project.data?.organization_id) {
+          setPlanStatus(project.error?.message ?? 'Scene could not resolve its organization context.');
+          return;
+        }
+        organizationId = project.data.organization_id;
+        setActiveOrganizationId(organizationId);
+      }
       const userId = (await supabase.auth.getUser()).data.user?.id;
       if (!userId) return;
-      const scene = { schema: 'scene.v1', units: 'mm', projectId, floorPlanVersionId: approvedPlanVersionId, rooms: [], walls: [], openings: [], fixedFixtures: [], modules: modules.map((m) => ({ id: m.id, roomId: m.roomId, family: m.family, widthMm: m.widthMm, depthMm: m.depthMm, heightMm: m.heightMm, position: { xMm: 0, yMm: 0 }, rotationDeg: 0, anchor: 'floor', confidence: 1 })), materials, lighting: [], cameras: [], constraints: [], unresolvedDetections: [], spaces: [], floors: [{ id: 'floor-1', name: 'Ground Floor', elevationMm: 0, heightMm: 2700 }], coordinateSystem: 'right-handed-z-up', metadata: { branch: 'main', status: 'draft', changeReason: 'Update layout', schemaVersion: 'scene.v1', designVersion: '1.0.0' } };
+      const reviewed = (reviewSnapshot && typeof reviewSnapshot === 'object' ? reviewSnapshot : {}) as any;
+      const mmPerPixel = Number(reviewed.scale?.mmPerPixel ?? reviewed.scale?.mmPerPixel) || 1;
+      const roomType = (value: string) => {
+        const label = value.toLowerCase();
+        if (label.includes('kitchen')) return 'kitchen';
+        if (label.includes('living') || label.includes('drawing')) return 'living';
+        if (label.includes('bed')) return 'bedroom';
+        if (label.includes('pooja')) return 'pooja';
+        return label.replace(/[^a-z0-9]+/g, '-') || 'room';
+      };
+      const reviewedRooms = Array.isArray(reviewed.rooms) ? reviewed.rooms : [];
+      const reviewedWalls = Array.isArray(reviewed.walls) ? reviewed.walls : [];
+      const sceneRooms = reviewedRooms.map((item: any, index: number) => {
+        const points = item.geometry?.polygon ?? [];
+        const boundary = points.map((point: any) => ({ xMm: Math.round(Number(point.x ?? 0) * mmPerPixel), yMm: Math.round(Number(point.y ?? 0) * mmPerPixel) }));
+        if (boundary.length >= 3 && (boundary[0].xMm !== boundary.at(-1)?.xMm || boundary[0].yMm !== boundary.at(-1)?.yMm)) boundary.push({ ...boundary[0] });
+        return { id: item.id || `room-${index + 1}`, spaceId: `space-${index + 1}`, name: item.label || `Room ${index + 1}`, type: roomType(item.label || `room-${index + 1}`), boundary, confidence: Number(item.confidence ?? 0.7) };
+      }).filter((room: any) => room.boundary.length >= 4);
+      const sceneWalls = reviewedWalls.map((item: any, index: number) => ({
+        id: item.id || `wall-${index + 1}`,
+        floorId: 'floor-1',
+        start: { xMm: Math.round(Number(item.geometry?.x1 ?? 0) * mmPerPixel), yMm: Math.round(Number(item.geometry?.y1 ?? 0) * mmPerPixel) },
+        end: { xMm: Math.round(Number(item.geometry?.x2 ?? 0) * mmPerPixel), yMm: Math.round(Number(item.geometry?.y2 ?? 0) * mmPerPixel) },
+        thicknessMm: 150, heightMm: 2700, baseElevationMm: 0, spaceIds: sceneRooms.map((room: any) => room.spaceId), confidence: Number(item.confidence ?? 0.7)
+      })).filter((wall: any) => wall.start.xMm !== wall.end.xMm || wall.start.yMm !== wall.end.yMm);
+      const scene = { schema: 'scene.v1', units: 'mm', projectId, floorPlanVersionId: approvedPlanVersionId, rooms: sceneRooms, walls: sceneWalls, openings: [], fixedFixtures: [], modules: modules.map((m, index) => {
+        const room = sceneRooms.find((candidate: any) => candidate.id === m.roomId || candidate.type === m.roomId);
+        const origin = room?.boundary?.[0] ?? { xMm: 0, yMm: 0 };
+        return { id: m.id, roomId: m.roomId, family: m.family, widthMm: m.widthMm, depthMm: m.depthMm, heightMm: m.heightMm, position: { xMm: origin.xMm + 300 + (index % 3) * 180, yMm: origin.yMm + 300 + Math.floor(index / 3) * 180 }, rotationDeg: 0, anchor: 'floor', confidence: 1 };
+      }), materials, lighting: [], cameras: [], constraints: [], unresolvedDetections: [], spaces: sceneRooms.map((room: any) => ({ id: room.spaceId, floorId: 'floor-1', name: room.name, type: room.type })), floors: [{ id: 'floor-1', name: 'Ground Floor', elevationMm: 0, heightMm: 2700 }], coordinateSystem: 'right-handed-z-up', metadata: { branch: 'main', status: 'draft', changeReason: 'Update layout', schemaVersion: 'scene.v1', designVersion: '1.0.0' } };
       const saved = await supabase.from('scene_versions').insert({
-        project_id: projectId, organization_id: activeOrganizationId,
+        project_id: projectId, organization_id: organizationId,
         floor_plan_version_id: approvedPlanVersionId,
         version_number: nextNumber, branch_name: 'main',
         status: 'draft', scene, change_reason: 'Update layout', created_by: userId
       }).select('id').single();
-      if (!saved.error) savedId = saved.data.id;
+      if (saved.error || !saved.data) {
+        setPlanStatus(saved.error?.message ?? 'Scene could not be saved.');
+        return;
+      }
+      savedId = saved.data.id;
+    } else if (supabase) {
+      setPlanStatus('Approve the floor plan before creating a scene.');
+      return;
     }
     setSceneVersionId(savedId);
     setSceneVersionNumber(nextNumber);
@@ -507,7 +757,22 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
 
   async function approveScene() {
     if (!sceneVersionId) return;
-    if (supabase) await supabase.from('scene_versions').update({ status: 'approved' }).eq('id', sceneVersionId);
+    if (supabase) {
+      const existing = await supabase.from('scene_versions').select('scene').eq('id', sceneVersionId).single();
+      if (existing.error || !existing.data?.scene) {
+        setPlanStatus(existing.error?.message ?? 'Scene approval could not load the saved scene.');
+        return;
+      }
+      const scene = existing.data.scene as { metadata?: Record<string, unknown> };
+      const approved = await supabase.from('scene_versions').update({
+        status: 'approved',
+        scene: { ...scene, metadata: { ...(scene.metadata ?? {}), status: 'approved' } }
+      }).eq('id', sceneVersionId);
+      if (approved.error) {
+        setPlanStatus(approved.error.message);
+        return;
+      }
+    }
     setSceneApproved(true);
   }
 
@@ -539,12 +804,13 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
             status={planStatus}
             analysed={planAnalysed}
             proposals={planProposals}
+            analysisIssues={planAnalysisIssues}
             initialSnapshot={demoSnapshot}
             layoutConfig={layoutConfig}
             onFile={selectPlan}
             onAnalyze={analysePlan}
             onApprove={approvePlan}
-            onSaveScene={(snap) => { setDemoSnapshot(snap); localStorage.setItem('ultida-demo-snapshot', JSON.stringify(snap)); }}
+            onSaveDraft={(snapshot) => void savePlanDraft(snapshot)}
           />
         } />
         <Route path="spaces" element={<SpacesWorkspace />} />

@@ -8,7 +8,7 @@ export const supabaseConfigured = Boolean(url && anon);
 export function createSupabaseBrowserClient() {
   if (!supabaseConfigured) return null;
   try {
-    return createClient(url, anon, { auth: { autoRefreshToken: true, persistSession: true } });
+    return createClient(url, anon, { auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: true } });
   } catch {
     return null;
   }

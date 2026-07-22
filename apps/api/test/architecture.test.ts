@@ -4,6 +4,7 @@ import { compileRenderBrief, PROMPT_VERSIONS } from '@ultida/agent-core';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { buildDrawingProjection, exportProjectionToDxf, generateDrawingPackageSvg } from '@ultida/drawing-core';
 import type { SceneV1 } from '@ultida/scene-core';
+import { analyzePlanWithProvider } from '../src/plan-analyzer.js';
 
 const scene: SceneV1 = {
   schema: 'scene.v1', units: 'mm', projectId: 'project-qa', floorPlanVersionId: 'plan-qa',
@@ -65,7 +66,7 @@ test('visual gateway falls back from OpenAI failure to queued ComfyUI without fa
     const result = await gateway.createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['scene:approved'], referenceAssets: [], masks: [], operation: 'generate', style: 'warm contemporary', structuredPrompt: 'approved facts', negativePrompt: 'no geometry changes', promptVersion: PROMPT_VERSIONS.renderDirector, quality: 'review', providerPreference: ['openai', 'comfyui'] });
     assert.equal(result.status, 'queued');
     assert.equal('provider' in result ? result.provider : null, 'comfyui');
-    assert.deepEqual(result.attemptedProviders, ['openai', 'comfyui']);
+    assert.deepEqual(result.attemptedProviders, ['openai-dall-e-3', 'comfyui']);
     assert.equal(calls.length, 2);
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -93,4 +94,53 @@ test('visual gateway reports provider_not_configured when no configured provider
   const result = await createProviderGateway({}).createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['scene:approved'], referenceAssets: [], masks: [], operation: 'generate', style: 'warm contemporary', structuredPrompt: 'approved facts', quality: 'review', providerPreference: [] });
   assert.equal(result.status, 'provider_not_configured');
   assert.equal('code' in result ? result.code : null, 'IMAGE_PROVIDER_NOT_CONFIGURED');
+});
+
+test('plan analyzer sends a plan to one primary provider unless verification is explicitly enabled', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    calls.push(String(input));
+    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ proposals: [{ kind: 'wall', confidence: 0.9, geometry: { x1: 10, y1: 10, x2: 900, y2: 10 }, note: 'Visible exterior wall.' }] }) }] } }] });
+  }) as typeof fetch;
+  try {
+    const result = await analyzePlanWithProvider({
+      GEMINI_API_KEY: 'gemini-test-key',
+      CLOUDFLARE_ACCOUNT_ID: 'cf-account',
+      CLOUDFLARE_AI_TOKEN: 'cf-token',
+      CLOUDFLARE_VISION_MODEL: '@cf/meta/llama-3.2-11b-vision-instruct',
+      PLAN_ANALYZER_PRIMARY: 'gemini',
+    }, { dataUrl: 'data:image/png;base64,aW1hZ2U=', fileName: 'plan.png', mimeType: 'image/png' });
+    assert.equal(result.provider, 'gemini');
+    assert.equal(result.providerRuns.length, 1);
+    assert.match(calls[0], /generativelanguage\.googleapis\.com/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('plan analyzer falls back only after the primary provider fails', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes('generativelanguage.googleapis.com')) return new Response('{}', { status: 500 });
+    if (url.includes('api.cloudflare.com')) return Response.json({ success: true, result: { response: JSON.stringify({ proposals: [{ kind: 'room', confidence: 0.8, geometry: { x: 20, y: 20, width: 300, height: 200 }, note: 'Visible room zone.' }] }) } });
+    throw new Error(`Unexpected URL ${url}`);
+  }) as typeof fetch;
+  try {
+    const result = await analyzePlanWithProvider({
+      GEMINI_API_KEY: 'gemini-test-key',
+      CLOUDFLARE_ACCOUNT_ID: 'cf-account',
+      CLOUDFLARE_AI_TOKEN: 'cf-token',
+      CLOUDFLARE_VISION_MODEL: '@cf/meta/llama-3.2-11b-vision-instruct',
+      PLAN_ANALYZER_PRIMARY: 'gemini',
+    }, { dataUrl: 'data:image/png;base64,aW1hZ2U=', fileName: 'plan.png', mimeType: 'image/png' });
+    assert.equal(result.provider, 'cloudflare');
+    assert.deepEqual(result.providerRuns.map((run) => [run.provider, run.status]), [['gemini', 'failed'], ['cloudflare', 'succeeded']]);
+    assert.equal(calls.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

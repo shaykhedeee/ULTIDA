@@ -1,0 +1,14 @@
+{
+  "name": "@ultida/cloudflare-ai-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.26.0"
+  }
+}

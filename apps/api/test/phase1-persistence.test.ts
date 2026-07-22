@@ -43,14 +43,28 @@ test('requireProjectUser attaches ultidaUser with userId, projectId, and organiz
   });
 });
 
-test('Single canonical floor-plan endpoint exists and handles invalid payload gracefully', async () => {
+test('signed floor-plan upload contract is protected and the legacy base64 route is disabled', async () => {
   await withServer(async (baseUrl) => {
-    const res = await fetch(`${baseUrl}/api/projects/proj-123/floor-plans`, {
+    const initiate = await fetch(`${baseUrl}/api/projects/proj-123/floor-plans/initiate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ fileName: '', dataUrl: '' })
+      body: JSON.stringify({ fileName: 'plan.png', mimeType: 'image/png', sizeBytes: 1024 })
     });
-    assert.ok([400, 401, 503].includes(res.status));
+    assert.ok([401, 503].includes(initiate.status));
+
+    const complete = await fetch(`${baseUrl}/api/projects/proj-123/floor-plans/complete`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ storagePath: 'org/project/floor-plans/plan.png', fileName: 'plan.png', mimeType: 'image/png', sizeBytes: 1024 })
+    });
+    assert.ok([401, 503].includes(complete.status));
+
+    const legacy = await fetch(`${baseUrl}/api/projects/proj-123/floor-plans`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ fileName: 'plan.png', dataUrl: 'data:image/png;base64,ZmFrZQ==' })
+    });
+    assert.ok([401, 503].includes(legacy.status));
   });
 });
 

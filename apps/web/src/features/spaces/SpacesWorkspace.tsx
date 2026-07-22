@@ -3,7 +3,7 @@
 ═══════════════════════════════════════════════ */
 
 import {
-  Home, CheckCircle2, Circle, Edit3, ArrowRight,
+  Home, CheckCircle2, Circle, Edit3, ArrowRight, AlertTriangle,
   Plus, Settings2, Sparkles, Layers, Sliders, Check
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
@@ -28,51 +28,6 @@ export type SpaceRoom = {
   isConfigured: boolean;
 };
 
-const DEFAULT_SPACES: SpaceRoom[] = [
-  {
-    id: 'space-living',
-    name: 'Living Room',
-    roomType: 'living',
-    areaSqm: 19.8,
-    dimensionsText: '5.2m × 3.8m',
-    ceilingHeightMm: 2700,
-    usableWalls: 3,
-    floorFinish: 'Vitrified Tiles (800×800)',
-    falseCeiling: 'Peripheral Cove Lighting',
-    requiredFurniture: ['TV Unit', 'Crockery Unit', 'Sofa', 'Pooja Unit'],
-    budgetInr: 350000,
-    isConfigured: true,
-  },
-  {
-    id: 'space-bed',
-    name: 'Master Bedroom',
-    roomType: 'bedroom',
-    areaSqm: 14.4,
-    dimensionsText: '4.2m × 3.4m',
-    ceilingHeightMm: 2700,
-    usableWalls: 3,
-    floorFinish: 'Laminated Wooden Flooring',
-    falseCeiling: 'Flat Gypsum Board',
-    requiredFurniture: ['Sliding Wardrobe', 'King Bed', 'Dresser', 'Study Desk'],
-    budgetInr: 280000,
-    isConfigured: true,
-  },
-  {
-    id: 'space-kitchen',
-    name: 'Kitchen & Utility',
-    roomType: 'kitchen',
-    areaSqm: 9.5,
-    dimensionsText: '3.8m × 2.5m',
-    ceilingHeightMm: 2700,
-    usableWalls: 2,
-    floorFinish: 'Anti-Skid Matte Tiles',
-    falseCeiling: 'Moisture-Resistant Board',
-    requiredFurniture: ['L-Shape Modular Cabinets', 'Tall Appliance Unit', 'Pantry'],
-    budgetInr: 250000,
-    isConfigured: true,
-  },
-];
-
 const ROOM_TYPES = [
   { id: 'living', label: 'Living Room' },
   { id: 'bedroom', label: 'Bedroom' },
@@ -96,9 +51,10 @@ const FURNITURE_OPTIONS: Record<string, string[]> = {
 export function SpacesWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const [spaces, setSpaces] = useState<SpaceRoom[]>(DEFAULT_SPACES);
+  const [spaces, setSpaces] = useState<SpaceRoom[]>([]);
   const [activeSpace, setActiveSpace] = useState<SpaceRoom | null>(null);
   const [saveState, setSaveState] = useState('');
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'blocked' | 'empty' | 'error'>('loading');
 
   // Modal form
   const [editForm, setEditForm] = useState<Partial<SpaceRoom>>({});
@@ -106,13 +62,20 @@ export function SpacesWorkspace() {
   useEffect(() => {
     if (!supabase || !projectId) return;
     let live = true;
-    void supabase.from('spaces').select('*').eq('project_id', projectId).order('created_at').then(({ data, error }) => {
+    void (async () => {
+      setLoadState('loading');
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token) { if (live) { setLoadState('error'); setSaveState('Your session expired. Sign in again.'); } return; }
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/projects/${projectId}/spaces`, { headers: { 'Content-Type': 'application/json', authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => null);
       if (!live) return;
-      if (error) {
-        setSaveState(error.message);
+      if (!response.ok) {
+        setLoadState(response.status === 409 ? 'blocked' : 'error');
+        setSaveState(payload?.message ?? 'Spaces could not be loaded.');
         return;
       }
-      const mapped = (data ?? []).map((row: any): SpaceRoom => {
+      const mapped = (payload.spaces ?? []).map((row: any): SpaceRoom => {
         const requirements = row.requirements_json ?? {};
         const settings = row.settings_json ?? {};
         return {
@@ -121,18 +84,19 @@ export function SpacesWorkspace() {
           roomType: row.room_type,
           areaSqm: Number(row.area_sqm ?? 0),
           dimensionsText: requirements.dimensionsText ?? 'Measured from approved plan',
-          ceilingHeightMm: Number(row.ceiling_height_mm ?? 2700),
+          ceilingHeightMm: Number(row.ceiling_height_mm ?? 0),
           usableWalls: Number(requirements.usableWalls ?? 0),
           floorFinish: settings.floorFinish ?? 'Not specified',
           falseCeiling: settings.falseCeiling ?? 'Not specified',
           requiredFurniture: Array.isArray(requirements.requiredFurniture) ? requirements.requiredFurniture : [],
           budgetInr: typeof requirements.budgetInr === 'number' ? requirements.budgetInr : undefined,
-          isConfigured: row.status === 'configured' || row.verification_status === 'verified'
+          isConfigured: row.status === 'configured' && row.verification_status === 'verified'
         };
       });
       setSpaces(mapped);
-      if (!mapped.length) setSaveState('No spaces were derived yet. Approve the reviewed floor plan first.');
-    });
+      setLoadState(mapped.length ? 'ready' : 'empty');
+      if (!mapped.length) setSaveState('The approved plan contains no derived spaces. Return to Floor Plan Intelligence and review room polygons.');
+    })();
     return () => { live = false; };
   }, [projectId]);
 
@@ -146,19 +110,17 @@ export function SpacesWorkspace() {
     const nextSpace = { ...activeSpace, ...editForm, isConfigured: true } as SpaceRoom;
     if (supabase && projectId) {
       setSaveState('Saving space...');
-      const { error } = await supabase.from('spaces').update({
-        name: nextSpace.name,
-        room_type: nextSpace.roomType,
-        area_sqm: nextSpace.areaSqm || null,
-        ceiling_height_mm: nextSpace.ceilingHeightMm,
-        requirements_json: { dimensionsText: nextSpace.dimensionsText, usableWalls: nextSpace.usableWalls, requiredFurniture: nextSpace.requiredFurniture, budgetInr: nextSpace.budgetInr ?? null },
-        settings_json: { floorFinish: nextSpace.floorFinish, falseCeiling: nextSpace.falseCeiling },
-        status: 'configured',
-        verification_status: nextSpace.requiredFurniture.length ? 'verified' : 'pending',
-        updated_at: new Date().toISOString()
-      }).eq('id', activeSpace.id).eq('project_id', projectId);
-      if (error) {
-        setSaveState(error.message);
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return; }
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/projects/${projectId}/spaces/${activeSpace.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ name: nextSpace.name, roomType: nextSpace.roomType, ceilingHeightMm: nextSpace.ceilingHeightMm, requiredFurniture: nextSpace.requiredFurniture, floorFinish: nextSpace.floorFinish, falseCeiling: nextSpace.falseCeiling, budgetInr: nextSpace.budgetInr })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setSaveState(payload?.message ?? 'Space requirements could not be saved.');
         return;
       }
       setSaveState('Space saved.');
@@ -179,9 +141,13 @@ export function SpacesWorkspace() {
       return;
     }
     if (supabase && projectId) {
-      const { error } = await supabase.from('projects').update({ workflow_stage: 'layouts', current_step: 'layouts', updated_at: new Date().toISOString() }).eq('id', projectId);
-      if (error) {
-        setSaveState(error.message);
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return; }
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/projects/${projectId}/spaces/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json', authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setSaveState(payload?.message ?? 'Spaces could not be approved.');
         return;
       }
     }
@@ -213,6 +179,10 @@ export function SpacesWorkspace() {
         </div>
       </div>
       {saveState && <p role="status" style={{ margin: '0 0 16px', color: saveState.includes('saved') ? 'var(--success)' : 'var(--danger)', fontSize: 13 }}>{saveState}</p>}
+
+      {loadState === 'loading' && <div className="spaces-empty"><Layers size={22} /><strong>Loading approved plan spaces...</strong></div>}
+      {loadState === 'blocked' && <div className="spaces-empty"><AlertTriangle size={22} /><strong>Floor Plan approval required</strong><Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}>Open Floor Plan Intelligence</Button></div>}
+      {loadState === 'empty' && <div className="spaces-empty"><Home size={22} /><strong>No valid room polygons were derived</strong><Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}>Review plan geometry</Button></div>}
 
       {/* Room Cards Grid */}
       <div className="spaces-grid">

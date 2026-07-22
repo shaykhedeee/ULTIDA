@@ -130,6 +130,10 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
       const { data: project, error: insertErr } = await supabase
         .from('projects')
         .insert({
+          // The deployed legacy schema stores IDs as text and did not have a
+          // database default. Supplying a UUID keeps every downstream project_id
+          // reference stable while the database default protects non-browser inserts.
+          id: crypto.randomUUID(),
           organization_id: organizationId,
           name: form.name.trim(),
           client_name: form.client_name.trim(),

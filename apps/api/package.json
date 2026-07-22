@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "node test/run-all.mjs"
@@ -19,6 +20,7 @@
     "@ultida/commercial-core": "0.1.0",
     "@ultida/contracts": "0.1.0",
     "@ultida/drawing-core": "0.1.0",
+    "@ultida/layout-core": "0.1.0",
     "@ultida/plan-core": "0.1.0",
     "@ultida/provider-gateway": "0.1.0",
     "@ultida/rule-core": "0.1.0",

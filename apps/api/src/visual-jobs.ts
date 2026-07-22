@@ -88,7 +88,12 @@ async function storeImage(client: SupabaseClient, context: { organizationId: str
   const upload = await client.storage.from('project-assets').upload(path, bytes, { contentType: mimeType, upsert: false });
   if (upload.error) throw new Error(upload.error.message);
   const metadata = { provider: result.provider, model: result.model, operation: result.operation, sourceSceneVersionId: context.sceneVersionId, prompt, synthetic: false, reviewStatus: 'pending' };
-  const asset = await client.from('project_assets').insert({ project_id: context.projectId, kind: 'render', storage_path: path, mime_type: mimeType, metadata, created_by: context.actorId ?? null }).select('id,created_at').single();
+  const assetPayload: any = { organization_id: context.organizationId, project_id: context.projectId, kind: 'render', storage_path: path, mime_type: mimeType, metadata, created_by: context.actorId ?? null };
+  let asset = await client.from('project_assets').insert(assetPayload).select('id,created_at').single();
+  if (asset.error && asset.error.message.includes('organization_id')) {
+    delete assetPayload.organization_id;
+    asset = await client.from('project_assets').insert(assetPayload).select('id,created_at').single();
+  }
   if (asset.error) {
     await client.storage.from('project-assets').remove([path]);
     throw new Error(asset.error.message);
@@ -126,42 +131,8 @@ export async function createVisualJob(environment: Record<string, string | undef
     }
   }
 
-  const result = await gateway.createVisualProposal(request);
-
-  if (result.status === 'provider_not_configured') {
-    return {
-      status: 'failed' as const,
-      jobId,
-      code: 'IMAGE_PROVIDER_NOT_CONFIGURED',
-      message: 'Photoreal rendering is not configured. Technical preview remains available.',
-      retryable: false,
-      technicalPreviewUrl: generateTechnicalPreviewSvg(request)
-    };
-  }
-
-  if (result.status === 'failed') {
-    return {
-      status: 'failed' as const,
-      jobId,
-      code: result.code || 'IMAGE_GENERATION_FAILED',
-      message: result.message || 'Image generation failed.',
-      retryable: result.retryable ?? true
-    };
-  }
-
   if (!client) {
-    if (result.status === 'succeeded') {
-      return {
-        status: 'succeeded' as const,
-        jobId,
-        provider: result.provider,
-        model: result.model,
-        signedUrl: result.resultUrl || (result.image ? `data:${result.image.mimeType};base64,${result.image.data}` : null),
-        reviewStatus: 'pending',
-        createdAt: new Date().toISOString()
-      };
-    }
-    return { status: 'queued' as const, jobId, promptId: result.promptId, provider: result.provider };
+    return { status: 'failed' as const, jobId, code: 'PERSISTENCE_UNAVAILABLE', message: 'Server Supabase credentials are required before a render can start.', retryable: false };
   }
 
   try {
@@ -172,6 +143,19 @@ export async function createVisualJob(environment: Record<string, string | undef
     
     const job = await client.from('jobs').insert({ organization_id: context.project.organization_id, project_id: request.projectId, kind: 'visual_proposal', status: 'queued', idempotency_key: idempotencyKey, input: { ...normalizedRequest, renderBrief: brief }, output: { reviewStatus: 'pending' }, attempts: 1, created_by: actorId ?? null }).select('id').single();
     if (job.error || !job.data) return { status: 'failed' as const, code: 'JOB_CREATE_FAILED', reason: job.error?.message ?? 'Visual job could not be created.', retryable: true };
+
+    await client.from('jobs').update({ status: 'running', started_at: new Date().toISOString() }).eq('id', job.data.id);
+    const result = await gateway.createVisualProposal(normalizedRequest);
+
+    if (result.status === 'provider_not_configured') {
+      await client.from('jobs').update({ status: 'failed', error: result.message }).eq('id', job.data.id);
+      return { status: 'failed' as const, jobId: job.data.id, code: 'IMAGE_PROVIDER_NOT_CONFIGURED', message: result.message, retryable: false };
+    }
+
+    if (result.status === 'failed') {
+      await client.from('jobs').update({ status: 'failed', error: result.message }).eq('id', job.data.id);
+      return { status: 'failed' as const, jobId: job.data.id, code: result.code || 'IMAGE_GENERATION_FAILED', message: result.message || 'Image generation failed.', retryable: result.retryable ?? true };
+    }
     
     if (result.status === 'succeeded') {
       const stored = await storeImage(client, { organizationId: context.project.organization_id, projectId: request.projectId, sceneVersionId: request.sceneVersionId, actorId }, result, brief);
@@ -180,7 +164,7 @@ export async function createVisualJob(environment: Record<string, string | undef
       return { status: 'succeeded' as const, jobId: job.data.id, ...output };
     }
 
-    const output = { ...result, promptVersion: brief.version, reviewStatus: 'pending' };
+    const output = { ...result, promptVersion: brief.version, reviewStatus: 'pending', synthetic: false };
     await client.from('jobs').update({ status: 'running', output }).eq('id', job.data.id);
     return { status: 'queued' as const, jobId: job.data.id, ...output };
   } catch (error) {
