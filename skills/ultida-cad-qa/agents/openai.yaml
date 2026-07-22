@@ -1,0 +1,4 @@
+interface:
+  display_name: "ULTIDA CAD QA"
+  short_description: "Validate scene-linked CAD and drawing outputs"
+  default_prompt: "Use $ultida-cad-qa to validate this approved scene drawing package before release."

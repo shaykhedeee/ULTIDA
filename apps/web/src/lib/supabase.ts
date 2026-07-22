@@ -1,8 +1,23 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
-export const supabaseConfigured = Boolean(url && key);
-export const supabase: SupabaseClient | null = supabaseConfigured ? createClient(url!, key!, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
-}) : null;
+const url = import.meta.env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const anon = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || '';
+
+export const supabaseConfigured = Boolean(url && anon);
+
+export function createSupabaseBrowserClient() {
+  if (!supabaseConfigured) return null;
+  try {
+    return createClient(url, anon, { auth: { autoRefreshToken: true, persistSession: true } });
+  } catch {
+    return null;
+  }
+}
+
+let client: ReturnType<typeof createSupabaseBrowserClient> = null;
+export function getSupabaseBrowserClient() {
+  if (!client) client = createSupabaseBrowserClient();
+  return client;
+}
+
+export const supabase = getSupabaseBrowserClient();

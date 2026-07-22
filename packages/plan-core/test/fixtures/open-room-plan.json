@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "plan.v1",
+  "source": {
+    "schemaVersion": "plan.v1",
+    "sourceAssetId": "00000000-0000-0000-0000-000000000001",
+    "sourceType": "raster_image",
+    "sourceWidth": 1000,
+    "sourceHeight": 800,
+    "sourceRotation": 0,
+    "coordinateSystem": "millimetres",
+    "scaleResolution": "two_point_calibration",
+    "verifiedDimensionMm": 3800,
+    "scaleObservations": [],
+    "mmPerPixel": 5.84,
+    "scaleObservedMm": 3800
+  },
+  "state": "approved",
+  "ceilingHeightMm": 2700,
+  "spaces": [
+    {
+      "id": "00000000-0000-0000-0000-000000000005",
+      "sourcePolygon": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 1000,
+          "y": 0
+        },
+        {
+          "x": 1000,
+          "y": 800
+        }
+      ],
+      "worldPolygon": [
+        {
+          "xMm": 0,
+          "yMm": 0
+        },
+        {
+          "xMm": 3800,
+          "yMm": 0
+        },
+        {
+          "xMm": 3800,
+          "yMm": 3040
+        }
+      ],
+      "roomType": "living",
+      "verification": "verified"
+    }
+  ],
+  "walls": [],
+  "openings": [],
+  "columns": [],
+  "beams": [],
+  "servicePoints": [],
+  "annotations": [],
+  "issues": [],
+  "assumptions": [],
+  "validation": {
+    "isValid": true,
+    "blockingIssueCount": 0,
+    "issues": [],
+    "ruleVersion": "plan.v1-1"
+  },
+  "approval": {
+    "approvedBy": "00000000-0000-0000-0000-000000000004",
+    "approvedAt": "2026-07-21T19:00:00.000Z",
+    "changeReason": "Designer review completed"
+  }
+}

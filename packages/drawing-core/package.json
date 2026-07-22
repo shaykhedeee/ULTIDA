@@ -1,0 +1,12 @@
+{
+  "name": "@ultida/drawing-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": { "check": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": {
+    "zod": "^3.25.0",
+    "pdfkit": "^0.15.0"
+  }
+}

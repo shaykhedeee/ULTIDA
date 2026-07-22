@@ -9,7 +9,9 @@
     "build": "npm run build --workspaces --if-present",
     "check": "npm run check --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "preflight": "node scripts/preflight.mjs"
+    "preflight": "node scripts/preflight.mjs",
+    "scan:secrets": "node scripts/scan-secrets.mjs",
+    "verify:supabase": "node scripts/verify-supabase.mjs"
   },
   "engines": { "node": ">=20" },
   "devDependencies": {

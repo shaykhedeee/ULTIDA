@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
-  "scripts": { "check": "tsc -p tsconfig.json --noEmit" },
-  "dependencies": { "zod": "^3.25.0" }
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --test-concurrency=1 test/plan-core.test.ts"
+  },
+  "dependencies": { "zod": "^3.25.0" },
+  "devDependencies": { "tsx": "^4.20.0" }
 }

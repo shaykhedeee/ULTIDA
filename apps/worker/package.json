@@ -4,5 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": { "dev": "tsx watch src/index.ts", "build": "tsc -p tsconfig.json", "check": "tsc -p tsconfig.json --noEmit" },
-  "dependencies": { "@ultida/plan-core": "0.1.0" }
+  "dependencies": {
+    "@ultida/plan-core": "0.1.0",
+    "@supabase/supabase-js": "^2.55.0",
+    "@ultida/provider-gateway": "0.1.0",
+    "dotenv": "^17.2.0"
+  }
 }

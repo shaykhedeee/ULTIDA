@@ -1,5 +1,21 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": "src" },
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "@ultida/render-pipeline": ["../render-pipeline/src/index.ts"],
+      "@ultida/scene-compiler": ["../scene-compiler/src/index.ts"],
+      "@ultida/scene-core": ["../scene-core/src/index.ts"],
+      "@ultida/plan-core": ["../plan-core/src/index.ts"],
+      "@ultida/catalog-core": ["../catalog-core/src/index.ts"],
+      "@ultida/provider-gateway": ["../provider-gateway/src/index.ts"],
+      "@ultida/contracts": ["../contracts/src/index.ts"],
+      "@ultida/material-core": ["../material-core/src/index.ts"],
+      "@ultida/module-framework": ["../module-framework/src/index.ts"],
+      "@ultida/aura-tools": ["../aura-tools/src/index.ts"]
+    }
+  },
   "include": ["src"]
 }

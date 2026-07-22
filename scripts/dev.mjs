@@ -1,4 +1,12 @@
 import { spawn } from 'node:child_process';
+import dotenv from 'dotenv';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const rootEnv = resolve(process.cwd(), '.env');
+if (existsSync(rootEnv)) {
+  dotenv.config({ path: rootEnv });
+}
 
 const commands = [
   ['api', ['run', 'dev', '--workspace', '@ultida/api']],

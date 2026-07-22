@@ -1,0 +1,1 @@
+[{"id":"door-01","wallId":"wall-living-b","kind":"door","offsetMm":1200,"widthMm":900,"heightMm":2100,"sillHeightMm":0,"confidence":0.99},{"id":"window-01","wallId":"wall-living-a","kind":"window","offsetMm":1400,"widthMm":1500,"heightMm":1650,"sillHeightMm":750,"confidence":0.92}]

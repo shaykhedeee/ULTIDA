@@ -5,5 +5,9 @@
   "type": "module",
   "exports": "./src/index.ts",
   "scripts": { "check": "tsc -p tsconfig.json --noEmit" },
-  "dependencies": { "@ultida/contracts": "0.1.0" }
+  "dependencies": {
+    "@ultida/agent-core": "0.1.0",
+    "@ultida/contracts": "0.1.0",
+    "@supabase/supabase-js": "^2.55.0"
+  }
 }

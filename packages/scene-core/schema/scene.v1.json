@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "ultida.scene.v1", "title": "ULTIDA Scene v1", "type": "object",
+  "required": ["schema","units","coordinateSystem","projectId","floorPlanVersionId","floors","spaces","rooms","walls","openings","fixedFixtures","modules","materials","lighting","cameras","constraints","unresolvedDetections","metadata"],
+  "properties": { "schema":{"const":"scene.v1"}, "units":{"const":"mm"}, "coordinateSystem":{"const":"right-handed-z-up"}, "projectId":{"type":"string"}, "floorPlanVersionId":{"type":"string"},
+    "floors":{"type":"array"}, "spaces":{"type":"array"}, "rooms":{"type":"array"}, "walls":{"type":"array"}, "openings":{"type":"array"}, "fixedFixtures":{"type":"array"}, "modules":{"type":"array"}, "materials":{"type":"array"}, "lighting":{"type":"array"}, "cameras":{"type":"array"}, "constraints":{"type":"array"}, "unresolvedDetections":{"type":"array"}, "metadata":{"type":"object"} }
+}
