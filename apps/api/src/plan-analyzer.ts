@@ -6,6 +6,10 @@ type Environment = Record<string, string | undefined>;
 type Input = { dataUrl: string; fileName: string; mimeType: string };
 type ProviderRun = { provider: 'openai' | 'gemini' | 'cloudflare' | 'intake-parser'; model: string; status: 'succeeded' | 'failed'; latencyMs: number; error?: string };
 
+function geminiVisionKey(environment: Environment) {
+  return environment.GEMINI_VISION_API_KEY || environment.GEMINI_API_KEY || environment.GOOGLE_AI_STUDIO_KEY_1 || environment.GOOGLE_AI_STUDIO_KEY_2;
+}
+
 const prompt = `You are the extraction stage of a professional interior floor-plan review system. Read the supplied source without redesigning it.
 
 Extract only visible evidence: walls, room zones, doors/windows/passages, room labels and written dimensions. Never invent a dimension, wall or opening. Preserve uncertainty.
@@ -77,7 +81,8 @@ async function analyzeOpenAi(environment: Environment, input: Input) {
 
 async function analyzeGemini(environment: Environment, input: Input) {
   const model = environment.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(environment.GEMINI_API_KEY ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig: { temperature: 0, responseMimeType: 'application/json' }, contents: [{ parts: [{ text: `${prompt}\nSource file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: input.dataUrl.split(',')[1] } }] }] }) });
+  const apiKey = geminiVisionKey(environment);
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig: { temperature: 0, responseMimeType: 'application/json' }, contents: [{ parts: [{ text: `${prompt}\nSource file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: input.dataUrl.split(',')[1] } }] }] }) });
   if (!response.ok) throw new Error(`Gemini plan analyzer failed (${response.status}).`);
   const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   const content = payload.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text;
@@ -108,7 +113,7 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     textContent: input.dataUrl.startsWith('data:text') ? Buffer.from(input.dataUrl.split(',')[1], 'base64').toString('utf-8') : undefined
   });
 
-  const configured = [environment.OPENAI_API_KEY ? 'openai' : null, environment.GEMINI_API_KEY ? 'gemini' : null, environment.CLOUDFLARE_ACCOUNT_ID && environment.CLOUDFLARE_AI_TOKEN && (environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL) ? 'cloudflare' : null].filter(Boolean) as Array<'openai' | 'gemini' | 'cloudflare'>;
+  const configured = [environment.OPENAI_API_KEY ? 'openai' : null, geminiVisionKey(environment) ? 'gemini' : null, environment.CLOUDFLARE_ACCOUNT_ID && environment.CLOUDFLARE_AI_TOKEN && (environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL) ? 'cloudflare' : null].filter(Boolean) as Array<'openai' | 'gemini' | 'cloudflare'>;
 
   if (!configured.length && environment.PLAN_ANALYZER_MODE !== 'baseline') {
     const error = new Error('A real AI vision provider is required for floor-plan analysis.');

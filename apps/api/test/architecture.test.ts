@@ -70,6 +70,25 @@ test('visual gateway falls back from OpenAI failure to queued ComfyUI without fa
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('Nano Banana 2 adapter persists the real Gemini image payload contract', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | null = null;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    assert.match(String(input), /generativelanguage\.googleapis\.com\/v1beta\/interactions/);
+    requestBody = JSON.parse(String(init?.body));
+    return Response.json({ output_image: { data: 'aW1hZ2UtYnl0ZXM=', mime_type: 'image/png' } });
+  }) as typeof fetch;
+  try {
+    const gateway = createProviderGateway({ GEMINI_IMAGE_API_KEY: 'test-key' });
+    const result = await gateway.createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['scene:approved'], referenceAssets: [], masks: [], operation: 'generate', style: 'warm contemporary', structuredPrompt: 'approved geometry facts', negativePrompt: 'no geometry changes', quality: 'review', camera: { view: 'wide-corner', lensMm: 24, eyeHeightMm: 1500 }, providerPreference: ['gemini-nano-banana-2'] });
+    assert.equal(result.status, 'succeeded');
+    assert.equal('provider' in result ? result.provider : null, 'gemini-nano-banana-2');
+    assert.equal('image' in result ? result.image?.mimeType : null, 'image/png');
+    assert.equal(requestBody?.model, 'gemini-3.1-flash-image');
+    assert.deepEqual(requestBody?.response_format, { type: 'image', aspect_ratio: '16:9', image_size: '1K' });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('visual gateway reports provider_not_configured when no configured provider exists', async () => {
   const result = await createProviderGateway({}).createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['scene:approved'], referenceAssets: [], masks: [], operation: 'generate', style: 'warm contemporary', structuredPrompt: 'approved facts', quality: 'review', providerPreference: [] });
   assert.equal(result.status, 'provider_not_configured');

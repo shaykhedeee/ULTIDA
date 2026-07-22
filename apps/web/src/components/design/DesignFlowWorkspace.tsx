@@ -164,7 +164,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     if (!projectId) { setVisualState('Select a project before generating a render.'); return; }
     setVisualBusy(true); setVisualState('Validating scene and visual providers...');
     try {
-      const response = await fetch(`${apiBase}/visual-proposals`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ projectId, sceneVersionId, idempotencyKey: `${sceneVersionId}:${room}:${style}:${quality}:${Date.now()}`, roomId: room, sourceAssets: [`scene:${sceneVersionId}`], referenceAssets: [], masks: [], operation: 'generate', style, quality, camera: { view: 'wide-corner', lensMm: 24, eyeHeightMm: 1500 }, structuredPrompt: 'Compiled server-side from approved scene.', providerPreference: ['cloudflare', 'openai-dall-e-3', 'openai-gpt-image-1', 'comfyui'] }) });
+      const response = await fetch(`${apiBase}/visual-proposals`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ projectId, sceneVersionId, idempotencyKey: `${sceneVersionId}:${room}:${style}:${quality}:${Date.now()}`, roomId: room, sourceAssets: [`scene:${sceneVersionId}`], referenceAssets: [], masks: [], operation: 'generate', style, quality, camera: { view: 'wide-corner', lensMm: 24, eyeHeightMm: 1500 }, structuredPrompt: 'Compiled server-side from approved scene.', providerPreference: ['gemini-nano-banana-2', 'cloudflare', 'openai-dall-e-3', 'openai-gpt-image-1', 'comfyui'] }) });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
         setVisualBusy(false);

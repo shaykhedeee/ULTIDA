@@ -5,6 +5,7 @@ type ComfyWorkflow = Record<string, unknown>;
 
 export type ImageProviderConfig =
   | { provider: 'openai'; model: 'dall-e-3' | 'gpt-image-1' }
+  | { provider: 'gemini'; model: string }
   | { provider: 'comfyui'; workflowId: string };
 
 export type ProviderResult =
@@ -38,11 +39,22 @@ function isRetryableStatus(status: number) {
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
+function geminiImageKey(environment: Environment) {
+  return environment.GEMINI_IMAGE_API_KEY || environment.GEMINI_API_KEY || environment.GOOGLE_AI_STUDIO_KEY_1 || environment.GOOGLE_AI_STUDIO_KEY_2;
+}
+
+function geminiAspectRatio(request: VisualProposalRequest) {
+  if (request.camera?.view === 'elevation') return '4:3';
+  if (request.camera?.view === 'detail') return '4:5';
+  return '16:9';
+}
+
 export function createProviderGateway(environment: Environment) {
   const getProviders = (): ProviderStatus[] => {
     const env = environment;
     return [
       { id: 'openrouter', configured: Boolean(env.OPENROUTER_API_KEY), operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'] },
+      { id: 'gemini-nano-banana-2', configured: Boolean(geminiImageKey(env)), operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'] },
       { id: 'cloudflare', configured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN), operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'] },
       { id: 'huggingface', configured: Boolean(env.HF_TOKEN || env.HUGGINGFACE_API_KEY), operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'] },
       { id: 'pollinations', configured: env.ENABLE_FREE_POLLINATIONS === 'true', operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'] },
@@ -130,6 +142,60 @@ export function createProviderGateway(environment: Environment) {
       };
     } catch (error) {
       return { status: 'failed', code: 'CLOUDFLARE_FETCH_ERROR', message: error instanceof Error ? error.message : 'Cloudflare API call failed.', retryable: true, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
+    }
+  }
+
+  async function executeGeminiNanoBanana2(request: VisualProposalRequest, attemptedProviders: string[]): Promise<ProviderResult> {
+    const apiKey = geminiImageKey(environment);
+    const model = environment.GEMINI_IMAGE_MODEL ?? 'gemini-3.1-flash-image';
+    if (!apiKey) {
+      return { status: 'failed', code: 'GEMINI_IMAGE_NOT_CONFIGURED', message: 'A Gemini image API key is not configured.', retryable: false, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
+    }
+
+    try {
+      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          model,
+          input: [{
+            type: 'text',
+            text: `${request.structuredPrompt}\n\nNegative constraints: ${request.negativePrompt ?? 'Do not move walls, openings, or approved modules. Do not add unsupported furniture or alter measured geometry.'}`
+          }],
+          response_format: {
+            type: 'image',
+            aspect_ratio: geminiAspectRatio(request),
+            image_size: request.quality === 'final' ? '2K' : '1K'
+          }
+        })
+      });
+      const payload = await response.json() as {
+        output_image?: { data?: string; mime_type?: string; mimeType?: string };
+        error?: { message?: string };
+      };
+      const image = payload.output_image;
+      if (!response.ok || !image?.data) {
+        return {
+          status: 'failed',
+          code: `GEMINI_IMAGE_HTTP_${response.status}`,
+          message: payload.error?.message ?? `Gemini image generation returned HTTP ${response.status}.`,
+          retryable: isRetryableStatus(response.status),
+          sourceSceneVersionId: request.sceneVersionId,
+          attemptedProviders
+        };
+      }
+      return {
+        status: 'succeeded',
+        synthetic: false,
+        provider: 'gemini-nano-banana-2',
+        model,
+        image: { encoding: 'base64', data: image.data, mimeType: image.mime_type ?? image.mimeType ?? 'image/png' },
+        sourceSceneVersionId: request.sceneVersionId,
+        operation: request.operation,
+        attemptedProviders
+      };
+    } catch (error) {
+      return { status: 'failed', code: 'GEMINI_IMAGE_FETCH_ERROR', message: error instanceof Error ? error.message : 'Gemini image API call failed.', retryable: true, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
     }
   }
 
@@ -312,7 +378,7 @@ export function createProviderGateway(environment: Environment) {
     },
 
     async createVisualProposal(request: VisualProposalRequest): Promise<ProviderResult> {
-      const requested = request.providerPreference.length ? request.providerPreference : ['openrouter', 'cloudflare', 'huggingface', 'openai-dall-e-3', 'openai-gpt-image-1', 'openai', 'comfyui', 'pollinations'];
+      const requested = request.providerPreference.length ? request.providerPreference : ['cloudflare', 'pollinations', 'gemini-nano-banana-2', 'openrouter', 'huggingface', 'openai-dall-e-3', 'openai-gpt-image-1', 'openai', 'comfyui'];
       const activeProviders = getProviders();
       const configuredProviders = activeProviders.filter((p) => p.configured && p.operations.includes(request.operation)).map((p) => p.id);
       
@@ -334,6 +400,10 @@ export function createProviderGateway(environment: Environment) {
         
         if (id === 'openrouter') {
           const result = await executeOpenRouter(request, attemptedProviders);
+          if (result.status === 'succeeded' || result.status === 'queued') return result;
+        }
+        if (id === 'gemini-nano-banana-2') {
+          const result = await executeGeminiNanoBanana2(request, attemptedProviders);
           if (result.status === 'succeeded' || result.status === 'queued') return result;
         }
         if (id === 'cloudflare') {
