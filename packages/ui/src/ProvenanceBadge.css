@@ -1,0 +1,28 @@
+.provenance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--line) 100%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+.provenance-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--text-muted);
+}
+[data-state="verified"] .provenance-dot { background: #2a6; }
+[data-state="unreviewed"] .provenance-dot { background: #d69e2e; }
+[data-state="stale"] .provenance-dot { background: #c44; }
+[data-state="source"] .provenance-dot { background: #4f8cff; }
+.provenance-label { letter-spacing: .02em; text-transform: capitalize; }
+.provenance-mono {
+  font-family: var(--code-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 10px;
+  color: var(--text-muted);
+}

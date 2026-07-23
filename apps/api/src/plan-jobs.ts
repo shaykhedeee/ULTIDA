@@ -100,7 +100,8 @@ export async function processPlanAnalysisJobs(environment: Environment, limit = 
       const original = new Uint8Array(await downloaded.data.arrayBuffer());
       const raster = input.mimeType === 'application/pdf' ? await rasterizePdf(original) : original;
       const analysisMimeType = input.mimeType === 'application/pdf' ? 'image/png' : input.mimeType;
-      const analysis = await analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType });
+      const briefRes = await client.from('project_briefs').select('brief').eq('project_id', job.project_id).maybeSingle();
+      const analysis = await analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief });
       if (!analysis) throw new Error('No configured floor-plan analysis provider is available.');
       const output = { ...analysis, sourceAssetId: input.sourceAssetId, sourceMimeType: input.mimeType };
       const outputHash = createHash('sha256').update(JSON.stringify(output)).digest('hex');

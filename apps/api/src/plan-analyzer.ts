@@ -3,7 +3,7 @@ import { PROMPT_VERSIONS } from '@ultida/agent-core';
 import { PlanProposalSchema, parsePlanIntake, type PlanProposal, type PlanIntakeResult } from '@ultida/plan-core';
 
 type Environment = Record<string, string | undefined>;
-type Input = { dataUrl: string; fileName: string; mimeType: string };
+type Input = { dataUrl: string; fileName: string; mimeType: string; brief?: Record<string, unknown> };
 type ProviderRun = { provider: 'openai' | 'gemini' | 'cloudflare' | 'intake-parser'; model: string; status: 'succeeded' | 'failed'; latencyMs: number; error?: string };
 
 function providerTimeoutMs(environment: Environment) {
@@ -19,7 +19,48 @@ function geminiVisionKey(environment: Environment) {
   return environment.GEMINI_VISION_API_KEY || environment.GEMINI_API_KEY || environment.GOOGLE_AI_STUDIO_KEY_1 || environment.GOOGLE_AI_STUDIO_KEY_2;
 }
 
-const prompt = `You are the extraction stage of a professional interior floor-plan review system. Read the supplied source without redesigning it.
+export function compileBriefContext(brief?: Record<string, unknown>): string {
+  if (!brief || Object.keys(brief).length === 0) {
+    return '';
+  }
+
+  const style = typeof brief.style === 'string' ? brief.style.trim() : '';
+  const propertyType = typeof brief.propertyType === 'string' ? brief.propertyType.trim() : '';
+  const rooms = typeof brief.rooms === 'string' ? brief.rooms.trim() : '';
+  const budgetRange = typeof brief.budgetRange === 'string' ? brief.budgetRange.trim() : '';
+  const lifestyle = typeof brief.lifestyle === 'string' ? brief.lifestyle.trim() : '';
+  const storageNeeds = typeof brief.storageNeeds === 'string' ? brief.storageNeeds.trim() : '';
+  const kitchenRequirements = typeof brief.kitchenRequirements === 'string' ? brief.kitchenRequirements.trim() : '';
+  const materials = typeof brief.materials === 'string' ? brief.materials.trim() : '';
+  const timeline = typeof brief.timeline === 'string' ? brief.timeline.trim() : '';
+  const appliancesServices = typeof brief.appliancesServices === 'string' ? brief.appliancesServices.trim() : '';
+  const vastuPreference = typeof brief.vastuPreference === 'string' ? brief.vastuPreference.trim() : '';
+  const approvalNotes = typeof brief.approvalNotes === 'string' ? brief.approvalNotes.trim() : '';
+
+  const clauses = [
+    style ? `The selected style is ${style}.` : '',
+    propertyType ? `This is a ${propertyType}.` : '',
+    rooms ? `The requested room scope includes: ${rooms}.` : '',
+    budgetRange ? `Budget context: ${budgetRange}.` : '',
+    lifestyle ? `Household use: ${lifestyle}.` : '',
+    storageNeeds ? `Storage priorities: ${storageNeeds}.` : '',
+    kitchenRequirements ? `Kitchen workflow guidance: ${kitchenRequirements}.` : '',
+    materials ? `Preferred materials: ${materials}.` : '',
+    timeline ? `Timeline pressure: ${timeline}.` : '',
+    appliancesServices ? `Appliances or services: ${appliancesServices}.` : '',
+    vastuPreference ? `Vastu preference: ${vastuPreference}.` : '',
+    approvalNotes ? `Client approvals and exclusions: ${approvalNotes}.` : '',
+  ].filter(Boolean);
+
+  if (!clauses.length) {
+    return '';
+  }
+
+  return `\n\nPROJECT BRIEF\nOnly use the following as bias, not as source geometry:\n- ${clauses.join('\n- ')}`;
+}
+
+export function buildPlanPrompt(brief?: Record<string, unknown>) {
+  const base = `You are the extraction stage of a professional interior floor-plan review system. Read the supplied source without redesigning it.
 
 Extract only visible evidence: walls, room zones, doors/windows/passages, room labels and written dimensions. Never invent a dimension, wall or opening. Preserve uncertainty.
 
@@ -39,6 +80,12 @@ SELF CHECK
 6. Do not split a straight wall into redundant collinear fragments. Omit an entity class only when no visible evidence exists.
 7. Keep each note to 12 words or fewer.
 8. Output JSON only as {"proposals":[{"kind":"wall|opening|room|dimension","confidence":0.0,"geometry":{},"note":""}]}.`;
+
+  const briefContext = compileBriefContext(brief);
+  return `${base}${briefContext}`;
+}
+
+const prompt = buildPlanPrompt();
 
 function clampCoordinate(value: number) { return Math.max(0, Math.min(1000, value)); }
 
@@ -83,6 +130,7 @@ function topologyIssues(proposals: PlanProposal[]) {
 async function analyzeOpenAi(environment: Environment, input: Input) {
   if (input.mimeType === 'application/pdf') throw new Error('OpenAI PDF rasterization is not configured; Gemini handles PDF analysis in this deployment.');
   const model = environment.OPENAI_VISION_MODEL || 'gpt-4o-mini';
+  const prompt = buildPlanPrompt(input.brief);
   const response = await fetchWithProviderTimeout(environment, 'https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${environment.OPENAI_API_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_schema', json_schema: { name: 'floor_plan_analysis_v1', strict: true, schema: { type: 'object', additionalProperties: false, required: ['proposals'], properties: { proposals: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'object', additionalProperties: false, required: ['kind', 'confidence', 'geometry', 'note'], properties: { kind: { type: 'string', enum: ['wall', 'opening', 'room', 'dimension'] }, confidence: { type: 'number', minimum: 0, maximum: 1 }, geometry: { type: 'object', additionalProperties: { type: 'number' } }, note: { type: 'string', maxLength: 160 } } } } } } } }, messages: [{ role: 'system', content: prompt }, { role: 'user', content: [{ type: 'text', text: `Source file ${input.fileName}. Extract visible plan evidence and run the self-check.` }, { type: 'image_url', image_url: { url: input.dataUrl, detail: 'high' } }] }] }) });
   if (!response.ok) throw new Error(`OpenAI plan analyzer failed (${response.status}).`);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
@@ -94,6 +142,7 @@ async function analyzeOpenAi(environment: Environment, input: Input) {
 async function analyzeGemini(environment: Environment, input: Input) {
   const model = environment.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
   const apiKey = geminiVisionKey(environment);
+  const prompt = buildPlanPrompt(input.brief);
   const response = await fetchWithProviderTimeout(environment, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }, contents: [{ parts: [{ text: `${prompt}\nSource file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: input.dataUrl.split(',')[1] } }] }] }) });
   if (!response.ok) throw new Error(`Gemini plan analyzer failed (${response.status}).`);
   const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
@@ -106,14 +155,13 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
   const accountId = environment.CLOUDFLARE_ACCOUNT_ID;
   const token = environment.CLOUDFLARE_AI_TOKEN;
   if (!accountId || !token) throw new Error('Cloudflare Workers AI credentials are not configured.');
-
+  const prompt = buildPlanPrompt(input.brief);
   const candidateModels = Array.from(new Set([
     environment.CLOUDFLARE_VISION_MODEL,
     environment.CLOUDFLARE_PLAN_MODEL,
     '@cf/meta/llama-3.2-11b-vision-instruct',
     '@cf/llava-hl/llava-1.5-7b-hf'
   ].filter(Boolean) as string[]));
-
   let lastError: Error | null = null;
   for (const model of candidateModels) {
     if (model.includes('8b-instruct') && !model.includes('vision')) continue;

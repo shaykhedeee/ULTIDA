@@ -5,6 +5,7 @@
     "rootDir": "src",
     "baseUrl": ".",
     "paths": {
+      "@ultida/layout-core": ["../layout-core/dist/index.js"],
       "@ultida/render-pipeline": ["../render-pipeline/src/index.ts"],
       "@ultida/scene-compiler": ["../scene-compiler/src/index.ts"],
       "@ultida/scene-core": ["../scene-core/src/index.ts"],
