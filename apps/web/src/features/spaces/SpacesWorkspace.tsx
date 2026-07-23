@@ -4,7 +4,7 @@
 
 import {
   Home, CheckCircle2, Circle, Edit3, ArrowRight, AlertTriangle,
-  Plus, Settings2, Sparkles, Layers, Sliders, Check
+  Plus, Settings2, Sparkles, Layers, Sliders, Check, Wand2
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -48,6 +48,26 @@ const FURNITURE_OPTIONS: Record<string, string[]> = {
   other: ['Storage Unit', 'Study Unit', 'Utility Counter'],
 };
 
+const DEFAULT_CEILING = 2700;
+const DEFAULT_FINISH = 'Vitrified Tiles';
+const DEFAULT_FALSE_CEILING = 'Peripheral Cove Lighting';
+
+function deriveDefaults(space: { roomType?: string; areaSqm?: number; budgetInr?: number }): Partial<SpaceRoom> {
+  const budgetInr = typeof space.budgetInr === 'number' ? space.budgetInr : undefined;
+  const areaSqm = typeof space.areaSqm === 'number' ? space.areaSqm : 0;
+  const budgetPerSqm = budgetInr && areaSqm ? budgetInr / areaSqm : undefined;
+  const suggestedFurniture = FURNITURE_OPTIONS[space.roomType ?? 'living'] ?? FURNITURE_OPTIONS.living;
+  const recommended = budgetPerSqm && budgetPerSqm < 3500
+    ? suggestedFurniture.slice(0, 2)
+    : suggestedFurniture.slice(0, 4);
+  return {
+    ceilingHeightMm: DEFAULT_CEILING,
+    floorFinish: DEFAULT_FINISH,
+    falseCeiling: DEFAULT_FALSE_CEILING,
+    requiredFurniture: recommended,
+  };
+}
+
 export function SpacesWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
@@ -58,6 +78,7 @@ export function SpacesWorkspace() {
 
   // Modal form
   const [editForm, setEditForm] = useState<Partial<SpaceRoom>>({});
+  const [autoApply, setAutoApply] = useState(false);
 
   useEffect(() => {
     if (!supabase || !projectId) return;
@@ -197,7 +218,7 @@ export function SpacesWorkspace() {
                     <span className="space-type-badge">{space.roomType}</span>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {space.dimensionsText} • {space.areaSqm} m²
+                    {space.dimensionsText} • {areaSqmText(space)}
                   </div>
                 </div>
                 <Badge tone={isReady ? 'success' : 'warn'}>
@@ -242,7 +263,7 @@ export function SpacesWorkspace() {
 
               {/* Furniture List Tags */}
               <div>
-                <small style={{ marginBottom: 4 }}>Required Furniture</small>
+                <small style={{ marginBottom: 4 }}>Suggested modules</small>
                 <div className="furniture-tags">
                   {space.requiredFurniture.map((f, i) => (
                     <span key={i} className="furniture-tag">{f}</span>
@@ -305,15 +326,15 @@ export function SpacesWorkspace() {
                   <label>Ceiling Height (mm)</label>
                   <input
                     type="number"
-                    value={editForm.ceilingHeightMm ?? 2700}
-                    onChange={(e) => setEditForm({ ...editForm, ceilingHeightMm: parseInt(e.target.value, 10) || 2700 })}
+                    value={editForm.ceilingHeightMm ?? DEFAULT_CEILING}
+                    onChange={(e) => setEditForm({ ...editForm, ceilingHeightMm: parseInt(e.target.value, 10) || DEFAULT_CEILING })}
                   />
                 </div>
                 <div className="form-field">
                   <label>Floor Finish</label>
                   <input
                     type="text"
-                    value={editForm.floorFinish ?? ''}
+                    value={editForm.floorFinish ?? DEFAULT_FINISH}
                     onChange={(e) => setEditForm({ ...editForm, floorFinish: e.target.value })}
                     placeholder="e.g. Vitrified Tiles"
                   />
@@ -322,7 +343,7 @@ export function SpacesWorkspace() {
                 <div className="form-field" style={{ gridColumn: '1 / -1' }}>
                   <label>False Ceiling Type</label>
                   <select
-                    value={editForm.falseCeiling ?? 'Peripheral Cove Lighting'}
+                    value={editForm.falseCeiling ?? DEFAULT_FALSE_CEILING}
                     onChange={(e) => setEditForm({ ...editForm, falseCeiling: e.target.value })}
                   >
                     <option value="Peripheral Cove Lighting">Peripheral Cove Lighting</option>
@@ -334,6 +355,14 @@ export function SpacesWorkspace() {
                 </div>
               </div>
 
+              {/* Smart Recommendations */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button type="button" onClick={() => setAutoApply((v) => !v)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 7, border: '1px solid var(--line)', background: autoApply ? 'rgba(197,156,45,.12)' : 'var(--surface)', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  <Wand2 size={13} /> Recommend modules
+                </button>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Suggests a starting furniture set from the brief.</span>
+              </div>
+
               {/* Furniture selector */}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>
@@ -342,6 +371,7 @@ export function SpacesWorkspace() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
                   {(FURNITURE_OPTIONS[editForm.roomType ?? 'living'] ?? FURNITURE_OPTIONS.living).map((item) => {
                     const selected = (editForm.requiredFurniture ?? []).includes(item);
+                    const recommended = autoApply && deriveDefaults(editForm).requiredFurniture?.includes(item);
                     return (
                       <button
                         key={item}
@@ -349,9 +379,9 @@ export function SpacesWorkspace() {
                         onClick={() => toggleFurniture(item)}
                         style={{
                           padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                          border: selected ? '1px solid var(--gold)' : '1px solid var(--line)',
-                          background: selected ? 'rgba(197,156,45,.15)' : 'var(--surface)',
-                          color: selected ? 'var(--gold-dim)' : 'var(--text-secondary)'
+                          border: recommended ? '1px solid var(--gold)' : selected ? '1px solid var(--gold)' : '1px solid var(--line)',
+                          background: recommended ? 'rgba(197,156,45,.18)' : selected ? 'rgba(197,156,45,.15)' : 'var(--surface)',
+                          color: recommended ? 'var(--gold-dim)' : selected ? 'var(--gold-dim)' : 'var(--text-secondary)'
                         }}
                       >
                         {selected && <Check size={11} style={{ display: 'inline', marginRight: 4 }} />}
@@ -371,4 +401,9 @@ export function SpacesWorkspace() {
       )}
     </div>
   );
+}
+
+function areaSqmText(space: SpaceRoom) {
+  if (!space.areaSqm) return '0 m²';
+  return `${space.areaSqm} m²`;
 }
