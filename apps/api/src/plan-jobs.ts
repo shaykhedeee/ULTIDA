@@ -6,10 +6,80 @@ import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { analyzePlanWithProvider } from './plan-analyzer.js';
+import { reconcilePlan, type CvTraceResult, type VisionSemanticResult } from './plan/reconcile_plan.js';
 
 const execFileAsync = promisify(execFile);
 type Environment = Record<string, string | undefined>;
 type PlanJobRequest = { projectId: string; sourceAssetId: string; fileName: string; mimeType: string; idempotencyKey?: string };
+
+/**
+ * Run the deterministic OpenCV wall-tracer as a separate Python process and
+ * return its candidate geometry. Returns null when Python/OpenCV is not
+ * available so the vision-only analysis can still proceed (never block the
+ * whole job on a missing CV dependency — per ARCHITECTURE.md invariant #5).
+ */
+async function runCvTrace(raster: Uint8Array, mimeType: string): Promise<{ result: CvTraceResult; stderr: string } | null> {
+  const python = process.env.CV_PYTHON_PATH || 'python3';
+  // The wall_tracer.py lives in src/cv (tsc does not emit .py files to dist),
+  // so resolve relative to this module and fall back to the source tree.
+  const candidates = [
+    new URL('../cv/wall_tracer.py', import.meta.url),
+    new URL('../../src/cv/wall_tracer.py', import.meta.url),
+    new URL('../../../apps/api/src/cv/wall_tracer.py', import.meta.url),
+  ];
+  let scriptPath = '';
+  for (const c of candidates) {
+    try {
+      await readFile(new URL('file://' + c.pathname));
+      scriptPath = c.pathname || c.href.replace(/^file:\/\//, '');
+      break;
+    } catch { /* try next */ }
+  }
+  if (!scriptPath) return { result: null as unknown as CvTraceResult, stderr: 'wall_tracer.py not found' };
+  const dir = await mkdtemp(join(tmpdir(), 'ultida-cv-'));
+  const inPath = join(dir, `plan.${mimeType === 'image/png' ? 'png' : 'jpg'}`);
+  const outPath = join(dir, 'trace.json');
+  try {
+    await writeFile(inPath, raster);
+    await execFileAsync(python, [scriptPath, inPath, outPath], { timeout: 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
+    const raw = await readFile(outPath, 'utf8');
+    return { result: JSON.parse(raw) as CvTraceResult, stderr: '' };
+  } catch (error) {
+    return { result: null as unknown as CvTraceResult, stderr: error instanceof Error ? error.message : String(error) };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** Adapt the existing vision-analyzer proposals into the reconciler's semantic shape. */
+function visionProposalsToSemantic(proposals: Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string }>): VisionSemanticResult {
+  const rooms: VisionSemanticResult['rooms'] = [];
+  const openings: VisionSemanticResult['openings'] = [];
+  for (const p of proposals) {
+    const g = p.geometry as Record<string, number>;
+    if (p.kind === 'room') {
+      rooms.push({
+        label: String(p.note ?? 'Room'),
+        roomType: String(p.note ?? 'room'),
+        approxPolygonPx: [
+          { x: Number(g.x ?? 0), y: Number(g.y ?? 0) },
+          { x: Number(g.x ?? 0) + Number(g.width ?? 0), y: Number(g.y ?? 0) },
+          { x: Number(g.x ?? 0) + Number(g.width ?? 0), y: Number(g.y ?? 0) + Number(g.height ?? 0) },
+          { x: Number(g.x ?? 0), y: Number(g.y ?? 0) + Number(g.height ?? 0) },
+        ],
+        confidence: Number(p.confidence ?? 0.5),
+      });
+    } else if (p.kind === 'opening') {
+      openings.push({
+        kind: Number(g.kind ?? 0) === 1 ? 'window' : 'door',
+        approxCenterPx: { x: Number(g.x ?? 0), y: Number(g.y ?? 0) },
+        approxWidthPx: Number(g.width ?? 0),
+        confidence: Number(p.confidence ?? 0.5),
+      });
+    }
+  }
+  return { rooms, openings, dimensionTextFindings: [] };
+}
 
 function serverClient(environment: Environment) {
   const url = environment.SUPABASE_URL;
@@ -103,7 +173,25 @@ export async function processPlanAnalysisJobs(environment: Environment, limit = 
       const briefRes = await client.from('project_briefs').select('brief').eq('project_id', job.project_id).maybeSingle();
       const analysis = await analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief });
       if (!analysis) throw new Error('No configured floor-plan analysis provider is available.');
-      const output = { ...analysis, sourceAssetId: input.sourceAssetId, sourceMimeType: input.mimeType };
+
+      // Deterministic CV geometry pass — runs alongside the vision pass and is
+      // reconciled into a single candidate per ARCHITECTURE.md invariant #4.
+      const cvTrace = await runCvTrace(raster, analysisMimeType).catch(() => null);
+      let reconciled = null;
+      let cvStatus = 'skipped';
+      if (cvTrace && cvTrace.result && (cvTrace.result as unknown as CvTraceResult).walls) {
+        try {
+          const vision = visionProposalsToSemantic(analysis.proposals as Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string }>);
+          reconciled = reconcilePlan(cvTrace.result as unknown as CvTraceResult, vision);
+          cvStatus = 'reconciled';
+        } catch (reconcileError) {
+          cvStatus = `reconcile_failed: ${reconcileError instanceof Error ? reconcileError.message : String(reconcileError)}`;
+        }
+      } else if (cvTrace && cvTrace.stderr) {
+        cvStatus = `cv_unavailable: ${cvTrace.stderr.slice(0, 160)}`;
+      }
+
+      const output = { ...analysis, sourceAssetId: input.sourceAssetId, sourceMimeType: input.mimeType, cvCandidate: cvTrace?.result ?? null, reconciled, cvStatus };
       const outputHash = createHash('sha256').update(JSON.stringify(output)).digest('hex');
       const providerRuns = Array.isArray(analysis.providerRuns) ? analysis.providerRuns : [];
       if (providerRuns.length) {

@@ -344,3 +344,7 @@ export type ProviderCapabilityV1 = z.infer<typeof ProviderCapabilityV1Schema>;
 export { StageNameSchema, StageStatusSchema, type StageName, type StageStatus, StageStateSchema, type StageState, WorkflowStatusResponseSchema, type WorkflowStatusResponse } from './stage-types.js';
 export { StageNameSchema as ProjectStageNameSchema, StageStatusSchema as ProjectStageStatusSchema, StageStateSchema as ProjectStageStateSchema, type StageName as ProjectStageName, type StageStatus as ProjectStageStatus, type StageState as ProjectStageState, WorkflowStatusResponseSchema as ProjectWorkflowStatusResponseSchema, type WorkflowStatusResponse as ProjectWorkflowStatusResponse } from './stage-types.js';
 
+export type {
+  StylePreference, BudgetBand, PriorityDriver, BriefCoreV1, RoomRequirementsV1,
+} from './brief_schema.js';
+

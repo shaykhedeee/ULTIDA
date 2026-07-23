@@ -104,14 +104,20 @@ def preprocess(gray: np.ndarray, color_img: np.ndarray = None) -> np.ndarray:
 
 
 def detect_segments(binary: np.ndarray):
-    """Probabilistic Hough transform -> raw line segments."""
+    """Probabilistic Hough transform -> raw line segments.
+
+    OpenCV 4.x returned shape (N, 1, 4); OpenCV 5.x may return a flat
+    (N, 4) array. Normalize both to a list of (x1,y1,x2,y2) tuples so the
+    rest of the pipeline is version-agnostic.
+    """
     lines = cv2.HoughLinesP(
         binary, rho=1, theta=np.pi / 180, threshold=60,
         minLineLength=40, maxLineGap=8,
     )
     if lines is None:
         return []
-    return [tuple(l[0]) for l in lines]
+    lines = np.asarray(lines).reshape(-1, 4)
+    return [tuple(int(v) for v in row) for row in lines]
 
 
 def segment_angle(seg):
