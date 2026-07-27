@@ -19,11 +19,13 @@ if (existsSync(localEnv)) {
 
 import { getRequestSupabaseClient } from './supabase.js';
 import { authenticateProjectUser, requireProjectUser } from './api-auth.js';
-import { CanonicalPlanV1Schema, VisualProposalRequestSchema } from '@ultida/contracts';
+import { CanonicalPlanV1Schema, VisualProposalRequestSchema, validateProjectBrief } from '@ultida/contracts';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { SceneV1Schema } from '@ultida/scene-core';
 import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog } from '@ultida/catalog-core';
 import { parsePlanIntake } from '@ultida/plan-core';
+import { validateGeometry } from '@ultida/geometry-core';
+import { analyzePlanFile } from './plan-analysis-service.js';
 import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { listAuraTools } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
@@ -187,6 +189,127 @@ app.get('/api/plan/analyze/:jobId', requireProjectUser, async (request, response
   if (result.status === 'unavailable') return response.status(503).json({ success: false, code: 'PLAN_JOB_PERSISTENCE_UNAVAILABLE' });
   if (result.status === 'not_found') return response.status(404).json({ success: false, code: 'PLAN_JOB_NOT_FOUND' });
   return response.json({ success: true, ...result });
+});
+
+// ─── Real plan-analysis pipeline (provider + deterministic CV/OCR + reconciliation) ───
+app.post('/api/projects/:projectId/plan-analysis', requireProjectUser, async (request, response) => {
+  return response.status(410).json({ success: false, code: 'PLAN_ANALYSIS_ROUTE_RETIRED', message: 'Use the durable floor-plan flow: initiate upload, complete upload, then poll the plan-analysis job.', replacement: 'POST /api/plan/analyze' });
+  /* Legacy synchronous analysis implementation retained temporarily for source-level migration reference. */
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const body = request.body ?? {};
+  const { fileName, mimeType, dataUrl } = body;
+  if (typeof fileName !== 'string' || typeof mimeType !== 'string' || typeof dataUrl !== 'string') {
+    return response.status(400).json({ success: false, code: 'INVALID_PLAN_ANALYSIS', message: 'fileName, mimeType and dataUrl are required.' });
+  }
+  const match = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+  if (!match) return response.status(400).json({ success: false, code: 'INVALID_DATA_URL', message: 'dataUrl must be a base64 data URL.' });
+  const buffer = Buffer.from(match[2], 'base64');
+
+  try {
+    const result = await analyzePlanFile({
+      projectId: authReq.ultidaUser!.projectId,
+      organizationId: authReq.ultidaUser!.organizationId ?? '',
+      fileName,
+      mimeType,
+      buffer,
+    });
+
+    // Persist the analysis run + draft (fail visibly, never silently)
+    const client = getRequestSupabaseClient(request);
+    const orgId = authReq.ultidaUser!.organizationId ?? '';
+    const persistence: { planAnalyses: 'ok' | 'failed'; planAnalysisDrafts: 'ok' | 'failed'; error?: string } = {
+      planAnalyses: 'ok',
+      planAnalysisDrafts: 'ok',
+    };
+    const { error: insErr } = await client.from('plan_analyses').insert({
+      organization_id: orgId,
+      project_id: authReq.ultidaUser!.projectId,
+      analysis_uuid: result.analysisUuid,
+      provider: result.provider,
+      model: result.model,
+      prompt_version: result.promptVersion,
+      source_file_name: result.sourceFileName,
+      source_mime_type: result.sourceMimeType,
+      input_sha256: result.inputSha256,
+      preview_sha256: result.previewSha256,
+      deterministic: { lineWallCount: result.deterministic.lineWallCount, openingCount: result.deterministic.openingCount, ocrText: result.deterministic.ocrText },
+      response_validated: result.responseValidated as unknown as Record<string, unknown>,
+      latency_ms: result.latencyMs,
+      usage: (result.usage ?? null) as unknown as Record<string, unknown> | null,
+      status: 'succeeded',
+    });
+    if (insErr) {
+      persistence.planAnalyses = 'failed';
+      persistence.error = insErr.message;
+    }
+    const { error: draftErr } = await client.from('plan_analysis_drafts').insert({
+      organization_id: orgId,
+      project_id: authReq.ultidaUser!.projectId,
+      analysis_uuid: result.analysisUuid,
+      elements: result.elements as unknown as Record<string, unknown>[],
+      issues: result.issues as unknown as Record<string, unknown>[],
+      status: 'needs_review',
+    });
+    if (draftErr) {
+      persistence.planAnalysisDrafts = 'failed';
+      persistence.error = draftErr.message;
+    }
+
+    return response.status(200).json({
+      success: true,
+      persisted: persistence.planAnalyses === 'ok' && persistence.planAnalysisDrafts === 'ok',
+      persistence,
+      analysisUuid: result.analysisUuid,
+      provider: result.provider,
+      model: result.model,
+      latencyMs: result.latencyMs,
+      usage: result.usage ?? null,
+      previewDataUrl: result.previewDataUrl,
+      deterministic: result.deterministic,
+      elements: result.elements,
+      issues: result.issues,
+    });
+  } catch (err) {
+    const e = err as { code?: string; status?: number; message?: string };
+    const status = e.status ?? (e.code === 'AI_PROVIDER_NOT_CONFIGURED' ? 503 : 500);
+    return response.status(status).json({ success: false, code: e.code ?? 'PLAN_ANALYSIS_FAILED', message: e.message ?? 'Plan analysis failed.' });
+  }
+});
+
+app.get('/api/projects/:projectId/plan-analysis/draft', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const client = getRequestSupabaseClient(request);
+  const { data, error } = await client
+    .from('plan_analysis_drafts')
+    .select('*')
+    .eq('project_id', authReq.ultidaUser!.projectId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return response.status(502).json({ success: false, code: 'PLAN_DRAFT_LOAD_FAILED', message: error.message });
+  return response.json({ success: true, draft: data });
+});
+
+app.put('/api/projects/:projectId/plan-analysis/draft', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const body = request.body ?? {};
+  const { analysisUuid, elements, issues, scale, ceilingHeightMm, status } = body;
+  if (typeof analysisUuid !== 'string') return response.status(400).json({ success: false, code: 'MISSING_ANALYSIS_UUID', message: 'analysisUuid is required.' });
+  const client = getRequestSupabaseClient(request);
+  const { error } = await client
+    .from('plan_analysis_drafts')
+    .update({
+      elements: elements as unknown as Record<string, unknown>[],
+      issues: issues as unknown as Record<string, unknown>[],
+      scale: scale ?? null,
+      ceiling_height_mm: ceilingHeightMm ?? null,
+      status: status ?? 'needs_review',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('analysis_uuid', analysisUuid)
+    .eq('project_id', authReq.ultidaUser!.projectId);
+  if (error) return response.status(502).json({ success: false, code: 'PLAN_DRAFT_UPDATE_FAILED', message: error.message });
+  return response.json({ success: true });
 });
 
 app.post('/api/internal/plan-jobs/process', async (request, response) => {
@@ -561,6 +684,8 @@ const writeProjectBrief = async (request: express.Request, response: express.Res
   const organizationId = authReq.ultidaUser!.organizationId;
   const { brief, clientName, clientEmail, clientPhone, siteLocation, propertyType, numBedrooms, isRenovation, ceilingHeightMm, budgetInr, measurementUnits, stylePreferences, customStyleRef, companyStandards, roomRequirements, isComplete } = request.body ?? {};
   const document = brief && typeof brief === 'object' ? brief : request.body ?? {};
+  const briefValidation = validateProjectBrief(document);
+  if (!briefValidation.valid) return response.status(422).json({ success: false, code: 'BRIEF_SCHEMA_INVALID', message: 'The brief contains invalid fields.', fieldErrors: briefValidation.fieldErrors });
   const fieldErrors: Record<string, string> = {};
   for (const [key, label] of [['clientName', 'Client name'], ['projectName', 'Project name'], ['propertyType', 'Property type'], ['rooms', 'Rooms and scope'], ['budgetRange', 'Budget range'], ['timeline', 'Timeline']] as const) {
     if (!String(document[key] ?? '').trim()) fieldErrors[key] = `${label} is required.`;
@@ -631,6 +756,37 @@ app.get('/api/projects/:projectId/spaces', requireProjectUser, async (request, r
   const spaces = await client.from('spaces').select('*').eq('project_id', request.params.projectId).eq('floor_plan_version_id', project.data.active_floor_plan_version_id).order('created_at');
   if (spaces.error) return response.status(500).json({ success: false, code: 'SPACES_READ_FAILED', message: spaces.error.message });
   return response.json({ success: true, floorPlanVersionId: project.data.active_floor_plan_version_id, spaces: spaces.data ?? [] });
+});
+
+app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async (request, response) => {
+  const client = getRequestSupabaseClient(request);
+  const version = await client
+    .from('floor_plan_versions')
+    .select('id,canonical_model,scale_state,verification_state,approved_at,active_version')
+    .eq('project_id', request.params.projectId)
+    .eq('active_version', true)
+    .maybeSingle();
+  if (version.error) return response.status(500).json({ success: false, code: 'PLAN_READ_FAILED', message: version.error.message });
+  if (!version.data || !version.data.approved_at) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'An approved floor plan is required before configuring spaces.' });
+  const plan = version.data.canonical_model ?? {};
+  const rooms = (plan.rooms ?? plan.spaces ?? []).map((r: any) => ({
+    id: r.id, name: r.name ?? r.roomType ?? r.id, roomType: r.roomType ?? r.type ?? 'other',
+    polygon: r.worldGeometry?.polygon ?? r.polygon ?? [], areaSqm: r.areaSqm, ceilingHeightMm: r.ceilingHeightMm,
+  }));
+  const walls = (plan.walls ?? []).map((w: any) => ({ id: w.id, start: w.worldGeometry?.start, end: w.worldGeometry?.end, isExterior: w.isExterior }));
+  const openings = (plan.openings ?? []).map((o: any) => ({ id: o.id, wallId: o.wallId, kind: o.kind, offsetAlongWallMm: o.offsetAlongWallMm, widthMm: o.widthMm }));
+  const columns = (plan.columns ?? []).map((c: any) => ({ id: c.id, position: c.position ?? c.worldGeometry?.center, sizeMm: c.sizeMm }));
+  const beams = (plan.beams ?? []).map((b: any) => ({ id: b.id, start: b.start ?? b.worldGeometry?.start, end: b.end ?? b.worldGeometry?.end }));
+  const services = (plan.servicePoints ?? plan.services ?? []).map((s: any) => ({ id: s.id, kind: s.kind, position: s.position ?? s.positionMm }));
+  const annotations = (plan.annotations ?? []).map((a: any) => ({ id: a.id, text: a.text, kind: a.kind, position: a.position }));
+  const issues = plan.unresolvedItems ?? plan.issues ?? [];
+  return response.json({
+    success: true,
+    floorPlanVersionId: version.data.id,
+    scaleVerified: version.data.scale_state === 'verified' || plan.scale?.verified === true,
+    ceilingHeightMm: Number(plan.ceilingHeightMm ?? 2700),
+    rooms, walls, openings, columns, beams, services, annotations, issues,
+  });
 });
 
 app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (request, response) => {
