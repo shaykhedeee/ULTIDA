@@ -342,9 +342,9 @@ export const ProviderCapabilityV1Schema = z.object({
 export type ProviderCapabilityV1 = z.infer<typeof ProviderCapabilityV1Schema>;
 
 export { StageNameSchema, StageStatusSchema, type StageName, type StageStatus, StageStateSchema, type StageState, WorkflowStatusResponseSchema, type WorkflowStatusResponse } from './stage-types.js';
+export { ProjectLifecycleStageV1Schema, VersionLineageV1Schema, DesignVersionV1Schema, SceneV1Schema, RenderJobV1Schema, type ProjectLifecycleStageV1, type VersionLineageV1, type DesignVersionV1, type SceneV1, type RenderJobV1 } from './lifecycle.js';
 export { StageNameSchema as ProjectStageNameSchema, StageStatusSchema as ProjectStageStatusSchema, StageStateSchema as ProjectStageStateSchema, type StageName as ProjectStageName, type StageStatus as ProjectStageStatus, type StageState as ProjectStageState, WorkflowStatusResponseSchema as ProjectWorkflowStatusResponseSchema, type WorkflowStatusResponse as ProjectWorkflowStatusResponse } from './stage-types.js';
 
 export type {
   StylePreference, BudgetBand, PriorityDriver, BriefCoreV1, RoomRequirementsV1,
 } from './brief_schema.js';
-

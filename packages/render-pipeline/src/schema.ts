@@ -14,7 +14,15 @@ export const RenderStateSchema = z.enum([
   'completed_with_warnings',
   'failed'
 ]);
-export const ArtifactTypeSchema = z.enum(['rgb', 'depth', 'edge_map', 'object_mask', 'material_region', 'artifacts_archive']);
+export const ArtifactTypeSchema = z.enum(['rgb', 'depth', 'edge_map', 'object_mask', 'material_region', 'photoreal_render', 'artifacts_archive']);
+
+export const RenderReadinessSchema = z.object({
+  ready: z.boolean(),
+  blockingCount: z.number().int().nonnegative(),
+  warningCount: z.number().int().nonnegative(),
+  issues: z.array(z.object({ code: z.string(), severity: z.enum(['blocking', 'warning']), message: z.string(), entityIds: z.array(z.string()) }))
+});
+export type RenderReadiness = z.infer<typeof RenderReadinessSchema>;
 
 export const RoomSchema = z.object({ id: z.string().min(1), name: z.string().min(1), category: z.string().min(1) });
 export type Room = z.infer<typeof RoomSchema>;
@@ -63,6 +71,15 @@ export const PersistedRenderRecordSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1),
   promptVersion: z.string().min(1),
+  // Provider proof (required for every production render artifact).
+  baseHash: z.string().min(1).optional(), // sha256 of the deterministic base render
+  outputHash: z.string().min(1).optional(), // sha256 of the enhanced image bytes
+  startedAt: z.string().optional(), // ISO, when the job began invoking the provider
+  completedAt: z.string().optional(), // ISO, when the provider returned + QA ran
+  latencyMs: z.number().nonnegative().optional(), // provider round-trip + QA time
+  usage: z.record(z.unknown()).optional(), // tokens / cost where the provider exposes it
+  providerAttempts: z.array(z.string()).default([]), // provider chain attempted
+  restoredFrom: z.string().optional(), // render id this was refreshed/restored from
   sourceSceneGraph: z.unknown().optional(),
   selectedMaterials: z.array(z.object({ id: z.string(), code: z.string(), name: z.string() })).default([]),
   options: RenderOptionsSchema,
