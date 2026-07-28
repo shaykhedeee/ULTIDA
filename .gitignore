@@ -16,5 +16,9 @@ apps/*/node_modules/
 apps/*/tsconfig.tsbuildinfo
 
 .vercel
+.playwright-browsers/
 .peridot/
 .agents/
+
+.vercel
+.env*

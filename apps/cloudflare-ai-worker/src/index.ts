@@ -1,6 +1,7 @@
 interface Env {
   API_BASE: string;
   ULTIDA_WORKER_SHARED_SECRET: string;
+  VERCEL_PROTECTION_BYPASS_SECRET?: string;
   AI_JOBS: {
     send(message: JobMessage): Promise<void>;
   };
@@ -24,7 +25,10 @@ async function processOne(env: Env) {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-ultida-worker-secret': env.ULTIDA_WORKER_SHARED_SECRET
+      'x-ultida-worker-secret': env.ULTIDA_WORKER_SHARED_SECRET,
+      ...(env.VERCEL_PROTECTION_BYPASS_SECRET
+        ? { 'x-vercel-protection-bypass': env.VERCEL_PROTECTION_BYPASS_SECRET }
+        : {})
     },
     body: JSON.stringify({ requestedBy: 'cloudflare-queue' })
   });
