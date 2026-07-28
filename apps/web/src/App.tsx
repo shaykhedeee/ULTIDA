@@ -776,7 +776,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         const fieldDetails = payload?.fieldErrors ? ` ${Object.values(payload.fieldErrors).join(' ')}` : '';
-        throw new Error(`${payload?.message ?? 'Brief could not be saved.'}${fieldDetails}`);
+          const detail = payload?.code ? ` [${payload.code}]` : '';
+          throw new Error(`${payload?.message ?? 'Brief could not be saved.'}${detail}${fieldDetails}`);
       }
     }
     setBrief(nextBrief);

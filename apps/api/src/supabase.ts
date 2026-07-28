@@ -3,7 +3,10 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 export type RequestSupabaseClient = SupabaseClient;
 
 const url = () => process.env.SUPABASE_URL;
-const apiKey = () => process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+// User-facing requests must use the request JWT with a valid client key.
+// Keep the service role available for trusted worker paths, but do not let a
+// stale SUPABASE_SECRET_KEY override a working publishable key.
+const apiKey = () => process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_SECRET_KEY;
 
 let client: SupabaseClient | null = null;
 
