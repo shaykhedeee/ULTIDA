@@ -24,6 +24,8 @@ type CatalogModule = {
   heightMm: number;
   sku: string;
   tags: string[];
+  description?: string;
+  manufacturingRules?: string[];
   production: { cutlistSupported: boolean };
 };
 
@@ -38,7 +40,10 @@ type Material = {
 };
 
 function apiBase() {
-  return import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+  const configured = String(import.meta.env.VITE_API_BASE ?? '').trim();
+  const isLocalTarget = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/api\/?$/i.test(configured);
+  if (typeof window !== 'undefined' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(window.location.origin) && isLocalTarget) return '/api';
+  return configured || '/api';
 }
 
 function materialSubtitle(material: Material) {
@@ -66,7 +71,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
         .then(async (response) => {
           const payload = await response.json().catch(() => null);
           if (!response.ok) throw new Error(payload?.message ?? 'The modular catalog could not be loaded.');
-          if (live) setModules(Array.isArray(payload?.modules) ? payload.modules : []);
+          if (!Array.isArray(payload?.modules)) throw new Error('The modular catalog returned an invalid response.');
+          if (live) setModules(payload.modules);
         }));
 
       if (supabase && organizationId) {
