@@ -82,8 +82,6 @@ export interface BriefCoreV1 {
    *  to complete the brief. */
   referenceImageUrls: string[];
 
-  /** Timeline as a band, same reasoning as budget. */
-  timelineBand: 'urgent_under_4_weeks' | 'standard_2_3_months' | 'flexible';
 }
 
 /**
@@ -127,7 +125,6 @@ export const ProjectBriefV1Schema = z.object({
   rooms: z.string().trim().max(1000).default(''),
   style: z.string().trim().max(120).default(''),
   budgetRange: z.string().trim().max(120).default(''),
-  timeline: z.string().trim().max(240).default(''),
   references: z.array(z.string().url()).max(20).default([]),
   companyStandards: z.record(z.unknown()).default({}),
   roomRequirements: z.record(z.unknown()).default({}),

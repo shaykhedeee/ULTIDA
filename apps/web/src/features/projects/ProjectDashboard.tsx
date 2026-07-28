@@ -81,7 +81,7 @@ function getThumbBg(index: number): string {
 }
 
 // ─── New Project Modal ────────────────────────────────────────────
-function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+function NewProjectModal({ onClose, onCreated, localDemoMode = false }: { onClose: () => void; onCreated: (id: string) => void; localDemoMode?: boolean }) {
   const [form, setForm] = useState({
     name: '', client_name: '', location: '', property_type: 'apartment',
   });
@@ -98,6 +98,14 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
     setError('');
 
     try {
+      if (localDemoMode) {
+        const now = new Date().toISOString();
+        const project: Project = { id: crypto.randomUUID(), name: form.name.trim(), client_name: form.client_name.trim(), location: form.location.trim() || null, property_type: form.property_type, workflow_stage: 'brief', project_status: 'draft', created_at: now, updated_at: now, assigned_designer: null };
+        const existing = JSON.parse(localStorage.getItem('ultida-demo-projects') || '[]') as Project[];
+        localStorage.setItem('ultida-demo-projects', JSON.stringify([project, ...existing]));
+        onCreated(project.id);
+        return;
+      }
       if (!supabase) throw new Error('Supabase not configured');
 
       // Get user and org
@@ -320,7 +328,7 @@ function SkeletonCard() {
 // ─── Main ProjectDashboard ────────────────────────────────────────
 const STATUS_FILTERS = ['all', 'draft', 'designing', 'client_review', 'approved', 'archived'];
 
-export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: string | null; orgName?: string | null }) {
+export function ProjectDashboard({ sessionEmail, orgName, localDemoMode = false }: { sessionEmail?: string | null; orgName?: string | null; localDemoMode?: boolean }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -330,6 +338,12 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
+    if (localDemoMode) {
+      try { setProjects(JSON.parse(localStorage.getItem('ultida-demo-projects') || '[]') as Project[]); }
+      catch { localStorage.removeItem('ultida-demo-projects'); setProjects([]); }
+      setLoading(false);
+      return;
+    }
     if (!supabase) { setError('Supabase is not configured.'); setLoading(false); return; }
     setLoading(true);
     setError('');
@@ -345,7 +359,7 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [localDemoMode]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -453,6 +467,7 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
       {/* New Project Modal */}
       {showNew && (
         <NewProjectModal
+          localDemoMode={localDemoMode}
           onClose={() => setShowNew(false)}
           onCreated={(id) => {
             setShowNew(false);

@@ -19,20 +19,22 @@ if (existsSync(localEnv)) {
 
 import { getRequestSupabaseClient } from './supabase.js';
 import { authenticateProjectUser, requireProjectUser } from './api-auth.js';
-import { CanonicalPlanV1Schema, VisualProposalRequestSchema, validateProjectBrief } from '@ultida/contracts';
+import { MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, VisualProposalRequestSchema, validateProjectBrief } from '@ultida/contracts';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { SceneV1Schema } from '@ultida/scene-core';
-import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog } from '@ultida/catalog-core';
-import { parsePlanIntake } from '@ultida/plan-core';
+import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, listDesignPresets, ModuleFamilySchema } from '@ultida/catalog-core';
+import { CanonicalPlanModelSchema, parsePlanIntake } from '@ultida/plan-core';
 import { validateGeometry } from '@ultida/geometry-core';
-import { analyzePlanFile } from './plan-analysis-service.js';
 import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { listAuraTools } from '@ultida/aura-tools';
-import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
+import { createVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
 import { buildDrawingProjection, exportSceneToDxf, generateDrawingPackageSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
-import { evaluateVastuCompliance } from '@ultida/layout-core';
+import { compileSceneV1, SceneCompilationError } from '@ultida/scene-compiler';
+import { resolveModuleWallAnchor } from './module-anchor.js';
+import { compileStoredModuleForScene } from './scene-module-parts.js';
+import { evaluateVastuCompliance, generateCandidates } from '@ultida/layout-core';
 
 const app = express();
 const port = Number(process.env.PORT || 8800);
@@ -42,36 +44,15 @@ function dxfLine(x1: number, y1: number, x2: number, y2: number, layer: string) 
   return ['0', 'LINE', '8', layer, '10', String(x1), '20', String(y1), '30', '0', '11', String(x2), '21', String(y2), '31', '0'];
 }
 
-function buildCutlist(scene: ReturnType<typeof migrateScene>) {
-  const parts = scene.modules.flatMap((module) => {
-    const thicknessMm = 18;
-    const backThicknessMm = 6;
-    const widthMm = Math.round(module.widthMm);
-    const depthMm = Math.round(module.depthMm);
-    const heightMm = Math.round(module.heightMm);
-    const rows = [
-      ['side-left', heightMm, depthMm, thicknessMm],
-      ['side-right', heightMm, depthMm, thicknessMm],
-      ['top', widthMm, depthMm, thicknessMm],
-      ['bottom', widthMm, depthMm, thicknessMm],
-      ['shelf', Math.max(1, widthMm - thicknessMm * 2), Math.max(1, depthMm - 20), thicknessMm],
-      ['shutter', heightMm, widthMm, thicknessMm],
-      ['back', Math.max(1, heightMm - 36), Math.max(1, widthMm - 36), backThicknessMm],
-    ] as const;
-    return rows.map(([partType, lengthMm, width, thickness]) => ({
-      id: `${module.id}-${partType}`,
-      moduleId: module.id,
-      roomId: module.roomId,
-      family: module.family,
-      partType,
-      lengthMm,
-      widthMm: width,
-      thicknessMm: thickness,
-      edgeBandMm: partType === 'back' ? 0 : Math.round((lengthMm + width) * 2),
-      hardware: partType === 'shutter' ? ['hinges', 'handle'] : [],
-      status: 'review_required',
-    }));
-  });
+export function buildCutlist(scene: ReturnType<typeof migrateScene>) {
+  const exactParts = Array.isArray((scene as any).moduleParts) ? (scene as any).moduleParts : [];
+  if (!exactParts.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
+  const parts = exactParts.map((part: any) => ({
+    id: String(part.id), moduleId: String(part.moduleId), roomId: String(part.roomId), family: String(part.semanticType ?? 'module-part'),
+    partType: String(part.name ?? part.semanticType ?? 'part'), lengthMm: Math.round(Number(part.widthMm)), widthMm: Math.round(Number(part.depthMm)), thicknessMm: Math.round(Number(part.heightMm)),
+    edgeBandMm: ['shutter', 'door', 'front'].some((value) => String(part.semanticType ?? '').toLowerCase().includes(value)) ? Math.round((Number(part.widthMm) + Number(part.depthMm)) * 2) : 0,
+    hardware: [], status: 'review_required',
+  }));
   return { partCount: parts.length, parts, assumptions: { carcassThicknessMm: 18, backThicknessMm: 6, edgeBandPolicy: 'perimeter', status: 'review_required' } };
 }
 
@@ -159,6 +140,14 @@ app.get('/api/catalog/modules', (request, response) => {
   return response.json({ success: true, source: 'ULTIDA Indian modular catalog', modules: listCatalog(room?.success ? room.data : undefined, query) });
 });
 
+app.get('/api/catalog/presets', (request, response) => {
+  const room = typeof request.query.room === 'string' ? RoomTypeSchema.safeParse(request.query.room) : null;
+  const family = typeof request.query.family === 'string' ? ModuleFamilySchema.safeParse(request.query.family) : null;
+  if (room && !room.success) return response.status(400).json({ success: false, code: 'INVALID_ROOM_TYPE' });
+  if (family && !family.success) return response.status(400).json({ success: false, code: 'INVALID_MODULE_FAMILY' });
+  return response.json({ success: true, source: 'ULTIDA reference-driven design presets', presets: listDesignPresets(room?.success ? room.data : undefined, family?.success ? family.data : undefined) });
+});
+
 app.post('/api/catalog/validate-placement', (request, response) => {
   const { moduleId, roomType, clearanceMm, adjacentFamily } = request.body ?? {};
   if (!moduleId || !roomType || typeof clearanceMm !== 'number') return response.status(400).json({ success: false, code: 'INVALID_PLACEMENT_REQUEST', message: 'moduleId, roomType and clearanceMm are required.' });
@@ -194,86 +183,6 @@ app.get('/api/plan/analyze/:jobId', requireProjectUser, async (request, response
 // ─── Real plan-analysis pipeline (provider + deterministic CV/OCR + reconciliation) ───
 app.post('/api/projects/:projectId/plan-analysis', requireProjectUser, async (request, response) => {
   return response.status(410).json({ success: false, code: 'PLAN_ANALYSIS_ROUTE_RETIRED', message: 'Use the durable floor-plan flow: initiate upload, complete upload, then poll the plan-analysis job.', replacement: 'POST /api/plan/analyze' });
-  /* Legacy synchronous analysis implementation retained temporarily for source-level migration reference. */
-  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
-  const body = request.body ?? {};
-  const { fileName, mimeType, dataUrl } = body;
-  if (typeof fileName !== 'string' || typeof mimeType !== 'string' || typeof dataUrl !== 'string') {
-    return response.status(400).json({ success: false, code: 'INVALID_PLAN_ANALYSIS', message: 'fileName, mimeType and dataUrl are required.' });
-  }
-  const match = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
-  if (!match) return response.status(400).json({ success: false, code: 'INVALID_DATA_URL', message: 'dataUrl must be a base64 data URL.' });
-  const buffer = Buffer.from(match[2], 'base64');
-
-  try {
-    const result = await analyzePlanFile({
-      projectId: authReq.ultidaUser!.projectId,
-      organizationId: authReq.ultidaUser!.organizationId ?? '',
-      fileName,
-      mimeType,
-      buffer,
-    });
-
-    // Persist the analysis run + draft (fail visibly, never silently)
-    const client = getRequestSupabaseClient(request);
-    const orgId = authReq.ultidaUser!.organizationId ?? '';
-    const persistence: { planAnalyses: 'ok' | 'failed'; planAnalysisDrafts: 'ok' | 'failed'; error?: string } = {
-      planAnalyses: 'ok',
-      planAnalysisDrafts: 'ok',
-    };
-    const { error: insErr } = await client.from('plan_analyses').insert({
-      organization_id: orgId,
-      project_id: authReq.ultidaUser!.projectId,
-      analysis_uuid: result.analysisUuid,
-      provider: result.provider,
-      model: result.model,
-      prompt_version: result.promptVersion,
-      source_file_name: result.sourceFileName,
-      source_mime_type: result.sourceMimeType,
-      input_sha256: result.inputSha256,
-      preview_sha256: result.previewSha256,
-      deterministic: { lineWallCount: result.deterministic.lineWallCount, openingCount: result.deterministic.openingCount, ocrText: result.deterministic.ocrText },
-      response_validated: result.responseValidated as unknown as Record<string, unknown>,
-      latency_ms: result.latencyMs,
-      usage: (result.usage ?? null) as unknown as Record<string, unknown> | null,
-      status: 'succeeded',
-    });
-    if (insErr) {
-      persistence.planAnalyses = 'failed';
-      persistence.error = insErr.message;
-    }
-    const { error: draftErr } = await client.from('plan_analysis_drafts').insert({
-      organization_id: orgId,
-      project_id: authReq.ultidaUser!.projectId,
-      analysis_uuid: result.analysisUuid,
-      elements: result.elements as unknown as Record<string, unknown>[],
-      issues: result.issues as unknown as Record<string, unknown>[],
-      status: 'needs_review',
-    });
-    if (draftErr) {
-      persistence.planAnalysisDrafts = 'failed';
-      persistence.error = draftErr.message;
-    }
-
-    return response.status(200).json({
-      success: true,
-      persisted: persistence.planAnalyses === 'ok' && persistence.planAnalysisDrafts === 'ok',
-      persistence,
-      analysisUuid: result.analysisUuid,
-      provider: result.provider,
-      model: result.model,
-      latencyMs: result.latencyMs,
-      usage: result.usage ?? null,
-      previewDataUrl: result.previewDataUrl,
-      deterministic: result.deterministic,
-      elements: result.elements,
-      issues: result.issues,
-    });
-  } catch (err) {
-    const e = err as { code?: string; status?: number; message?: string };
-    const status = e.status ?? (e.code === 'AI_PROVIDER_NOT_CONFIGURED' ? 503 : 500);
-    return response.status(status).json({ success: false, code: e.code ?? 'PLAN_ANALYSIS_FAILED', message: e.message ?? 'Plan analysis failed.' });
-  }
 });
 
 app.get('/api/projects/:projectId/plan-analysis/draft', requireProjectUser, async (request, response) => {
@@ -324,13 +233,21 @@ app.post('/api/internal/plan-jobs/process', async (request, response) => {
 app.post('/api/scene/materialize', (request, response) => {
   const { projectId, floorPlanVersionId, approved, spatialModel } = request.body ?? {};
   if (!projectId || !spatialModel) return response.status(400).json({ success: false, code: 'INVALID_MATERIALIZE_REQUEST' });
+  const rooms = Array.isArray(spatialModel.rooms) ? spatialModel.rooms.map((room: any) => {
+    const boundary = Array.isArray(room.boundary) ? room.boundary.map((point: any) => ({ xMm: Number(point.xMm), yMm: Number(point.yMm) })) : [];
+    if (boundary.length >= 3 && (boundary[0].xMm !== boundary.at(-1)?.xMm || boundary[0].yMm !== boundary.at(-1)?.yMm)) boundary.push({ ...boundary[0] });
+    return { id: String(room.id), spaceId: String(room.id), name: String(room.name ?? room.id), type: String(room.type ?? 'other'), boundary, confidence: 1 };
+  }) : [];
+  const walls = Array.isArray(spatialModel.walls) ? spatialModel.walls.map((wall: any) => ({ id: String(wall.id), floorId: 'floor-1', start: wall.start, end: wall.end, thicknessMm: Number(wall.thicknessMm), heightMm: Number(wall.heightMm), baseElevationMm: 0, spaceIds: rooms.map((room: any) => room.spaceId), confidence: 1 })) : [];
+  const openings = Array.isArray(spatialModel.openings) ? spatialModel.openings.map((opening: any) => ({ id: String(opening.id), wallId: String(opening.wallId), kind: opening.kind === 'window' ? 'window' : 'door', offsetMm: Number(opening.offsetMm ?? 0), widthMm: Number(opening.widthMm), heightMm: Number(opening.heightMm), sillHeightMm: Number(opening.sillHeightMm ?? 0), confidence: 1 })) : [];
+  const firstRoom = rooms[0];
+  const centre = firstRoom?.boundary?.[0] ?? { xMm: 0, yMm: 0 };
   const scene = {
-    schema: 'scene.v1',
-    sceneVersionId: `scene-${crypto.randomUUID()}`,
-    projectId,
-    floorPlanVersionId: floorPlanVersionId || 'fpv-default',
-    metadata: { status: approved ? 'approved' : 'draft', createdAt: new Date().toISOString() },
-    spatialModel
+    schema: 'scene.v1', units: 'mm', coordinateSystem: 'right-handed-z-up', projectId: String(projectId), floorPlanVersionId: String(floorPlanVersionId ?? 'fpv-default'),
+    floors: [{ id: 'floor-1', name: 'Ground Floor', elevationMm: 0, heightMm: Math.max(...walls.map((wall: any) => wall.heightMm), 2700) }],
+    spaces: rooms.map((room: any) => ({ id: room.spaceId, floorId: 'floor-1', name: room.name, type: room.type })), rooms, walls, openings,
+    fixedFixtures: [], modules: [], materials: [], lighting: [], cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: centre.xMm, yMm: centre.yMm - 1800, zMm: 1500 }, target: { xMm: centre.xMm, yMm: centre.yMm, zMm: 1200 }, lensMm: 35 }], constraints: [], unresolvedDetections: [],
+    metadata: { branch: 'main', status: approved ? 'approved' : 'draft', changeReason: 'Materialized from supplied spatial model', schemaVersion: 'scene.v1', designVersion: 'scene.v1' },
   };
   return response.status(201).json({ success: true, scene });
 });
@@ -453,7 +370,7 @@ app.post('/api/production/cutlist.csv', (request, response) => {
     if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY' });
     const cutlist = buildCutlist(normalized);
     response.setHeader('content-type', 'text/csv');
-    const rows = cutlist.parts.map((part) => [part.id, part.moduleId, part.family, part.roomId, part.partType, part.lengthMm, part.widthMm, part.thicknessMm, part.edgeBandMm, part.hardware.join('|')].join(','));
+    const rows = cutlist.parts.map((part: { id: string; moduleId: string; family: string; roomId: string; partType: string; lengthMm: number; widthMm: number; thicknessMm: number; edgeBandMm: number; hardware: string[] }) => [part.id, part.moduleId, part.family, part.roomId, part.partType, part.lengthMm, part.widthMm, part.thicknessMm, part.edgeBandMm, part.hardware.join('|')].join(','));
     return response.status(200).send(['part_id,module_id,family,room_id,part_type,length_mm,width_mm,thickness_mm,edge_band_mm,hardware', ...rows, ''].join('\n'));
   } catch (err: any) {
     return response.status(500).json({ success: false, code: 'CUTLIST_FAILED', message: err?.message });
@@ -502,28 +419,6 @@ app.use((error: unknown, _request: express.Request, response: express.Response, 
   });
 });
 
-app.post('/api/visual-proposals', requireProjectUser, async (request, response) => {
-  const parsed = VisualProposalRequestSchema.safeParse(request.body);
-  if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_REQUEST', issues: parsed.error.issues });
-  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
-  const result = await createVisualJob(process.env, gateway, parsed.data, authReq.ultidaUser?.id, getRequestSupabaseClient(request));
-  const success = result.status === 'succeeded' || result.status === 'queued';
-  return response.status(success ? 200 : 422).json({ success, result });
-});
-
-app.get('/api/visual-proposals/:jobId', requireProjectUser, async (request, response) => {
-  const result = await getVisualJob(process.env, gateway, String(request.params.jobId), String(request.query.projectId ?? ''), getRequestSupabaseClient(request));
-  return response.status(result.status === 'not_found' ? 404 : result.status === 'failed' ? 422 : 200).json({ success: result.status !== 'failed' && result.status !== 'not_found', result });
-});
-
-app.post('/api/visual-proposals/:jobId/:decision', requireProjectUser, async (request, response) => {
-  const decisionMap = { approve: 'approved', reject: 'rejected', cancel: 'cancelled' } as const;
-  const decision = decisionMap[String(request.params.decision) as keyof typeof decisionMap];
-  if (!decision) return response.status(400).json({ success: false, code: 'INVALID_REVIEW_DECISION' });
-  const result = await reviewVisualJob(process.env, String(request.params.jobId), String(request.body?.projectId ?? ''), decision, String(request.body?.note ?? ''), getRequestSupabaseClient(request));
-  return response.status(result.status === 'not_found' ? 404 : result.status === 'conflict' ? 409 : 200).json({ success: result.status === 'succeeded' || result.status === 'cancelled', result });
-});
-
 app.get('/api/projects/:projectId/renders', requireProjectUser, async (request, response) => {
   const result = await listProjectRenders(process.env, String(request.params.projectId), getRequestSupabaseClient(request));
   if (result.status === 'failed') return response.status(500).json({ success: false, code: 'RENDER_LIST_FAILED', message: result.reason });
@@ -532,7 +427,7 @@ app.get('/api/projects/:projectId/renders', requireProjectUser, async (request, 
 
 app.post('/api/projects/:projectId/renders', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
-  const { projectId } = request.params;
+  const projectId = String(request.params.projectId);
   const sceneVersionId = typeof request.body?.sceneVersionId === 'string' ? request.body.sceneVersionId : '';
   const options = typeof request.body?.options === 'object' && request.body.options ? request.body.options as Record<string, unknown> : {};
   if (!sceneVersionId) return response.status(400).json({ success: false, code: 'SCENE_REQUIRED', message: 'sceneVersionId is required.' });
@@ -687,7 +582,7 @@ const writeProjectBrief = async (request: express.Request, response: express.Res
   const briefValidation = validateProjectBrief(document);
   if (!briefValidation.valid) return response.status(422).json({ success: false, code: 'BRIEF_SCHEMA_INVALID', message: 'The brief contains invalid fields.', fieldErrors: briefValidation.fieldErrors });
   const fieldErrors: Record<string, string> = {};
-  for (const [key, label] of [['clientName', 'Client name'], ['projectName', 'Project name'], ['propertyType', 'Property type'], ['rooms', 'Rooms and scope'], ['budgetRange', 'Budget range'], ['timeline', 'Timeline']] as const) {
+  for (const [key, label] of [['clientName', 'Client name'], ['projectName', 'Project name'], ['propertyType', 'Property type'], ['rooms', 'Rooms and scope'], ['style', 'Design style'], ['budgetRange', 'Budget range']] as const) {
     if (!String(document[key] ?? '').trim()) fieldErrors[key] = `${label} is required.`;
   }
   const complete = isComplete === true;
@@ -732,7 +627,7 @@ app.post('/api/projects/:projectId/plan/approve', requireProjectUser, async (req
   const { canonicalModel, sourceAssetId } = request.body ?? {};
   if (!canonicalModel || typeof canonicalModel !== 'object') return response.status(400).json({ success: false, code: 'INVALID_CANONICAL_MODEL', message: 'A canonical plan model is required.' });
   if (typeof sourceAssetId !== 'string') return response.status(400).json({ success: false, code: 'SOURCE_ASSET_REQUIRED', message: 'Plan approval requires the exact uploaded source asset.' });
-  const parsed = CanonicalPlanV1Schema.safeParse(canonicalModel);
+  const parsed = CanonicalPlanModelSchema.safeParse(canonicalModel);
   if (!parsed.success) return response.status(422).json({ success: false, code: 'INVALID_CANONICAL_PLAN_V1', message: 'The reviewed plan does not satisfy the plan.v1 contract.', fieldErrors: parsed.error.flatten() });
   const client = getRequestSupabaseClient(request);
   const approved = await client.rpc('approve_plan_v1', {
@@ -746,6 +641,260 @@ app.post('/api/projects/:projectId/plan/approve', requireProjectUser, async (req
     return response.status(code === 'PLAN_APPROVAL_FAILED' ? 500 : 422).json({ success: false, code, message });
   }
   return response.status(200).json({ success: true, ...(approved.data as Record<string, unknown>) });
+});
+
+app.get('/api/projects/:projectId/module-instances', requireProjectUser, async (request, response) => {
+  const client = getRequestSupabaseClient(request);
+  const query = client.from('module_instances').select('*').eq('project_id', request.params.projectId).order('created_at', { ascending: true });
+  if (typeof request.query.spaceId === 'string') query.eq('space_id', request.query.spaceId);
+  const { data, error } = await query;
+  if (error) return response.status(500).json({ success: false, code: 'MODULE_INSTANCE_LIST_FAILED', message: error.message });
+  return response.json({ success: true, modules: data ?? [] });
+});
+
+app.post('/api/projects/:projectId/module-instances', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const { spaceId, layoutId, templateId, category, label, config, position } = request.body ?? {};
+  if (typeof spaceId !== 'string' || typeof templateId !== 'string' || typeof category !== 'string' || !config || !position) {
+    return response.status(400).json({ success: false, code: 'INVALID_MODULE_INSTANCE', message: 'spaceId, templateId, category, config and an anchored position are required.' });
+  }
+  if (!Number.isFinite(config.widthMm) || !Number.isFinite(config.depthMm) || !Number.isFinite(config.heightMm) || config.widthMm <= 0 || config.depthMm <= 0 || config.heightMm <= 0) {
+    return response.status(422).json({ success: false, code: 'MODULE_DIMENSIONS_INVALID', message: 'Module width, depth, and height must be positive millimetre values.' });
+  }
+  const client = getRequestSupabaseClient(request);
+  const space = await client.from('spaces').select('id,project_id,organization_id,floor_plan_version_id').eq('id', spaceId).eq('project_id', request.params.projectId).single();
+  if (space.error || !space.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected room does not belong to this project.' });
+  const activePlan = await client.from('floor_plan_versions').select('id,canonical_model').eq('project_id', request.params.projectId).eq('active_version', true).eq('status', 'approved').maybeSingle();
+  if (activePlan.error || !activePlan.data) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'Approve the plan before placing modules.' });
+  const plan = CanonicalPlanModelSchema.safeParse(activePlan.data.canonical_model);
+  if (!plan.success) return response.status(422).json({ success: false, code: 'CANONICAL_PLAN_INVALID', message: 'The active plan does not contain valid canonical walls.' });
+  if (space.data.floor_plan_version_id !== activePlan.data.id) return response.status(409).json({ success: false, code: 'SPACE_PLAN_VERSION_STALE', message: 'Select a room derived from the current active approved plan.' });
+  const resolvedAnchor = resolveModuleWallAnchor(plan.data.walls, position, Number(config.widthMm));
+  if (!resolvedAnchor.ok) return response.status(422).json({ success: false, code: resolvedAnchor.code, message: resolvedAnchor.message });
+
+  let resolvedLayoutId = typeof layoutId === 'string' ? layoutId : null;
+  if (resolvedLayoutId) {
+    const layout = await client.from('layouts').select('id').eq('id', resolvedLayoutId).eq('project_id', request.params.projectId).eq('space_id', spaceId).maybeSingle();
+    if (layout.error || !layout.data) return response.status(404).json({ success: false, code: 'LAYOUT_NOT_FOUND', message: 'The selected layout does not belong to this room.' });
+  } else {
+    const createdLayout = await client.from('layouts').insert({ organization_id: space.data.organization_id, project_id: request.params.projectId, space_id: spaceId, layout_shape: 'anchored-module', label: 'Module placement', candidate_json: { source: 'spaces-studio', wallId: position.wallId }, status: 'candidate', created_by: authReq.ultidaUser!.id }).select('id').single();
+    if (createdLayout.error || !createdLayout.data) return response.status(500).json({ success: false, code: 'LAYOUT_CREATE_FAILED', message: createdLayout.error?.message ?? 'Could not create the room layout.' });
+    resolvedLayoutId = createdLayout.data.id;
+  }
+  const row = {
+    organization_id: space.data.organization_id,
+    project_id: request.params.projectId,
+    space_id: spaceId,
+    layout_id: resolvedLayoutId,
+    template_id: templateId,
+    category,
+    label: typeof label === 'string' ? label : category,
+    config_json: { ...config, spaceId, floorPlanVersionId: activePlan.data.id },
+    position_json: resolvedAnchor.anchor,
+    status: 'validated',
+    created_by: authReq.ultidaUser!.id,
+  };
+  const created = await client.from('module_instances').insert(row).select('*').single();
+  if (created.error) return response.status(500).json({ success: false, code: 'MODULE_INSTANCE_CREATE_FAILED', message: created.error.message });
+  return response.status(201).json({ success: true, module: created.data });
+});
+
+app.get('/api/projects/:projectId/design-context', requireProjectUser, async (request, response) => {
+  const projectId = String(request.params.projectId);
+  const client = getRequestSupabaseClient(request);
+  const project = await client.from('projects').select('id,organization_id,floor_plan_version_id').eq('id', projectId).single();
+  if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project context was not found.' });
+  const [brief, plan, spaces, modules, assignments, materials, scenes, renders] = await Promise.all([
+    client.from('project_briefs').select('*').eq('project_id', projectId).maybeSingle(),
+    client.from('floor_plan_versions').select('id,status,canonical_model,created_at').eq('project_id', projectId).eq('active_version', true).maybeSingle(),
+    client.from('spaces').select('*').eq('project_id', projectId).order('created_at'),
+    client.from('module_instances').select('*').eq('project_id', projectId).order('created_at'),
+    client.from('material_assignments').select('*').eq('project_id', projectId).order('created_at'),
+    client.from('material_library_items').select('*').eq('organization_id', project.data.organization_id).eq('availability', 'available').order('name'),
+    client.from('scene_versions').select('id,status,scene,created_at').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1),
+    client.from('artifacts').select('id,kind,status,stale,scene_version_id,storage_path,provenance,created_at').eq('project_id', projectId).order('created_at', { ascending: false }).limit(30),
+  ]);
+  const failure = [brief, plan, spaces, modules, assignments, materials, scenes, renders].find((result) => result.error);
+  if (failure?.error) return response.status(500).json({ success: false, code: 'DESIGN_CONTEXT_LOAD_FAILED', message: failure.error.message });
+  return response.json({
+    success: true,
+    context: {
+      project: project.data,
+      brief: brief.data,
+      plan: plan.data,
+      spaces: spaces.data ?? [],
+      modules: modules.data ?? [],
+      materialAssignments: assignments.data ?? [],
+      materialLibrary: materials.data ?? [],
+      scene: scenes.data?.[0] ?? null,
+      artifacts: renders.data ?? [],
+    },
+  });
+});
+
+app.get('/api/projects/:projectId/material-library', requireProjectUser, async (request, response) => {
+  const client = getRequestSupabaseClient(request);
+  const project = await client.from('projects').select('organization_id').eq('id', request.params.projectId).single();
+  if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
+  const materials = await client.from('material_library_items').select('*').eq('organization_id', project.data.organization_id).order('name');
+  if (materials.error) return response.status(500).json({ success: false, code: 'MATERIAL_LIBRARY_LOAD_FAILED', message: materials.error.message });
+  return response.json({ success: true, materials: materials.data ?? [] });
+});
+
+app.post('/api/projects/:projectId/material-library', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const parsed = MaterialLibraryItemV1Schema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_MATERIAL_LIBRARY_ITEM', issues: parsed.error.issues });
+  const client = getRequestSupabaseClient(request);
+  const project = await client.from('projects').select('organization_id').eq('id', request.params.projectId).single();
+  if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
+  const material = await client.from('material_library_items').insert({
+    organization_id: project.data.organization_id,
+    name: parsed.data.name,
+    supplier: parsed.data.supplier ?? null,
+    brand: parsed.data.brand ?? null,
+    code: parsed.data.code,
+    category: parsed.data.category,
+    finish: parsed.data.finish ?? null,
+    texture_asset_id: parsed.data.textureAssetId ?? null,
+    texture_width_mm: parsed.data.textureWidthMm ?? null,
+    texture_height_mm: parsed.data.textureHeightMm ?? null,
+    grain_direction: parsed.data.grainDirection,
+    roughness: parsed.data.roughness ?? null,
+    metalness: parsed.data.metalness ?? null,
+    transparency: parsed.data.transparency ?? null,
+    thickness_mm: parsed.data.thicknessMm ?? null,
+    unit_cost: parsed.data.unitCost ?? null,
+    availability: parsed.data.availability,
+    metadata: parsed.data.metadata,
+    created_by: authReq.ultidaUser!.id,
+  }).select('*').single();
+  if (material.error) return response.status(500).json({ success: false, code: 'MATERIAL_LIBRARY_CREATE_FAILED', message: material.error.message });
+  return response.status(201).json({ success: true, material: material.data });
+});
+
+app.post('/api/projects/:projectId/material-assignments', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const projectId = String(request.params.projectId);
+  const parsed = MaterialAssignmentV1Schema.safeParse({ ...request.body, projectId });
+  if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_MATERIAL_ASSIGNMENT', issues: parsed.error.issues });
+  const client = getRequestSupabaseClient(request);
+  const project = await client.from('projects').select('organization_id').eq('id', projectId).single();
+  if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
+  const material = await client.from('material_library_items').select('id').eq('id', parsed.data.materialId).eq('organization_id', project.data.organization_id).single();
+  if (material.error || !material.data) return response.status(422).json({ success: false, code: 'MATERIAL_NOT_IN_ORGANIZATION_LIBRARY', message: 'Select a material from this organization library.' });
+  if (parsed.data.moduleInstanceId) {
+    const module = await client.from('module_instances').select('id').eq('id', parsed.data.moduleInstanceId).eq('project_id', projectId).single();
+    if (module.error || !module.data) return response.status(422).json({ success: false, code: 'MATERIAL_MODULE_NOT_FOUND', message: 'The material target module does not belong to this project.' });
+  }
+  const latestRevision = await client.from('material_assignments')
+    .select('revision')
+    .eq('project_id', projectId)
+    .eq('target_kind', parsed.data.targetKind)
+    .eq('target_id', parsed.data.targetId)
+    .eq('semantic_slot', parsed.data.semanticSlot)
+    .order('revision', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latestRevision.error) return response.status(500).json({ success: false, code: 'MATERIAL_REVISION_LOOKUP_FAILED', message: latestRevision.error.message });
+  const nextRevision = Math.max(parsed.data.revision, Number(latestRevision.data?.revision ?? 0) + 1);
+  const assignment = await client.from('material_assignments').insert({
+    organization_id: project.data.organization_id,
+    project_id: projectId,
+    material_id: parsed.data.materialId,
+    module_instance_id: parsed.data.moduleInstanceId ?? null,
+    target_kind: parsed.data.targetKind,
+    target_id: parsed.data.targetId,
+    semantic_slot: parsed.data.semanticSlot,
+    revision: nextRevision,
+    status: parsed.data.status,
+    created_by: authReq.ultidaUser!.id,
+  }).select('*').single();
+  if (assignment.error) return response.status(500).json({ success: false, code: 'MATERIAL_ASSIGNMENT_CREATE_FAILED', message: assignment.error.message });
+  const stale = await client.from('artifacts').update({ stale: true }).eq('project_id', projectId).eq('stale', false);
+  if (stale.error) return response.status(500).json({ success: false, code: 'MATERIAL_ASSIGNMENT_STALE_INVALIDATION_FAILED', message: stale.error.message });
+  return response.status(201).json({ success: true, assignment: assignment.data, invalidatedArtifactCount: stale.count ?? null });
+});
+
+app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const projectId = String(request.params.projectId);
+  const client = getRequestSupabaseClient(request);
+  const activePlan = await client
+    .from('floor_plan_versions')
+    .select('id,canonical_model,status,active_version')
+    .eq('project_id', projectId)
+    .eq('active_version', true)
+    .maybeSingle();
+
+  if (activePlan.error) return response.status(500).json({ success: false, code: 'PLAN_READ_FAILED', message: activePlan.error.message });
+  if (!activePlan.data || activePlan.data.status !== 'approved') {
+    return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'Compile a scene only from the active approved plan.v1.' });
+  }
+
+  const parsedPlan = CanonicalPlanModelSchema.safeParse(activePlan.data.canonical_model);
+  if (!parsedPlan.success) {
+    return response.status(422).json({ success: false, code: 'CANONICAL_PLAN_INVALID', message: 'The active floor plan does not satisfy the canonical plan.v1 contract.', fieldErrors: parsedPlan.error.flatten() });
+  }
+
+  const requestedModuleIds = Array.isArray(request.body?.moduleInstanceIds) ? request.body.moduleInstanceIds.filter((id: unknown): id is string => typeof id === 'string') : [];
+  const storedModules = requestedModuleIds.length ? await client.from('module_instances').select('id,space_id,category,template_id,config_json,position_json').eq('project_id', projectId).in('id', requestedModuleIds) : { data: [], error: null };
+  if (storedModules.error) return response.status(500).json({ success: false, code: 'MODULE_INSTANCE_READ_FAILED', message: storedModules.error.message });
+  if ((storedModules.data ?? []).length !== requestedModuleIds.length) return response.status(422).json({ success: false, code: 'MODULE_INSTANCE_NOT_FOUND', message: 'One or more requested module instances is missing.' });
+  const invalidModule = (storedModules.data ?? []).find((module: any) => {
+    const config = module.config_json ?? {};
+    const position = module.position_json ?? {};
+    return !module.space_id || position.anchor !== 'wall' || typeof position.wallId !== 'string' || !Number.isFinite(Number(config.widthMm)) || !Number.isFinite(Number(config.depthMm)) || !Number.isFinite(Number(config.heightMm)) || !Number.isFinite(Number(position.xMm)) || !Number.isFinite(Number(position.yMm));
+  });
+  if (invalidModule) return response.status(422).json({ success: false, code: 'MODULE_INSTANCE_NOT_SCENE_READY', message: `Module ${invalidModule.id} has no valid persisted wall anchor, room lineage, or dimensions.` });
+  const compiledModules = (storedModules.data ?? []).map((module: any) => compileStoredModuleForScene(module, parsedPlan.data.walls));
+  const compilationFailure = compiledModules.find((result) => !result.ok);
+  if (compilationFailure && !compilationFailure.ok) return response.status(422).json({ success: false, code: compilationFailure.code, message: compilationFailure.message });
+  const sceneModules = compiledModules.filter((result): result is Extract<typeof result, { ok: true }> => result.ok).map((result) => result.module);
+  const moduleParts = compiledModules.filter((result): result is Extract<typeof result, { ok: true }> => result.ok).flatMap((result) => result.parts);
+  const materials = Array.isArray(request.body?.materials) ? request.body.materials : [];
+  let scene;
+  try {
+    scene = compileSceneV1({
+      projectId,
+      floorPlanVersionId: activePlan.data.id,
+      plan: parsedPlan.data,
+      designVersion: typeof request.body?.designVersion === 'string' ? request.body.designVersion : 'spaces.v1',
+      modules: sceneModules,
+      moduleParts,
+      materials,
+      changeReason: typeof request.body?.changeReason === 'string' ? request.body.changeReason : undefined,
+    });
+  } catch (error) {
+    if (error instanceof SceneCompilationError) {
+      return response.status(422).json({ success: false, code: 'SCENE_COMPILATION_BLOCKED', message: error.message, issues: error.issues });
+    }
+    return response.status(422).json({ success: false, code: 'SCENE_COMPILATION_INVALID', message: error instanceof Error ? error.message : 'Scene compilation failed.' });
+  }
+
+  const latest = await client
+    .from('scene_versions')
+    .select('version_number')
+    .eq('project_id', projectId)
+    .eq('branch_name', 'main')
+    .order('version_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latest.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: latest.error.message });
+
+  const created = await client.from('scene_versions').insert({
+    project_id: projectId,
+    organization_id: authReq.ultidaUser!.organizationId,
+    floor_plan_version_id: activePlan.data.id,
+    version_number: (latest.data?.version_number ?? 0) + 1,
+    branch_name: 'main',
+    status: 'draft',
+    scene,
+    change_reason: scene.metadata.changeReason,
+    created_by: authReq.ultidaUser!.id,
+  }).select('id,version_number,status,scene,created_at').single();
+  if (created.error) return response.status(500).json({ success: false, code: 'SCENE_CREATE_FAILED', message: created.error.message });
+  return response.status(201).json({ success: true, sceneVersion: created.data });
 });
 
 app.get('/api/projects/:projectId/spaces', requireProjectUser, async (request, response) => {
@@ -771,10 +920,26 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
   const plan = version.data.canonical_model ?? {};
   const rooms = (plan.rooms ?? plan.spaces ?? []).map((r: any) => ({
     id: r.id, name: r.name ?? r.roomType ?? r.id, roomType: r.roomType ?? r.type ?? 'other',
-    polygon: r.worldGeometry?.polygon ?? r.polygon ?? [], areaSqm: r.areaSqm, ceilingHeightMm: r.ceilingHeightMm,
+    polygon: r.worldPolygon ?? r.worldGeometry?.polygon ?? r.polygon ?? [], areaSqm: r.areaSqm, ceilingHeightMm: r.ceilingHeightMm,
   }));
-  const walls = (plan.walls ?? []).map((w: any) => ({ id: w.id, start: w.worldGeometry?.start, end: w.worldGeometry?.end, isExterior: w.isExterior }));
-  const openings = (plan.openings ?? []).map((o: any) => ({ id: o.id, wallId: o.wallId, kind: o.kind, offsetAlongWallMm: o.offsetAlongWallMm, widthMm: o.widthMm }));
+  const walls = (plan.walls ?? []).map((w: any) => ({
+    id: w.id,
+    start: w.worldStart ?? w.worldGeometry?.start ?? w.start,
+    end: w.worldEnd ?? w.worldGeometry?.end ?? w.end,
+    thicknessMm: w.thicknessMm,
+    heightMm: w.heightMm,
+    isExterior: w.isExterior,
+  }));
+  const openings = (plan.openings ?? []).map((o: any) => ({
+    id: o.id,
+    wallId: o.wallId,
+    kind: o.kind,
+    offsetAlongWallMm: o.offsetMm ?? o.offsetAlongWallMm,
+    widthMm: o.widthMm,
+    heightMm: o.heightMm,
+    sillMm: o.sillMm,
+    headMm: o.headMm,
+  }));
   const columns = (plan.columns ?? []).map((c: any) => ({ id: c.id, position: c.position ?? c.worldGeometry?.center, sizeMm: c.sizeMm }));
   const beams = (plan.beams ?? []).map((b: any) => ({ id: b.id, start: b.start ?? b.worldGeometry?.start, end: b.end ?? b.worldGeometry?.end }));
   const services = (plan.servicePoints ?? plan.services ?? []).map((s: any) => ({ id: s.id, kind: s.kind, position: s.position ?? s.positionMm }));
@@ -893,6 +1058,47 @@ app.get('/api/projects/:projectId/layouts', requireProjectUser, async (request, 
   const { data, error } = await getRequestSupabaseClient(request).from('layouts').select('*').eq('project_id', request.params.projectId).order('created_at', { ascending: false });
   if (error) return response.status(500).json({ success: false, code: 'LAYOUT_LIST_FAILED', message: error.message });
   return response.json({ success: true, layouts: data ?? [] });
+});
+
+app.post('/api/projects/:projectId/layout-candidates', requireProjectUser, async (request, response) => {
+  const { spaceId, roomCategory, candidateTypes, requirements, shape } = request.body ?? {};
+  if (typeof spaceId !== 'string' || typeof roomCategory !== 'string') {
+    return response.status(400).json({ success: false, code: 'INVALID_LAYOUT_INPUT', message: 'spaceId and roomCategory are required.' });
+  }
+  const client = getRequestSupabaseClient(request);
+  const project = await client.from('projects').select('active_floor_plan_version_id').eq('id', request.params.projectId).single();
+  if (project.error || !project.data?.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'An active approved floor plan is required.' });
+  const [spaceResult, planResult] = await Promise.all([
+    client.from('spaces').select('*').eq('id', spaceId).eq('project_id', request.params.projectId).eq('floor_plan_version_id', project.data.active_floor_plan_version_id).single(),
+    client.from('floor_plan_versions').select('id,canonical_model').eq('id', project.data.active_floor_plan_version_id).single(),
+  ]);
+  if (spaceResult.error || !spaceResult.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected room is not part of the active approved plan.' });
+  if (planResult.error || !planResult.data) return response.status(404).json({ success: false, code: 'PLAN_NOT_FOUND', message: 'The active approved plan could not be loaded.' });
+  const plan = (planResult.data.canonical_model ?? {}) as any;
+  const rooms = Array.isArray(plan.rooms) ? plan.rooms : Array.isArray(plan.spaces) ? plan.spaces : [];
+  const room = rooms.find((item: any) => item.id === spaceId) ?? rooms.find((item: any) => item.id === spaceResult.data.id);
+  const polygon = room?.worldPolygon ?? room?.worldGeometry?.polygon ?? room?.polygon ?? spaceResult.data.geometry_json?.polygon ?? [];
+  const points = Array.isArray(polygon) ? polygon.map((point: any) => ({ x: Number(point.xMm ?? point.x ?? point[0]), y: Number(point.yMm ?? point.y ?? point[1]) })).filter((point: any) => Number.isFinite(point.x) && Number.isFinite(point.y)) : [];
+  if (points.length < 3) return response.status(422).json({ success: false, code: 'ROOM_GEOMETRY_UNAVAILABLE', message: 'The approved room has no valid canonical polygon.' });
+  const minX = Math.min(...points.map((point: any) => point.x));
+  const maxX = Math.max(...points.map((point: any) => point.x));
+  const minY = Math.min(...points.map((point: any) => point.y));
+  const maxY = Math.max(...points.map((point: any) => point.y));
+  const walls = Array.isArray(plan.walls) ? plan.walls : [];
+  const usableWalls = walls.map((wall: any) => {
+    const start = wall.worldStart ?? wall.worldGeometry?.start ?? wall.start;
+    const end = wall.worldEnd ?? wall.worldGeometry?.end ?? wall.end;
+    if (!start || !end) return null;
+    return { id: String(wall.id), minX: Math.min(Number(start.xMm ?? start.x), Number(end.xMm ?? end.x)), minY: Math.min(Number(start.yMm ?? start.y), Number(end.yMm ?? end.y)), maxX: Math.max(Number(start.xMm ?? start.x), Number(end.xMm ?? end.x)), maxY: Math.max(Number(start.yMm ?? start.y), Number(end.yMm ?? end.y)), orientation: Math.abs(Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x)) >= Math.abs(Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) ? 'north' : 'east' };
+  }).filter(Boolean);
+  const openings = (Array.isArray(plan.openings) ? plan.openings : []).map((opening: any) => ({ id: String(opening.id), type: opening.kind === 'window' ? 'window' : 'door', xMm: Number(opening.worldPosition?.xMm ?? opening.xMm ?? opening.offsetMm ?? 0), yMm: Number(opening.worldPosition?.yMm ?? opening.yMm ?? 0), widthMm: Number(opening.widthMm ?? 0), heightMm: Number(opening.heightMm ?? 0), swingDeg: opening.swingDeg == null ? undefined : Number(opening.swingDeg) }));
+  const servicePoints = (Array.isArray(plan.servicePoints) ? plan.servicePoints : []).map((point: any) => ({ id: String(point.id), xMm: Number(point.position?.xMm ?? point.xMm ?? 0), yMm: Number(point.position?.yMm ?? point.yMm ?? 0), type: String(point.kind ?? point.type ?? 'service') }));
+  try {
+    const candidates = generateCandidates({ projectId: request.params.projectId, spaceId, roomCategory, floorPlanVersionId: project.data.active_floor_plan_version_id, shape: String(shape ?? 'balanced'), candidateTypes: Array.isArray(candidateTypes) ? candidateTypes : ['maximum_storage', 'best_circulation', 'balanced', 'cost_efficient'], requirements: requirements && typeof requirements === 'object' ? requirements : {}, roomBoundingBoxMm: { minX, minY, maxX, maxY }, usableWalls, openings, servicePoints, structuralElements: [], companyRules: {} } as any);
+    return response.json({ success: true, floorPlanVersionId: project.data.active_floor_plan_version_id, spaceId, candidates });
+  } catch (error) {
+    return response.status(422).json({ success: false, code: 'LAYOUT_CANDIDATE_GENERATION_FAILED', message: error instanceof Error ? error.message : 'The canonical room geometry could not generate candidates.' });
+  }
 });
 
 app.post('/api/projects/:projectId/layouts', requireProjectUser, async (request, response) => {

@@ -1,6 +1,63 @@
 import type { SceneV1 } from '@ultida/scene-core';
 import PDFDocument from 'pdfkit';
 
+export const ULTIDA_DRAWING_STANDARD_V1 = {
+  schema: 'drawing.standard.v1' as const,
+  units: 'mm' as const,
+  panelThicknessMm: 18,
+  wardrobeCarcassDepthMm: 560,
+  wardrobeBackThicknessMm: 20,
+  graniteThicknessMm: 20,
+  dummyRevealMm: 30,
+  defaultLightKelvin: 3000,
+  layers: {
+    walls: 'A-WALL', modules: 'A-MOD', openings: 'A-OPENING',
+    dimensions: 'A-DIM', annotations: 'A-ANNO', hatch: 'A-HATCH'
+  },
+  colors: { dimensions: '#ff3030', walls: '#1f2937', modules: '#153e75', annotations: '#111827' }
+};
+export type UltidaDrawingStandardV1 = typeof ULTIDA_DRAWING_STANDARD_V1;
+
+export function deriveWardrobeDepthMm(carcassDepthMm = ULTIDA_DRAWING_STANDARD_V1.wardrobeCarcassDepthMm, backThicknessMm = ULTIDA_DRAWING_STANDARD_V1.wardrobeBackThicknessMm) {
+  if (!Number.isFinite(carcassDepthMm) || !Number.isFinite(backThicknessMm) || carcassDepthMm <= 0 || backThicknessMm < 0) {
+    throw new Error('Wardrobe depth inputs must be finite millimetre values.');
+  }
+  return carcassDepthMm + backThicknessMm;
+}
+
+export type DimensionChainV1 = { axis: 'horizontal' | 'vertical'; originMm: number; segmentsMm: number[]; overallMm: number; label?: string };
+
+export function buildDimensionChain(axis: DimensionChainV1['axis'], segmentsMm: number[], originMm = 0, label?: string): DimensionChainV1 {
+  if (!segmentsMm.length || segmentsMm.some((value) => !Number.isFinite(value) || value <= 0)) throw new Error('Dimension chains require positive finite segments.');
+  const overallMm = segmentsMm.reduce((sum, value) => sum + value, 0);
+  return { axis, originMm, segmentsMm: [...segmentsMm], overallMm, label };
+}
+
+export type ElevationViewKindV1 = 'external' | 'internal' | 'top' | 'section';
+export type ElevationElementV1 = {
+  id: string;
+  kind: 'wall' | 'loft' | 'shutter' | 'sliding-shutter' | 'open-unit' | 'drawer' | 'hanger-space' | 'shelf' | 'skirting' | 'filler' | 'profile-glass' | 'light' | 'appliance' | 'countertop';
+  xMm: number; yMm: number; widthMm: number; heightMm: number;
+  label?: string; materialSlot?: string; quantity?: number;
+};
+export type ElevationSheetSpecV1 = {
+  schema: 'elevation.sheet.v1'; view: ElevationViewKindV1; title: string; units: 'mm';
+  overallWidthMm: number; overallHeightMm: number; horizontalChain: DimensionChainV1; verticalChain: DimensionChainV1;
+  elements: ElevationElementV1[]; sourceSceneVersionId: string; warnings: string[];
+};
+
+export function validateElevationSheet(spec: ElevationSheetSpecV1) {
+  const issues: string[] = [];
+  if (spec.horizontalChain.overallMm !== spec.overallWidthMm) issues.push('Horizontal dimension chain does not equal overall width.');
+  if (spec.verticalChain.overallMm !== spec.overallHeightMm) issues.push('Vertical dimension chain does not equal overall height.');
+  for (const element of spec.elements) {
+    if (![element.xMm, element.yMm, element.widthMm, element.heightMm].every(Number.isFinite) || element.widthMm <= 0 || element.heightMm <= 0) issues.push(`Element ${element.id} has invalid geometry.`);
+    if (element.xMm < 0 || element.yMm < 0 || element.xMm + element.widthMm > spec.overallWidthMm || element.yMm + element.heightMm > spec.overallHeightMm) issues.push(`Element ${element.id} exceeds the elevation boundary.`);
+    if (element.kind === 'profile-glass' && !element.materialSlot) issues.push(`Profile-glass element ${element.id} requires a material slot.`);
+  }
+  return { valid: issues.length === 0, issues };
+}
+
 export type DrawingLine = { id: string; layer: 'walls' | 'modules' | 'openings'; x1: number; y1: number; x2: number; y2: number };
 export type ProjectedOpening = { id: string; kind: string; wallId: string; offsetMm: number; widthMm: number; heightMm: number };
 export type ProjectedModule = { id: string; family: string; roomId: string; xMm: number; yMm: number; widthMm: number; depthMm: number; heightMm: number; rotationDeg: number; wallId?: string; offsetAlongWallMm?: number };
@@ -1039,4 +1096,3 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string): string
   <text x="${originX}" y="56" font-family="sans-serif" font-size="11" fill="#64748b">Scale 1:${Math.round(1 / scale)} | Units: mm | ULTIDA CAD Spec Engine</text>
 </svg>`;
 }
-

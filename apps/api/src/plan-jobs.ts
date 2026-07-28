@@ -52,33 +52,74 @@ async function runCvTrace(raster: Uint8Array, mimeType: string): Promise<{ resul
 }
 
 /** Adapt the existing vision-analyzer proposals into the reconciler's semantic shape. */
-function visionProposalsToSemantic(proposals: Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string }>): VisionSemanticResult {
+type SourceImageSize = { widthPx: number; heightPx: number };
+
+// The vision contract deliberately uses a 0..1000 source-relative grid so it
+// is stable across raster sizes. CV uses physical source pixels. Convert once
+// at this boundary; comparing those spaces directly made nearly every
+// AI/CV wall match look unrelated.
+function sourceGridToPixels(value: number, axis: 'x' | 'y', image: SourceImageSize) {
+  const scale = axis === 'x' ? image.widthPx : image.heightPx;
+  return (value / 1000) * scale;
+}
+
+function visionProposalsToSemantic(
+  proposals: Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string }>,
+  image: SourceImageSize,
+): VisionSemanticResult {
+  const walls: VisionSemanticResult['walls'] = [];
   const rooms: VisionSemanticResult['rooms'] = [];
   const openings: VisionSemanticResult['openings'] = [];
   for (const p of proposals) {
     const g = p.geometry as Record<string, number>;
-    if (p.kind === 'room') {
+    if (p.kind === 'wall') {
+      walls.push({
+        approxStartPx: {
+          x: sourceGridToPixels(Number(g.x1 ?? 0), 'x', image),
+          y: sourceGridToPixels(Number(g.y1 ?? 0), 'y', image),
+        },
+        approxEndPx: {
+          x: sourceGridToPixels(Number(g.x2 ?? 0), 'x', image),
+          y: sourceGridToPixels(Number(g.y2 ?? 0), 'y', image),
+        },
+        confidence: Number(p.confidence ?? 0.5),
+        evidence: p.note,
+      });
+    } else if (p.kind === 'room') {
       rooms.push({
         label: String(p.note ?? 'Room'),
         roomType: String(p.note ?? 'room'),
         approxPolygonPx: [
-          { x: Number(g.x ?? 0), y: Number(g.y ?? 0) },
-          { x: Number(g.x ?? 0) + Number(g.width ?? 0), y: Number(g.y ?? 0) },
-          { x: Number(g.x ?? 0) + Number(g.width ?? 0), y: Number(g.y ?? 0) + Number(g.height ?? 0) },
-          { x: Number(g.x ?? 0), y: Number(g.y ?? 0) + Number(g.height ?? 0) },
+          { x: sourceGridToPixels(Number(g.x ?? 0), 'x', image), y: sourceGridToPixels(Number(g.y ?? 0), 'y', image) },
+          { x: sourceGridToPixels(Number(g.x ?? 0) + Number(g.width ?? 0), 'x', image), y: sourceGridToPixels(Number(g.y ?? 0), 'y', image) },
+          { x: sourceGridToPixels(Number(g.x ?? 0) + Number(g.width ?? 0), 'x', image), y: sourceGridToPixels(Number(g.y ?? 0) + Number(g.height ?? 0), 'y', image) },
+          { x: sourceGridToPixels(Number(g.x ?? 0), 'x', image), y: sourceGridToPixels(Number(g.y ?? 0) + Number(g.height ?? 0), 'y', image) },
         ],
         confidence: Number(p.confidence ?? 0.5),
       });
     } else if (p.kind === 'opening') {
       openings.push({
         kind: Number(g.kind ?? 0) === 1 ? 'window' : 'door',
-        approxCenterPx: { x: Number(g.x ?? 0), y: Number(g.y ?? 0) },
-        approxWidthPx: Number(g.width ?? 0),
+        approxCenterPx: { x: sourceGridToPixels(Number(g.x ?? 0), 'x', image), y: sourceGridToPixels(Number(g.y ?? 0), 'y', image) },
+        approxWidthPx: sourceGridToPixels(Number(g.width ?? 0), 'x', image),
         confidence: Number(p.confidence ?? 0.5),
       });
     }
   }
-  return { rooms, openings, dimensionTextFindings: [] };
+  const dimensionTextFindings = proposals
+    .filter((proposal) => proposal.kind === 'dimension')
+    .map((proposal) => {
+      const geometry = proposal.geometry as Record<string, number>;
+      return {
+        text: String(proposal.note ?? 'Dimension'),
+        approxPositionPx: {
+          x: sourceGridToPixels(Number(geometry.x1 ?? geometry.x ?? 0), 'x', image),
+          y: sourceGridToPixels(Number(geometry.y1 ?? geometry.y ?? 0), 'y', image),
+        },
+        parsedMm: Number.isFinite(Number(geometry.valueMm)) && Number(geometry.valueMm) > 0 ? Number(geometry.valueMm) : null,
+      };
+    });
+  return { walls, rooms, openings, dimensionTextFindings };
 }
 
 function serverClient(environment: Environment) {
@@ -181,7 +222,10 @@ export async function processPlanAnalysisJobs(environment: Environment, limit = 
       let cvStatus = 'skipped';
       if (cvTrace && cvTrace.result && (cvTrace.result as unknown as CvTraceResult).walls) {
         try {
-          const vision = visionProposalsToSemantic(analysis.proposals as Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string }>);
+          const vision = visionProposalsToSemantic(
+            analysis.proposals as Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string }>,
+            cvTrace.result.sourceImageSize,
+          );
           reconciled = reconcilePlan(cvTrace.result as unknown as CvTraceResult, vision);
           cvStatus = 'reconciled';
         } catch (reconcileError) {
@@ -193,6 +237,40 @@ export async function processPlanAnalysisJobs(environment: Environment, limit = 
 
       const output = { ...analysis, sourceAssetId: input.sourceAssetId, sourceMimeType: input.mimeType, cvCandidate: cvTrace?.result ?? null, reconciled, cvStatus };
       const outputHash = createHash('sha256').update(JSON.stringify(output)).digest('hex');
+      const analysisUuid = crypto.randomUUID();
+      const primaryRun = (Array.isArray(analysis.providerRuns) ? analysis.providerRuns : []).find((run) => run.status === 'succeeded') ?? analysis.providerRuns?.[0];
+      const persistedAnalysis = await client.from('plan_analyses').insert({
+        organization_id: job.organization_id,
+        project_id: job.project_id,
+        analysis_uuid: analysisUuid,
+        provider: primaryRun?.provider ?? 'unknown',
+        model: primaryRun?.model ?? 'unknown',
+        prompt_version: analysis.analysisVersion,
+        source_file_name: input.fileName,
+        source_mime_type: input.mimeType,
+        input_sha256: analysis.source?.checksumSha256 ?? createHash('sha256').update(original).digest('hex'),
+        preview_sha256: createHash('sha256').update(raster).digest('hex'),
+        request_payload: { brief: briefRes.data?.brief ?? null },
+        deterministic: { cvStatus, cvCandidate: cvTrace?.result ?? null, reconciled },
+        response_validated: analysis,
+        latency_ms: Math.max(0, Number(primaryRun?.latencyMs ?? 0)),
+        usage: null,
+        status: 'succeeded',
+        error: null,
+      }).select('analysis_uuid').single();
+      if (persistedAnalysis.error) throw new Error(`Plan analysis could not be persisted: ${persistedAnalysis.error.message}`);
+      const draft = await client.from('plan_analysis_drafts').insert({
+        organization_id: job.organization_id,
+        project_id: job.project_id,
+        analysis_uuid: analysisUuid,
+        elements: analysis.proposals,
+        issues: analysis.topologyIssues ?? [],
+        scale: null,
+        ceiling_height_mm: null,
+        status: 'needs_review',
+      }).select('analysis_uuid').single();
+      if (draft.error) throw new Error(`Plan review draft could not be persisted: ${draft.error.message}`);
+      const persistedOutput = { ...output, analysisUuid };
       const providerRuns = Array.isArray(analysis.providerRuns) ? analysis.providerRuns : [];
       if (providerRuns.length) {
         const auditRows = providerRuns.map((run) => ({
@@ -213,9 +291,13 @@ export async function processPlanAnalysisJobs(environment: Environment, limit = 
         const audit = await client.from('ai_runs').insert(auditRows);
         if (audit.error) throw new Error(`AI provenance could not be stored: ${audit.error.message}`);
       }
-      await client.from('jobs').update({ status: 'succeeded', output, error: null, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
+      await client.from('jobs').update({ status: 'succeeded', output: persistedOutput, error: null, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
     } catch (error) {
       await client.from('jobs').update({ status: 'failed', error: { code: 'PLAN_ANALYSIS_FAILED', message: error instanceof Error ? error.message : 'Plan analysis failed.' }, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
     }
   }
 }
+
+// Narrow test seam for coordinate reconciliation. Runtime callers use only
+// the durable job functions above.
+export const __test__ = { visionProposalsToSemantic };

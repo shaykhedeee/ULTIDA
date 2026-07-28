@@ -1,85 +1,77 @@
 /* ═══════════════════════════════════════════════
-   SPACES WORKSPACE — Room Identification & Settings
+   PHASE 4 — SPACES WORKSPACE
+   Consumes the active approved floor-plan version.
+   No re-entry of measurements that already exist in the plan.
 ═══════════════════════════════════════════════ */
-
 import {
-  Home, CheckCircle2, Circle, Edit3, ArrowRight, AlertTriangle,
-  Plus, Settings2, Sparkles, Layers, Sliders, Check, Wand2
+  Home, CheckCircle2, Circle, Edit3, AlertTriangle, Layers, Ruler, Square, SplitSquareHorizontal,
+  Merge, Columns, Plug, DoorOpen, Pencil, Undo2, Redo2, Eye, EyeOff, Sparkles,
+  MapPin, TriangleAlert, Save, Plus, X, Maximize
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Badge, Button } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
+import {
+  computeUsableWallLength, computeSpaceReadiness, canApproveSpaces, polygonsOverlap,
+  editSplitRoom, editMergeRooms, editAddWall, editAddOpening, editAddColumn, type CanonicalPlanFragment
+} from '@ultida/spaces-core';
 import './spaces.css';
 
-// ─── Types ────────────────────────────────────────────────────────
-export type SpaceRoom = {
-  id: string;
-  name: string;
-  roomType: 'living' | 'bedroom' | 'kitchen' | 'dining' | 'utility' | 'pooja' | 'bathroom' | 'other';
-  areaSqm: number;
-  dimensionsText: string;
-  ceilingHeightMm: number;
-  usableWalls: number;
-  floorFinish: string;
-  falseCeiling: string;
-  requiredFurniture: string[];
-  budgetInr?: number;
-  isConfigured: boolean;
+type Pt = { xMm: number; yMm: number };
+
+interface PlanRoom { id: string; name: string; roomType: string; polygon: Pt[]; areaSqm: number; ceilingHeightMm?: number; included?: boolean; }
+interface PlanWall { id: string; start: Pt; end: Pt; isExterior?: boolean }
+interface PlanOpening { id: string; wallId: string; kind: string; offsetAlongWallMm: number; widthMm?: number }
+interface PlanColumn { id: string; position: Pt; sizeMm?: number }
+interface PlanBeam { id: string; start: Pt; end: Pt }
+interface PlanService { id: string; kind: string; position: Pt }
+interface PlanAnnotation { id: string; text: string; kind: string; position?: Pt }
+
+const ROOM_TYPES: Record<string, string> = {
+  living: 'Living Room', bedroom: 'Bedroom', kitchen: 'Kitchen', dining: 'Dining Room',
+  utility: 'Utility', pooja: 'Pooja Room', bathroom: 'Bathroom', other: 'Other'
 };
 
-const ROOM_TYPES = [
-  { id: 'living', label: 'Living Room' },
-  { id: 'bedroom', label: 'Bedroom' },
-  { id: 'kitchen', label: 'Kitchen' },
-  { id: 'dining', label: 'Dining Room' },
-  { id: 'utility', label: 'Utility Room' },
-  { id: 'pooja', label: 'Pooja Room' },
-  { id: 'bathroom', label: 'Bathroom' },
-  { id: 'other', label: 'Other' },
-];
-
-const FURNITURE_OPTIONS: Record<string, string[]> = {
-  living: ['TV Unit', 'Crockery Unit', 'Sofa', 'Display Storage', 'Pooja Shrine', 'Shoe Rack'],
-  bedroom: ['Wardrobe (Hinged)', 'Wardrobe (Sliding)', 'Bed Unit', 'Study Desk', 'Dresser', 'TV Unit'],
-  kitchen: ['L-Shape Cabinets', 'Parallel Cabinets', 'Tall Pantry', 'Appliance Tower', 'Breakfast Counter'],
-  dining: ['Crockery Cabinet', 'Dining Table', 'Bar Unit', 'Wash Basin Vanity'],
-  pooja: ['Pooja Shrine', 'Drawer Console', 'Jaali Backdrop'],
-  other: ['Storage Unit', 'Study Unit', 'Utility Counter'],
-};
-
-const DEFAULT_CEILING = 2700;
-const DEFAULT_FINISH = 'Vitrified Tiles';
-const DEFAULT_FALSE_CEILING = 'Peripheral Cove Lighting';
-
-function deriveDefaults(space: { roomType?: string; areaSqm?: number; budgetInr?: number }): Partial<SpaceRoom> {
-  const budgetInr = typeof space.budgetInr === 'number' ? space.budgetInr : undefined;
-  const areaSqm = typeof space.areaSqm === 'number' ? space.areaSqm : 0;
-  const budgetPerSqm = budgetInr && areaSqm ? budgetInr / areaSqm : undefined;
-  const suggestedFurniture = FURNITURE_OPTIONS[space.roomType ?? 'living'] ?? FURNITURE_OPTIONS.living;
-  const recommended = budgetPerSqm && budgetPerSqm < 3500
-    ? suggestedFurniture.slice(0, 2)
-    : suggestedFurniture.slice(0, 4);
-  return {
-    ceilingHeightMm: DEFAULT_CEILING,
-    floorFinish: DEFAULT_FINISH,
-    falseCeiling: DEFAULT_FALSE_CEILING,
-    requiredFurniture: recommended,
-  };
+function bbox(points: Pt[]) {
+  const xs = points.map(p => p.xMm), ys = points.map(p => p.yMm);
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }
+function polyArea(points: Pt[]) {
+  let a = 0; for (let i = 0; i < points.length; i++) { const j = (i + 1) % points.length; a += points[i].xMm * points[j].yMm - points[j].xMm * points[i].yMm; } return Math.abs(a) / 2 / 1e6;
+}
+function wallLen(w: PlanWall) { return Math.hypot(w.end.xMm - w.start.xMm, w.end.yMm - w.start.yMm); }
 
 export function SpacesWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const [spaces, setSpaces] = useState<SpaceRoom[]>([]);
-  const [activeSpace, setActiveSpace] = useState<SpaceRoom | null>(null);
+
+  const [plan, setPlan] = useState<CanonicalPlanFragment | null>(null);
+  const [rooms, setRooms] = useState<PlanRoom[]>([]);
+  const [walls, setWalls] = useState<PlanWall[]>([]);
+  const [openings, setOpenings] = useState<PlanOpening[]>([]);
+  const [columns, setColumns] = useState<PlanColumn[]>([]);
+  const [beams, setBeams] = useState<PlanBeam[]>([]);
+  const [services, setServices] = useState<PlanService[]>([]);
+  const [annotations, setAnnotations] = useState<PlanAnnotation[]>([]);
+  const [issues, setIssues] = useState<any[]>([]);
+  const [scaleVerified, setScaleVerified] = useState(false);
+  const [ceilingHeightMm, setCeilingHeightMm] = useState(2700);
+  const [floorPlanVersionId, setFloorPlanVersionId] = useState<string>('');
+
+  const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+  const [selectedWall, setSelectedWall] = useState<string | null>(null);
+  const [layers, setLayers] = useState({ walls: true, openings: true, columns: true, beams: true, services: true, annotations: true, rooms: true });
+  const [tool, setTool] = useState<string>('select');
+  const [measureFrom, setMeasureFrom] = useState<Pt | null>(null);
+  const [measureTo, setMeasureTo] = useState<Pt | null>(null);
   const [saveState, setSaveState] = useState('');
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'blocked' | 'empty' | 'error'>('loading');
+  const [history, setHistory] = useState<any[]>([]);
+  const [future, setFuture] = useState<any[]>([]);
+  const svgRef = useRef<SVGSVGElement>(null);
 
-  // Modal form
-  const [editForm, setEditForm] = useState<Partial<SpaceRoom>>({});
-  const [autoApply, setAutoApply] = useState(false);
-
+  // ── Load approved plan geometry (no measurement re-entry) ──
   useEffect(() => {
     if (!supabase || !projectId) return;
     let live = true;
@@ -88,322 +80,238 @@ export function SpacesWorkspace() {
       const session = (await supabase.auth.getSession()).data.session;
       if (!session?.access_token) { if (live) { setLoadState('error'); setSaveState('Your session expired. Sign in again.'); } return; }
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/spaces`, { headers: { 'Content-Type': 'application/json', authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`${apiBase}/projects/${projectId}/floor-plan/active`, { headers: { authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => null);
       if (!live) return;
-      if (!response.ok) {
-        setLoadState(response.status === 409 ? 'blocked' : 'error');
-        setSaveState(payload?.message ?? 'Spaces could not be loaded.');
-        return;
-      }
-      const mapped = (payload.spaces ?? []).map((row: any): SpaceRoom => {
-        const requirements = row.requirements_json ?? {};
-        const settings = row.settings_json ?? {};
-        return {
-          id: row.id,
-          name: row.name,
-          roomType: row.room_type,
-          areaSqm: Number(row.area_sqm ?? 0),
-          dimensionsText: requirements.dimensionsText ?? 'Measured from approved plan',
-          ceilingHeightMm: Number(row.ceiling_height_mm ?? 0),
-          usableWalls: Number(requirements.usableWalls ?? 0),
-          floorFinish: settings.floorFinish ?? 'Not specified',
-          falseCeiling: settings.falseCeiling ?? 'Not specified',
-          requiredFurniture: Array.isArray(requirements.requiredFurniture) ? requirements.requiredFurniture : [],
-          budgetInr: typeof requirements.budgetInr === 'number' ? requirements.budgetInr : undefined,
-          isConfigured: row.status === 'configured' && row.verification_status === 'verified'
-        };
-      });
-      setSpaces(mapped);
-      setLoadState(mapped.length ? 'ready' : 'empty');
-      if (!mapped.length) setSaveState('The approved plan contains no derived spaces. Return to Floor Plan Intelligence and review room polygons.');
+      if (!response.ok) { setLoadState(response.status === 409 ? 'blocked' : 'error'); setSaveState(payload?.message ?? 'Approved plan could not be loaded.'); return; }
+      const roomsP: PlanRoom[] = (payload.rooms ?? []).map((r: any) => ({ id: r.id, name: r.name, roomType: r.roomType ?? 'other', polygon: r.polygon ?? [], areaSqm: r.areaSqm ?? polyArea(r.polygon ?? []), ceilingHeightMm: r.ceilingHeightMm, included: true }));
+      if (!live) return;
+      setPlan({ ceilingHeightMm: payload.ceilingHeightMm, walls: payload.walls, rooms: payload.rooms, openings: payload.openings, services: payload.services, obstacles: payload.columns } as any);
+      setRooms(roomsP); setWalls(payload.walls ?? []); setOpenings(payload.openings ?? []);
+      setColumns(payload.columns ?? []); setBeams(payload.beams ?? []); setServices(payload.services ?? []);
+      setAnnotations(payload.annotations ?? []); setIssues(payload.issues ?? []);
+      setScaleVerified(payload.scaleVerified); setCeilingHeightMm(payload.ceilingHeightMm ?? 2700); setFloorPlanVersionId(payload.floorPlanVersionId ?? '');
+      setLoadState(roomsP.length ? 'ready' : 'empty');
     })();
     return () => { live = false; };
   }, [projectId]);
 
-  function openEditModal(space: SpaceRoom) {
-    setActiveSpace(space);
-    setEditForm({ ...space });
+  // ── History helpers (undo/redo) ──
+  function snapshot() { setHistory(h => [...h, { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm }]); setFuture([]); }
+  function undo() { setHistory(h => { if (!h.length) return h; const prev = h[h.length - 1]; const cur = { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm }; setFuture(f => [cur, ...f]); setRooms(prev.rooms); setWalls(prev.walls); setOpenings(prev.openings); setColumns(prev.columns); setBeams(prev.beams); setServices(prev.services); setAnnotations(prev.annotations); setCeilingHeightMm(prev.ceilingHeightMm); return h.slice(0, -1); }); }
+  function redo() { setFuture(f => { if (!f.length) return f; const next = f[0]; const cur = { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm }; setHistory(h => [...h, cur]); setRooms(next.rooms); setWalls(next.walls); setOpenings(next.openings); setColumns(next.columns); setBeams(next.beams); setServices(next.services); setAnnotations(next.annotations); setCeilingHeightMm(next.ceilingHeightMm); return f.slice(1); }); }
+
+  // ── Derive room metrics (dimensions from plan, usable walls) ──
+  const roomMetrics = useMemo(() => rooms.map(room => {
+    const b = bbox(room.polygon);
+    const widthMm = b.maxX - b.minX, depthMm = b.maxY - b.minY;
+    const roomWalls = walls.filter(w => room.polygon.some(p => (Math.abs(p.xMm - w.start.xMm) < 1 && Math.abs(p.yMm - w.start.yMm) < 1) || (Math.abs(p.xMm - w.end.xMm) < 1 && Math.abs(p.yMm - w.end.yMm) < 1)));
+    const roomOpenings = openings.filter(o => roomWalls.some(w => w.id === o.wallId));
+    const roomCols = columns.filter(c => c.position.xMm >= b.minX && c.position.xMm <= b.maxX && c.position.yMm >= b.minY && c.position.yMm <= b.maxY);
+    const deductions = [
+      ...roomOpenings.map(o => ({ id: o.id, kind: 'opening' as const, widthMm: o.widthMm ?? 900, clearanceMm: 120 })),
+      ...roomCols.map(c => ({ id: c.id, kind: 'column' as const, widthMm: c.sizeMm ?? 300, clearanceMm: 200 })),
+    ];
+    const usable = computeUsableWallLength(roomWalls.map(w => ({ id: w.id, lengthMm: wallLen(w) })), deductions);
+    const readiness = computeSpaceReadiness(
+      { spaceId: room.id, areaSqm: room.areaSqm, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, usableWalls: roomWalls.map(w => ({ id: w.id, lengthMm: Math.round(wallLen(w)), openings: [], isExterior: false })) } as any,
+      room.included !== false,
+      issues.filter(i => i.entityId === room.id)
+    );
+    return { room, widthMm, depthMm, wallCount: roomWalls.length, openingCount: roomOpenings.length, usable, readiness };
+  }), [rooms, walls, openings, columns, issues, ceilingHeightMm]);
+
+  const overallReadiness = useMemo(() => canApproveSpaces(roomMetrics.map(m => m.readiness)), [roomMetrics]);
+
+  // ── Canvas projection ──
+  const view = useMemo(() => {
+    const all: Pt[] = [...rooms.flatMap(r => r.polygon), ...walls.flatMap(w => [w.start, w.end]), ...columns.map(c => c.position), ...services.map(s => s.position)];
+    if (!all.length) return { minX: 0, minY: 0, scale: 0.1, w: 600, h: 400 };
+    const b = bbox(all); const pad = 60; const W = 720, H = 460;
+    const s = Math.min((W - 2 * pad) / (b.maxX - b.minX || 1), (H - 2 * pad) / (b.maxY - b.minY || 1));
+    return { minX: b.minX, minY: b.minY, scale: s, w: W, h: H };
+  }, [rooms, walls, columns, services]);
+  const toPx = (p: Pt) => ({ x: (p.xMm - view.minX) * view.scale + 30, y: (p.yMm - view.minY) * view.scale + 30 });
+  const pxToMm = (x: number, y: number): Pt => ({ xMm: (x - 30) / view.scale + view.minX, yMm: (y - 30) / view.scale + view.minY });
+
+  function svgPoint(e: React.MouseEvent) {
+    const svg = svgRef.current!; const rect = svg.getBoundingClientRect();
+    return pxToMm(e.clientX - rect.left, e.clientY - rect.top);
   }
 
-  async function saveSpaceEdit() {
-    if (!activeSpace) return;
-    const nextSpace = { ...activeSpace, ...editForm, isConfigured: true } as SpaceRoom;
-    if (supabase && projectId) {
-      setSaveState('Saving space...');
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return; }
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/spaces/${activeSpace.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ name: nextSpace.name, roomType: nextSpace.roomType, ceilingHeightMm: nextSpace.ceilingHeightMm, requiredFurniture: nextSpace.requiredFurniture, floorFinish: nextSpace.floorFinish, falseCeiling: nextSpace.falseCeiling, budgetInr: nextSpace.budgetInr })
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        setSaveState(payload?.message ?? 'Space requirements could not be saved.');
-        return;
-      }
-      setSaveState('Space saved.');
+  function onCanvasClick(e: React.MouseEvent) {
+    const pt = svgPoint(e);
+    if (tool === 'measure') { if (!measureFrom) setMeasureFrom(pt); else { setMeasureTo(pt); } return; }
+    if (tool === 'draw_room' || tool === 'redraw') { /* drag handled by mousedown/up; simplified: append point */ }
+    if (tool === 'add_column' || tool === 'add_service') {
+      snapshot();
+      if (tool === 'add_column') setColumns(c => [...c, { id: `col-${Date.now()}`, position: pt, sizeMm: 300 }]);
+      else setServices(s => [...s, { id: `svc-${Date.now()}`, kind: 'electrical', position: pt }]);
+      setTool('select');
     }
-    setSpaces((prev) => prev.map((s) => (s.id === activeSpace.id ? nextSpace : s)));
-    setActiveSpace(null);
   }
 
-  function toggleFurniture(item: string) {
-    const current = editForm.requiredFurniture ?? [];
-    const next = current.includes(item) ? current.filter((x) => x !== item) : [...current, item];
-    setEditForm({ ...editForm, requiredFurniture: next });
+  // ── Tools ──
+  function includeRoom(id: string, inc: boolean) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, included: inc } : r)); }
+  function setRoomCeiling(id: string, h: number) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, ceilingHeightMm: h } : r)); }
+  function setRoomType(id: string, t: string) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, roomType: t } : r)); }
+  function splitSelected() { if (!selectedRoom) return; snapshot(); const r = rooms.find(x => x.id === selectedRoom); if (!r) return; const b = bbox(r.polygon); const midX = (b.minX + b.maxX) / 2; const pa = r.polygon.filter(p => p.xMm <= midX); const pb = r.polygon.filter(p => p.xMm >= midX); if (pa.length < 3 || pb.length < 3) { setSaveState('Cannot split: room must have points on both sides.'); return; } setRooms(rs => rs.flatMap(x => x.id === r.id ? [{ ...x, id: r.id + '-a', polygon: pa }, { ...x, id: r.id + '-b', polygon: pb }] : [x])); setTool('select'); }
+  function mergeSelected() { const sel = rooms.filter(r => r.id === selectedRoom); if (selectedRoom && selectedRoom.includes('-')) { const base = selectedRoom.split('-')[0]; const grp = rooms.filter(r => r.id.startsWith(base)); if (grp.length < 2) return; snapshot(); const poly = grp.flatMap(g => g.polygon); setRooms(rs => [...rs.filter(r => !r.id.startsWith(base)), { id: base, name: grp[0].name, roomType: grp[0].roomType, polygon: poly, areaSqm: polyArea(poly), included: true }]); setTool('select'); } }
+  function addWall() { snapshot(); setWalls(w => [...w, { id: `w-${Date.now()}`, start: { xMm: 0, yMm: 0 }, end: { xMm: 1000, yMm: 0 } }]); }
+  function addOpening(kind: 'door' | 'window') { snapshot(); setOpenings(o => [...o, { id: `${kind}-${Date.now()}`, wallId: selectedWall ?? walls[0]?.id ?? '', kind, offsetAlongWallMm: 500, widthMm: kind === 'door' ? 900 : 1200 }]); }
+  function addBeam() { snapshot(); setBeams(b => [...b, { id: `beam-${Date.now()}`, start: { xMm: 0, yMm: 0 }, end: { xMm: 1000, yMm: 0 } }]); }
+  function addService() { snapshot(); setServices(s => [...s, { id: `svc-${Date.now()}`, kind: 'electrical', position: { xMm: 500, yMm: 500 } }]); }
+  function addAnnotation(text: string) { snapshot(); setAnnotations(a => [...a, { id: `ann-${Date.now()}`, text, kind: 'note' }]); }
+
+  async function persistRoom(room: PlanRoom) {
+    if (!supabase || !projectId) return;
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) { setSaveState('Session expired.'); return; }
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, designInclusion: room.included })
+    });
+    const p = await res.json().catch(() => null);
+    setSaveState(res.ok ? 'Room saved.' : (p?.message ?? 'Save failed.'));
   }
 
-  async function handleApproveSpaces() {
-    if (!spaces.length || spaces.some((space) => !space.isConfigured || !space.requiredFurniture.length)) {
-      setSaveState('Configure every space and its required furniture before approving.');
-      return;
-    }
-    if (supabase && projectId) {
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return; }
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/spaces/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json', authorization: `Bearer ${session.access_token}` } });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        setSaveState(payload?.message ?? 'Spaces could not be approved.');
-        return;
-      }
-    }
-    navigate(`/projects/${projectId}/layouts`);
-  }
+  const sel = roomMetrics.find(m => m.room.id === selectedRoom);
 
   return (
-    <div className="spaces-workspace">
+    <div className="spaces-workspace phase4">
       {/* Header */}
       <div className="page-header">
         <div className="page-header-text">
-          <small>Phase 3 — Space Identification & Requirements</small>
-          <h1>Configured Spaces ({spaces.length})</h1>
-          <p>
-            Review each room detected from your floor plan. Configure ceiling height, floor finish, and specific modular furniture requirements before generating layouts.
-          </p>
+          <small>Phase 4 — Spaces Workspace (consumes approved plan)</small>
+          <h1>Configured Spaces ({rooms.filter(r => r.included !== false).length})</h1>
+          <p>Measurements are read from the approved floor-plan version. Edit structurally only via derived plan versions — the approved plan is immutable.</p>
         </div>
         <div className="page-header-actions">
-          <button
-            onClick={handleApproveSpaces}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px',
-              background: 'var(--gold)', color: '#fff', border: 0, borderRadius: 8,
-              fontSize: 14, fontWeight: 800, cursor: 'pointer'
-            }}
-          >
-            Approve Spaces & Open Layout Studio →
-          </button>
+          <div className="history-btns">
+            <button className="icon-btn" onClick={undo} title="Undo"><Undo2 size={15} /></button>
+            <button className="icon-btn" onClick={redo} title="Redo"><Redo2 size={15} /></button>
+          </div>
+          <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
+          <button className="btn-primary" onClick={() => navigate(`/projects/${projectId}/layouts`)}>Open Layout Studio →</button>
         </div>
       </div>
-      {saveState && <p role="status" style={{ margin: '0 0 16px', color: saveState.includes('saved') ? 'var(--success)' : 'var(--danger)', fontSize: 13 }}>{saveState}</p>}
+      {saveState && <p role="status" className="save-state">{saveState}</p>}
 
       {loadState === 'loading' && <div className="spaces-empty"><Layers size={22} /><strong>Loading approved plan spaces...</strong></div>}
       {loadState === 'blocked' && <div className="spaces-empty"><AlertTriangle size={22} /><strong>Floor Plan approval required</strong><Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}>Open Floor Plan Intelligence</Button></div>}
-      {loadState === 'empty' && <div className="spaces-empty"><Home size={22} /><strong>No valid room polygons were derived</strong><Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}>Review plan geometry</Button></div>}
+      {loadState === 'empty' && <div className="spaces-empty"><Home size={22} /><strong>No room polygons derived</strong></div>}
 
-      {/* Room Cards Grid */}
-      <div className="spaces-grid">
-        {spaces.map((space) => {
-          const isReady = space.isConfigured && space.requiredFurniture.length > 0;
-          return (
-            <div key={space.id} className="space-card">
-              <div className="space-card-header">
-                <div>
-                  <div className="space-title-row">
-                    <h3>{space.name}</h3>
-                    <span className="space-type-badge">{space.roomType}</span>
+      {loadState === 'ready' && (
+        <div className="spaces-layout">
+          {/* Region: Room list */}
+          <aside className="region room-list">
+            <div className="region-title"><Home size={14} /> Rooms</div>
+            <div className="room-cards">
+              {roomMetrics.map(({ room, widthMm, depthMm, wallCount, openingCount, usable, readiness }) => (
+                <div key={room.id} className={`room-card ${selectedRoom === room.id ? 'sel' : ''}`} onClick={() => setSelectedRoom(room.id)}>
+                  <div className="rc-head">
+                    <strong>{room.name}</strong>
+                    <span className="rc-type">{ROOM_TYPES[room.roomType] ?? room.roomType}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {space.dimensionsText} • {areaSqmText(space)}
-                  </div>
-                </div>
-                <Badge tone={isReady ? 'success' : 'warn'}>
-                  {isReady ? 'Ready for Layout' : 'Config Incomplete'}
-                </Badge>
-              </div>
-
-              {/* Metrics */}
-              <div className="space-metrics-row">
-                <div className="space-metric-item">
-                  <small>Ceiling Ht</small>
-                  <strong>{space.ceilingHeightMm} mm</strong>
-                </div>
-                <div className="space-metric-item">
-                  <small>Usable Walls</small>
-                  <strong>{space.usableWalls} walls</strong>
-                </div>
-                <div className="space-metric-item">
-                  <small>Floor Finish</small>
-                  <strong>{space.floorFinish.split(' ')[0]}</strong>
-                </div>
-              </div>
-
-              {/* Readiness Checklist */}
-              <div className="readiness-box">
-                <div className="readiness-title">Space Readiness Check</div>
-                <div className="readiness-list">
-                  <div className="readiness-item checked">
-                    <CheckCircle2 size={13} /> Scale Confirmed (mm)
-                  </div>
-                  <div className="readiness-item checked">
-                    <CheckCircle2 size={13} /> Boundaries & Openings Confirmed
-                  </div>
-                  <div className={`readiness-item${space.ceilingHeightMm ? ' checked' : ''}`}>
-                    {space.ceilingHeightMm ? <CheckCircle2 size={13} /> : <Circle size={13} />} Ceiling Height ({space.ceilingHeightMm} mm)
-                  </div>
-                  <div className={`readiness-item${space.requiredFurniture.length > 0 ? ' checked' : ''}`}>
-                    {space.requiredFurniture.length > 0 ? <CheckCircle2 size={13} /> : <Circle size={13} />} Furniture Requirements ({space.requiredFurniture.length} items)
+                  <div className="rc-dims">{((widthMm) / 1000).toFixed(2)}m × {((depthMm) / 1000).toFixed(2)}m • {room.areaSqm.toFixed(1)} m²</div>
+                  <div className="rc-row"><span>Ceiling</span><strong>{room.ceilingHeightMm ?? ceilingHeightMm} mm</strong></div>
+                  <div className="rc-row"><span>Walls / Openings</span><strong>{wallCount} / {openingCount}</strong></div>
+                  <div className="rc-row"><span>Usable wall</span><strong>{usable.usableWallMm} mm</strong></div>
+                  <div className="rc-foot">
+                    <Badge tone={readiness.ready ? 'success' : 'warn'}>{readiness.ready ? 'Ready' : 'Incomplete'}</Badge>
+                    <label className="inc-toggle"><input type="checkbox" checked={room.included !== false} onChange={(e) => includeRoom(room.id, e.target.checked)} onClick={(e) => e.stopPropagation()} /> include</label>
                   </div>
                 </div>
-              </div>
-
-              {/* Furniture List Tags */}
-              <div>
-                <small style={{ marginBottom: 4 }}>Suggested modules</small>
-                <div className="furniture-tags">
-                  {space.requiredFurniture.map((f, i) => (
-                    <span key={i} className="furniture-tag">{f}</span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Card Actions */}
-              <div className="space-actions">
-                <button className="space-btn" onClick={() => openEditModal(space)}>
-                  <Edit3 size={13} /> Configure Room
-                </button>
-                <button
-                  className="space-btn primary"
-                  onClick={() => navigate(`/projects/${projectId}/layouts`)}
-                >
-                  Open Layout Studio →
-                </button>
-              </div>
+              ))}
             </div>
-          );
-        })}
-      </div>
+          </aside>
 
-      {/* Edit Room Modal */}
-      {activeSpace && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setActiveSpace(null)}>
-          <div className="modal-card" style={{ maxWidth: 640 }}>
-            <div className="modal-header">
-              <div>
-                <small>Configure Space</small>
-                <h2>{activeSpace.name} Settings</h2>
-              </div>
-              <button className="modal-close" onClick={() => setActiveSpace(null)}>✕</button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div className="form-grid-2">
-                <div className="form-field">
-                  <label>Room Name</label>
-                  <input
-                    type="text"
-                    value={editForm.name ?? ''}
-                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Room Type</label>
-                  <select
-                    value={editForm.roomType ?? 'living'}
-                    onChange={(e) => setEditForm({ ...editForm, roomType: e.target.value as any })}
-                  >
-                    {ROOM_TYPES.map((rt) => (
-                      <option key={rt.id} value={rt.id}>{rt.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-field">
-                  <label>Ceiling Height (mm)</label>
-                  <input
-                    type="number"
-                    value={editForm.ceilingHeightMm ?? DEFAULT_CEILING}
-                    onChange={(e) => setEditForm({ ...editForm, ceilingHeightMm: parseInt(e.target.value, 10) || DEFAULT_CEILING })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Floor Finish</label>
-                  <input
-                    type="text"
-                    value={editForm.floorFinish ?? DEFAULT_FINISH}
-                    onChange={(e) => setEditForm({ ...editForm, floorFinish: e.target.value })}
-                    placeholder="e.g. Vitrified Tiles"
-                  />
-                </div>
-
-                <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-                  <label>False Ceiling Type</label>
-                  <select
-                    value={editForm.falseCeiling ?? DEFAULT_FALSE_CEILING}
-                    onChange={(e) => setEditForm({ ...editForm, falseCeiling: e.target.value })}
-                  >
-                    <option value="Peripheral Cove Lighting">Peripheral Cove Lighting</option>
-                    <option value="Flat Gypsum Board">Flat Gypsum Board</option>
-                    <option value="Tray / Island Ceiling">Tray / Island Ceiling</option>
-                    <option value="Coffered Wooden Ceiling">Coffered Wooden Ceiling</option>
-                    <option value="No False Ceiling (Exposed Slates)">No False Ceiling</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Smart Recommendations */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button type="button" onClick={() => setAutoApply((v) => !v)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 7, border: '1px solid var(--line)', background: autoApply ? 'rgba(197,156,45,.12)' : 'var(--surface)', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                  <Wand2 size={13} /> Recommend modules
+          {/* Region: Plan canvas + tools */}
+          <section className="region canvas-region">
+            <div className="toolbar">
+              {[['select', 'Choose'], ['measure', 'Measure'], ['draw_room', 'Draw room'], ['redraw', 'Redraw'], ['split', 'Split'], ['merge', 'Merge'], ['wall', 'Add wall'], ['door', 'Add door'], ['window', 'Add window'], ['column', 'Column'], ['beam', 'Beam'], ['service', 'Service'], ['annotate', 'Annotate']].map(([t, label]) => (
+                <button key={t} className={`tool-btn ${tool === t ? 'active' : ''}`} onClick={() => { if (t === 'split') splitSelected(); else if (t === 'merge') mergeSelected(); else if (t === 'wall') addWall(); else if (t === 'door') addOpening('door'); else if (t === 'window') addOpening('window'); else if (t === 'beam') addBeam(); else if (t === 'service') addService(); else if (t === 'annotate') { const txt = prompt('Annotation text'); if (txt) addAnnotation(txt); } else setTool(t); }}>
+                  {label}
                 </button>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Suggests a starting furniture set from the brief.</span>
-              </div>
+              ))}
+            </div>
+            <svg ref={svgRef} className="plan-canvas" viewBox={`0 0 ${view.w} ${view.h}`} onClick={onCanvasClick}>
+              {layers.rooms && rooms.filter(r => r.included !== false).map(r => {
+                const pts = r.polygon.map(p => { const q = toPx(p); return `${q.x},${q.y}`; }).join(' ');
+                return <polygon key={r.id} points={pts} fill={selectedRoom === r.id ? 'rgba(197,156,45,.18)' : 'rgba(120,92,64,.10)'} stroke={selectedRoom === r.id ? 'var(--gold)' : '#7a5c3a'} strokeWidth={selectedRoom === r.id ? 2.5 : 1.5} onClick={(e) => { e.stopPropagation(); setSelectedRoom(r.id); }} />;
+              })}
+              {layers.walls && walls.map(w => { const a = toPx(w.start), b = toPx(w.end); return <line key={w.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={selectedWall === w.id ? 'var(--gold)' : '#2b2b2b'} strokeWidth={selectedWall === w.id ? 5 : 3} onClick={(e) => { e.stopPropagation(); setSelectedWall(w.id); setSelectedRoom(null); }} />; })}
+              {layers.openings && openings.map(o => { const w = walls.find(x => x.id === o.wallId); if (!w) return null; const a = toPx(w.start), b = toPx(w.end); const t = (o.offsetAlongWallMm) / (wallLen(w) || 1); const px = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; const col = o.kind === 'door' ? '#c97b2c' : '#2f6fb0'; return <rect key={o.id} x={px.x - 4} y={px.y - 4} width={8} height={8} fill={col} stroke="#fff" strokeWidth={1} />; })}
+              {layers.columns && columns.map(c => { const p = toPx(c.position); return <rect key={c.id} x={p.x - 5} y={p.y - 5} width={10} height={10} fill="#444" stroke="#fff" />; })}
+              {layers.beams && beams.map(b => { const a = toPx(b.start), e2 = toPx(b.end); return <line key={b.id} x1={a.x} y1={a.y} x2={e2.x} y2={e2.y} stroke="#9b59b6" strokeWidth={3} strokeDasharray="4 3" />; })}
+              {layers.services && services.map(s => { const p = toPx(s.position); return <circle key={s.id} cx={p.x} cy={p.y} r={5} fill="#27ae60" stroke="#fff" />; })}
+              {layers.annotations && annotations.map(a => { if (!a.position) return null; const p = toPx(a.position); return <text key={a.id} x={p.x} y={p.y} fontSize={10} fill="#7a3b00">{a.text}</text>; })}
+              {measureFrom && measureTo && (() => { const a = toPx(measureFrom), b = toPx(measureTo); const d = Math.hypot(measureTo.xMm - measureFrom.xMm, measureTo.yMm - measureFrom.yMm); return <g><line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="red" strokeWidth={2} /><text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 6} fontSize={11} fill="red">{(d / 1000).toFixed(2)} m</text></g>; })()}
+            </svg>
+            {measureFrom && !measureTo && <div className="measure-hint">Click a second point to measure.</div>}
+            {!scaleVerified && <div className="scale-warn"><TriangleAlert size={13} /> Scale not verified — dimensions are approximate.</div>}
+          </section>
 
-              {/* Furniture selector */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  Required Furniture Modules
-                </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                  {(FURNITURE_OPTIONS[editForm.roomType ?? 'living'] ?? FURNITURE_OPTIONS.living).map((item) => {
-                    const selected = (editForm.requiredFurniture ?? []).includes(item);
-                    const recommended = autoApply && deriveDefaults(editForm).requiredFurniture?.includes(item);
-                    return (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => toggleFurniture(item)}
-                        style={{
-                          padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                          border: recommended ? '1px solid var(--gold)' : selected ? '1px solid var(--gold)' : '1px solid var(--line)',
-                          background: recommended ? 'rgba(197,156,45,.18)' : selected ? 'rgba(197,156,45,.15)' : 'var(--surface)',
-                          color: recommended ? 'var(--gold-dim)' : selected ? 'var(--gold-dim)' : 'var(--text-secondary)'
-                        }}
-                      >
-                        {selected && <Check size={11} style={{ display: 'inline', marginRight: 4 }} />}
-                        {item}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <button className="btn-primary" onClick={saveSpaceEdit} style={{ marginTop: 10 }}>
-                Save Space Settings →
+          {/* Region: Layer controls */}
+          <aside className="region layers-region">
+            <div className="region-title"><Layers size={14} /> Layers</div>
+            {Object.entries(layers).map(([k, v]) => (
+              <button key={k} className="layer-row" onClick={() => setLayers(l => ({ ...l, [k]: !l[k as keyof typeof l] }))}>
+                {v ? <Eye size={14} /> : <EyeOff size={14} />} {k}
               </button>
+            ))}
+          </aside>
+
+          {/* Region: Properties (room / wall) */}
+          <aside className="region props-region">
+            <div className="region-title"><Edit3 size={14} /> Properties</div>
+            {sel ? (
+              <div className="props-body">
+                <label>Room name</label><input value={sel.room.name} onChange={(e) => setRooms(rs => rs.map(r => r.id === sel.room.id ? { ...r, name: e.target.value } : r))} />
+                <label>Type</label>
+                <select value={sel.room.roomType} onChange={(e) => setRoomType(sel.room.id, e.target.value)}>{Object.entries(ROOM_TYPES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+                <label>Ceiling height (mm)</label>
+                <input type="number" value={sel.room.ceilingHeightMm ?? ceilingHeightMm} onChange={(e) => setRoomCeiling(sel.room.id, parseInt(e.target.value, 10) || ceilingHeightMm)} />
+                <div className="props-read">
+                  <div><span>Dimensions</span><strong>{((sel.widthMm) / 1000).toFixed(2)}m × {((sel.depthMm) / 1000).toFixed(2)}m</strong></div>
+                  <div><span>Area</span><strong>{sel.room.areaSqm.toFixed(1)} m²</strong></div>
+                  <div><span>Usable wall</span><strong>{sel.usable.usableWallMm} mm</strong></div>
+                  <div><span>Deductions</span><strong>{sel.usable.deductionsMm} mm</strong></div>
+                </div>
+                <Button variant="outline" onClick={() => persistRoom(sel.room)}><Save size={13} /> Save room</Button>
+              </div>
+            ) : selectedWall ? (
+              <div className="props-body">
+                <label>Selected wall</label>
+                <div className="wall-id">{selectedWall}</div>
+                <div className="props-read"><div><span>Length</span><strong>{Math.round(wallLen(walls.find(w => w.id === selectedWall)!))} mm</strong></div></div>
+              </div>
+            ) : <div className="props-empty">Select a room or wall.</div>}
+          </aside>
+
+          {/* Region: AI findings */}
+          <aside className="region ai-region">
+            <div className="region-title"><Sparkles size={14} /> AI Findings</div>
+            {annotations.length ? annotations.map(a => <div key={a.id} className="finding"><MapPin size={12} /> {a.text}</div>) : <div className="empty-note">No AI annotations.</div>}
+          </aside>
+
+          {/* Region: Geometry issues */}
+          <aside className="region issues-region">
+            <div className="region-title"><TriangleAlert size={14} /> Geometry Issues</div>
+            {issues.length ? issues.map((i, idx) => <div key={idx} className={`issue ${i.severity}`}><AlertTriangle size={12} /> {i.code} — {i.message}</div>) : <div className="empty-note">No blocking geometry issues.</div>}
+          </aside>
+
+          {/* Region: Readiness state */}
+          <aside className="region readiness-region">
+            <div className="region-title"><CheckCircle2 size={14} /> Readiness</div>
+            <div className="readiness-summary">
+              <div className={overallReadiness.approved ? 'ok' : 'bad'}>{overallReadiness.approved ? 'All rooms ready' : `${overallReadiness.blockedRooms.length} room(s) blocked`}</div>
+              {roomMetrics.map(m => <div key={m.room.id} className="readiness-room"><CheckCircle2 size={12} color={m.readiness.ready ? '#2e9e4f' : '#c0392b'} /> {m.room.name}</div>)}
             </div>
-          </div>
+          </aside>
         </div>
       )}
     </div>
   );
-}
-
-function areaSqmText(space: SpaceRoom) {
-  if (!space.areaSqm) return '0 m²';
-  return `${space.areaSqm} m²`;
 }

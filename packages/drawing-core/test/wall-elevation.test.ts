@@ -5,7 +5,28 @@ import { writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Writable } from 'node:stream';
-import { exportWallElevationToDxf, generateWallElevationsPdf, generateWallElevationsSvg } from '../src/index.js';
+import { exportWallElevationToDxf, generateWallElevationsPdf, generateWallElevationsSvg, buildDimensionChain, deriveWardrobeDepthMm, ULTIDA_DRAWING_STANDARD_V1, validateElevationSheet } from '../src/index.js';
+
+test('drawing standard derives manufacturing defaults and valid dimension chains', () => {
+  assert.equal(deriveWardrobeDepthMm(), 580);
+  assert.equal(ULTIDA_DRAWING_STANDARD_V1.panelThicknessMm, 18);
+  assert.equal(buildDimensionChain('horizontal', [468, 467, 400], 30).overallMm, 1335);
+  assert.throws(() => buildDimensionChain('vertical', [0, 20]));
+});
+
+test('elevation sheet rejects inaccurate or underspecified wardrobe geometry', () => {
+  const base = {
+    schema: 'elevation.sheet.v1' as const, view: 'internal' as const, title: 'Wardrobe Internal', units: 'mm' as const,
+    overallWidthMm: 1000, overallHeightMm: 2100, horizontalChain: buildDimensionChain('horizontal', [500, 500]), verticalChain: buildDimensionChain('vertical', [110, 1990]),
+    sourceSceneVersionId: 'scene-1', warnings: [], elements: [
+      { id: 'hanger', kind: 'hanger-space' as const, xMm: 0, yMm: 200, widthMm: 500, heightMm: 1050, label: 'HANGER SPACE' },
+      { id: 'shelf', kind: 'shelf' as const, xMm: 500, yMm: 300, widthMm: 500, heightMm: 20, label: 'AS / EQ' }
+    ]
+  };
+  assert.equal(validateElevationSheet(base).valid, true);
+  assert.equal(validateElevationSheet({ ...base, overallWidthMm: 1100 }).valid, false);
+  assert.equal(validateElevationSheet({ ...base, elements: [{ id: 'glass', kind: 'profile-glass', xMm: 0, yMm: 0, widthMm: 500, heightMm: 500 }] }).valid, false);
+});
 
 const testScene = {
   schema: 'scene.v1',

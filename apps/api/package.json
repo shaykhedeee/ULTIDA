@@ -24,7 +24,9 @@
     "@ultida/plan-core": "0.1.0",
     "@ultida/provider-gateway": "0.1.0",
     "@ultida/rule-core": "0.1.0",
+    "@ultida/render-pipeline": "0.1.0",
     "@ultida/scene-core": "0.1.0",
+    "@ultida/scene-compiler": "0.1.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
@@ -34,6 +36,8 @@
   "devDependencies": {
     "@types/cors": "^2.8.18",
     "@types/express": "^5.0.3",
-    "puppeteer-core": "^25.3.0"
+    "puppeteer-core": "^25.3.0",
+    "sharp": "^0.34.0",
+    "tesseract.js": "^7.0.0"
   }
 }

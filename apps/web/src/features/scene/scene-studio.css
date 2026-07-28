@@ -1,0 +1,12 @@
+.scene-studio { display: grid; gap: 16px; }
+.scene-heading, .scene-toolbar, .scene-grid { display: flex; gap: 12px; align-items: center; }
+.scene-heading { justify-content: space-between; }
+.scene-heading h2 { margin: 4px 0; font-size: 22px; }
+.scene-heading p, .scene-inspector p { margin: 0; color: var(--muted, #6d6d6d); }
+.scene-toolbar { flex-wrap: wrap; border-bottom: 1px solid #ddd8cf; padding-bottom: 12px; }
+.scene-grid { align-items: stretch; display: grid; grid-template-columns: minmax(0, 1fr) 280px; }
+.scene-viewport { min-height: 560px; }
+.scene-viewport > div { height: 100%; }
+.scene-canvas { min-height: 530px; width: 100%; overflow: hidden; background: #f4f1eb; }
+.scene-inspector { align-self: stretch; }
+@media (max-width: 900px) { .scene-grid { grid-template-columns: 1fr; } .scene-viewport { min-height: 420px; } .scene-canvas { min-height: 390px; } }

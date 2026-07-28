@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { executeRenderJob, type RenderJobInput } from '../src/job.js';
-import { renderBaseArtifacts } from '../src/base-render.js';
+import { renderBaseArtifacts, renderScenePerspectiveArtifacts } from '../src/base-render.js';
 
 const BOXES = [
   { id: 'room-1', kind: 'room' as const, x1: 0, y1: 0, x2: 4000, y2: 3000, materialId: 'mat-floor' },
@@ -20,6 +20,19 @@ const QA_EVIDENCE = {
   measuredObjectIds: ['tv-1'],
   measuredMaterialRegionIds: ['mat-tv'],
   cabinetDivisionCount: 0,
+};
+
+const PERSPECTIVE_SCENE: any = {
+  schema: 'scene.v1', units: 'mm', coordinateSystem: 'right-handed-z-up', projectId: 'proj-1', floorPlanVersionId: 'plan-1',
+  floors: [{ id: 'floor-1', name: 'Ground', elevationMm: 0, heightMm: 2700 }],
+  spaces: [{ id: 'space-1', floorId: 'floor-1', name: 'Living', type: 'living' }],
+  rooms: [{ id: 'room-1', spaceId: 'space-1', name: 'Living', type: 'living', boundary: [{ xMm: 0, yMm: 0 }, { xMm: 4000, yMm: 0 }, { xMm: 4000, yMm: 3000 }, { xMm: 0, yMm: 3000 }, { xMm: 0, yMm: 0 }], confidence: 1 }],
+  walls: [{ id: 'wall-1', floorId: 'floor-1', start: { xMm: 0, yMm: 0 }, end: { xMm: 4000, yMm: 0 }, thicknessMm: 150, heightMm: 2700, baseElevationMm: 0, spaceIds: ['space-1'], confidence: 1 }],
+  openings: [{ id: 'door-1', wallId: 'wall-1', kind: 'door', offsetMm: 1000, widthMm: 900, heightMm: 2100, sillHeightMm: 0, confidence: 1 }],
+  fixedFixtures: [], modules: [{ id: 'tv-1', roomId: 'room-1', family: 'tv_unit', widthMm: 1800, depthMm: 400, heightMm: 600, position: { xMm: 1400, yMm: 500 }, rotationDeg: 0, anchor: 'floor', materialId: 'mat-tv', confidence: 1 }],
+  materials: [{ id: 'mat-tv', name: 'Oak', code: 'OAK-01' }], lighting: [],
+  cameras: [{ id: 'camera-1', name: 'Corner', position: { xMm: 2000, yMm: 1700, zMm: -3500 }, target: { xMm: 2000, yMm: 1100, zMm: 1200 }, lensMm: 35 }],
+  constraints: [], unresolvedDetections: [], metadata: { branch: 'main', status: 'approved', changeReason: 'fixture', schemaVersion: 'scene.v1', designVersion: 'design-1' },
 };
 
 function providerWithPng() {
@@ -118,6 +131,22 @@ test('deterministic base render hash remains stable for identical scene input', 
   assert.equal(first.proof.baseHash, second.proof.baseHash);
   assert.ok(first.proof.latencyMs >= 0);
   assert.ok(second.proof.latencyMs >= 0);
+});
+
+test('perspective scene renderer derives a stable base and masks from wall openings and module geometry', () => {
+  const first = renderScenePerspectiveArtifacts(PERSPECTIVE_SCENE, { width: 160, height: 120, cameraId: 'camera-1' });
+  const second = renderScenePerspectiveArtifacts(PERSPECTIVE_SCENE, { width: 160, height: 120, cameraId: 'camera-1' });
+  assert.match(first.baseHash, /^[a-f0-9]{64}$/);
+  assert.equal(first.baseHash, second.baseHash);
+  assert.equal(first.objectMasks[0]?.id, 'tv-1');
+  assert.equal(first.materialRegions[0]?.materialId, 'mat-tv');
+});
+
+test('render jobs choose the perspective scene renderer when an approved scene is supplied', async () => {
+  const res = await executeRenderJob(makeInput({ scene: PERSPECTIVE_SCENE, sceneBoxes: undefined, cameraId: 'camera-1' }));
+  assert.equal(res.proof.status, 'succeeded');
+  assert.equal(res.record.state, 'completed');
+  assert.equal(res.artifacts.objectMasks[0]?.id, 'tv-1');
 });
 
 test('version lineage remains intact in the persisted record', async () => {

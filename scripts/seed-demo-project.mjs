@@ -65,6 +65,7 @@ await upsert('project_briefs', [{
   room_requirements: { living: { seatingCount: 5, tvSizeInch: 55, poojaUnit: true },
     master_bedroom: { bedSize: 'king', wardrobeType: 'walk_in' },
     kitchen: { shape: 'l_shaped', hob: '4_burner', chimney: true } },
+  is_complete: true, completed_at: new Date().toISOString(),
   created_by: USER,
 }]);
 
@@ -93,7 +94,8 @@ const canonical = {
 };
 await upsert('floor_plan_versions', [{
   id: FP_ID, organization_id: ORG, project_id: PROJECT_ID, version_number: 1,
-  status: 'approved', source_asset_id: null, spatial_model: canonical,
+  status: 'approved', active_version: true, approved_at: new Date().toISOString(),
+  source_asset_id: null, spatial_model: canonical,
   canonical_model: canonical,
   scale_state: { pointA: { x: 40, y: 40 }, pointB: { x: 1040, y: 40 }, pixelDistance: 1000, realDistanceMm: 9000, mmPerPixel: 9, calibratedBy: 'designer' },
   verification_state: { calibrated: true, minConfidence: 0.9 },
@@ -103,9 +105,9 @@ await upsert('floor_plan_versions', [{
 
 // 4) Spaces (derived from approved plan)
 const spaces = [
-  { id: '55555555-5555-5555-5555-555555555555', name: 'Living Room', room_type: 'living', area_sqm: 32.4, ceiling_height_mm: 2700, status: 'approved', geometry_json: { walls: canonical.walls.slice(0, 2) } },
-  { id: '66666666-6666-6666-6666-666666666666', name: 'Master Bedroom', room_type: 'master_bedroom', area_sqm: 34.0, ceiling_height_mm: 2700, status: 'approved', geometry_json: {} },
-  { id: '77777777-7777-7777-7777-777777777777', name: 'Kitchen', room_type: 'kitchen', area_sqm: 30.0, ceiling_height_mm: 2700, status: 'configured', geometry_json: {} },
+  { id: '55555555-5555-5555-5555-555555555555', name: 'Living Room', room_type: 'living', area_sqm: 32.4, ceiling_height_mm: 2700, status: 'configured', verification_status: 'verified', requirements_json: { requiredFurniture: ['sofa', 'tv-unit', 'coffee-table'] }, geometry_json: { walls: canonical.walls.slice(0, 2) } },
+  { id: '66666666-6666-6666-6666-666666666666', name: 'Master Bedroom', room_type: 'master_bedroom', area_sqm: 34.0, ceiling_height_mm: 2700, status: 'configured', verification_status: 'verified', requirements_json: { requiredFurniture: ['king-bed', 'wardrobe'] }, geometry_json: {} },
+  { id: '77777777-7777-7777-7777-777777777777', name: 'Kitchen', room_type: 'kitchen', area_sqm: 30.0, ceiling_height_mm: 2700, status: 'configured', verification_status: 'verified', requirements_json: { requiredFurniture: ['l-shaped-kitchen', 'chimney'] }, geometry_json: {} },
 ];
 for (const s of spaces) {
   await upsert('spaces', [{ ...s, organization_id: ORG, project_id: PROJECT_ID, floor_plan_version_id: FP_ID, created_by: USER }]);

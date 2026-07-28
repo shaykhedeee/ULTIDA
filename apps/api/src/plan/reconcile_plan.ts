@@ -39,6 +39,12 @@ export interface CvTraceResult {
  *  adjust field names to match your actual OpenAI/Cloudflare vision
  *  response schema, this is the expected minimum shape. */
 export interface VisionSemanticResult {
+  walls: Array<{
+    approxStartPx: { x: number; y: number };
+    approxEndPx: { x: number; y: number };
+    confidence: number;
+    evidence?: string;
+  }>;
   rooms: Array<{
     label: string;
     roomType: string;
@@ -94,8 +100,6 @@ export interface ReconciledPlanCandidate {
   requiresDesignerReview: true; // always -- this is never auto-approved
 }
 
-const OPENING_PROXIMITY_PX = 30;
-
 function distancePointToSegment(
   px: number, py: number, x1: number, y1: number, x2: number, y2: number,
 ): number {
@@ -107,11 +111,66 @@ function distancePointToSegment(
   return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }
 
+function sourceTolerancePx(source: CvTraceResult['sourceImageSize']) {
+  // Pixel tolerances must follow the source resolution. A fixed 30 px value
+  // made the same physical doorway look attached on a small preview and
+  // unrelated on a high-resolution PDF raster.
+  const diagonal = Math.hypot(source.widthPx, source.heightPx);
+  return Math.max(18, Math.min(80, diagonal * 0.012));
+}
+
+function angleDifferenceRadians(a: number, b: number) {
+  const difference = Math.abs(a - b) % Math.PI;
+  return Math.min(difference, Math.PI - difference);
+}
+
+function projectionOnSegment(
+  point: { x: number; y: number },
+  segment: Pick<CvWallCandidate, 'x1' | 'y1' | 'x2' | 'y2'>,
+) {
+  const dx = segment.x2 - segment.x1;
+  const dy = segment.y2 - segment.y1;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return 0;
+  return ((point.x - segment.x1) * dx + (point.y - segment.y1) * dy) / length;
+}
+
+function visionWallMatchesCv(
+  cvWall: CvWallCandidate,
+  visionWall: VisionSemanticResult['walls'][number],
+  tolerancePx: number,
+) {
+  const cvAngle = Math.atan2(cvWall.y2 - cvWall.y1, cvWall.x2 - cvWall.x1);
+  const visionAngle = Math.atan2(
+    visionWall.approxEndPx.y - visionWall.approxStartPx.y,
+    visionWall.approxEndPx.x - visionWall.approxStartPx.x,
+  );
+  if (angleDifferenceRadians(cvAngle, visionAngle) > (10 * Math.PI) / 180) return false;
+
+  const midpoint = {
+    x: (visionWall.approxStartPx.x + visionWall.approxEndPx.x) / 2,
+    y: (visionWall.approxStartPx.y + visionWall.approxEndPx.y) / 2,
+  };
+  if (distancePointToSegment(midpoint.x, midpoint.y, cvWall.x1, cvWall.y1, cvWall.x2, cvWall.y2) > tolerancePx) return false;
+
+  const projectedStart = projectionOnSegment(visionWall.approxStartPx, cvWall);
+  const projectedEnd = projectionOnSegment(visionWall.approxEndPx, cvWall);
+  const overlapStart = Math.max(0, Math.min(projectedStart, projectedEnd));
+  const overlapEnd = Math.min(cvWall.lengthPx, Math.max(projectedStart, projectedEnd));
+  const overlap = Math.max(0, overlapEnd - overlapStart);
+  const visionLength = Math.hypot(
+    visionWall.approxEndPx.x - visionWall.approxStartPx.x,
+    visionWall.approxEndPx.y - visionWall.approxStartPx.y,
+  );
+  return overlap >= Math.min(cvWall.lengthPx, visionLength) * 0.5;
+}
+
 export function reconcilePlan(
   cv: CvTraceResult,
   vision: VisionSemanticResult,
 ): ReconciledPlanCandidate {
   const reviewFlags: string[] = [];
+  const tolerancePx = sourceTolerancePx(cv.sourceImageSize);
 
   // 1. Attach opening proximity to each CV wall -- a wall segment near a
   // vision-detected door/window is likely where the actual gap/opening is,
@@ -122,12 +181,15 @@ export function reconcilePlan(
       const d = distancePointToSegment(
         o.approxCenterPx.x, o.approxCenterPx.y, w.x1, w.y1, w.x2, w.y2,
       );
-      return d <= OPENING_PROXIMITY_PX;
+      return d <= tolerancePx;
     });
+    const matchedVisionWall = vision.walls.some((candidate) =>
+      candidate.confidence >= 0.7 && visionWallMatchesCv(w, candidate, tolerancePx),
+    );
     return {
       id: w.id, x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2,
       thicknessPx: w.thicknessPx, lengthPx: w.lengthPx,
-      confirmedByBothPasses: w.confidence >= 0.85,
+      confirmedByBothPasses: matchedVisionWall,
       geometryConfidence: w.confidence,
       hasNearbyOpening: nearOpening,
     };
@@ -138,6 +200,9 @@ export function reconcilePlan(
   }
   if (walls.some(w => w.thicknessPx === null)) {
     reviewFlags.push('Some walls could not have thickness measured (no parallel line pair found) — confirm thickness manually, do not assume a default.');
+  }
+  if (vision.walls.length > 0 && !walls.some(w => w.confirmedByBothPasses)) {
+    reviewFlags.push('Vision wall candidates did not geometrically align with CV wall traces — inspect source alignment before approving walls.');
   }
 
   // 2. Rooms: keep the vision model's label/type (semantics), but note we

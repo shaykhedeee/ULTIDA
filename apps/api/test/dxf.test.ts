@@ -11,9 +11,29 @@ import { exportSceneToDxf } from '@ultida/drawing-core';
 
 const approvedScene = {
   schema: 'scene.v1', units: 'mm', projectId: 'project-1', floorPlanVersionId: 'plan-1',
-  rooms: [], openings: [], materials: [], metadata: { branch: 'main', status: 'approved', changeReason: 'Test approval' },
-  walls: [{ id: 'wall-1', start: { xMm: 125, yMm: 240 }, end: { xMm: 3125, yMm: 240 }, thicknessMm: 150, heightMm: 2700 }],
-  modules: [{ id: 'module-1', roomId: 'room-1', family: 'wardrobe', widthMm: 900, depthMm: 600, heightMm: 2400, position: { xMm: 400, yMm: 700 }, rotationDeg: 0 }]
+  coordinateSystem: 'right-handed-z-up',
+  floors: [{ id: 'floor-1', name: 'Ground Floor', elevationMm: 0, heightMm: 2700 }],
+  spaces: [{ id: 'space-1', floorId: 'floor-1', name: 'Room 1', type: 'bedroom' }],
+  rooms: [{ id: 'room-1', spaceId: 'space-1', name: 'Room 1', type: 'bedroom', boundary: [{ xMm: 0, yMm: 0 }, { xMm: 4000, yMm: 0 }, { xMm: 4000, yMm: 3000 }, { xMm: 0, yMm: 3000 }, { xMm: 0, yMm: 0 }], confidence: 1 }],
+  openings: [], fixedFixtures: [], materials: [], lighting: [], cameras: [{ id: 'camera-1', name: 'Test', position: { xMm: 2000, yMm: -1800, zMm: 1500 }, target: { xMm: 2000, yMm: 1000, zMm: 1200 }, lensMm: 35 }], constraints: [], unresolvedDetections: [],
+  metadata: { branch: 'main', status: 'approved', changeReason: 'Test approval', schemaVersion: 'scene.v1', designVersion: 'test' },
+  walls: [{ id: 'wall-1', floorId: 'floor-1', start: { xMm: 125, yMm: 240 }, end: { xMm: 3125, yMm: 240 }, thicknessMm: 150, heightMm: 2700, baseElevationMm: 0, spaceIds: ['space-1'], confidence: 1 }],
+  modules: [{ id: 'module-1', roomId: 'room-1', family: 'wardrobe', widthMm: 900, depthMm: 600, heightMm: 2400, position: { xMm: 400, yMm: 700 }, rotationDeg: 0, anchor: 'wall', confidence: 1 }],
+  moduleParts: [
+    ...[
+      ['panel', 'Wardrobe side panel', 2400, 600, 18],
+      ['panel', 'Wardrobe side panel', 2400, 600, 18],
+      ['shelf', 'Wardrobe shelf', 864, 560, 18],
+      ['shelf', 'Wardrobe shelf', 864, 560, 18],
+      ['shutter', 'Wardrobe shutter', 450, 18, 1990],
+      ['shutter', 'Wardrobe shutter', 450, 18, 1990],
+      ['back', 'Wardrobe back', 864, 6, 1990],
+    ].map(([semanticType, name, widthMm, depthMm, heightMm], index) => ({
+      id: `module-1-part-${index + 1}`, moduleId: 'module-1', roomId: 'room-1',
+      semanticType, name, widthMm, depthMm, heightMm,
+      position: { xMm: 400, yMm: 700, zMm: 0 }, rotationDeg: 0, confidence: 1,
+    })),
+  ]
 };
 
 async function withServer<T>(callback: (baseUrl: string) => Promise<T>) {
@@ -108,13 +128,13 @@ test('plan analyzer never claims success without an analyzer key or explicit bas
 
 test('cutlist route creates review-required rectangular panel parts from an approved scene', async () => {
   await withServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/production/cutlist`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'project-1', sceneVersionId: 'scene-1', scene: { metadata: { status: 'approved' }, modules: [{ id: 'module-1', family: 'wardrobe', widthMm: 900, depthMm: 600, heightMm: 2400 }] } }) });
+    const response = await fetch(`${baseUrl}/api/production/cutlist`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'project-1', sceneVersionId: 'scene-1', scene: approvedScene }) });
     assert.equal(response.status, 200);
     const payload = await response.json();
     assert.equal(payload.cutlist.partCount, 7);
     assert.equal(payload.cutlist.parts[0].status, 'review_required');
     assert.equal(payload.cutlist.parts[0].lengthMm, 2400);
-    assert.equal(payload.cutlist.parts[0].edgeBandMm, 6000);
+    assert.equal(payload.cutlist.parts[0].edgeBandMm, 0);
   });
 });
 

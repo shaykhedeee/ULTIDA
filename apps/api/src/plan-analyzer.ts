@@ -32,7 +32,6 @@ export function compileBriefContext(brief?: Record<string, unknown>): string {
   const storageNeeds = typeof brief.storageNeeds === 'string' ? brief.storageNeeds.trim() : '';
   const kitchenRequirements = typeof brief.kitchenRequirements === 'string' ? brief.kitchenRequirements.trim() : '';
   const materials = typeof brief.materials === 'string' ? brief.materials.trim() : '';
-  const timeline = typeof brief.timeline === 'string' ? brief.timeline.trim() : '';
   const appliancesServices = typeof brief.appliancesServices === 'string' ? brief.appliancesServices.trim() : '';
   const vastuPreference = typeof brief.vastuPreference === 'string' ? brief.vastuPreference.trim() : '';
   const approvalNotes = typeof brief.approvalNotes === 'string' ? brief.approvalNotes.trim() : '';
@@ -46,7 +45,6 @@ export function compileBriefContext(brief?: Record<string, unknown>): string {
     storageNeeds ? `Storage priorities: ${storageNeeds}.` : '',
     kitchenRequirements ? `Kitchen workflow guidance: ${kitchenRequirements}.` : '',
     materials ? `Preferred materials: ${materials}.` : '',
-    timeline ? `Timeline pressure: ${timeline}.` : '',
     appliancesServices ? `Appliances or services: ${appliancesServices}.` : '',
     vastuPreference ? `Vastu preference: ${vastuPreference}.` : '',
     approvalNotes ? `Client approvals and exclusions: ${approvalNotes}.` : '',
@@ -76,9 +74,9 @@ SELF CHECK
 2. Walls have non-zero length.
 3. Rooms have positive width and height.
 4. Notes state the visible evidence or uncertainty.
-5. Return 12-24 proposals with this balanced target: 8-12 major walls, 3-5 room zones, 2-5 openings, and up to 3 legible dimensions.
-6. Do not split a straight wall into redundant collinear fragments. Omit an entity class only when no visible evidence exists.
-7. Keep each note to 12 words or fewer.
+5. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
+6. Do not split a straight wall into redundant collinear fragments. Prefer fewer, well-evidenced candidates over guessed completeness.
+7. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
 8. Output JSON only as {"proposals":[{"kind":"wall|opening|room|dimension","confidence":0.0,"geometry":{},"note":""}]}.`;
 
   const briefContext = compileBriefContext(brief);
@@ -191,7 +189,7 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
 
   const configured = [environment.OPENAI_API_KEY ? 'openai' : null, geminiVisionKey(environment) ? 'gemini' : null, environment.CLOUDFLARE_ACCOUNT_ID && environment.CLOUDFLARE_AI_TOKEN && (environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL) ? 'cloudflare' : null].filter(Boolean) as Array<'openai' | 'gemini' | 'cloudflare'>;
 
-  if (!configured.length && environment.PLAN_ANALYZER_MODE !== 'baseline') {
+  if (!configured.length) {
     const error = new Error('A real AI vision provider is required for floor-plan analysis.');
     (error as any).code = 'AI_PROVIDER_NOT_CONFIGURED';
     (error as any).stage = 'ai_analysis';
@@ -199,25 +197,6 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     (error as any).retryable = false;
     throw error;
   }
-  if (!configured.length) {
-    const issues = topologyIssues(intakeResult.proposals);
-    const confidences = intakeResult.proposals.map((proposal) => proposal.confidence);
-    return {
-      provider: 'intake-parser',
-      proposals: intakeResult.proposals,
-      intakeResult,
-      analysisVersion: PROMPT_VERSIONS.floorPlanAnalyzer,
-      source: { fileName: input.fileName, mimeType: input.mimeType, checksumSha256: createHash('sha256').update(input.dataUrl).digest('hex'), coordinateSpace: { width: 1000, height: 1000, units: 'source_relative' } },
-      ocrEvidence: intakeResult.proposals.filter((proposal) => proposal.kind === 'dimension' || proposal.kind === 'room'),
-      calibration: { status: 'required', trustedDimensionMm: null },
-      topologyIssues: issues,
-      providerRuns: [{ provider: 'intake-parser' as const, model: intakeResult.sourceFormat, status: 'succeeded' as const, latencyMs: 2 }],
-      reviewStatus: 'needs_review',
-      confidenceSummary: { minimum: confidences.length ? Math.min(...confidences) : 0, average: confidences.length ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length : 0, lowConfidenceCount: confidences.filter((value) => value < 0.7).length },
-      verifier: null
-    };
-  }
-
   const runs: ProviderRun[] = [];
   const execute = async (provider: 'openai' | 'gemini' | 'cloudflare') => {
     const started = Date.now();

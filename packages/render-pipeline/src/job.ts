@@ -9,11 +9,12 @@
  */
 import type { RenderReadiness, RenderOptions, PersistedRenderRecord } from './schema.js';
 import { buildRenderReadiness } from './ready.js';
-import { renderBaseArtifacts } from './base-render.js';
+import { renderBaseArtifacts, renderScenePerspectiveArtifacts } from './base-render.js';
 import { buildEnhancementPayload, invokeImageModel, type ProviderGatewayLike } from './enhance.js';
 import { runRenderQA, type SceneExpectation, type MeasuredResult } from './qa.js';
 import { buildRenderRecord, applyProviderFailure, applyQA } from './record.js';
 import { createHash } from 'node:crypto';
+import type { SceneV1 } from '@ultida/scene-core';
 
 export type StorageAdapter = {
   store(sceneVersionId: string, kind: string, bytes: Buffer, mimeType: string): Promise<{ path: string; url: string }>;
@@ -28,8 +29,10 @@ export interface RenderJobInput {
   materialVersionId?: string;
   cameraId?: string;
   options: RenderOptions;
-  /** Deterministic base-render input (rooms, modules, openings in plan coords). */
-  sceneBoxes: Parameters<typeof renderBaseArtifacts>[0]['boxes'];
+  /** Approved scene.v1 is the only production visual input. */
+  scene?: SceneV1;
+  /** Legacy plan boxes remain temporarily for compatibility-only tests. */
+  sceneBoxes?: Parameters<typeof renderBaseArtifacts>[0]['boxes'];
   /** Structured scene summary passed to the image model. */
   sceneSummary: string[];
   roomDimensions: Array<{ id: string; name: string; widthMm: number; depthMm: number; heightMm: number }>;
@@ -113,7 +116,12 @@ export async function executeRenderJob(input: RenderJobInput): Promise<{ record:
 
   // 1. Deterministic base render (RGB, edge, depth, object masks, material regions).
   const baseStart = Date.now();
-  const artifacts = renderBaseArtifacts({ boxes: input.sceneBoxes, width: 1024, height: 768 });
+  if (!input.scene && !input.sceneBoxes) {
+    throw new Error('A compiled scene.v1 is required to create a deterministic render base.');
+  }
+  const artifacts = input.scene
+    ? renderScenePerspectiveArtifacts(input.scene, { width: 1024, height: 768, cameraId: input.cameraId })
+    : renderBaseArtifacts({ boxes: input.sceneBoxes!, width: 1024, height: 768 });
   const baseHash = artifacts.baseHash;
 
   // 2. Build enhancement payload and invoke provider.
@@ -249,9 +257,16 @@ export async function executeRenderJob(input: RenderJobInput): Promise<{ record:
   }
 
   // 7. Run deterministic QA.
+  const legacyBoxes = input.sceneBoxes ?? [];
   const expectation: SceneExpectation = {
-    wallCount: input.sceneBoxes.filter((b) => b.kind === 'room').length > 0 ? 1 : 0,
-    doorCount: input.sceneBoxes.filter((b) => b.kind === 'opening').length,
+    wallCount: input.scene
+      ? input.scene.walls.length
+      : legacyBoxes.filter((box) => box.kind === 'room').length > 0
+        ? 1
+        : 0,
+    doorCount: input.scene
+      ? input.scene.openings.filter((opening) => opening.kind === 'door').length
+      : legacyBoxes.filter((box) => box.kind === 'opening').length,
     windowCount: 0,
     moduleCount: input.moduleDimensions.length,
     cabinetDivisions: 0,

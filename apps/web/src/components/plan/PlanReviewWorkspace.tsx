@@ -65,6 +65,10 @@ export type PlanElement = {
   usableWalls?: number;
   potentialTvWall?: string;
   heightMm?: number;
+  widthMm?: number;
+  thicknessMm?: number;
+  sillMm?: number;
+  headMm?: number;
 };
 
 export type IssueItem = {
@@ -107,17 +111,18 @@ type CanvasTool =
   | 'merge_walls';
 
 type Props = {
+  sourceAssetId?: string | null;
   fileName?: string;
   preview: string | null;
   status: string;
   analysed: boolean;
-  proposals?: Array<{ id: string; kind: string; confidence: number; status: string; note: string; geometry?: Record<string, number> }>;
+  proposals?: Array<{ id: string; kind: string; confidence: number; status: string; note: string; geometry?: Record<string, any> }>;
   analysisIssues?: Array<{ code: string; severity: 'warning' | 'critical'; entityId?: string; message: string }>;
   initialSnapshot?: any;
   layoutConfig?: any;
   onFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAnalyze?: () => void;
-  onApprove: (canonicalModel: CanonicalPlanModel) => void;
+  onApprove: (canonicalModel: unknown) => void;
   onSaveDraft?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null }) => void;
 };
 
@@ -138,6 +143,7 @@ const INITIAL_LAYERS: Record<LayerKey, { label: string; visible: boolean; count:
 
 // ─── Main Component ───────────────────────────────────────────────
 export function PlanReviewWorkspace({
+  sourceAssetId,
   fileName,
   preview,
   status,
@@ -208,6 +214,13 @@ export function PlanReviewWorkspace({
       color: proposal.kind === 'wall' ? '#2563eb' : proposal.kind === 'room' ? 'rgba(197,156,45,0.18)' : '#059669',
       geometry: { ...geometry, ...(polygon ? { polygon } : {}) },
       dimensionMm: proposal.kind === 'dimension' ? geometry.valueMm : undefined,
+      wallId: typeof geometry.wallId === 'string' ? geometry.wallId : undefined,
+      offsetAlongWallMm: typeof geometry.offsetMm === 'number' ? geometry.offsetMm : undefined,
+      widthMm: typeof geometry.widthMm === 'number' ? geometry.widthMm : typeof geometry.width === 'number' ? geometry.width : undefined,
+      heightMm: typeof geometry.heightMm === 'number' ? geometry.heightMm : undefined,
+      thicknessMm: typeof geometry.thicknessMm === 'number' ? geometry.thicknessMm : undefined,
+      sillMm: typeof geometry.sillMm === 'number' ? geometry.sillMm : undefined,
+      headMm: typeof geometry.headMm === 'number' ? geometry.headMm : undefined,
     };
     });
     setElements(mapped);
@@ -231,7 +244,13 @@ export function PlanReviewWorkspace({
 
   // Selected element
   const selectedElement = elements.find((e) => e.id === selectedId) ?? null;
-  const approvalReady = analysed && elements.length > 0 && Boolean(scale) && Number(ceilingHeightMm) > 0 && issues.length === 0 && !elements.some((element) => element.status === 'needs_review' || element.status === 'proposed');
+  const accepted = elements.filter((element) => element.status === 'accepted');
+  const openingsReady = accepted.filter((element) => element.kind === 'door' || element.kind === 'window').every((element) => {
+    if (!element.wallId || !(element.widthMm && element.widthMm > 0) || !(element.heightMm && element.heightMm > 0)) return false;
+    return element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0));
+  });
+  const wallsReady = accepted.filter((element) => element.kind === 'wall').every((element) => (element.thicknessMm ?? 0) > 0 && (element.heightMm ?? 0) > 0);
+  const approvalReady = analysed && elements.length > 0 && Boolean(scale) && Number(ceilingHeightMm) > 0 && issues.length === 0 && openingsReady && wallsReady && !elements.some((element) => element.status === 'needs_review' || element.status === 'proposed');
   const analysisInFlight = /uploading|queued|processing|waiting|preparing/i.test(status);
   const layerCount = (key: LayerKey) => {
     const kinds: Partial<Record<LayerKey, PlanElement['kind'][]>> = {
@@ -376,54 +395,40 @@ export function PlanReviewWorkspace({
 
   // Final Plan Approval
   const handleApprovePlan = () => {
-    if (!approvalReady) return;
+    if (!approvalReady || !sourceAssetId) return;
     const mmPerPixel = scale!.mmPerPixel;
-    const withWorldGeometry = (element: PlanElement): PlanElement => {
-      const geometry = element.geometry;
-      const worldGeometry: PlanElement['worldGeometry'] = geometry.polygon
-        ? { polygon: geometry.polygon.map((point) => ({ xMm: Math.round(point.x * mmPerPixel), yMm: Math.round(point.y * mmPerPixel) })) }
-        : geometry.x1 !== undefined && geometry.y1 !== undefined && geometry.x2 !== undefined && geometry.y2 !== undefined
-          ? { start: { xMm: Math.round(geometry.x1 * mmPerPixel), yMm: Math.round(geometry.y1 * mmPerPixel) }, end: { xMm: Math.round(geometry.x2 * mmPerPixel), yMm: Math.round(geometry.y2 * mmPerPixel) } }
-          : { xMm: Math.round((geometry.x ?? 0) * mmPerPixel), yMm: Math.round((geometry.y ?? 0) * mmPerPixel), widthMm: Math.round((geometry.width ?? 0) * mmPerPixel), heightMm: Math.round((geometry.height ?? 0) * mmPerPixel) };
-      return { ...element, sourceGeometry: geometry, worldGeometry };
-    };
-    const walls = elements.filter((element) => element.kind === 'wall' && element.status !== 'rejected').map((element) => ({ ...withWorldGeometry(element), heightMm: ceilingHeightMm! }));
-    const rooms = elements.filter((element) => element.kind === 'room' && element.status !== 'rejected').map((element) => {
-      const mapped = withWorldGeometry(element);
-      const polygon = mapped.worldGeometry?.polygon ?? [];
-      const areaMm2 = polygon.reduce((sum, point, index) => {
-        const next = polygon[(index + 1) % polygon.length];
-        return sum + point.xMm * next.yMm - next.xMm * point.yMm;
-      }, 0) / 2;
-      return { ...mapped, areaSqm: polygon.length >= 3 ? Math.round(Math.abs(areaMm2) / 10_000) / 100 : element.areaSqm, ceilingHeightMm: ceilingHeightMm! } as PlanElement & { ceilingHeightMm: number };
+    const acceptedWalls = elements.filter((element) => element.kind === 'wall' && element.status === 'accepted');
+    const wallModels = acceptedWalls.flatMap((wall) => {
+      const { x1, y1, x2, y2 } = wall.geometry;
+      if ([x1, y1, x2, y2].some((value) => value === undefined)) return [];
+      const worldStart = { xMm: Math.round(x1! * mmPerPixel), yMm: Math.round(y1! * mmPerPixel) };
+      const worldEnd = { xMm: Math.round(x2! * mmPerPixel), yMm: Math.round(y2! * mmPerPixel) };
+      return [{ id: wall.id, sourceStart: { x: x1!, y: y1! }, sourceEnd: { x: x2!, y: y2! }, worldStart, worldEnd, lengthMm: Math.round(Math.hypot(worldEnd.xMm - worldStart.xMm, worldEnd.yMm - worldStart.yMm)), thicknessMm: wall.thicknessMm!, heightMm: wall.heightMm ?? ceilingHeightMm!, adjacentSpaces: [], verification: 'verified', confidence: wall.confidence }];
     });
-    const openings = elements.filter((element) => (element.kind === 'door' || element.kind === 'window') && element.status !== 'rejected').map((element) => {
-      const mapped = withWorldGeometry(element);
-      const point = { x: element.geometry.x ?? 0, y: element.geometry.y ?? 0 };
-      const nearest = walls.map((wall) => {
-        const source = wall.sourceGeometry ?? wall.geometry;
-        const x1 = source.x1 ?? 0; const y1 = source.y1 ?? 0; const x2 = source.x2 ?? 0; const y2 = source.y2 ?? 0;
-        const length2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
-        const ratio = length2 ? Math.max(0, Math.min(1, ((point.x - x1) * (x2 - x1) + (point.y - y1) * (y2 - y1)) / length2)) : 0;
-        const projected = { x: x1 + ratio * (x2 - x1), y: y1 + ratio * (y2 - y1) };
-        return { wall, ratio, distance: Math.hypot(point.x - projected.x, point.y - projected.y) };
-      }).sort((a, b) => a.distance - b.distance)[0];
-      return { ...mapped, wallId: nearest?.wall.id, offsetAlongWallMm: nearest ? Math.round((nearest.wall.dimensionMm ?? 0) * nearest.ratio) : undefined };
+    const spaces = elements.filter((element) => element.kind === 'room' && element.status === 'accepted').flatMap((room) => {
+      const polygon = room.geometry.polygon ?? [];
+      if (polygon.length < 3) return [];
+      const sourcePolygon = polygon.map((point) => ({ x: point.x, y: point.y }));
+      const worldPolygon = sourcePolygon.map((point) => ({ xMm: Math.round(point.x * mmPerPixel), yMm: Math.round(point.y * mmPerPixel) }));
+      if (worldPolygon[0].xMm !== worldPolygon.at(-1)?.xMm || worldPolygon[0].yMm !== worldPolygon.at(-1)?.yMm) worldPolygon.push({ ...worldPolygon[0] });
+      const areaMm2 = Math.abs(worldPolygon.slice(0, -1).reduce((sum, point, index) => { const next = worldPolygon[index + 1]; return sum + point.xMm * next.yMm - next.xMm * point.yMm; }, 0) / 2);
+      return [{ id: room.id, sourcePolygon, worldPolygon, roomType: 'other', roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm!, wallRefs: [], openingRefs: [], confidence: room.confidence, verification: 'verified' }];
     });
-    const canonicalModel: CanonicalPlanModel = {
+    const canonicalModel = {
       schemaVersion: 'plan.v1',
-      units: 'mm',
-      coordinateSystem: 'x-right-y-down-source-x-right-z-forward-world',
-      scale,
+      source: { schemaVersion: 'plan.v1', sourceAssetId, sourceType: 'raster_image', sourceWidth: 1000, sourceHeight: 850, sourceRotation: 0, coordinateSystem: 'millimetres', scaleResolution: 'two_point_calibration', mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservations: [] },
+      state: 'approved',
+      scale: { id: crypto.randomUUID(), pointA: { xMm: scale!.pointA.x, yMm: scale!.pointA.y }, pointB: { xMm: scale!.pointB.x, yMm: scale!.pointB.y }, realMm: scale!.realDistanceMm, inferredMm: scale!.pixelDistance * mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservedMm: mmPerPixel, method: 'two_point_calibration', verified: true },
       ceilingHeightMm: ceilingHeightMm!,
-      walls,
-      rooms,
-      openings,
-      columns: elements.filter((e) => e.kind === 'column' && e.status !== 'rejected'),
-      services: elements.filter((e) => e.kind === 'service' && e.status !== 'rejected'),
+      spaces,
+      walls: wallModels,
+      openings: elements.filter((element) => (element.kind === 'door' || element.kind === 'window') && element.status === 'accepted').map((opening) => opening.kind === 'window'
+        ? { id: opening.id, wallId: opening.wallId!, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, sillMm: opening.sillMm!, headMm: opening.headMm!, verification: 'verified', confidence: opening.confidence }
+        : { id: opening.id, wallId: opening.wallId!, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, heightMm: opening.heightMm!, verification: 'verified', confidence: opening.confidence }), columns: [], beams: [], servicePoints: [],
       annotations: elements.filter((e) => e.kind === 'annotation'),
-      unresolvedItems: issues,
-      approvedAt: new Date().toISOString(),
+      issues: [], assumptions: [],
+      validation: { isValid: wallModels.length > 0 && spaces.length > 0, blockingIssueCount: 0, issues: [] },
+      approval: { approvedAt: new Date().toISOString() },
     };
     onApprove(canonicalModel);
   };
@@ -853,6 +858,17 @@ export function PlanReviewWorkspace({
                     onChange={(e) => updateElement(selectedElement.id, { label: e.target.value })}
                   />
                 </div>
+
+                {(selectedElement.kind === 'wall' || selectedElement.kind === 'door' || selectedElement.kind === 'window') && (
+                  <div className="inspector-grid" style={{ marginTop: 8 }}>
+                    {(selectedElement.kind === 'wall' || selectedElement.kind === 'door' || selectedElement.kind === 'window') && <label>Height (mm)<input type="number" min={1} value={selectedElement.heightMm ?? ''} onChange={(e) => updateElement(selectedElement.id, { heightMm: Number(e.target.value) || undefined })} /></label>}
+                    {(selectedElement.kind === 'wall') && <label>Thickness (mm)<input type="number" min={1} value={selectedElement.thicknessMm ?? ''} onChange={(e) => updateElement(selectedElement.id, { thicknessMm: Number(e.target.value) || undefined })} /></label>}
+                    {(selectedElement.kind === 'door' || selectedElement.kind === 'window') && <label>Width (mm)<input type="number" min={1} value={selectedElement.widthMm ?? ''} onChange={(e) => updateElement(selectedElement.id, { widthMm: Number(e.target.value) || undefined })} /></label>}
+                    {(selectedElement.kind === 'door' || selectedElement.kind === 'window') && <label>Wall ID<input type="text" value={selectedElement.wallId ?? ''} onChange={(e) => updateElement(selectedElement.id, { wallId: e.target.value || undefined })} /></label>}
+                    {(selectedElement.kind === 'window') && <label>Sill (mm)<input type="number" min={0} value={selectedElement.sillMm ?? ''} onChange={(e) => updateElement(selectedElement.id, { sillMm: Number(e.target.value) || undefined })} /></label>}
+                    {(selectedElement.kind === 'window') && <label>Head (mm)<input type="number" min={1} value={selectedElement.headMm ?? ''} onChange={(e) => updateElement(selectedElement.id, { headMm: Number(e.target.value) || undefined })} /></label>}
+                  </div>
+                )}
 
                 {selectedElement.dimensionMm !== undefined && (
                   <div className="form-field">

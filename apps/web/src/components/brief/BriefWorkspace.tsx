@@ -9,10 +9,16 @@ export type ClientBrief = {
   rooms: string;
   style: string;
   budgetRange: string;
-  timeline: string;
+  lifestyle?: string;
+  storageNeeds?: string;
+  kitchenRequirements?: string;
+  materials?: string;
+  appliancesServices?: string;
+  vastuPreference?: string;
+  approvalNotes?: string;
 };
 
-export const emptyBrief: ClientBrief = { clientName: '', projectName: '', propertyType: '', rooms: '', style: '', budgetRange: '', timeline: '' };
+export const emptyBrief: ClientBrief = { clientName: '', projectName: '', propertyType: '', rooms: '', style: '', budgetRange: '', lifestyle: '', storageNeeds: '', kitchenRequirements: '', materials: '', appliancesServices: '', vastuPreference: '', approvalNotes: '' };
 
 type Props = {
   initialBrief: ClientBrief;
@@ -26,6 +32,11 @@ type Props = {
 type StyleOption = 'Contemporary' | 'Minimal' | 'Modern classic' | 'Traditional' | 'Japandi' | 'Industrial';
 type PropertyOption = 'Apartment' | 'Villa' | 'Independent home' | 'Office' | 'Retail';
 type BudgetOption = 'Under INR 5 lakh' | 'INR 5-10 lakh' | 'INR 10-20 lakh' | 'INR 20-40 lakh' | 'Above INR 40 lakh';
+const roomOptions = ['Living room', 'Kitchen', 'Master bedroom', 'Bedroom', 'Study', 'Pooja', 'Dining', 'Utility'];
+const lifestyleOptions = ['Family living', 'Frequent hosting', 'Work from home', 'Young children', 'Pets at home', 'Rental / flexible use'];
+const storageOptions = ['Minimal and open', 'Balanced concealed storage', 'Maximum storage', 'Wardrobes and dressing', 'Books and display', 'Kitchen-heavy storage'];
+const materialOptions = ['Warm laminates', 'Wood veneer', 'Matte neutral laminates', 'Stone and fluted panels', 'Glass and metal accents', 'Designer to recommend'];
+const vastuOptions = ['No preference', 'Follow vastu principles', 'Pooja direction matters', 'Kitchen direction matters'];
 
 export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile, onAnalyze }: Props) {
   const [brief, setBrief] = useState(initialBrief);
@@ -35,10 +46,10 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
 
   useEffect(() => setBrief(initialBrief), [initialBrief]);
   const update = (key: keyof ClientBrief, value: string) => setBrief((current) => ({ ...current, [key]: value }));
-  const valid = brief.clientName.trim() && brief.projectName.trim() && brief.propertyType && brief.rooms.trim() && brief.style && brief.budgetRange && brief.timeline;
+  const valid = brief.clientName.trim() && brief.projectName.trim() && brief.propertyType && brief.rooms.trim() && brief.style && brief.budgetRange;
   const summary = [brief.propertyType, brief.rooms && `${brief.rooms} rooms`, brief.style, brief.budgetRange].filter(Boolean).join(' | ') || 'Complete the brief to create a useful project summary.';
   async function save(isComplete: boolean) {
-    if (isComplete && !valid) { setState('Add client, project, property, rooms, style, budget and timeline before completing the brief.'); return; }
+    if (isComplete && !valid) { setState('Choose the property, rooms, style and budget, then complete the brief.'); return; }
     setState(isComplete ? 'Completing brief...' : 'Saving draft...');
     try {
       await onSave(brief, isComplete);
@@ -63,6 +74,16 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
       )}
     </label>
   );
+  const choiceField = (key: keyof ClientBrief, label: string, options: readonly string[], multiple = false) => {
+    const selected = String(brief[key] ?? '').split('|').map((value) => value.trim()).filter(Boolean);
+    return <div className="brief-choice-field"><span>{label}</span><div className="brief-choice-grid">{options.map((option) => {
+      const active = selected.includes(option);
+      return <button key={option} type="button" disabled={!editing} className={active ? 'brief-choice active' : 'brief-choice'} onClick={() => {
+        const next = multiple ? (active ? selected.filter((value) => value !== option) : [...selected, option]) : [option];
+        update(key, next.join(' | '));
+      }} aria-pressed={active}><Check size={14} />{option}</button>;
+    })}</div></div>;
+  };
 
   return (
     <section className="brief-workspace">
@@ -88,10 +109,13 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
               {field('clientName', 'Client name', 'e.g. Mehta family')}
               {field('projectName', 'Project name', 'e.g. Mehta Residence')}
               {field('propertyType', 'Property type', 'Apartment, villa, office...', ['Apartment','Villa','Independent home','Office','Retail'] as PropertyOption[])}
-              {field('rooms', 'Rooms / scope', 'e.g. kitchen, living, 3 bedrooms')}
+              {choiceField('rooms', 'Rooms in scope', roomOptions, true)}
               {field('style', 'Preferred style', 'e.g. warm contemporary Indian', ['Contemporary','Minimal','Modern classic','Traditional','Japandi','Industrial'] as StyleOption[])}
               {field('budgetRange', 'Budget range', 'e.g. INR 12-18 lakh', ['Under INR 5 lakh','INR 5-10 lakh','INR 10-20 lakh','INR 20-40 lakh','Above INR 40 lakh'] as BudgetOption[])}
-              {field('timeline', 'Timeline', 'e.g. design by August, install by October')}
+              {choiceField('lifestyle', 'How will the home be used?', lifestyleOptions, true)}
+              {choiceField('storageNeeds', 'Storage priority', storageOptions)}
+              {choiceField('materials', 'Material direction', materialOptions, true)}
+              {choiceField('vastuPreference', 'Cultural / vastu preference', vastuOptions)}
             </div>
             <div className="brief-actions">
               <Button variant="outline" onClick={() => void save(false)} disabled={!editing}><Save size={16} /> Save draft</Button>

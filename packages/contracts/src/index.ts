@@ -108,6 +108,56 @@ export const ProviderCapabilityStatusSchema = z.object({
 });
 export type ProviderCapabilityStatus = z.infer<typeof ProviderCapabilityStatusSchema>;
 
+export const MaterialAssignmentV1Schema = z.object({
+  id: z.string().uuid().optional(),
+  projectId: z.string().uuid(),
+  materialId: z.string().uuid(),
+  moduleInstanceId: z.string().uuid().nullable().optional(),
+  targetKind: z.enum(['room', 'module', 'part', 'semantic_slot']),
+  targetId: z.string().min(1),
+  semanticSlot: z.enum(['carcass', 'shutter', 'back_panel', 'countertop', 'profile', 'glass', 'hardware', 'flooring', 'wall', 'ceiling', 'lighting']),
+  revision: z.number().int().positive().default(1),
+  status: z.enum(['draft', 'approved']).default('draft'),
+});
+export type MaterialAssignmentV1 = z.infer<typeof MaterialAssignmentV1Schema>;
+
+export const MaterialLibraryItemV1Schema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(160),
+  supplier: z.string().max(160).optional(),
+  brand: z.string().max(160).optional(),
+  code: z.string().min(1).max(100),
+  category: z.enum(['laminate', 'veneer', 'acrylic', 'stone', 'glass', 'metal', 'hardware', 'paint', 'fabric', 'flooring']),
+  finish: z.string().max(100).optional(),
+  textureAssetId: z.string().uuid().nullable().optional(),
+  textureWidthMm: z.number().positive().nullable().optional(),
+  textureHeightMm: z.number().positive().nullable().optional(),
+  grainDirection: z.enum(['none', 'horizontal', 'vertical', 'follow_part']).default('none'),
+  roughness: z.number().min(0).max(1).nullable().optional(),
+  metalness: z.number().min(0).max(1).nullable().optional(),
+  transparency: z.number().min(0).max(1).nullable().optional(),
+  thicknessMm: z.number().nonnegative().nullable().optional(),
+  unitCost: z.number().nonnegative().nullable().optional(),
+  availability: z.enum(['available', 'limited', 'discontinued']).default('available'),
+  metadata: z.record(z.unknown()).default({}),
+});
+export type MaterialLibraryItemV1 = z.infer<typeof MaterialLibraryItemV1Schema>;
+
+export const ModuleTemplateVersionV1Schema = z.object({
+  id: z.string().uuid().optional(),
+  family: z.enum(['tv_unit', 'wardrobe', 'kitchen', 'crockery', 'study', 'pooja', 'bed', 'utility', 'sofa', 'dining', 'lighting', 'appliance', 'decor']),
+  name: z.string().min(1).max(160),
+  roomTypes: z.array(z.string().min(1)).min(1),
+  layoutShapes: z.array(z.string().min(1)).default([]),
+  parameterSchema: z.record(z.unknown()),
+  dimensionalLimits: z.record(z.number()),
+  manufacturingRules: z.record(z.unknown()).default({}),
+  priceMetadata: z.record(z.unknown()).default({}),
+  version: z.number().int().positive(),
+  status: z.enum(['draft', 'approved', 'retired']).default('draft'),
+});
+export type ModuleTemplateVersionV1 = z.infer<typeof ModuleTemplateVersionV1Schema>;
+
 export const FloorPlanInitiateRequestSchema = z.object({
   projectId: z.string().min(1),
   fileName: z.string().min(1),

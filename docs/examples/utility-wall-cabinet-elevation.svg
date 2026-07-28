@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1250" viewBox="0 0 1800 1250">
+<defs>
+<pattern id="h" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#9aa0a6" stroke-width="1"/></pattern>
+<pattern id="glass" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="12" stroke="#6b9cc8" stroke-width="1" opacity=".65"/></pattern>
+<marker id="a" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#e11d48"/></marker>
+<style>
+.wall{fill:#fff;stroke:#111;stroke-width:3}.cab{fill:#f8fafc;stroke:#173b73;stroke-width:3}.glass{fill:url(#glass);stroke:#173b73;stroke-width:3}.line{stroke:#173b73;stroke-width:3}.dim{stroke:#e11d48;stroke-width:2;marker-start:url(#a);marker-end:url(#a)}.title{font:22px Arial;fill:#111;font-weight:bold}.label{font:16px Arial;fill:#173b73;font-weight:bold}.dimtxt{font:16px Arial;fill:#e11d48;font-weight:bold}.note{font:17px Arial;fill:#222}
+</style>
+</defs>
+<rect width="1800" height="1250" fill="#f8fafc"/><rect width="1800" height="70" fill="#71401f"/><text x="25" y="45" fill="white" font-family="Arial" font-size="27" font-weight="bold">UTILITY WALL | CABINET ELEVATION</text><text x="1550" y="44" fill="white" font-family="Arial" font-size="20">ALL DIMENSIONS IN MM</text>
+<!-- External elevation -->
+<g transform="translate(120 150) scale(.32)">
+<rect width="1596" height="2662" class="wall"/><rect width="1596" height="110" fill="url(#h)"/><rect y="2552" width="1596" height="110" fill="url(#h)"/>
+<rect y="1782" width="1596" height="770" class="cab"/><rect y="1762" width="1596" height="20" fill="#343434" stroke="#111" stroke-width="3"/>
+<rect x="204" y="545" width="1188" height="885" class="glass"/><line x1="600" y1="545" x2="600" y2="1430" class="line"/><line x1="996" y1="545" x2="996" y2="1430" class="line"/><text x="535" y="1010" class="label">WINDOW 1188 x 885</text>
+<rect x="0" y="1430" width="204" height="332" class="cab"/><rect x="1392" y="1430" width="204" height="332" class="cab"/>
+<line x1="396" y1="1782" x2="396" y2="2552" class="line"/><line x1="996" y1="1782" x2="996" y2="2552" class="line"/><line x1="0" y1="2300" x2="1596" y2="2300" class="line"/>
+<text x="96" y="2100" class="label">SINK BASE</text><text x="520" y="2100" class="label">CABINET STORAGE</text><text x="1120" y="2100" class="label">CABINET STORAGE</text><text x="660" y="2425" class="label">CLOSED SERVICE STORAGE</text><text x="1260" y="1735" class="label">20 GRANITE</text><text x="680" y="2605" class="label">SKIRTING 110</text>
+<text x="0" y="-50" class="title">EXTERNAL ELEVATION | CABINET DESIGN ONLY</text>
+<line x1="0" y1="2760" x2="1596" y2="2760" class="dim"/><text x="670" y="2805" class="dimtxt">1596 OVERALL RUN</text><line x1="0" y1="2880" x2="396" y2="2880" class="dim"/><line x1="396" y1="2880" x2="996" y2="2880" class="dim"/><line x1="996" y1="2880" x2="1596" y2="2880" class="dim"/><text x="170" y="2920" class="dimtxt">396</text><text x="660" y="2920" class="dimtxt">600</text><text x="1260" y="2920" class="dimtxt">600</text><line x1="1720" y1="0" x2="1720" y2="2662" class="dim"/><text x="1760" y="1400" class="dimtxt" transform="rotate(90 1760 1400)">2662 CEILING</text><line x1="-110" y1="1762" x2="-110" y2="2662" class="dim"/><text x="-150" y="2320" class="dimtxt" transform="rotate(-90 -150 2320)">880 COUNTER HEIGHT</text>
+</g>
+<!-- Internal elevation -->
+<g transform="translate(930 150) scale(.32)">
+<rect width="1596" height="2662" class="wall"/><rect width="1596" height="110" fill="url(#h)"/><rect y="2552" width="1596" height="110" fill="url(#h)"/><rect y="1782" width="1596" height="770" class="cab"/><rect y="1762" width="1596" height="20" fill="#343434" stroke="#111" stroke-width="3"/>
+<rect x="204" y="545" width="1188" height="885" class="glass"/><line x1="0" y1="545" x2="1596" y2="545" class="line"/><line x1="0" y1="1430" x2="1596" y2="1430" class="line"/><line x1="396" y1="1782" x2="396" y2="2552" class="line"/><line x1="996" y1="1782" x2="996" y2="2552" class="line"/><line x1="0" y1="2300" x2="1596" y2="2300" class="line"/>
+<line x1="396" y1="1930" x2="996" y2="1930" class="line"/><line x1="396" y1="2070" x2="996" y2="2070" class="line"/><line x1="396" y1="2210" x2="996" y2="2210" class="line"/><line x1="1050" y1="1930" x2="1392" y2="1930" class="line"/><line x1="1050" y1="2070" x2="1392" y2="2070" class="line"/><line x1="1050" y1="2210" x2="1392" y2="2210" class="line"/>
+<text x="80" y="2100" class="label">SINK / PLUMBING</text><text x="515" y="1885" class="label">EQUAL STORAGE SHELVES</text><text x="1080" y="1885" class="label">EQUAL STORAGE</text><text x="535" y="1000" class="label">WINDOW VOID</text><text x="610" y="300" class="label">UPPER STORAGE ZONE</text><text x="1260" y="1735" class="label">20 GRANITE</text><text x="680" y="2605" class="label">SKIRTING 110</text><text x="0" y="-50" class="title">INTERNAL ELEVATION | CABINET DESIGN ONLY</text>
+<line x1="0" y1="2760" x2="1596" y2="2760" class="dim"/><text x="670" y="2805" class="dimtxt">1596 OVERALL RUN</text><line x1="1720" y1="0" x2="1720" y2="2662" class="dim"/><text x="1760" y="1400" class="dimtxt" transform="rotate(90 1760 1400)">2662 CEILING</text>
+</g>
+<text x="35" y="1165" class="note">DESIGN BASIS: appliances intentionally omitted. Cabinet-only presentation uses the approved 1596 overall run, 396 + 600 + 600 module logic, 20 granite, 880 counter level, 1188 x 885 window, and 600 backsplash zone.</text><text x="35" y="1195" class="note">Site verification remains required for sink cutout, plumbing/service openings, exact wall offsets, and fabrication release.</text>
+</svg>

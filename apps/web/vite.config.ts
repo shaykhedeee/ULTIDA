@@ -14,6 +14,8 @@ export default defineConfig({
     },
   },
   cacheDir: '.vite',
-  build: { outDir: 'dist', emptyOutDir: true },
+  // Vercel's npm install can omit Lightning CSS's optional native binding.
+  // Esbuild keeps the production minification path portable across local and Linux builds.
+  build: { outDir: 'dist', emptyOutDir: true, cssMinify: 'esbuild' },
   server: { host: '127.0.0.1', port: 5173 }
 });

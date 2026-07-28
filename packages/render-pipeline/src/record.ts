@@ -12,10 +12,10 @@ export function assertRenderTypeNotPhotorealOnly(options: RenderOptions): void {
 }
 
 export function resolveRenderState({ scene, options, qa }: { scene: { status?: string; readiness?: RenderReadiness }; options: RenderOptions; qa?: RenderQAResult }): PersistedRenderRecord['state'] {
+  if (qa?.issues.some((issue) => issue.severity === 'blocking')) return 'failed';
   if (options.renderType === 'technical_preview') return 'completed';
   if (!scene.readiness || !scene.readiness.ready) return 'compiling_scene';
   if (scene.status === 'draft') return 'queued';
-  if (qa?.issues.some((issue) => issue.severity === 'blocking')) return 'failed';
   if (qa?.issues.length) return 'completed_with_warnings';
   return 'completed';
 }

@@ -1,16 +1,10 @@
-import { useEffect, useState, useMemo } from 'react';
-import { FolderKanban, Package, ChevronDown, AlertTriangle, CheckCircle2, XCircle, Download, ChevronLeft, ChevronRight, Maximize2, Minimize2, PanelRightClose, FileCut, Gear, Settings } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { FolderKanban, Package, AlertTriangle, CheckCircle2, Download, ChevronLeft, ChevronRight, Maximize2, PanelRightClose, ClipboardList, Settings, SlidersHorizontal } from 'lucide-react';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
+import { supabase } from '../../lib/supabase';
 import './production-workspace.css';
 
 type TabId = 'parts' | 'edges' | 'hardware' | 'operations' | 'nesting' | 'cnc' | 'exports' | 'release';
-type Part = { id: string; moduleId: string; moduleFamily: string; roomId: string; partName: string; lengthMm: number; widthMm: number; thicknessMm: number; quantity: number; grain: 'horizontal' | 'vertical' | 'none'; edgeBanding: string; machiningNotes: string; materialId: string; materialCode: string; materialName: string; status: 'approved' | 'pending' | 'warning' };
-type EdgeSchedule = { l1Mm: number; l2Mm: number; w1Mm: number; w2Mm: number; tapeType: string; totalMeters: number };
-type HardwareItem = { name: string; category: 'hinge' | 'slide' | 'fastener' | 'handle' | 'accessory'; quantity: number; unit: string };
-type Operation = { id: string; partId: string; type: 'drill' | 'groove' | 'rebate' | 'pocket' | 'cutout'; face: string; positionMm: string; depthMm: number; diameterMm: number | null; toleranceMm: number; tool: string };
-type NestingSheet = { sheetId: string; materialCode: string; thicknessMm: number; sheetWidthMm: number; sheetHeightMm: number; placedPanels: { partId: string; xMm: number; yMm: number; widthMm: number; lengthMm: number; rotated: boolean }[]; usedAreaSqm: number; utilizationPercentage: number };
-type CncAsset = { id: string; name: string; sourceSceneId: string; modulePartId: string; svgUrl: string; dxfUrl: string; dimensionsMm: { width: number; height: number }; material: string; layer: 'CUT' | 'ENGRAVE' | 'POCKET' | 'DRILL' | 'REFERENCE'; validationStatus: 'pending' | 'passed' | 'failed'; preflightIssues: string[] };
-import { supabase } from '../../lib/supabase';
 type Part = { id: string; moduleId: string; moduleFamily: string; roomId: string; partName: string; lengthMm: number; widthMm: number; thicknessMm: number; quantity: number; grain: 'horizontal' | 'vertical' | 'none'; edgeBanding: string; machiningNotes: string; materialId: string; materialCode: string; materialName: string; status: 'approved' | 'pending' | 'warning' };
 type EdgeSchedule = { l1Mm: number; l2Mm: number; w1Mm: number; w2Mm: number; tapeType: string; totalMeters: number };
 type HardwareItem = { name: string; category: 'hinge' | 'slide' | 'fastener' | 'handle' | 'accessory'; quantity: number; unit: string };
@@ -29,10 +23,10 @@ interface ProductionWorkspaceProps {
 }
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
-  { id: 'parts', label: 'Parts', icon: <FileCut size={14} /> },
-  { id: 'edges', label: 'Edges', icon: <Gear size={14} /> },
+  { id: 'parts', label: 'Parts', icon: <ClipboardList size={14} /> },
+  { id: 'edges', label: 'Edges', icon: <Settings size={14} /> },
   { id: 'hardware', label: 'Hardware', icon: <Package size={14} /> },
-  { id: 'operations', label: 'Operations', icon: <Settings size={14} /> },
+  { id: 'operations', label: 'Operations', icon: <SlidersHorizontal size={14} /> },
   { id: 'nesting', label: 'Nesting', icon: <FolderKanban size={14} /> },
   { id: 'cnc', label: 'CNC Cutouts', icon: <Maximize2 size={14} /> },
   { id: 'exports', label: 'Exports', icon: <Download size={14} /> },
@@ -74,7 +68,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
       <div className={`production-left-rail ${leftCollapsed ? 'collapsed' : ''}`}>
         <div className="rail-header">
           <h3>Production</h3>
-          <Button variant="ghost" size="sm" onClick={() => setLeftCollapsed(!leftCollapsed)} icon={leftCollapsed ? < size={14} /> : <ChevronLeft size={14} />} />
+          <Button variant="ghost" size="sm" onClick={() => setLeftCollapsed(!leftCollapsed)} icon={leftCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />} />
         </div>
         {!leftCollapsed && (
           <div className="rail-content">

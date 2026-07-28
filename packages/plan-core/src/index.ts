@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CanonicalPlanModelSchema, type PlanValidationIssue } from './plan-schema.js';
+export { CanonicalPlanModelSchema, type CanonicalPlanModel } from './plan-schema.js';
 
 export const ProposalKindSchema = z.enum(['wall', 'opening', 'room', 'dimension']);
 export const PlanProposalSchema = z.object({
@@ -63,17 +64,17 @@ export function parsePlanIntake(input: {
     warnings.push('Format not natively vectorized; falling back to raster pipeline with manual calibration.');
   }
 
-  const proposals: PlanProposal[] = [
-    { id: 'prop-wall-1', kind: 'wall', confidence: 0.9, source: 'manual', status: 'proposed', geometry: { startX: 0, startY: 0, endX: 3000, endY: 0 }, note: 'Default baseline wall' },
-    { id: 'prop-room-1', kind: 'room', confidence: 0.9, source: 'manual', status: 'proposed', geometry: { width: 3000, height: 3000 }, note: 'Default baseline room' }
-  ];
+  // Intake identifies the source and required processing only. Geometry is
+  // created by deterministic extraction plus a real vision analysis, never by
+  // a fabricated default room or wall.
+  const proposals: PlanProposal[] = [];
 
   return {
     sourceFormat,
     processingMode,
     unitsDetected,
-    entitiesParsed: processingMode === 'vector' || processingMode === 'dwg_converted' ? 12 : 2,
-    confidence: processingMode === 'vector' ? 0.9 : 0.6,
+    entitiesParsed: 0,
+    confidence: 0,
     requiresCalibration,
     proposals,
     warnings
@@ -137,3 +138,4 @@ export function getCanonicalPlanModel(): unknown {
 
 export * from './coordinate-system.js';
 export * from './scale-engine.js';
+export { geometryCore } from './geometry-shim.js';
