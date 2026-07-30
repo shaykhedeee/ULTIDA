@@ -14,6 +14,54 @@
   border-bottom: 1px solid var(--line);
 }
 
+.geometry-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--cream-warm);
+}
+
+.geometry-mode-toggle button {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font: 700 11px/1.1 inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.geometry-mode-toggle button:hover,
+.geometry-mode-toggle button:focus-visible {
+  color: var(--text-primary);
+  outline: 2px solid rgba(197,156,45,.35);
+  outline-offset: 1px;
+}
+
+.geometry-mode-toggle button.active {
+  color: var(--text-primary);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(39, 28, 18, .12);
+}
+
+.geometry-mode-note {
+  margin: 7px 0 0;
+  color: #7a5a11;
+  font-size: 12px;
+}
+
+.geometry-mode-note.production {
+  color: var(--text-muted);
+}
+
+@media (max-width: 940px) {
+  .geometry-mode-toggle { order: -1; }
+}
+
 /* ─── 3-Panel Grid Layout ────────────────────── */
 .plan-intelligence-grid {
   display: grid;

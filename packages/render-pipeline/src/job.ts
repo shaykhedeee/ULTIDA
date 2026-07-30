@@ -29,6 +29,8 @@ export interface RenderJobInput {
   materialVersionId?: string;
   cameraId?: string;
   options: RenderOptions;
+  geometryMode?: 'initial_design' | 'final_production';
+  renderPurpose?: 'concept' | 'production';
   /** Approved scene.v1 is the only production visual input. */
   scene?: SceneV1;
   /** Legacy plan boxes remain temporarily for compatibility-only tests. */
@@ -93,6 +95,8 @@ function isSupportedImage(bytes: Buffer, mimeType: string): boolean {
 export async function executeRenderJob(input: RenderJobInput): Promise<{ record: PersistedRenderRecord; proof: RenderJobProof; artifacts: Awaited<ReturnType<typeof renderBaseArtifacts>> }> {
   const readiness = input.readinessOverride ?? buildRenderReadiness({
     scaleVerified: true,
+    geometryMode: input.geometryMode ?? 'final_production',
+    renderPurpose: input.renderPurpose ?? 'production',
     planApproved: true,
     designApproved: true,
     sceneVersion: { id: input.sceneVersionId, status: 'approved', updatedAt: nowIso(), approvedVersionId: input.sceneVersionId },

@@ -42,6 +42,54 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
   const nestingRun: { sheets: NestingSheet[] } = { sheets: [] };
   const [cncAssets, setCncAssets] = useState<CncAsset[]>([]);
   const [preflightResult, setPreflightResult] = useState<{ status: 'idle' | 'running' | 'passed' | 'failed'; issues: string[] } | null>(null);
+  const [exportState, setExportState] = useState('Choose an approved scene export.');
+
+  async function readApprovedScene() {
+    if (!projectId || !sceneVersionId) {
+      setExportState('Save and approve a scene before exporting.');
+      return null;
+    }
+    const token = (await supabase?.auth.getSession())?.data.session?.access_token;
+    if (!token) {
+      setExportState('Sign in before exporting production data.');
+      return null;
+    }
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}`, { headers: { Authorization: `Bearer ${token}` } });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.success || payload?.sceneVersion?.status !== 'approved' || !payload?.sceneVersion?.scene) {
+      setExportState(payload?.message ?? 'This exact scene is not approved or could not be read.');
+      return null;
+    }
+    return { apiBase, token, scene: payload.sceneVersion.scene };
+  }
+
+  async function downloadProductionFile(path: string, filename: string) {
+    setExportState('Preparing exact scene output...');
+    try {
+      const source = await readApprovedScene();
+      if (!source || !sceneVersionId) return;
+      const response = await fetch(`${source.apiBase}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${source.token}` },
+        body: JSON.stringify({ projectId, sceneVersionId, scene: source.scene })
+      });
+      if (!response.ok) {
+        setExportState('The export service rejected this scene. No substitute file was created.');
+        return;
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      setExportState('File exported from the saved approved scene.');
+    } catch {
+      setExportState('Production export service is unavailable.');
+    }
+  }
 
   useEffect(() => {
     if (!projectId || !sceneVersionId || !sceneApproved) { setParts([]); return; }
@@ -49,9 +97,9 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
       const token = (await supabase?.auth.getSession())?.data.session?.access_token;
       if (!token) return;
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/design-context`, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}`, { headers: { Authorization: `Bearer ${token}` } });
       const payload = await response.json().catch(() => null);
-      const scene = payload?.context?.scene?.scene;
+      const scene = payload?.sceneVersion?.status === 'approved' ? payload.sceneVersion.scene : null;
       const exactParts = Array.isArray(scene?.moduleParts) ? scene.moduleParts : [];
       setParts(exactParts.map((part: any) => ({ id: String(part.id), moduleId: String(part.moduleId ?? ''), moduleFamily: String(part.semanticType ?? 'module-part'), roomId: String(part.roomId ?? ''), partName: String(part.name ?? part.semanticType ?? 'Part'), lengthMm: Math.round(Number(part.widthMm)), widthMm: Math.round(Number(part.depthMm)), thicknessMm: Math.round(Number(part.heightMm)), quantity: 1, grain: 'none', edgeBanding: 'review_required', machiningNotes: 'Derived from scene.v1; review operations before release.', materialId: String(part.materialId ?? ''), materialCode: String(part.materialId ?? 'unassigned'), materialName: 'Scene material', status: 'pending' })));
     })();
@@ -227,14 +275,16 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
         {activeTab === 'exports' && (
           <div className="production-exports">
             <h4>Export Production Outputs</h4>
+            <p className="inspector-empty" role="status">{exportState}</p>
             <div className="exports-grid">
-              <Card><CardHeader>SVG Drawing Package</CardHeader><CardContent><Button variant="primary" size="sm" onClick={() => { /* triggers API call to drawings endpoint */ }}>Export SVG</Button></CardContent></Card>
-              <Card><CardHeader>DXF Millimetres</CardHeader><CardContent><Button variant="primary" size="sm">Export DXF</Button></CardContent></Card>
-              <Card><CardHeader>Part Drawings (PDF)</CardHeader><CardContent><Button variant="primary" size="sm">Export PDF</Button></CardContent></Card>
-              <Card><CardHeader>Cutlist CSV</CardHeader><CardContent><Button variant="primary" size="sm">Export CSV</Button></CardContent></Card>
-              <Card><CardHeader>Operation Sheet</CardHeader><CardContent><Button variant="primary" size="sm">Export PDF</Button></CardContent></Card>
-              <Card><CardHeader>Tooling Assumptions</CardHeader><CardContent><Button variant="primary" size="sm">Export PDF</Button></CardContent></Card>
-              <Card><CardHeader>Nesting Sheet</CardHeader><CardContent><Button variant="primary" size="sm">Export PDF</Button></CardContent></Card>
+              <Card><CardHeader>SVG Drawing Package</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} title="SVG export endpoint not yet available" onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-elevations.svg`)}>Export SVG</Button></CardContent></Card>
+              <Card><CardHeader>DXF Millimetres</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} title="DXF export endpoint not yet available" onClick={() => void downloadProductionFile('/drawings/dxf', `ultida-${sceneVersionId}.dxf`)}>Export DXF</Button></CardContent></Card>
+              <Card><CardHeader>SketchUp Model (.rb Script)</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile(`/export/sketchup`, `ultida-${projectId}-sketchup.rb`)}>Export SketchUp .rb</Button></CardContent></Card>
+              <Card><CardHeader>Part Drawings (PDF)</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} title="PDF export endpoint not yet available" onClick={() => void downloadProductionFile('/drawings/elevations.pdf', `ultida-${sceneVersionId}-elevations.pdf`)}>Export PDF</Button></CardContent></Card>
+              <Card><CardHeader>Cutlist CSV</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/production/cutlist.csv', `ultida-${sceneVersionId}-cutlist.csv`)}>Export CSV</Button></CardContent></Card>
+              <Card><CardHeader>Operation Sheet</CardHeader><CardContent><span className="inspector-empty">Unavailable until verified CNC operations are stored.</span></CardContent></Card>
+              <Card><CardHeader>Tooling Assumptions</CardHeader><CardContent><span className="inspector-empty">Unavailable until verified CNC tooling data is stored.</span></CardContent></Card>
+              <Card><CardHeader>Nesting Sheet</CardHeader><CardContent><span className="inspector-empty">Unavailable until board and grain data are reviewed.</span></CardContent></Card>
             </div>
           </div>
         )}

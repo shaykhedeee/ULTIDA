@@ -1,7 +1,7 @@
 import {
   FolderKanban, MapPin, Home, Calendar, User,
   Plus, X, MoreHorizontal, ChevronRight, RefreshCw,
-  Building2, Clock, AlertCircle, Sparkles
+  Building2, Clock, AlertCircle, Sparkles, CheckCircle2, ArrowUpRight
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -56,6 +56,12 @@ function getStageStatuses(currentStage: string): WorkflowStage[] {
     id,
     status: i < current ? 'done' : i === current ? 'active' : 'locked',
   }));
+}
+
+function getNextStep(stage: string): string {
+  const index = STAGE_ORDER.indexOf(stage);
+  if (index < 0) return 'Start project brief';
+  return index >= STAGE_ORDER.length - 1 ? 'Ready for delivery' : `Continue ${STAGE_ORDER[index + 1]}`;
 }
 
 function timeAgo(iso: string): string {
@@ -275,12 +281,20 @@ function ProjectCard({ project, index, onClick }: { project: Project; index: num
           </div>
         </div>
 
+        <div className="card-owner-row">
+          <div className="designer-avatar"><User size={12} /></div>
+          <span>{project.assigned_designer || 'Studio team · unassigned'}</span>
+          <span className="card-next-step">Next: {getNextStep(project.workflow_stage)}</span>
+        </div>
+
         {/* Stage dots */}
         <div className="card-stages" title={`Stage: ${project.workflow_stage} — ${progress}% complete`}>
           {stages.map((s) => (
             <div key={s.id} className={`card-stage-dot ${s.status}`} title={s.id} />
           ))}
         </div>
+
+
       </div>
 
       {/* Footer */}

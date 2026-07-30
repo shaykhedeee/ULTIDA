@@ -33,10 +33,9 @@ import { ProductionWorkspace } from './features/production/ProductionWorkspace';
 
 import './intake.css';
 
-// ─── Local demo mode ──────────────────────────────────────────────
-const localDemoMode = typeof window !== 'undefined' &&
-  ['127.0.0.1', 'localhost'].includes(window.location.hostname) &&
-  import.meta.env.VITE_LOCAL_DEMO !== 'false';
+// ─── Authenticated project mode ───────────────────────────────────
+// Every persisted project action requires a real Supabase session.
+const localDemoMode = false;
 
 // ─── Types ────────────────────────────────────────────────────────
 type ProviderStatus = { id: string; configured: boolean; operations: string[] };
@@ -93,8 +92,8 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
     }
 
     if (!supabase || !supabaseConfigured) {
-      // Demo fallback
-      onSuccess(email.trim() || 'demo@ultida.local');
+      setMessage('Authentication is not configured for this environment. Configure Supabase before creating or opening projects.');
+      setBusy(false);
       return;
     }
 
@@ -107,11 +106,6 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
       : await supabase.auth.signInWithPassword({ email, password });
 
     if (result.error) {
-      // Still allow access via demo mode if Supabase fails
-      if (localDemoMode) {
-        onSuccess(email.trim() || 'demo@ultida.local');
-        return;
-      }
       setMessage(result.error.message);
     } else if (result.data.session?.user.email) {
       onSuccess(result.data.session.user.email);
@@ -185,7 +179,7 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
               padding: '8px 12px', background: '#fef3c7', borderRadius: 7, fontSize: 12,
               marginBottom: 16, color: '#92400e', fontWeight: 600, border: '1px solid #fde68a'
             }}>
-              Supabase is not configured — demo mode will be used.
+              Supabase is not configured. Project data cannot be saved until authentication is configured.
             </div>
           )}
 
@@ -235,18 +229,6 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
             </button>
           )}
 
-          {localDemoMode && (
-            <button
-              type="button"
-              onClick={() => onSuccess('demo@ultida.local')}
-              style={{
-                width: '100%', padding: 10, background: '#f5f2eb', border: '1px solid #d4c5b2',
-                borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 8, color: '#3d2a1a'
-              }}
-            >
-              🚀 Continue as Demo Studio (Instant)
-            </button>
-          )}
 
           <button
             type="button"
@@ -318,16 +300,15 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
 
   // Server-validated access token. Unlike getSession() (which reads a possibly
-  // stale localStorage token), this rejects expired/corrupt sessions. On failure
-  // it clears the dead session and falls back to demo mode so the app never
-  // gets stuck on a "session is invalid or expired" error during a live demo.
+  // stale localStorage token), this rejects expired/corrupt sessions and clears
+  // client state so protected project writes never use a false identity.
   const getValidToken = async (): Promise<string | null> => {
     if (!supabase) return null;
     try {
       const { data, error } = await supabase.auth.getUser();
       if (error || !data.user) {
         void supabase.auth.signOut().catch(() => {});
-        setSessionEmail(localDemoMode ? 'demo@ultida.local' : null);
+        setSessionEmail(null);
         return null;
       }
       return (await supabase.auth.getSession()).data.session?.access_token ?? null;
@@ -860,33 +841,35 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   async function saveScene(id: string, modules: typeof sceneModules, materials: any[] = []) {
     if (!projectId || !approvedPlanVersionId) {
       setPlanStatus('Approve a canonical floor plan before compiling a scene.');
-      return;
+      throw new Error('Approved plan required.');
     }
     const accessToken = await getValidToken();
     if (!accessToken) {
       setPlanStatus('Sign in before compiling a scene.');
-      return;
+      throw new Error('Authenticated session required.');
     }
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     try {
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ materials, moduleInstanceIds: modules.map((module) => module.id), designVersion: 'spaces.v1', changeReason: 'Compiled from active approved plan.v1 and persisted Spaces Studio anchors' }),
+        body: JSON.stringify({ moduleInstanceIds: modules.map((module) => module.id), designVersion: 'spaces.v1', changeReason: 'Compiled from persisted moodboard modules, library assignments, and active approved plan.v1' }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success || !payload.sceneVersion) {
         setPlanStatus(payload.message ?? 'Scene compilation failed.');
-        return;
+        throw new Error(payload.message ?? 'Scene compilation failed.');
       }
       setSceneVersionId(payload.sceneVersion.id);
       setSceneVersionNumber(payload.sceneVersion.version_number);
       setSceneModules(modules);
-      setSceneMaterials(materials);
+      setSceneMaterials(Array.isArray(payload.materials) ? payload.materials : materials);
       setSceneApproved(false);
       setPlanStatus('Measured scene compiled from the active plan.v1.');
-    } catch {
-      setPlanStatus('Scene compiler is unavailable. No scene was created.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Scene compiler is unavailable.';
+      setPlanStatus(message);
+      throw error;
     }
     return;
 
@@ -1146,23 +1129,20 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
 
 // ─── Root App ──────────────────────────────────────────────────────
 export function App() {
-  const [sessionEmail, setSessionEmail] = useState<string | null>(
-    localDemoMode ? 'demo@ultida.local' : null
-  );
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [orgName, setOrgName] = useState<string>('');
   const navigate = useNavigate();
 
   // Server-validated access token. Unlike getSession() (which reads a possibly
-  // stale localStorage token), this rejects expired/corrupt sessions. On failure
-  // it clears the dead session and falls back to demo mode so the app never
-  // gets stuck on a "session is invalid or expired" error during a live demo.
+  // stale localStorage token), this rejects expired/corrupt sessions and clears
+  // client state so protected project writes never use a false identity.
   const getValidToken = async (): Promise<string | null> => {
     if (!supabase) return null;
     try {
       const { data, error } = await supabase.auth.getUser();
       if (error || !data.user) {
         void supabase.auth.signOut().catch(() => {});
-        setSessionEmail(localDemoMode ? 'demo@ultida.local' : null);
+        setSessionEmail(null);
         return null;
       }
       return (await supabase.auth.getSession()).data.session?.access_token ?? null;
@@ -1181,10 +1161,9 @@ export function App() {
     supabase.auth.getUser().then(({ data, error }) => {
       if (!active) return;
       if (error || !data.user) {
-        // Expired or corrupt session — clear it and fall back to demo mode
-        // so the app (and a live client demo) never blocks on a dead token.
+        // Expired or corrupt session. Clear local state and require sign-in.
         void supabase!.auth.signOut().catch(() => {});
-        setSessionEmail(localDemoMode ? 'demo@ultida.local' : null);
+        setSessionEmail(null);
         return;
       }
       setSessionEmail(data.user.email ?? null);
@@ -1192,7 +1171,7 @@ export function App() {
     });
     const { data } = supabase.auth.onAuthStateChange((_event, next) => {
       if (_event === 'SIGNED_OUT') {
-        setSessionEmail(localDemoMode ? 'demo@ultida.local' : null);
+        setSessionEmail(null);
         return;
       }
       setSessionEmail(next?.user.email ?? null);

@@ -53,10 +53,24 @@ export const PlanAnalysisJobSchema = z.object({
 });
 export type PlanAnalysisJob = z.infer<typeof PlanAnalysisJobSchema>;
 
+export const GeometryModelModeSchema = z.enum(['initial_design', 'site_verified']);
+export type GeometryModelMode = z.infer<typeof GeometryModelModeSchema>;
+
+export const ProvenanceKindSchema = z.enum(['visible-plan', 'derived', 'assumed', 'user-entered', 'site-measured']);
+export type ProvenanceKind = z.infer<typeof ProvenanceKindSchema>;
+
+export const DEFAULT_EXTERNAL_WALL_MM = 254;
+export const DEFAULT_INTERNAL_WALL_MM = 152.4;
+export const DEFAULT_INITIAL_CEILING_MM = 2700;
+
 export const ReviewedPlanInterpretationSchema = z.object({
   version: z.number().int().positive(),
   approvedAt: z.string(),
+  modelMode: GeometryModelModeSchema.default('initial_design'),
   trustedDimensionMm: z.number().positive().nullable(),
+  externalWallThicknessMm: z.number().positive().default(DEFAULT_EXTERNAL_WALL_MM),
+  internalWallThicknessMm: z.number().positive().default(DEFAULT_INTERNAL_WALL_MM),
+  defaultCeilingHeightMm: z.number().positive().default(DEFAULT_INITIAL_CEILING_MM),
   proposals: z.array(z.record(z.unknown())),
   calibratedSpace: z.object({
     widthMm: z.number().positive(),

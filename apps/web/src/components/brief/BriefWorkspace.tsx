@@ -33,10 +33,20 @@ type StyleOption = 'Contemporary' | 'Minimal' | 'Modern classic' | 'Traditional'
 type PropertyOption = 'Apartment' | 'Villa' | 'Independent home' | 'Office' | 'Retail';
 type BudgetOption = 'Under INR 5 lakh' | 'INR 5-10 lakh' | 'INR 10-20 lakh' | 'INR 20-40 lakh' | 'Above INR 40 lakh';
 const roomOptions = ['Living room', 'Kitchen', 'Master bedroom', 'Bedroom', 'Study', 'Pooja', 'Dining', 'Utility'];
-const lifestyleOptions = ['Family living', 'Frequent hosting', 'Work from home', 'Young children', 'Pets at home', 'Rental / flexible use'];
-const storageOptions = ['Minimal and open', 'Balanced concealed storage', 'Maximum storage', 'Wardrobes and dressing', 'Books and display', 'Kitchen-heavy storage'];
-const materialOptions = ['Warm laminates', 'Wood veneer', 'Matte neutral laminates', 'Stone and fluted panels', 'Glass and metal accents', 'Designer to recommend'];
-const vastuOptions = ['No preference', 'Follow vastu principles', 'Pooja direction matters', 'Kitchen direction matters'];
+
+type BriefTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  values: Partial<ClientBrief>;
+};
+
+const briefTemplates: BriefTemplate[] = [
+  { id: 'work-from-home-couple', name: 'Work-from-home couple', description: 'Two focused work zones, calm shared spaces, and concealed storage.', values: { propertyType: 'Apartment', rooms: 'Living room | Kitchen | Master bedroom | Study', style: 'Minimal', budgetRange: 'INR 10-20 lakh', lifestyle: 'Work from home', storageNeeds: 'Balanced concealed storage', materials: 'Matte neutral laminates | Warm laminates' } },
+  { id: 'family-of-four', name: 'Family of four in a 3BHK', description: 'Practical circulation, durable finishes, and storage for daily family life.', values: { propertyType: 'Apartment', rooms: 'Living room | Kitchen | Master bedroom | Bedroom | Dining | Utility', style: 'Contemporary', budgetRange: 'INR 10-20 lakh', lifestyle: 'Family living | Young children', storageNeeds: 'Maximum storage', materials: 'Matte neutral laminates | Stone and fluted panels' } },
+  { id: 'adventurous-family', name: 'The adventurous family', description: 'Flexible hosting, display space, easy-clean materials, and adaptable storage.', values: { propertyType: 'Independent home', rooms: 'Living room | Kitchen | Master bedroom | Bedroom | Study | Dining | Utility', style: 'Modern classic', budgetRange: 'INR 20-40 lakh', lifestyle: 'Family living | Frequent hosting | Pets at home', storageNeeds: 'Balanced concealed storage', materials: 'Warm laminates | Stone and fluted panels | Glass and metal accents' } },
+  { id: 'best-without-compromise', name: 'Best without compromise', description: 'Premium detailing, tailored modular units, and material-led visual direction.', values: { propertyType: 'Villa', rooms: 'Living room | Kitchen | Master bedroom | Bedroom | Study | Pooja | Dining | Utility', style: 'Modern classic', budgetRange: 'Above INR 40 lakh', lifestyle: 'Family living | Frequent hosting', storageNeeds: 'Maximum storage', materials: 'Wood veneer | Stone and fluted panels | Glass and metal accents', vastuPreference: 'Follow vastu principles' } }
+];
 
 export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile, onAnalyze }: Props) {
   const [brief, setBrief] = useState(initialBrief);
@@ -46,6 +56,10 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
 
   useEffect(() => setBrief(initialBrief), [initialBrief]);
   const update = (key: keyof ClientBrief, value: string) => setBrief((current) => ({ ...current, [key]: value }));
+  const applyTemplate = (template: BriefTemplate) => {
+    setBrief((current) => ({ ...current, ...template.values }));
+    setState(template.name + ' applied. You can adjust the core project details before saving.');
+  };
   const valid = brief.clientName.trim() && brief.projectName.trim() && brief.propertyType && brief.rooms.trim() && brief.style && brief.budgetRange;
   const summary = [brief.propertyType, brief.rooms && `${brief.rooms} rooms`, brief.style, brief.budgetRange].filter(Boolean).join(' | ') || 'Complete the brief to create a useful project summary.';
   async function save(isComplete: boolean) {
@@ -105,6 +119,18 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
             <span className="brief-summary">{summary}</span>
           </CardHeader>
           <CardContent>
+            <div className="brief-choice-field">
+              <span>Start with a household profile</span>
+              <div className="brief-choice-grid">
+                {briefTemplates.map((template) => (
+                  <button key={template.id} type="button" disabled={!editing} className="brief-choice" onClick={() => applyTemplate(template)} title={template.description}>
+                    <Sparkles size={14} />
+                    <span>{template.name}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="brief-template-copy">This sets a starting direction. Floor Plan and Spaces collect room-specific requirements after geometry is available.</p>
+            </div>
             <div className="brief-grid">
               {field('clientName', 'Client name', 'e.g. Mehta family')}
               {field('projectName', 'Project name', 'e.g. Mehta Residence')}
@@ -112,10 +138,6 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
               {choiceField('rooms', 'Rooms in scope', roomOptions, true)}
               {field('style', 'Preferred style', 'e.g. warm contemporary Indian', ['Contemporary','Minimal','Modern classic','Traditional','Japandi','Industrial'] as StyleOption[])}
               {field('budgetRange', 'Budget range', 'e.g. INR 12-18 lakh', ['Under INR 5 lakh','INR 5-10 lakh','INR 10-20 lakh','INR 20-40 lakh','Above INR 40 lakh'] as BudgetOption[])}
-              {choiceField('lifestyle', 'How will the home be used?', lifestyleOptions, true)}
-              {choiceField('storageNeeds', 'Storage priority', storageOptions)}
-              {choiceField('materials', 'Material direction', materialOptions, true)}
-              {choiceField('vastuPreference', 'Cultural / vastu preference', vastuOptions)}
             </div>
             <div className="brief-actions">
               <Button variant="outline" onClick={() => void save(false)} disabled={!editing}><Save size={16} /> Save draft</Button>

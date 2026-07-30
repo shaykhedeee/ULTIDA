@@ -96,6 +96,8 @@ export type CanonicalPlanModel = {
   approvedAt?: string;
 };
 
+type GeometryMode = 'initial_design' | 'final_production';
+
 type CanvasTool =
   | 'select'
   | 'pan'
@@ -123,7 +125,7 @@ type Props = {
   onFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAnalyze?: () => void;
   onApprove: (canonicalModel: unknown) => void;
-  onSaveDraft?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null }) => void;
+  onSaveDraft?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null; geometryMode: GeometryMode }) => void;
 };
 
 // ─── Default Detection Data ───────────────────────────────────────
@@ -172,7 +174,8 @@ export function PlanReviewWorkspace({
   const [calibPoints, setCalibPoints] = useState<Point[]>([]);
   const [knownMmInput, setKnownMmInput] = useState('');
   const [scale, setScale] = useState<ScaleCalibration | null>(null);
-  const [ceilingHeightMm, setCeilingHeightMm] = useState<number | null>(null);
+  const [ceilingHeightMm, setCeilingHeightMm] = useState<number | null>(2700);
+  const [geometryMode, setGeometryMode] = useState<GeometryMode>('initial_design');
 
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -182,13 +185,14 @@ export function PlanReviewWorkspace({
     if (Array.isArray(initialSnapshot.issues)) setIssues(initialSnapshot.issues);
     if (initialSnapshot.scale?.mmPerPixel > 0) setScale(initialSnapshot.scale);
     if (Number(initialSnapshot.ceilingHeightMm) > 0) setCeilingHeightMm(Number(initialSnapshot.ceilingHeightMm));
+    if (initialSnapshot.geometryMode === 'initial_design' || initialSnapshot.geometryMode === 'final_production') setGeometryMode(initialSnapshot.geometryMode);
   }, [analysed, initialSnapshot]);
 
   useEffect(() => {
     if (!onSaveDraft || !elements.length) return;
-    const timer = window.setTimeout(() => onSaveDraft({ elements, issues, scale, ceilingHeightMm }), 700);
+    const timer = window.setTimeout(() => onSaveDraft({ elements, issues, scale, ceilingHeightMm, geometryMode }), 700);
     return () => window.clearTimeout(timer);
-  }, [elements, issues, scale, ceilingHeightMm, onSaveDraft]);
+  }, [elements, issues, scale, ceilingHeightMm, geometryMode, onSaveDraft]);
 
   useEffect(() => {
     if (!analysed) return;
@@ -244,13 +248,13 @@ export function PlanReviewWorkspace({
 
   // Selected element
   const selectedElement = elements.find((e) => e.id === selectedId) ?? null;
-  const accepted = elements.filter((element) => element.status === 'accepted');
-  const openingsReady = accepted.filter((element) => element.kind === 'door' || element.kind === 'window').every((element) => {
-    if (!element.wallId || !(element.widthMm && element.widthMm > 0) || !(element.heightMm && element.heightMm > 0)) return false;
+  const approvalElements = elements.filter((element) => element.status === 'accepted');
+  const openingsReady = approvalElements.filter((element) => element.kind === 'door' || element.kind === 'window').every((element) => {
+    if (!element.wallId || !(element.widthMm && element.widthMm > 0) || !(element.heightMs && element.heightMm > 0)) return false;
     return element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0));
   });
-  const wallsReady = accepted.filter((element) => element.kind === 'wall').every((element) => (element.thicknessMm ?? 0) > 0 && (element.heightMm ?? 0) > 0);
-  const approvalReady = analysed && elements.length > 0 && Boolean(scale) && Number(ceilingHeightMm) > 0 && issues.length === 0 && openingsReady && wallsReady && !elements.some((element) => element.status === 'needs_review' || element.status === 'proposed');
+  const wallsReady = approvalElements.filter((element) => element.kind === 'wall').every((element) => (element.thicknessMm ?? 0) > 0 && (element.heightMm ?? 0) > 0);
+  const approvalReady = analysed && approvalElements.length > 0 && Boolean(scale) && Number(ceilingHeightMm) > 0 && openingsReady && wallsReady && issues.length === 0 && !elements.some((element) => element.status === 'needs_review' || element.status === 'proposed');
   const analysisInFlight = /uploading|queued|processing|waiting|preparing/i.test(status);
   const layerCount = (key: LayerKey) => {
     const kinds: Partial<Record<LayerKey, PlanElement['kind'][]>> = {
@@ -397,15 +401,17 @@ export function PlanReviewWorkspace({
   const handleApprovePlan = () => {
     if (!approvalReady || !sourceAssetId) return;
     const mmPerPixel = scale!.mmPerPixel;
-    const acceptedWalls = elements.filter((element) => element.kind === 'wall' && element.status === 'accepted');
-    const wallModels = acceptedWalls.flatMap((wall) => {
+    const isInitialDesign = geometryMode === 'initial_design';
+    const selectedWalls = approvalElements.filter((element) => element.kind === 'wall');
+    const wallModels = selectedWalls.flatMap((wall) => {
       const { x1, y1, x2, y2 } = wall.geometry;
       if ([x1, y1, x2, y2].some((value) => value === undefined)) return [];
       const worldStart = { xMm: Math.round(x1! * mmPerPixel), yMm: Math.round(y1! * mmPerPixel) };
       const worldEnd = { xMm: Math.round(x2! * mmPerPixel), yMm: Math.round(y2! * mmPerPixel) };
-      return [{ id: wall.id, sourceStart: { x: x1!, y: y1! }, sourceEnd: { x: x2!, y: y2! }, worldStart, worldEnd, lengthMm: Math.round(Math.hypot(worldEnd.xMm - worldStart.xMm, worldEnd.yMm - worldStart.yMm)), thicknessMm: wall.thicknessMm!, heightMm: wall.heightMm ?? ceilingHeightMm!, adjacentSpaces: [], verification: 'verified', confidence: wall.confidence }];
+      const isExternal = /external|outer|perimeter/i.test(wall.note ?? wall.label);
+      return [{ id: wall.id, sourceStart: { x: x1!, y: y1! }, sourceEnd: { x: x2!, y: y2! }, worldStart, worldEnd, lengthMm: Math.round(Math.hypot(worldEnd.xMm - worldStart.xMm, worldEnd.yMm - worldStart.yMm)), thicknessMm: wall.thicknessMm ?? (isExternal ? 254 : 152.4), heightMm: wall.heightMm ?? ceilingHeightMm!, adjacentSpaces: [], verification: 'verified', confidence: wall.confidence }];
     });
-    const spaces = elements.filter((element) => element.kind === 'room' && element.status === 'accepted').flatMap((room) => {
+    const spaces = approvalElements.filter((element) => element.kind === 'room').flatMap((room) => {
       const polygon = room.geometry.polygon ?? [];
       if (polygon.length < 3) return [];
       const sourcePolygon = polygon.map((point) => ({ x: point.x, y: point.y }));
@@ -416,17 +422,21 @@ export function PlanReviewWorkspace({
     });
     const canonicalModel = {
       schemaVersion: 'plan.v1',
-      source: { schemaVersion: 'plan.v1', sourceAssetId, sourceType: 'raster_image', sourceWidth: 1000, sourceHeight: 850, sourceRotation: 0, coordinateSystem: 'millimetres', scaleResolution: 'two_point_calibration', mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservations: [] },
+      geometryMode,
+      source: { schemaVersion: 'plan.v1', sourceAssetId, sourceType: 'raster_image', sourceWidth: 1000, sourceHeight: 850, sourceRotation: 0, coordinateSystem: 'millimetres', scaleResolution: isInitialDesign ? 'initial_design_calibration' : 'two_point_calibration', mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservations: [] },
       state: 'approved',
-      scale: { id: crypto.randomUUID(), pointA: { xMm: scale!.pointA.x, yMm: scale!.pointA.y }, pointB: { xMm: scale!.pointB.x, yMm: scale!.pointB.y }, realMm: scale!.realDistanceMm, inferredMm: scale!.pixelDistance * mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservedMm: mmPerPixel, method: 'two_point_calibration', verified: true },
+      scale: { id: crypto.randomUUID(), pointA: { xMm: scale!.pointA.x, yMm: scale!.pointA.y }, pointB: { xMm: scale!.pointB.x, yMm: scale!.pointB.y }, realMm: scale!.realDistanceMm, inferredMm: scale!.pixelDistance * mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservedMm: mmPerPixel, method: isInitialDesign ? 'initial_design_calibration' : 'two_point_calibration', verified: false },
       ceilingHeightMm: ceilingHeightMm!,
       spaces,
       walls: wallModels,
-      openings: elements.filter((element) => (element.kind === 'door' || element.kind === 'window') && element.status === 'accepted').map((opening) => opening.kind === 'window'
+      openings: approvalElements.filter((element) => {
+        if (element.kind !== 'door' && element.kind !== 'window') return false;
+        return Boolean(element.wallId && element.widthMm && element.widthMm > 0 && element.heightMm && element.heightMm > 0 && (element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0))));
+      }).map((opening) => opening.kind === 'window'
         ? { id: opening.id, wallId: opening.wallId!, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, sillMm: opening.sillMm!, headMm: opening.headMm!, verification: 'verified', confidence: opening.confidence }
         : { id: opening.id, wallId: opening.wallId!, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, heightMm: opening.heightMm!, verification: 'verified', confidence: opening.confidence }), columns: [], beams: [], servicePoints: [],
       annotations: elements.filter((e) => e.kind === 'annotation'),
-      issues: [], assumptions: [],
+      issues, assumptions: isInitialDesign ? ['Initial-design geometry: scale, openings, and wall roles must be verified on site before production release.', 'Incomplete door and window measurements are retained as unresolved evidence and excluded from fabrication outputs.', 'Default wall thicknesses: external 254 mm; internal 152.4 mm unless edited by the designer.', 'Default ceiling height is 2700 mm until site measurement confirms it.'] : [],
       validation: { isValid: wallModels.length > 0 && spaces.length > 0, blockingIssueCount: 0, issues: [] },
       approval: { approvedAt: new Date().toISOString() },
     };
@@ -443,6 +453,22 @@ export function PlanReviewWorkspace({
             <h1 style={{ fontSize: 24, fontWeight: 800, margin: '2px 0 0' }}>Floor Plan Verification & Layer Canvas</h1>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div className="geometry-mode-toggle" role="group" aria-label="Geometry workflow mode">
+              <button
+                type="button"
+                className={geometryMode === 'initial_design' ? 'active' : ''}
+                onClick={() => setGeometryMode('initial_design')}
+                aria-pressed={geometryMode === 'initial_design'}
+                title="Editable concept geometry using clearly labelled assumptions"
+              >Initial design</button>
+              <button
+                type="button"
+                className={geometryMode === 'final_production' ? 'active' : ''}
+                onClick={() => setGeometryMode('final_production')}
+                aria-pressed={geometryMode === 'final_production'}
+                title="Measured and fully reviewed geometry for production outputs"
+              >Final production</button>
+            </div>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid var(--line)', borderRadius: 7, background: 'var(--surface)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
               <Upload size={14} /> Upload Plan File
               <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={onFile} style={{ display: 'none' }} />
@@ -461,12 +487,14 @@ export function PlanReviewWorkspace({
               disabled={!approvalReady}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 18px', background: 'var(--gold)', color: '#fff', border: 0, borderRadius: 7, fontSize: 13, fontWeight: 800, cursor: 'pointer' }}
             >
-              Approve Plan & Continue to Spaces <ArrowRight size={14} />
+              {geometryMode === 'initial_design' ? 'Create Initial Model & Continue' : 'Approve Plan & Continue to Spaces'} <ArrowRight size={14} />
             </button>
           </div>
         </div>
         {status && <p role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '6px 0 0' }}>{status}</p>}
-        {!approvalReady && analysed && <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>Approval unlocks after every proposal is accepted or rejected, critical issues are resolved, and one trusted dimension is calibrated.</p>}
+        {geometryMode === 'initial_design' && <p className="geometry-mode-note">Initial design mode needs one trusted scale calibration, but allows unresolved findings and incomplete openings. It applies editable defaults: external walls 254 mm, internal walls 152.4 mm, ceiling 2700 mm. Outputs are proposals until site verification.</p>}
+        {geometryMode === 'final_production' && <p className="geometry-mode-note production">Final production mode requires every finding to be resolved, openings dimensioned, walls assigned thickness/height, and a trusted calibration.</p>}
+        {!approvalReady && analysed && <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>Calibrate one visible dimension and complete the required geometry fields to continue.</p>}
       </div>
 
       {/* 3-PANEL GRID LAYOUT */}

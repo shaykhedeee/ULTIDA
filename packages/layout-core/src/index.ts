@@ -17,6 +17,8 @@ import {
   InvalidationTargetSchema,
   LayoutInputSchema,
   LayoutApprovalSchema,
+  LayoutConstraintKindSchema,
+  LayoutConstraintSchema,
 } from './schema.js';
 import { z } from 'zod';
 
@@ -38,6 +40,75 @@ export type InvalidationEvent = z.infer<typeof InvalidationEventSchema>;
 export type InvalidationTarget = z.infer<typeof InvalidationTargetSchema>;
 export type LayoutInput = z.infer<typeof LayoutInputSchema>;
 export type LayoutApproval = z.infer<typeof LayoutApprovalSchema>;
+export type LayoutConstraintKind = z.infer<typeof LayoutConstraintKindSchema>;
+export type LayoutConstraint = z.infer<typeof LayoutConstraintSchema>;
+
+export type LayoutConstraintViolation = {
+  constraintId: string;
+  placementId: string;
+  penalty: number;
+  message: string;
+};
+
+export type LayoutConstraintGraph = {
+  constraints: LayoutConstraint[];
+  violations: LayoutConstraintViolation[];
+  score: number;
+};
+
+/**
+ * Converts designer/AI intent into deterministic checks. This is deliberately
+ * separate from candidate generation: proposals may be creative, but approval
+ * must always be explainable in millimetres and stable wall/opening IDs.
+ */
+export function evaluateConstraintGraph(
+  placements: Placement[],
+  input: LayoutInput,
+): LayoutConstraintGraph {
+  const constraints = placements.flatMap((placement) => {
+    const defaults: LayoutConstraint[] = [
+      { id: `${placement.id}:wall`, kind: 'must_be_wall_anchored', sourceId: placement.id, weight: 2 },
+      { id: `${placement.id}:opening`, kind: 'must_not_obstruct_opening', sourceId: placement.id, weight: 3 },
+      { id: `${placement.id}:clearance`, kind: 'must_keep_clearance', sourceId: placement.id, valueMm: placement.clearanceMm, weight: 2 },
+    ];
+    return [...defaults, ...placement.constraints];
+  });
+  const violations: LayoutConstraintViolation[] = [];
+  const openingIds = new Set(input.openings.map((opening) => opening.id));
+  const wallIds = new Set(input.usableWalls.map((wall) => wall.id));
+
+  for (const constraint of constraints) {
+    const placement = placements.find((candidate) => candidate.id === constraint.sourceId);
+    if (!placement) continue;
+    if (constraint.kind === 'must_be_wall_anchored' && placement.anchor !== 'wall') {
+      violations.push({ constraintId: constraint.id, placementId: placement.id, penalty: constraint.weight, message: `${placement.id} must be anchored to a real wall.` });
+    }
+    if (constraint.kind === 'must_be_wall_anchored' && placement.wallRef && !wallIds.has(placement.wallRef)) {
+      violations.push({ constraintId: constraint.id, placementId: placement.id, penalty: constraint.weight, message: `${placement.id} references a wall that is not in the approved plan.` });
+    }
+    if (constraint.kind === 'must_not_obstruct_opening') {
+      const blocked = input.openings.some((opening) => openingIds.has(opening.id) && placement.wallRef === opening.wallId &&
+        placement.positionMm[0] < opening.xMm + opening.widthMm && placement.positionMm[0] + placement.widthMm > opening.xMm);
+      if (blocked) violations.push({ constraintId: constraint.id, placementId: placement.id, penalty: constraint.weight, message: `${placement.id} obstructs an approved opening.` });
+    }
+    if (constraint.kind === 'must_keep_clearance' && placement.clearanceMm < (constraint.valueMm ?? 0)) {
+      violations.push({ constraintId: constraint.id, placementId: placement.id, penalty: constraint.weight, message: `${placement.id} has less than ${constraint.valueMm ?? 0} mm clear circulation.` });
+    }
+    if (constraint.kind === 'must_be_near_service' && constraint.targetId && !input.servicePoints.some((service) => service.id === constraint.targetId && withinServiceRadius(placement, service.xMm, service.yMm, constraint.valueMm ?? 800))) {
+      violations.push({ constraintId: constraint.id, placementId: placement.id, penalty: constraint.weight, message: `${placement.id} is not near required service point ${constraint.targetId}.` });
+    }
+  }
+
+  const totalPenalty = violations.reduce((sum, violation) => sum + violation.penalty, 0);
+  return { constraints, violations, score: Math.max(0, 1 - totalPenalty / Math.max(1, constraints.length * 2)) };
+}
+
+function withinServiceRadius(placement: Placement, xMm: number, yMm: number, radiusMm: number) {
+  const [x, y] = placement.positionMm;
+  const closestX = Math.max(x, Math.min(x + placement.widthMm, xMm));
+  const closestY = Math.max(y, Math.min(y + placement.depthMm, yMm));
+  return Math.hypot(closestX - xMm, closestY - yMm) <= radiusMm;
+}
 
 const DEFAULT_CLEARANCE_MM = 900;
 const MIN_WALL_LENGTH_MM = 1200;

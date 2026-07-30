@@ -4,9 +4,8 @@ export type RequestSupabaseClient = SupabaseClient;
 
 const url = () => process.env.SUPABASE_URL;
 // User-facing requests must use the request JWT with a valid client key.
-// Keep the service role available for trusted worker paths, but do not let a
-// stale SUPABASE_SECRET_KEY override a working publishable key.
-const apiKey = () => process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_SECRET_KEY;
+// Service-role credentials are reserved for explicit trusted worker paths only.
+const apiKey = () => process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_SECRET_KEY;
 
 let client: SupabaseClient | null = null;
 

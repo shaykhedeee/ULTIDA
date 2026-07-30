@@ -97,6 +97,10 @@ function formatModule(module: SceneV1['modules'][number]) {
   return `${module.family} ${module.id}: ${module.widthMm} x ${module.depthMm} x ${module.heightMm} mm at (${module.position.xMm}, ${module.position.yMm}) rotation ${module.rotationDeg} degrees`;
 }
 
+function formatModulePart(part: SceneV1['moduleParts'][number]) {
+  return `${part.semanticType} ${part.name}: ${part.widthMm} x ${part.depthMm} x ${part.heightMm} mm for module ${part.moduleId}`;
+}
+
 export function compileRenderBrief(input: {
   scene: SceneV1;
   sceneVersionId: string;
@@ -108,6 +112,8 @@ export function compileRenderBrief(input: {
   const room = input.scene.rooms.find((candidate) => candidate.id === input.roomId || candidate.type === input.roomId);
   if (!room) throw new Error(`Room ${input.roomId} is not present in the approved scene.`);
   const roomModules = input.scene.modules.filter((module) => module.roomId === room.id || module.roomId === input.roomId);
+  const roomModuleIds = new Set(roomModules.map((module) => module.id));
+  const roomParts = (input.scene.moduleParts ?? []).filter((part) => roomModuleIds.has(part.moduleId));
   const wallFacts = input.scene.walls.map((wall) => `wall ${wall.id}: (${wall.start.xMm}, ${wall.start.yMm}) to (${wall.end.xMm}, ${wall.end.yMm}), ${wall.heightMm} mm high`);
   const openingFacts = input.scene.openings.map((opening) => `${opening.kind} ${opening.id} on wall ${opening.wallId} at ${opening.offsetMm} mm, ${opening.widthMm} x ${opening.heightMm} mm`);
   const materialFacts = input.scene.materials.map((material) => `${material.name} (${material.code})`);
@@ -120,20 +126,21 @@ export function compileRenderBrief(input: {
     `room ${room.name} (${room.type}) with ${room.boundary.length} reviewed boundary points`,
     ...wallFacts,
     ...openingFacts,
-    ...roomModules.map(formatModule)
+    ...roomModules.map(formatModule),
+    ...roomParts.map(formatModulePart)
   ];
   const positivePrompt = [
     `Create a professional photorealistic interior proposal for ${room.name}.`,
     `Design direction: ${input.style}.`,
     `Camera: ${camera.view}, ${camera.lensMm} mm lens, eye height ${camera.eyeHeightMm} mm.`,
-    'Treat every geometry fact below as immutable. Preserve exact room proportions, openings, circulation, module count, dimensions and placements.',
+    'Treat every geometry fact below as immutable. Preserve exact room proportions, openings, circulation, module count, cabinet part divisions, shutter and drawer counts, dimensions and placements.',
     ...geometryFacts,
     materialFacts.length ? `Approved materials: ${materialFacts.join('; ')}.` : 'Use a restrained, buildable material palette and clearly mark it as proposed.',
     'Use physically plausible daylight, artificial lighting, joinery thicknesses, shadows, reflections and camera perspective.'
   ].join('\n');
   const negativePrompt = [
     'Do not move, add or remove walls, doors or windows.',
-    'Do not change cabinetry dimensions or invent unsupported modules.',
+    'Do not change cabinetry dimensions, cabinet part divisions, shutter or drawer counts, or invent unsupported modules.',
     'No distorted verticals, impossible reflections, floating furniture, blocked circulation, warped joinery, text, watermark or fisheye lens.'
   ].join(' ');
   return { version: PROMPT_VERSIONS.renderDirector, projectId: input.scene.projectId, sceneVersionId: input.sceneVersionId, roomId: room.id, style: input.style, quality: input.quality ?? 'review', camera, geometryFacts, materialFacts, positivePrompt, negativePrompt };

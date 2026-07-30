@@ -2,9 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
+    "rootDir": "src",
     "baseUrl": ".",
     "paths": {
-      "@ultida/contracts": ["../contracts/src/index.ts"]
+      "@ultida/contracts": ["../contracts/dist/index.d.ts"]
     }
   },
   "include": ["src"]

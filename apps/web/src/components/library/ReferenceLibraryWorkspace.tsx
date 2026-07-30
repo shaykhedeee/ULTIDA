@@ -1,4 +1,4 @@
-import { BookOpen, Library as LibraryIcon, Palette, Search } from 'lucide-react';
+import { BookOpen, Library as LibraryIcon, Palette, Search, Upload } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
@@ -53,12 +53,15 @@ function materialSubtitle(material: Material) {
 }
 
 export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { organizationId?: string | null; projectId?: string | null }) {
-  const [activeTab, setActiveTab] = useState<'templates' | 'modules' | 'materials'>('templates');
+  const [activeTab, setActiveTab] = useState<'templates' | 'modules' | 'materials'>('modules');
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [modules, setModules] = useState<CatalogModule[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState('Loading studio library…');
+  const [referenceFile, setReferenceFile] = useState<File | null>(null);
+  const [referenceTags, setReferenceTags] = useState('');
+  const [uploadingReference, setUploadingReference] = useState(false);
+  const [status, setStatus] = useState('Loading modular catalog…');
 
   useEffect(() => {
     let live = true;
@@ -106,9 +109,12 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       const outcomes = await Promise.allSettled(tasks);
       if (!live) return;
       const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
-      setStatus(failures.length
-        ? `${failures.length} library source${failures.length === 1 ? '' : 's'} could not be loaded. ${failures[0]?.reason instanceof Error ? failures[0].reason.message : ''}`
-        : 'Library data is connected to the current studio and project.');
+      const catalogFailed = outcomes[0]?.status === 'rejected';
+      setStatus(catalogFailed
+        ? 'The modular catalog could not be loaded. Check the API health and catalog route before placing modules.'
+        : failures.length
+          ? `Modular catalog loaded. ${failures.length} optional project library source${failures.length === 1 ? '' : 's'} could not be loaded.`
+          : 'Modular catalog and available project library data are connected.');
     }
     void load();
     return () => { live = false; };
@@ -121,6 +127,37 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   }), [items, search]);
   const visibleModules = useMemo(() => modules.filter((item) => !search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search)), [modules, search]);
   const visibleMaterials = useMemo(() => materials.filter((item) => !search || `${item.name} ${item.code} ${item.category} ${item.supplier ?? ''}`.toLowerCase().includes(search)), [materials, search]);
+
+  async function uploadReference() {
+    if (!projectId || !referenceFile || !supabase) {
+      setStatus(!projectId ? 'Open a project before adding studio references.' : 'Choose a PNG, JPEG, or WebP image to add it to this project library.');
+      return;
+    }
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) { setStatus('Sign in before adding a project reference.'); return; }
+    setUploadingReference(true);
+    setStatus('Preparing a secure reference upload...');
+    try {
+      const headers = { authorization: `Bearer ${session.access_token}`, 'content-type': 'application/json' };
+      const initiated = await fetch(`${apiBase()}/projects/${projectId}/references/initiate`, { method: 'POST', headers, body: JSON.stringify({ fileName: referenceFile.name, mimeType: referenceFile.type, fileSize: referenceFile.size }) });
+      const initiation = await initiated.json().catch(() => null);
+      if (!initiated.ok || !initiation?.token || !initiation?.storagePath) throw new Error(initiation?.message ?? 'The secure upload could not be prepared.');
+      const stored = await supabase.storage.from(initiation.bucket ?? 'project-assets').uploadToSignedUrl(initiation.storagePath, initiation.token, referenceFile, { contentType: referenceFile.type });
+      if (stored.error) throw stored.error;
+      setStatus('Verifying and indexing your reference...');
+      const completed = await fetch(`${apiBase()}/projects/${projectId}/references/complete`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: referenceFile.name, mimeType: referenceFile.type, fileSize: referenceFile.size, title: referenceFile.name.replace(/\.[^.]+$/, ''), tags: referenceTags.split(',').map((tag) => tag.trim()).filter(Boolean) }),
+      });
+      const result = await completed.json().catch(() => null);
+      if (!completed.ok || !result?.success) throw new Error(result?.message ?? 'The reference could not be saved.');
+      if (!result.duplicate && result.item) setItems((current) => [{ ...result.item, asset: null }, ...current]);
+      setActiveTab('templates'); setReferenceFile(null); setReferenceTags('');
+      setStatus(result.duplicate ? 'Duplicate found: the existing reference was kept, and the extra upload was removed.' : 'Reference saved to this project library. It can now guide moodboards and renders.');
+    } catch (error: any) {
+      setStatus(error?.message ?? 'The reference upload could not be completed.');
+    } finally { setUploadingReference(false); }
+  }
 
   function emptyState(message: string) {
     return <div style={{ padding: '28px 0', color: '#78716c', fontSize: 14 }}>{message}</div>;
@@ -139,6 +176,26 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
         </label>
       </div>
       <p role="status" style={{ margin: '0 0 16px', color: status.includes('could not') ? '#b45309' : '#78716c', fontSize: 12 }}>{status}</p>
+
+      <Card className="workflow" style={{ marginBottom: 20 }}>
+        <CardContent style={{ display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap', padding: 16 }}>
+          <div style={{ flex: '1 1 260px' }}>
+            <strong style={{ display: 'block', fontSize: 14, color: '#1c1917', marginBottom: 4 }}>Add a project reference</strong>
+            <small style={{ color: '#78716c' }}>Images are advisory inspiration; approved plan and scene data stay authoritative.</small>
+          </div>
+          <label style={{ display: 'grid', gap: 5, fontSize: 12, color: '#57534e' }}>
+            Image
+            <input aria-label="Reference image" type="file" accept="image/png,image/jpeg,image/webp" disabled={!projectId || uploadingReference} onChange={(event) => setReferenceFile(event.target.files?.[0] ?? null)} />
+          </label>
+          <label style={{ display: 'grid', gap: 5, fontSize: 12, color: '#57534e' }}>
+            Tags
+            <input aria-label="Reference tags" value={referenceTags} onChange={(event) => setReferenceTags(event.target.value)} placeholder="tv unit, fluted, warm wood" disabled={!projectId || uploadingReference} style={{ border: '1px solid #d6d3d1', borderRadius: 6, padding: '8px 10px', fontSize: 13 }} />
+          </label>
+          <button type="button" onClick={() => void uploadReference()} disabled={!projectId || !referenceFile || uploadingReference} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, border: 0, borderRadius: 6, padding: '9px 12px', background: !projectId || !referenceFile || uploadingReference ? '#d6d3d1' : '#3d2a1a', color: '#fff', fontWeight: 700, cursor: !projectId || !referenceFile || uploadingReference ? 'not-allowed' : 'pointer' }}>
+            <Upload size={15} /> {uploadingReference ? 'Adding...' : 'Add to library'}
+          </button>
+        </CardContent>
+      </Card>
 
       <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e7e5e4', marginBottom: 24 }}>
         {([

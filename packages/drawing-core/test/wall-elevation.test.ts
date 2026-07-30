@@ -5,7 +5,7 @@ import { writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Writable } from 'node:stream';
-import { exportWallElevationToDxf, generateWallElevationsPdf, generateWallElevationsSvg, buildDimensionChain, deriveWardrobeDepthMm, ULTIDA_DRAWING_STANDARD_V1, validateElevationSheet } from '../src/index.js';
+import { buildDrawingProjection, exportWallElevationToDxf, generateWallElevationsPdf, generateWallElevationsSvg, buildDimensionChain, deriveWardrobeDepthMm, ULTIDA_DRAWING_STANDARD_V1, validateElevationSheet } from '../src/index.js';
 
 test('drawing standard derives manufacturing defaults and valid dimension chains', () => {
   assert.equal(deriveWardrobeDepthMm(), 580);
@@ -49,6 +49,19 @@ test('generateWallElevationsSvg produces styled SVG element with wall dimensions
   assert.match(svg, /Altera Studio/);
   assert.match(svg, /TV Wall Elevation/);
   assert.match(svg, /tv-unit 1800mm/);
+});
+
+test('drawing projection excludes coincident reversed walls to prevent double-wall exports', () => {
+  const duplicated = {
+    ...testScene,
+    walls: [
+      ...testScene.walls,
+      { ...testScene.walls[0], id: 'wall-duplicate', start: testScene.walls[0].end, end: testScene.walls[0].start },
+    ],
+  } as any;
+  const projection = buildDrawingProjection(duplicated);
+  assert.equal(projection.lines.filter((line) => line.layer === 'walls').length, 1);
+  assert.ok(projection.warnings.some((warning) => warning.includes('wall-duplicate') && warning.includes('double-wall')));
 });
 
 test('exportWallElevationToDxf emits a valid AutoCAD-compatible DXF file passed by Python ezdxf validator', () => {

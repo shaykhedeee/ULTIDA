@@ -3,13 +3,36 @@ import { z } from 'zod';
 export const RoomTypeSchema = z.enum(['kitchen', 'living', 'bedroom', 'bathroom', 'dining', 'study', 'pooja', 'utility', 'other']);
 export const ModuleFamilySchema = z.enum(['kitchen-base', 'kitchen-wall', 'kitchen-tall', 'kitchen-corner', 'wardrobe', 'tv-unit', 'crockery', 'pooja', 'sofa', 'bed', 'study', 'utility', 'dining', 'false-ceiling', 'storage']);
 export const MaterialSlotSchema = z.enum(['carcass', 'shutter', 'countertop', 'back-panel', 'hardware', 'fabric', 'metal', 'glass', 'lighting']);
+export const ModuleElementKindSchema = z.enum(['carcass', 'shutter', 'drawer', 'shelf', 'loft', 'dummy_filler', 'profile_glass', 'back_panel', 'countertop', 'plinth_skirting', 'lighting_anchor', 'service_void', 'hardware', 'cnc_panel', 'appliance_void']);
+export const ModuleProductionRoleSchema = z.enum(['visual', 'assembly', 'cutlist', 'service', 'accessory']);
+export const ModuleElementSchema = z.object({
+  kind: ModuleElementKindSchema,
+  label: z.string().min(1),
+  quantity: z.number().int().positive().default(1),
+  widthMm: z.number().positive().optional(),
+  depthMm: z.number().positive().optional(),
+  heightMm: z.number().positive().optional(),
+  materialSlot: MaterialSlotSchema.optional(),
+  productionRole: ModuleProductionRoleSchema.default('assembly'),
+  notes: z.array(z.string()).default([]),
+});
+export type ModuleElement = z.infer<typeof ModuleElementSchema>;
+
+export const ModuleConstraintSchema = z.object({
+  kind: z.enum(['wall_anchored', 'opening_clearance', 'service_clearance', 'circulation', 'adjacency', 'stacking']),
+  label: z.string().min(1),
+  valueMm: z.number().nonnegative().optional(),
+  required: z.boolean().default(true),
+});
+export type ModuleConstraint = z.infer<typeof ModuleConstraintSchema>;
 
 export const CatalogModuleSchema = z.object({
   id: z.string(), family: ModuleFamilySchema, name: z.string(), roomTypes: z.array(RoomTypeSchema).min(1),
   widthMm: z.number().positive(), depthMm: z.number().positive(), heightMm: z.number().positive(),
   minClearanceMm: z.number().nonnegative(), sku: z.string(), materialSlots: z.array(MaterialSlotSchema),
   tags: z.array(z.string()), production: z.object({ panelBased: z.boolean(), hardwareSchedule: z.boolean(), cutlistSupported: z.boolean() })
-  ,description: z.string().optional(), manufacturingRules: z.array(z.string()).optional()
+  ,description: z.string().optional(), manufacturingRules: z.array(z.string()).optional(),
+  elements: z.array(ModuleElementSchema).optional(), constraints: z.array(ModuleConstraintSchema).optional()
 });
 export type CatalogModule = z.infer<typeof CatalogModuleSchema>;
 
@@ -41,7 +64,19 @@ export const IndianModularCatalog: CatalogModule[] = [
   { id: 'wardrobe-900', family: 'wardrobe', name: '900 sliding wardrobe bay', roomTypes: ['bedroom'], widthMm: 900, depthMm: 600, heightMm: 2400, minClearanceMm: 900, sku: 'ULT-WD-900', materialSlots: ['carcass', 'shutter', 'hardware', 'glass'], tags: ['sliding', 'loft', 'modular-storage'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true } },
   { id: 'tv-1800', family: 'tv-unit', name: '1800 TV console', roomTypes: ['living', 'bedroom'], widthMm: 1800, depthMm: 400, heightMm: 600, minClearanceMm: 900, sku: 'ULT-TV-1800', materialSlots: ['carcass', 'shutter', 'back-panel', 'hardware'], tags: ['tv-wall', 'console', 'cable-management'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true } },
   { id: 'tv-profile-2400', family: 'tv-unit', name: '2400 TV wall with profile glass', roomTypes: ['living'], widthMm: 2400, depthMm: 400, heightMm: 2400, minClearanceMm: 900, sku: 'ULT-TV-PROFILE-2400', materialSlots: ['carcass', 'shutter', 'back-panel', 'glass', 'hardware', 'lighting'], tags: ['tv-wall', 'profile-glass', 'floating-base', 'lighting'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true } },
-  { id: 'crockery-1200', family: 'crockery', name: '1200 crockery display unit', roomTypes: ['living', 'dining'], widthMm: 1200, depthMm: 400, heightMm: 2100, minClearanceMm: 900, sku: 'ULT-CR-1200', materialSlots: ['carcass', 'shutter', 'glass', 'hardware', 'lighting'], tags: ['crockery', 'display', 'profile-glass'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true } },
+  { id: 'tv-floating-1600', family: 'tv-unit', name: '1600 floating TV console', roomTypes: ['living', 'bedroom'], widthMm: 1600, depthMm: 400, heightMm: 550, minClearanceMm: 900, sku: 'ULT-TV-FLOAT-1600', materialSlots: ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'], tags: ['tv-wall', 'floating', 'minimal', 'gola'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Minimal floating console with cable back panel and optional under-base LED.', manufacturingRules: ['Maintain 200mm approved floating clearance', 'Keep lighting only at configured anchors'] },
+  { id: 'tv-fluted-2100', family: 'tv-unit', name: '2100 fluted-panel TV wall', roomTypes: ['living'], widthMm: 2100, depthMm: 400, heightMm: 2300, minClearanceMm: 900, sku: 'ULT-TV-FLUTE-2100', materialSlots: ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'], tags: ['tv-wall', 'fluted-panel', 'floating-base', 'warm-light'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Feature TV panel with a fluted zone, floating base, and restrained warm lighting.' },
+  { id: 'tv-asymmetric-2400', family: 'tv-unit', name: '2400 asymmetric TV and display wall', roomTypes: ['living'], widthMm: 2400, depthMm: 400, heightMm: 2400, minClearanceMm: 900, sku: 'ULT-TV-ASYM-2400', materialSlots: ['carcass', 'shutter', 'back-panel', 'glass', 'hardware', 'lighting'], tags: ['tv-wall', 'asymmetric', 'display', 'profile-glass'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'TV composition with one profile-glass display tower and balanced lower storage.' },
+  { id: 'tv-study-2700', family: 'tv-unit', name: '2700 TV plus study wall', roomTypes: ['living', 'study'], widthMm: 2700, depthMm: 600, heightMm: 2400, minClearanceMm: 900, sku: 'ULT-TV-STUDY-2700', materialSlots: ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'], tags: ['tv-wall', 'study', 'desk', 'storage'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Combined TV wall and desk with configurable drawer-free study bay.' },
+  { id: 'tv-crockery-3000', family: 'tv-unit', name: '3000 TV plus crockery wall', roomTypes: ['living', 'dining'], widthMm: 3000, depthMm: 450, heightMm: 2400, minClearanceMm: 900, sku: 'ULT-TV-CR-3000', materialSlots: ['carcass', 'shutter', 'back-panel', 'glass', 'hardware', 'lighting'], tags: ['tv-wall', 'crockery', 'profile-glass', 'dining'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Living-to-dining composition with TV centre, display glazing, and lower storage.' },
+  { id: 'tv-partition-2400', family: 'tv-unit', name: '2400 partition TV unit', roomTypes: ['living'], widthMm: 2400, depthMm: 450, heightMm: 2400, minClearanceMm: 1000, sku: 'ULT-TV-PART-2400', materialSlots: ['carcass', 'shutter', 'back-panel', 'metal', 'hardware', 'lighting'], tags: ['tv-wall', 'partition', 'slatted', 'open-plan'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Open-plan partition with a TV back, slatted screen, and accessible service cavity.' },
+  { id: 'tv-full-wall-3200', family: 'tv-unit', name: '3200 full-wall TV storage', roomTypes: ['living'], widthMm: 3200, depthMm: 450, heightMm: 2400, minClearanceMm: 900, sku: 'ULT-TV-FULL-3200', materialSlots: ['carcass', 'shutter', 'back-panel', 'glass', 'hardware', 'lighting'], tags: ['tv-wall', 'full-wall', 'loft', 'storage'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Full-width storage composition with a central TV field, closed lofts, and side display bays.' },
+  { id: 'tv-classic-2200', family: 'tv-unit', name: '2200 modern-classic TV wall', roomTypes: ['living', 'bedroom'], widthMm: 2200, depthMm: 400, heightMm: 2200, minClearanceMm: 900, sku: 'ULT-TV-CLASSIC-2200', materialSlots: ['carcass', 'shutter', 'back-panel', 'metal', 'hardware', 'lighting'], tags: ['tv-wall', 'modern-classic', 'panelling', 'brass'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Panelled TV wall with a symmetric back panel, slim metal accents, and enclosed base storage.' },
+  { id: 'crockery-1200', family: 'crockery', name: '1200 crockery display unit', roomTypes: ['living', 'dining'], widthMm: 1200, depthMm: 400, heightMm: 2100, minClearanceMm: 900, sku: 'ULT-CR-1200', materialSlots: ['carcass', 'shutter', 'glass', 'hardware', 'lighting'], tags: ['crockery', 'display', 'profile-glass', 'linear'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Balanced base storage with an illuminated profile-glass display tower.', manufacturingRules: ['Keep glass shutter widths at or below 450mm', 'Use 18mm carcass panels and a serviceable lighting channel'] },
+  { id: 'crockery-1800', family: 'crockery', name: '1800 full-wall crockery and bar', roomTypes: ['living', 'dining'], widthMm: 1800, depthMm: 450, heightMm: 2400, minClearanceMm: 900, sku: 'ULT-CR-1800', materialSlots: ['carcass', 'shutter', 'glass', 'hardware', 'lighting', 'countertop'], tags: ['crockery', 'full-wall', 'bar', 'fluted-glass', 'warm-light'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Full-height dining wall with closed overhead storage, display glass, counter niche, and lower drawers.', manufacturingRules: ['Reserve a 200mm counter/service zone where appliances are specified', 'Split glass fronts into balanced bays', 'Coordinate countertop thickness with the project material assignment'] },
+  { id: 'crockery-2400', family: 'crockery', name: '2400 crockery with open niches', roomTypes: ['living', 'dining'], widthMm: 2400, depthMm: 450, heightMm: 2400, minClearanceMm: 900, sku: 'ULT-CR-2400', materialSlots: ['carcass', 'shutter', 'glass', 'hardware', 'lighting', 'back-panel'], tags: ['crockery', 'open-niche', 'asymmetric', 'profile-glass', 'fluted-panel'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Asymmetric crockery composition with open display niches, tall profile-glass bays, and a feature back panel.', manufacturingRules: ['Keep open niches aligned to approved wall elevations', 'Use explicit dummy fillers at wall returns', 'Do not add lighting outside assigned shelf/light anchors'] },
+  { id: 'crockery-sideboard-1600', family: 'crockery', name: '1600 dining sideboard and display', roomTypes: ['dining', 'living'], widthMm: 1600, depthMm: 450, heightMm: 2100, minClearanceMm: 900, sku: 'ULT-CR-SIDE-1600', materialSlots: ['carcass', 'shutter', 'glass', 'hardware', 'lighting', 'countertop'], tags: ['crockery', 'sideboard', 'display', 'fluted-glass'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Dining sideboard with a counter niche, upper fluted-glass shutters, and closed base storage.' },
+  { id: 'crockery-curved-2100', family: 'crockery', name: '2100 curved-corner crockery bar', roomTypes: ['dining', 'living'], widthMm: 2100, depthMm: 450, heightMm: 2400, minClearanceMm: 900, sku: 'ULT-CR-CURVE-2100', materialSlots: ['carcass', 'shutter', 'glass', 'hardware', 'lighting', 'countertop'], tags: ['crockery', 'bar', 'curved-corner', 'profile-glass'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Crockery and bar composition with a curved return, lit display cabinets, and serviceable lower storage.' },
   { id: 'study-1500', family: 'study', name: '1500 study desk with overhead storage', roomTypes: ['study', 'bedroom'], widthMm: 1500, depthMm: 600, heightMm: 2400, minClearanceMm: 900, sku: 'ULT-ST-1500', materialSlots: ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'], tags: ['study', 'desk', 'overhead-storage'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true } },
   { id: 'study-1200', family: 'study', name: '1200 compact study wall', roomTypes: ['study', 'bedroom'], widthMm: 1200, depthMm: 300, heightMm: 2100, minClearanceMm: 750, sku: 'ULT-ST-1200', materialSlots: ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'], tags: ['study', 'desk', 'open-shelf', 'whiteboard'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Compact desk, drawer-free option, and overhead shelf for smaller rooms.', manufacturingRules: ['Back panel can use marker-safe laminate', 'Keep desk depth and chair clearance explicit'] },
   { id: 'pooja-900', family: 'pooja', name: '900 pooja unit with tray', roomTypes: ['pooja', 'living'], widthMm: 900, depthMm: 400, heightMm: 1800, minClearanceMm: 750, sku: 'ULT-PJ-900', materialSlots: ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'], tags: ['pooja', 'pull-out-tray', 'jaali'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true } },
@@ -54,6 +89,59 @@ export const IndianModularCatalog: CatalogModule[] = [
 export function listCatalog(roomType?: z.infer<typeof RoomTypeSchema>, query?: string) {
   const normalized = query?.trim().toLowerCase();
   return IndianModularCatalog.filter((item) => (!roomType || item.roomTypes.includes(roomType)) && (!normalized || `${item.name} ${item.tags.join(' ')}`.toLowerCase().includes(normalized)));
+}
+
+const FAMILY_ELEMENTS: Record<z.infer<typeof ModuleFamilySchema>, z.input<typeof ModuleElementSchema>[]> = {
+  'kitchen-base': [
+    { kind: 'carcass', label: '18mm base carcass', materialSlot: 'carcass', productionRole: 'assembly', notes: ['Include serviceable back clearance.'] },
+    { kind: 'shutter', label: 'Base shutters', materialSlot: 'shutter', productionRole: 'cutlist', notes: ['Keep reveal consistent.'] },
+    { kind: 'drawer', label: 'Configured drawers', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] },
+    { kind: 'plinth_skirting', label: '110mm plinth/skirting', materialSlot: 'carcass', productionRole: 'cutlist', notes: [] },
+    { kind: 'countertop', label: 'Countertop slab', materialSlot: 'countertop', productionRole: 'cutlist', notes: ['Thickness must come from project requirements, never a visual estimate.'] },
+    { kind: 'service_void', label: 'Plumbing and appliance service void', productionRole: 'service', notes: ['Verify on site before fabrication.'] },
+  ],
+  'kitchen-wall': [
+    { kind: 'carcass', label: '18mm wall carcass', materialSlot: 'carcass', productionRole: 'assembly', notes: [] },
+    { kind: 'shutter', label: 'Wall shutters', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] },
+    { kind: 'shelf', label: 'Adjustable shelves', materialSlot: 'carcass', productionRole: 'cutlist', notes: [] },
+    { kind: 'lighting_anchor', label: 'Under-cabinet light anchor', materialSlot: 'lighting', productionRole: 'accessory', notes: ['Only where specified.'] },
+  ],
+  'kitchen-tall': [{ kind: 'carcass', label: 'Tall carcass', materialSlot: 'carcass', productionRole: 'assembly', notes: [] }, { kind: 'shutter', label: 'Tall shutters', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] }, { kind: 'appliance_void', label: 'Appliance void', productionRole: 'service', notes: ['Use approved appliance dimensions.'] }],
+  'kitchen-corner': [{ kind: 'carcass', label: 'Corner carcass', materialSlot: 'carcass', productionRole: 'assembly', notes: ['Reserve filler before adjacent shutters.'] }, { kind: 'shutter', label: 'Corner shutter', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] }, { kind: 'dummy_filler', label: 'Corner filler', materialSlot: 'carcass', productionRole: 'cutlist', notes: ['Required to prevent handle collision.'] }],
+  wardrobe: [{ kind: 'carcass', label: '18mm wardrobe carcass', materialSlot: 'carcass', productionRole: 'assembly', notes: ['Typical depth is 560mm carcass plus 20mm back when approved.'] }, { kind: 'shutter', label: 'Equal wardrobe shutters', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] }, { kind: 'loft', label: 'Loft shutters', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] }, { kind: 'shelf', label: 'Adjustable shelves', materialSlot: 'carcass', productionRole: 'cutlist', notes: [] }, { kind: 'drawer', label: 'Drawer stack', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] }, { kind: 'dummy_filler', label: 'Dummy/filler', materialSlot: 'carcass', productionRole: 'cutlist', notes: ['Use only where the approved design specifies it.'] }, { kind: 'hardware', label: 'Handles and sliding hardware', materialSlot: 'hardware', productionRole: 'accessory', notes: [] }],
+  'tv-unit': [{ kind: 'back_panel', label: 'TV back panel', materialSlot: 'back-panel', productionRole: 'cutlist', notes: ['Preserve exact approved TV and cable positions.'] }, { kind: 'carcass', label: 'Base carcass', materialSlot: 'carcass', productionRole: 'assembly', notes: [] }, { kind: 'shutter', label: 'Base shutters', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] }, { kind: 'profile_glass', label: 'Aluminium profile glass display', materialSlot: 'glass', productionRole: 'cutlist', notes: ['Add internal lighting only when specified.'] }, { kind: 'lighting_anchor', label: 'Display/profile light anchor', materialSlot: 'lighting', productionRole: 'accessory', notes: [] }],
+  crockery: [{ kind: 'carcass', label: 'Display carcass', materialSlot: 'carcass', productionRole: 'assembly', notes: [] }, { kind: 'profile_glass', label: 'Glass display shutters', materialSlot: 'glass', productionRole: 'cutlist', notes: [] }, { kind: 'shelf', label: 'Glass shelves', materialSlot: 'glass', productionRole: 'cutlist', notes: [] }, { kind: 'lighting_anchor', label: 'Shelf light anchors', materialSlot: 'lighting', productionRole: 'accessory', notes: [] }],
+  study: [{ kind: 'carcass', label: 'Study carcass', materialSlot: 'carcass', productionRole: 'assembly', notes: [] }, { kind: 'back_panel', label: 'Marker-safe back panel', materialSlot: 'back-panel', productionRole: 'cutlist', notes: ['Use a verified whiteboard-compatible finish.'] }, { kind: 'shelf', label: 'Open shelves', materialSlot: 'carcass', productionRole: 'cutlist', notes: [] }, { kind: 'drawer', label: 'Optional drawers', materialSlot: 'shutter', productionRole: 'cutlist', notes: ['Omit when the brief says drawer-free.'] }],
+  pooja: [{ kind: 'carcass', label: 'Pooja carcass', materialSlot: 'carcass', productionRole: 'assembly', notes: [] }, { kind: 'drawer', label: 'Two drawers below tray', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] }, { kind: 'shelf', label: 'Single pooja tray', materialSlot: 'carcass', productionRole: 'cutlist', notes: ['Do not split into two trays.'] }, { kind: 'shutter', label: 'Main shutters', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] }, { kind: 'profile_glass', label: 'Fluted glass shutter', materialSlot: 'glass', productionRole: 'cutlist', notes: [] }, { kind: 'cnc_panel', label: 'Jaali/CNC panel', productionRole: 'cutlist', notes: ['Release only after vector preflight.'] }, { kind: 'lighting_anchor', label: 'Concealed warm light anchor', materialSlot: 'lighting', productionRole: 'accessory', notes: [] }],
+  utility: [{ kind: 'carcass', label: 'Utility carcass', materialSlot: 'carcass', productionRole: 'assembly', notes: [] }, { kind: 'shutter', label: 'Utility shutters', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] }, { kind: 'service_void', label: 'Plumbing/service void', productionRole: 'service', notes: [] }],
+  sofa: [{ kind: 'carcass', label: 'Sofa frame', materialSlot: 'carcass', productionRole: 'assembly', notes: [] }, { kind: 'hardware', label: 'Sofa hardware', materialSlot: 'hardware', productionRole: 'accessory', notes: [] }],
+  bed: [{ kind: 'carcass', label: 'Bed platform', materialSlot: 'carcass', productionRole: 'assembly', notes: [] }, { kind: 'hardware', label: 'Hydraulic hardware', materialSlot: 'hardware', productionRole: 'accessory', notes: [] }],
+  dining: [{ kind: 'carcass', label: 'Dining frame', productionRole: 'assembly', notes: [] }],
+  'false-ceiling': [{ kind: 'lighting_anchor', label: 'False-ceiling light anchor', materialSlot: 'lighting', productionRole: 'accessory', notes: [] }],
+  storage: [{ kind: 'carcass', label: 'Storage carcass', materialSlot: 'carcass', productionRole: 'assembly', notes: [] }, { kind: 'shutter', label: 'Storage shutters', materialSlot: 'shutter', productionRole: 'cutlist', notes: [] }, { kind: 'shelf', label: 'Storage shelves', materialSlot: 'carcass', productionRole: 'cutlist', notes: [] }],
+};
+
+export function moduleElementsFor(module: CatalogModule): ModuleElement[] {
+  return module.elements?.map((element) => ModuleElementSchema.parse(element)) ?? FAMILY_ELEMENTS[module.family].map((element) => ModuleElementSchema.parse(element));
+}
+
+export function moduleConstraintsFor(module: CatalogModule): ModuleConstraint[] {
+  return module.constraints?.map((constraint) => ModuleConstraintSchema.parse(constraint)) ?? [
+    { kind: 'wall_anchored', label: 'Anchor to a valid wall or room placement', required: true },
+    { kind: 'circulation', label: `Maintain at least ${module.minClearanceMm}mm clear circulation`, valueMm: module.minClearanceMm, required: true },
+  ];
+}
+
+export function getCatalogVault() {
+  return {
+    version: 'modular-vault.v1',
+    sourceOfTruth: 'Approved plan, layout, scene.v1, and production contracts; references are advisory.',
+    families: ModuleFamilySchema.options.map((family) => ({ family, modules: IndianModularCatalog.filter((module) => module.family === family).map((module) => module.id) })),
+    elementKinds: ModuleElementKindSchema.options,
+    constraints: ['wall_anchored', 'opening_clearance', 'service_clearance', 'circulation', 'adjacency', 'stacking'],
+    modules: IndianModularCatalog.map((module) => ({ ...module, elements: moduleElementsFor(module), constraints: moduleConstraintsFor(module) })),
+    presets: IndianModularDesignPresets,
+  };
 }
 
 export function validatePlacement(module: CatalogModule, roomType: z.infer<typeof RoomTypeSchema>, clearanceMm: number) {

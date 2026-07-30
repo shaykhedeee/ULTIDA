@@ -178,6 +178,12 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   align-items: center;
 }
 
+.workflow-count {
+  color: rgba(255,255,255,.38);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 .workflow-nav-title {
   font-size: 9px; font-weight: 800; letter-spacing: .1em;
   color: rgba(255,255,255,.25); text-transform: uppercase;
@@ -205,6 +211,7 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 .workflow-stage.active { background: rgba(197,156,45,.1); color: var(--gold-light); font-weight: 600; }
 .workflow-stage.done { color: rgba(255,255,255,.5); }
 .workflow-stage.locked { color: rgba(255,255,255,.2); cursor: not-allowed; }
+.workflow-stage.needs_review { color: #f5c56a; }
 
 .stage-num {
   width: 20px; height: 20px; border-radius: 50%;
@@ -217,6 +224,7 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 .workflow-stage.active .stage-num { background: rgba(197,156,45,.2); color: var(--gold-light); }
 .workflow-stage.done .stage-num { background: rgba(5,150,105,.2); color: #34d399; }
 .workflow-stage.locked .stage-num { background: rgba(255,255,255,.03); }
+.workflow-stage.needs_review .stage-num { background: rgba(245,158,11,.15); }
 
 .stage-status-dot {
   margin-left: auto;
@@ -226,6 +234,17 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 .workflow-stage.active .stage-status-dot { background: var(--gold); }
 .workflow-stage.done .stage-status-dot { background: #34d399; }
 .workflow-stage.locked .stage-status-dot { background: rgba(255,255,255,.1); }
+.workflow-stage.needs_review .stage-status-dot { background: #f59e0b; }
+
+.mobile-nav-trigger {
+  display: none;
+  width: auto;
+  padding: 6px;
+  color: var(--text-primary);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
 
 /* Sidebar system footer */
 .sidebar-footer {
@@ -300,6 +319,7 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 .ultida-shell.sidebar-collapsed .brand-text,
 .ultida-shell.sidebar-collapsed .nav-item span:not(.nav-icon),
 .ultida-shell.sidebar-collapsed .workflow-nav-header,
+.ultida-shell.sidebar-collapsed .workflow-count,
 .ultida-shell.sidebar-collapsed .stage-status-dot,
 .ultida-shell.sidebar-collapsed .stage-num + span,
 .ultida-shell.sidebar-collapsed .workflow-stage > span:last-of-type,
@@ -345,4 +365,7 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   .ultida-shell { grid-template-columns: 0 1fr; }
   .primary-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 240px; transform: translateX(-100%); transition: transform .25s ease; z-index: 100; }
   .primary-sidebar.mobile-open { transform: translateX(0); }
+  .mobile-nav-trigger { display: flex; }
+  .command-bar { padding: 0 14px; }
+  .shell-content { padding: 18px 14px; }
 }

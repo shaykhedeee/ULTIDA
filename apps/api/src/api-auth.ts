@@ -9,7 +9,8 @@ export async function authenticateProjectUser(request: Request, response: Respon
   // Request-scoped auth must be evaluated with a valid client key and the
   // caller's JWT. A stale/rotated server secret must not shadow the browser
   // publishable key and turn every authenticated request into a 401.
-  const apiKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_SECRET_KEY;
+  // Service role is reserved for trusted server-side/worker paths only.
+  const apiKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_SECRET_KEY;
   if (!url || !apiKey) {
     response.status(503).json({ success: false, code: 'AUTH_UNAVAILABLE', message: 'Supabase is not configured on the server.' });
     return null;

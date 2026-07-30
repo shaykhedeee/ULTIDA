@@ -45,6 +45,7 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
   const [builderCandidates, setBuilderCandidates] = useState<any[]>([]);
   const [aiPrompt, setAiPrompt] = useState<string>('');
   const [aiRaw, setAiRaw] = useState<string>('');
+  const [geometryNotice, setGeometryNotice] = useState('Load and approve a floor plan to unlock measured design geometry.');
 
   useEffect(() => {
     if (initialRooms.length || !projectId) return;
@@ -64,7 +65,12 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
         const d = ys.length ? Math.max(...ys) - Math.min(...ys) : 4000;
         return { id: r.id ?? `room-${i}`, name: r.name ?? r.roomType ?? `Room ${i + 1}`, roomType: r.roomType ?? 'living', widthMm: w, depthMm: d };
       });
-      if (alive) { setFetchedRooms(mapped); setActiveRoomId((cur) => cur || mapped[0]?.id || ''); }
+      if (alive) {
+        const usable = mapped.filter((room) => room.widthMm > 0 && room.depthMm > 0);
+        setFetchedRooms(usable.length > 0 ? usable : mapped);
+        setActiveRoomId((cur) => cur || usable.length > 0 ? usable[0].id : mapped[0]?.id || '');
+        setGeometryNotice(usable.length > 0 ? 'Measured room geometry loaded from the approved plan.' : 'The approved plan has no usable room geometry. Return to Plan Review and resolve dimensions.');
+      }
     })();
     return () => { alive = false; };
   }, [projectId, initialRooms.length]);
@@ -74,22 +80,23 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
   const ctx = useMemo<DesignValidationContext>(() => ({
     projectId, spaceId: activeRoom?.id ?? '', roomCategory: (shape as any), floorPlanVersionId: 'fpv1',
     shape, candidateTypes: ['balanced'], requirements: {},
-    roomBoundingBoxMm: { minX: 0, minY: 0, maxX: activeRoom?.widthMm ?? 5000, maxY: activeRoom?.depthMm ?? 4000 },
-    usableWalls: [{ id: 'w1', minX: 0, minY: 0, maxX: activeRoom?.widthMm ?? 5000, maxY: 0, orientation: 'north' }],
-    openings: [{ id: 'd1', type: 'door', xMm: 0, yMm: 0, widthMm: 900, heightMm: 2100, swingDeg: 90 }],
+    roomBoundingBoxMm: { minX: 0, minY: 0, maxX: activeRoom?.widthMm ?? 0, maxY: activeRoom?.depthMm ?? 0 },
+    usableWalls: [],
+    openings: [],
     servicePoints: [], structuralElements: [], companyRules: {},
-    curtainZones: [{ id: 'cz1', xMm: 100, yMm: 100, widthMm: 600, depthMm: 50 }],
-    acUnits: [{ id: 'ac1', xMm: (activeRoom?.widthMm ?? 5000) - 500, yMm: 200, clearanceMm: 600 }],
+    curtainZones: [],
+    acUnits: [],
   }), [projectId, activeRoom, shape]);
 
   const validation = useMemo(() => validateDesign(placements, ctx), [placements, ctx]);
 
   // Builder-plan interpretation
   function runBuilderInterpret() {
-    const symbols = builderPlanToSymbols(
-      builderCandidates.length ? builderCandidates : [{ id: 's1', spaceId: activeRoom?.id ?? '', wallId: 'w1', category: shape, xMm: 300, yMm: 0, widthMm: 2000, depthMm: 400, heightMm: 600 }],
-      { requireConfirmation: true }
-    );
+    if (!activeRoom || activeRoom.widthMm <= 0 || activeRoom.depthMm <= 0 || !builderCandidates.length) {
+      setGeometryNotice('No measured layout candidate exists for this room. Complete Plan Review and Spaces first.');
+      return;
+    }
+    const symbols = builderPlanToSymbols(builderCandidates, { requireConfirmation: true });
     setPlacements(symbols);
   }
   function confirmPlacement(id: string) {
@@ -108,11 +115,15 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
 
   // Manual placement
   function addManual(templateFamily: string) {
-    const wall = { id: 'w1', widthMm: activeRoom?.widthMm ?? 4000, heightMm: 2700, depthMm: 400 };
+    if (!activeRoom || activeRoom.widthMm <= 0 || activeRoom.depthMm <= 0) {
+      setGeometryNotice('Manual furniture placement is locked until this room has measured geometry and verified walls.');
+      return;
+    }
+    const wall = { id: activeRoom.wallId ?? 'verified-wall', widthMm: activeRoom.widthMm, heightMm: 2700, depthMm: 400 };
     const id = `man-${Date.now().toString(36)}`;
     const p: SymbolicPlacement = {
       id, spaceId: activeRoom?.id ?? '', category: (shape as any), templateFamily,
-      anchor: 'wall', wallId: 'w1', offsetMm: [Math.round((activeRoom?.widthMm ?? 4000) / 2 - 1000), 0, 0],
+      anchor: 'wall', wallId: 'verified-wall-required', offsetMm: [Math.round(activeRoom.widthMm / 2 - 1000), 0, 0],
       rotationDeg: 0, widthMm: 2000, heightMm: 600, depthMm: 400, clearanceZoneMm: 150,
       requiredServicePoints: [], materialSlots: {}, source: 'manual', confirmed: true,
     };
@@ -127,6 +138,7 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
 
   function doApprove() {
     try {
+      if (!activeRoom || activeRoom.widthMm <= 0 || activeRoom.depthMm <= 0 || !placements.length) throw new Error('Measured room geometry and at least one confirmed placement are required.');
       const moduleParts: Record<string, any> = {};
       const materials: Record<string, Record<string, string>> = {};
       for (const p of placements) {
@@ -149,6 +161,7 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
       <header className="dw-header">
         <div>
           <h2>Design Workspace</h2>
+          <p className="dw-hint" role="status">{geometryNotice}</p>
           <p className="dw-sub">Unified layouts · modules · materials — the main design workflow</p>
         </div>
         <div className="dw-mode-tabs">

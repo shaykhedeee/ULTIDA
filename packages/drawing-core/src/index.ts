@@ -83,6 +83,13 @@ function wallLength(wall: SceneV1['walls'][number]) {
   return Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm);
 }
 
+/** A scene stores wall centre-lines. Coincident centre-lines are duplicates, not two walls. */
+function wallsCoincide(a: SceneV1['walls'][number], b: SceneV1['walls'][number], toleranceMm = 0.5) {
+  const close = (left: { xMm: number; yMm: number }, right: { xMm: number; yMm: number }) =>
+    Math.abs(left.xMm - right.xMm) <= toleranceMm && Math.abs(left.yMm - right.yMm) <= toleranceMm;
+  return (close(a.start, b.start) && close(a.end, b.end)) || (close(a.start, b.end) && close(a.end, b.start));
+}
+
 function moduleWallPosition(module: SceneV1['modules'][number], wall: SceneV1['walls'][number]) {
   const length = wallLength(wall);
   if (!length) return { distance: Number.POSITIVE_INFINITY, offset: 0 };
@@ -118,11 +125,18 @@ function openingLine(opening: ProjectedOpening, walls: SceneV1['walls']) {
 export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection {
   const warnings: string[] = [];
   const lines: DrawingLine[] = [];
+  const exportedWalls: SceneV1['walls'] = [];
   for (const wall of scene.walls ?? []) {
     if (!finitePositive(wallLength(wall))) {
       warnings.push(`Wall ${wall.id} has zero or invalid length and was skipped.`);
       continue;
     }
+    const duplicateOf = exportedWalls.find((candidate) => wallsCoincide(candidate, wall));
+    if (duplicateOf) {
+      warnings.push(`Wall ${wall.id} duplicates canonical wall ${duplicateOf.id} and was skipped to prevent double-wall exports.`);
+      continue;
+    }
+    exportedWalls.push(wall);
     lines.push({ id: wall.id, layer: 'walls', x1: wall.start.xMm, y1: wall.start.yMm, x2: wall.end.xMm, y2: wall.end.yMm });
   }
   const modules: ProjectedModule[] = [];
@@ -1096,3 +1110,6 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string): string
   <text x="${originX}" y="56" font-family="sans-serif" font-size="11" fill="#64748b">Scale 1:${Math.round(1 / scale)} | Units: mm | ULTIDA CAD Spec Engine</text>
 </svg>`;
 }
+
+export { generateSketchUpRubyScript } from './sketchup-exporter.js';
+

@@ -10,6 +10,9 @@ import type { RenderReadiness } from './schema.js';
 
 export interface PersistedRenderContext {
   scaleVerified: boolean;
+  /** Initial design may render as a labelled concept; production remains strict. */
+  geometryMode?: 'initial_design' | 'final_production';
+  renderPurpose?: 'concept' | 'production';
   planApproved: boolean;
   designApproved: boolean; // scene/layout approved by the designer
   sceneVersion: {
@@ -55,7 +58,15 @@ export function buildRenderReadiness(ctx: PersistedRenderContext): RenderReadine
   const issues: ReadinessIssue[] = [];
 
   if (!ctx.scaleVerified) {
-    issues.push({ code: 'SCALE_UNVERIFIED', severity: 'blocking', message: 'Floor-plan scale is not verified. Calibrate or confirm a verified dimension before rendering.', entityIds: [] });
+    const conceptPreview = ctx.geometryMode === 'initial_design' && ctx.renderPurpose !== 'production';
+    issues.push({
+      code: conceptPreview ? 'INITIAL_GEOMETRY' : 'SCALE_UNVERIFIED',
+      severity: conceptPreview ? 'warning' : 'blocking',
+      message: conceptPreview
+        ? 'This render uses initial-design geometry. Verify dimensions on site before using it for production.'
+        : 'Floor-plan scale is not verified. Calibrate or confirm a verified dimension before rendering.',
+      entityIds: [],
+    });
   }
   if (!ctx.planApproved) {
     issues.push({ code: 'PLAN_UNAPPROVED', severity: 'blocking', message: 'The floor plan is not approved.', entityIds: [] });

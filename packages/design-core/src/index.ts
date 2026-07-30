@@ -158,7 +158,7 @@ export function validateDesign(placements: SymbolicPlacement[], ctx: DesignValid
     id: p.id, category: p.category, templateFamily: p.templateFamily, anchor: p.anchor,
     wallRef: p.wallId, positionMm: p.offsetMm, rotationYawDeg: p.rotationDeg,
     widthMm: p.widthMm, depthMm: p.depthMm, heightMm: p.heightMm, clearanceMm: p.clearanceZoneMm,
-    requiredServicePoints: p.requiredServicePoints,
+    requiredServicePoints: p.requiredServicePoints, constraints: [],
   }));
   const layoutInput: LayoutInput = {
     projectId: ctx.projectId, spaceId: ctx.spaceId, roomCategory: ctx.roomCategory,

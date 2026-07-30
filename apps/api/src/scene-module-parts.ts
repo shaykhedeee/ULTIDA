@@ -77,6 +77,13 @@ export function compileStoredModuleForScene(
   const wall = walls.find((candidate) => candidate.id === wallId);
   if (!wall) return { ok: false, code: 'MODULE_WALL_NOT_FOUND', message: `Module ${module.id} references a wall outside the active plan.` };
   const compiler = COMPILER_REGISTRY[category];
+  const configuration = typeof config.configuration === 'object' && config.configuration ? config.configuration as Record<string, unknown> : {};
+  const drawerCount = typeof configuration.drawerCount === 'number' ? configuration.drawerCount : undefined;
+  const lighting = configuration.lighting === 'shelf-led' || configuration.lighting === 'vertical-led' ? 'profile_led' : 'none';
+  const shutterStyle = typeof configuration.shutterStyle === 'string' ? configuration.shutterStyle : undefined;
+  const handleStyle = typeof configuration.handleStyle === 'string' ? configuration.handleStyle : undefined;
+  const includeLoft = configuration.includeLoft === true;
+  const glassProfile = configuration.glassProfile === true;
   const compiled = compiler({
     templateVersionId: module.template_id ?? `catalog-${family}`,
     instanceId: module.id,
@@ -85,6 +92,12 @@ export function compileStoredModuleForScene(
       totalWidthMm: widthMm,
       totalDepthMm: depthMm,
       totalHeightMm: heightMm,
+      drawerCount,
+      lighting,
+      shutterStyle,
+      handleStyle,
+      includeLoft,
+      glassProfile,
     },
     wall: { id: wall.id, widthMm: wallLengthMm(wall), heightMm: Number(wall.heightMm ?? 0), depthMm },
   });
