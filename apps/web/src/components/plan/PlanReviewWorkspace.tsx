@@ -250,7 +250,7 @@ export function PlanReviewWorkspace({
   const selectedElement = elements.find((e) => e.id === selectedId) ?? null;
   const approvalElements = elements.filter((element) => element.status === 'accepted');
   const openingsReady = approvalElements.filter((element) => element.kind === 'door' || element.kind === 'window').every((element) => {
-    if (!element.wallId || !(element.widthMm && element.widthMm > 0) || !(element.heightMs && element.heightMm > 0)) return false;
+    if (!element.wallId || !(element.widthMm && element.widthMm > 0) || !(element.heightMm && element.heightMm > 0)) return false;
     return element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0));
   });
   const wallsReady = approvalElements.filter((element) => element.kind === 'wall').every((element) => (element.thicknessMm ?? 0) > 0 && (element.heightMm ?? 0) > 0);
@@ -431,7 +431,7 @@ export function PlanReviewWorkspace({
       walls: wallModels,
       openings: approvalElements.filter((element) => {
         if (element.kind !== 'door' && element.kind !== 'window') return false;
-        return Boolean(element.wallId && element.widthMm && element.widthMm > 0 && element.heightMm && element.heightMm > 0 && (element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0))));
+        return Boolean(element.wallId && element.widthMm && element.widthMm > 0 && element.heightMm && element.heightMm > 0 && (element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0))));
       }).map((opening) => opening.kind === 'window'
         ? { id: opening.id, wallId: opening.wallId!, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, sillMm: opening.sillMm!, headMm: opening.headMm!, verification: 'verified', confidence: opening.confidence }
         : { id: opening.id, wallId: opening.wallId!, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, heightMm: opening.heightMm!, verification: 'verified', confidence: opening.confidence }), columns: [], beams: [], servicePoints: [],

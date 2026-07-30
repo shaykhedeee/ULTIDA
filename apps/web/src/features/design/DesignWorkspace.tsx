@@ -119,11 +119,11 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
       setGeometryNotice('Manual furniture placement is locked until this room has measured geometry and verified walls.');
       return;
     }
-    const wall = { id: activeRoom.wallId ?? 'verified-wall', widthMm: activeRoom.widthMm, heightMm: 2700, depthMm: 400 };
+    const wall = { id: activeRoom.id + '-wall', widthMm: activeRoom.widthMm, heightMm: 2700, depthMm: 400 };
     const id = `man-${Date.now().toString(36)}`;
     const p: SymbolicPlacement = {
       id, spaceId: activeRoom?.id ?? '', category: (shape as any), templateFamily,
-      anchor: 'wall', wallId: 'verified-wall-required', offsetMm: [Math.round(activeRoom.widthMm / 2 - 1000), 0, 0],
+      anchor: 'wall', wallId: activeRoom.id + '-wall', offsetMm: [Math.round(activeRoom.widthMm / 2 - 1000), 0, 0],
       rotationDeg: 0, widthMm: 2000, heightMm: 600, depthMm: 400, clearanceZoneMm: 150,
       requiredServicePoints: [], materialSlots: {}, source: 'manual', confirmed: true,
     };
