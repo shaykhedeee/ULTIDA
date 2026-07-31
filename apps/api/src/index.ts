@@ -95,12 +95,39 @@ function dxfLine(x1: number, y1: number, x2: number, y2: number, layer: string) 
 export function buildCutlist(scene: ReturnType<typeof migrateScene>) {
   const exactParts = Array.isArray((scene as any).moduleParts) ? (scene as any).moduleParts : [];
   if (!exactParts.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
-  const parts = exactParts.map((part: any) => ({
-    id: String(part.id), moduleId: String(part.moduleId), roomId: String(part.roomId), family: String(part.semanticType ?? 'module-part'),
-    partType: String(part.name ?? part.semanticType ?? 'part'), lengthMm: Math.round(Number(part.widthMm)), widthMm: Math.round(Number(part.depthMm)), thicknessMm: Math.round(Number(part.heightMm)),
-    edgeBandMm: ['shutter', 'door', 'front'].some((value) => String(part.semanticType ?? '').toLowerCase().includes(value)) ? Math.round((Number(part.widthMm) + Number(part.depthMm)) * 2) : 0,
-    hardware: [], status: 'review_required',
-  }));
+
+  // Smart grouping: normalize dimensions so 600x400 and 400x600 panels are recognized as the same part.
+  const grid = (mm: number) => Math.round(mm / 5) * 5;
+  const rows = new Map<string, { length: number; width: number; thickness: number; material: string; quantity: number; parts: string[]; ids: string[] }>();
+
+  for (const part of exactParts) {
+    const length = grid(Number(part.widthMm));
+    const width = grid(Number(part.depthMm));
+    const thickness = grid(Number(part.heightMm));
+    const material = String(part.materialId ?? 'unified');
+    const [normL, normW] = length >= width ? [length, width] : [width, length];
+    const key = `${normL}x${normW}x${thickness}@${material}`;
+    const row = rows.get(key);
+    const name = String(part.name ?? part.semanticType ?? 'part');
+    if (row) {
+      row.quantity += 1;
+      row.parts.push(name);
+      row.ids.push(String(part.id));
+    } else {
+      rows.set(key, { length: normL, width: normW, thickness, material, quantity: 1, parts: [name], ids: [String(part.id)] });
+    }
+  }
+
+  const parts = [...rows.values()]
+    .sort((a, b) => b.length - a.length || b.width - a.width || b.thickness - a.thickness)
+    .map((row) => ({
+      id: row.ids[0], moduleId: row.ids[0], roomId: String(exactParts[0]?.roomId ?? 'unknown'),
+      family: String(exactParts[0]?.semanticType ?? 'module-part'),
+      partType: row.parts.join(', '), lengthMm: row.length, widthMm: row.width,
+      thicknessMm: row.thickness, edgeBandMm: row.length > 0 && row.width > 0 ? Math.round((row.length + row.width) * 2) : 0,
+      hardware: [], status: 'review_required', quantity: row.quantity,
+    }));
+
   return { partCount: parts.length, parts, assumptions: { carcassThicknessMm: 18, backThicknessMm: 6, edgeBandPolicy: 'perimeter', status: 'review_required' } };
 }
 
