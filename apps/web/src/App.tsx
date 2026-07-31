@@ -375,7 +375,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       const accessToken = await getValidToken();
       if (!accessToken) return;
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/plan-draft`, { headers: { authorization: `Bearer ${accessToken}` } });
+      const response = await fetch(`${apiBase}/projects/${projectId}/plan-draft`, { headers: { Authorization: `Bearer ${accessToken}`` } });
       const payload = await response.json().catch(() => null);
       if (!cancelled && response.ok && payload?.draft) setDemoSnapshot(payload.draft);
     })();
@@ -401,7 +401,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     // Persist the editable review draft produced by the real pipeline.
     await fetch(`${apiBase}/projects/${projectId}/plan-analysis/draft`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${accessToken}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}`` },
       body: JSON.stringify({ draft, analysisId: analysisJobId })
     }).catch(() => null);
   }, [projectId, analysisJobId, localDemoMode]);
@@ -413,7 +413,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       const accessToken = await getValidToken();
       if (!accessToken) return;
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/brief`, { headers: { authorization: `Bearer ${accessToken}` } });
+      const response = await fetch(`${apiBase}/projects/${projectId}/brief`, { headers: { Authorization: `Bearer ${accessToken}`` } });
       const payload = await response.json().catch(() => null);
       if (cancelled || !response.ok || !payload?.brief) return;
       setBrief({ ...emptyBrief, ...payload.brief });
@@ -430,7 +430,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       const accessToken = await getValidToken();
       if (!accessToken) return;
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/plan-analysis/draft`, { headers: { authorization: `Bearer ${accessToken}` } });
+      const response = await fetch(`${apiBase}/projects/${projectId}/plan-analysis/draft`, { headers: { Authorization: `Bearer ${accessToken}`` } });
       const payload = await response.json().catch(() => null);
       if (cancelled || !response.ok || !payload?.draft) return;
       const d = payload.draft;
@@ -529,7 +529,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       try {
         const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
         const token = supabase ? (await getValidToken() ?? '') : '';
-        const response = await fetch(`${apiBase}/plan/analyze/${analysisJobId}?projectId=${encodeURIComponent(projectId)}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+        const response = await fetch(`${apiBase}/plan/analyze/${analysisJobId}?projectId=${encodeURIComponent(projectId)}`, { headers: token ? { Authorization: `Bearer ${token}`` } : {} });
         const payload = await response.json();
         if (stopped) return;
         if (payload.status === 'succeeded' && payload.analysis?.proposals) {
@@ -626,7 +626,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       const session = await supabase.auth.getSession();
       accessToken = session.data.session?.access_token ?? null;
       if (!accessToken) return setPlanStatus('Your session has expired. Sign in again before uploading a floor plan.');
-      const authHeaders = { 'Content-Type': 'application/json', authorization: `Bearer ${accessToken}` };
+      const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}`` };
       setPlanStatus('Preparing a secure upload...');
       const initiated = await fetch(`${apiBase}/projects/${projectId}/floor-plans/initiate`, {
         method: 'POST', headers: authHeaders,
@@ -751,14 +751,14 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
       const response = await fetch(`${apiBase}/projects/${projectId}/brief`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}) },
+        headers: { 'Content-Type': 'application/json', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
         body: JSON.stringify({ brief: nextBrief, isComplete })
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         const fieldDetails = payload?.fieldErrors ? ` ${Object.values(payload.fieldErrors).join(' ')}` : '';
-          const detail = payload?.code ? ` [${payload.code}]` : '';
-          throw new Error(`${payload?.message ?? 'Brief could not be saved.'}${detail}${fieldDetails}`);
+        const detail = payload?.code ? ` [${payload.code}]` : '';
+        throw new Error(`${payload?.message ?? 'Brief could not be saved.'}${detail}${fieldDetails}`);
       }
     }
     setBrief(nextBrief);
@@ -788,7 +788,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       .limit(1);
     if (spacesError || !spaces?.[0]?.id) throw new Error('Approve the floor plan and configure a space before approving a layout.');
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-    const headers = { 'Content-Type': 'application/json', authorization: `Bearer ${accessToken}` };
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}`` };
     const created = await fetch(`${apiBase}/projects/${projectId}/layouts`, {
       method: 'POST', headers,
       body: JSON.stringify({ spaceId: spaces[0].id, layoutShape: candidate.shape, label: candidate.candidateType, candidate, score: candidate.score })
