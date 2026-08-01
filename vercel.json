@@ -1,7 +1,7 @@
 {
   "version": 2,
   "installCommand": "npm install --include=optional --no-audit --no-fund",
-  "buildCommand": "npm run build --workspaces --if-present",
+  "buildCommand": "npm run build",
   "outputDirectory": "apps/web/dist",
   "framework": "vite",
   "rewrites": [
