@@ -11,8 +11,23 @@ const missing = requiredMigrations.filter((name) => !present.has(name));
 if (missing.length) throw new Error(`Missing local migrations: ${missing.join(', ')}`);
 if (!url || !key) throw new Error('SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required in .env.');
 const headers = { apikey: key, Authorization: `Bearer ${key}` };
+
+async function fetchWithRetry(input, init) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await fetch(input, init);
+    } catch (error) {
+      lastError = error;
+      if (attempt === 3) break;
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 750 * attempt));
+    }
+  }
+  throw lastError;
+}
+
 for (const table of ['projects', 'project_assets', 'floor_plan_versions', 'scene_versions', 'jobs', 'artifacts', 'reference_library_items', 'quotes']) {
-  const response = await fetch(`${url}/rest/v1/${table}?select=*&limit=0`, { headers });
+  const response = await fetchWithRetry(`${url}/rest/v1/${table}?select=*&limit=0`, { headers });
   if (!response.ok) throw new Error(`Supabase table check failed for ${table}: ${response.status} ${await response.text()}`);
   console.log(`PASS table ${table}`);
 }
@@ -23,7 +38,7 @@ if (!storageKey) {
   process.exit(0);
 }
 const bucketHeaders = { apikey: storageKey, Authorization: `Bearer ${storageKey}` };
-const bucket = await fetch(`${url}/storage/v1/bucket/project-assets`, { headers: bucketHeaders });
+const bucket = await fetchWithRetry(`${url}/storage/v1/bucket/project-assets`, { headers: bucketHeaders });
 if (!bucket.ok) throw new Error(`Supabase project-assets bucket check failed: ${bucket.status} ${await bucket.text()}`);
 const bucketData = await bucket.json();
 if (bucketData.public === true) throw new Error('project-assets must remain private.');
