@@ -9,7 +9,9 @@
   ],
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build:packages && npm run build:apps",
+    "build:packages": "npm run build --workspace=@ultida/contracts --workspace=@ultida/geometry-core --workspace=@ultida/scene-core --workspace=@ultida/drawing-core --workspace=@ultida/scene-compiler --workspace=@ultida/layout-core --workspace=@ultida/design-core --workspace=@ultida/material-core --workspace=@ultida/module-framework --workspace=@ultida/catalog-core --workspace=@ultida/commercial-core --workspace=@ultida/plan-core --workspace=@ultida/provider-gateway --workspace=@ultida/render-pipeline --workspace=@ultida/rule-core --workspace=@ultida/spaces-core --workspace=@ultida/agent-core --workspace=@ultida/aura-tools",
+    "build:apps": "npm run build --workspace=@ultida/api --workspace=@ultida/cloudflare-ai-worker --workspace=@ultida/web --workspace=@ultida/worker",
     "check": "npm run check --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "preflight": "node scripts/preflight.mjs",
