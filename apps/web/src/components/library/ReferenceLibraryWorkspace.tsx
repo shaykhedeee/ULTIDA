@@ -67,6 +67,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const [vaultRoom, setVaultRoom] = useState('all');
   const [vaultFamily, setVaultFamily] = useState('all');
   const [vaultState, setVaultState] = useState('all');
+  const [moduleFamily, setModuleFamily] = useState('all');
+  const [moduleRoom, setModuleRoom] = useState('all');
 
   useEffect(() => {
     let live = true;
@@ -140,7 +142,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     const matches = !search || `${item.title} ${item.kind} ${item.tags.join(' ')} ${item.notes}`.toLowerCase().includes(search);
     return matches && item.kind !== 'material' && item.kind !== 'module';
   }), [items, search]);
-  const visibleModules = useMemo(() => modules.filter((item) => !search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search)), [modules, search]);
+  const visibleModules = useMemo(() => modules.filter((item) => (moduleFamily === 'all' || item.family === moduleFamily) && (moduleRoom === 'all' || item.roomTypes.includes(moduleRoom)) && (!search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search))), [modules, search, moduleFamily, moduleRoom]);
   const visibleMaterials = useMemo(() => materials.filter((item) => !search || `${item.name} ${item.code} ${item.category} ${item.supplier ?? ''}`.toLowerCase().includes(search)), [materials, search]);
   const visibleVault = useMemo(() => vault.filter((entry) => (vaultRoom === 'all' || entry.room === vaultRoom) && (vaultFamily === 'all' || entry.module_family === vaultFamily) && (vaultState === 'all' || entry.review_state === vaultState) && (!search || `${entry.title} ${entry.source_path} ${entry.room} ${entry.module_family} ${entry.style}`.toLowerCase().includes(search))), [vault, vaultRoom, vaultFamily, vaultState, search]);
   const vaultValues = (field: 'room' | 'module_family' | 'review_state') => [...new Set(vault.map((entry) => entry[field]).filter(Boolean))].sort();
@@ -238,6 +240,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       </Card>}
 
       {activeTab === 'modules' && <Card className="workflow">
+        <CardContent style={{display:'flex',gap:8,flexWrap:'wrap',padding:'14px 16px',borderBottom:'1px solid #e7e5e4'}}><strong style={{marginRight:8}}>Furniture filters</strong><select aria-label="Filter modules by family" value={moduleFamily} onChange={e=>setModuleFamily(e.target.value)} style={{padding:'7px 9px',border:'1px solid #d6d3d1',borderRadius:6}}><option value="all">All families</option>{[...new Set(modules.map(m=>m.family))].sort().map(f=><option key={f} value={f}>{f.replaceAll('-',' ')}</option>)}</select><select aria-label="Filter modules by room" value={moduleRoom} onChange={e=>setModuleRoom(e.target.value)} style={{padding:'7px 9px',border:'1px solid #d6d3d1',borderRadius:6}}><option value="all">All rooms</option>{[...new Set(modules.flatMap(m=>m.roomTypes))].sort().map(r=><option key={r} value={r}>{r}</option>)}</select></CardContent>
         <CardHeader className="section-title"><div><small>PARAMETRIC MODULES</small><h2>Manufacturing-aware modular furniture templates</h2></div><Badge tone="success">{visibleModules.filter((module) => module.production.cutlistSupported).length} cutlist-ready</Badge></CardHeader>
         <CardContent>{visibleModules.length ? <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>{visibleModules.map((module) => <article key={module.id} className="library-item" style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8, padding: 16 }}><div style={{ background: '#f5f5f4', borderRadius: 6, height: 96, display: 'grid', placeItems: 'center', marginBottom: 12 }}><LibraryIcon size={28} color="#a8a29e" /></div><strong style={{ display: 'block', fontSize: 14, color: '#1c1917' }}>{module.name}</strong><span style={{ fontSize: 12, color: '#78716c' }}>{module.family.replaceAll('-', ' ')}</span><small style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#78716c' }}>{module.widthMm}W × {module.depthMm}D × {module.heightMm}H mm</small><small style={{ display: 'block', marginTop: 4, fontSize: 11, color: '#a8a29e' }}>{module.sku} · {module.roomTypes.join(', ')}</small></article>)}</div> : emptyState('The modular catalog is unavailable. Check the API health and catalog route before placing modules.')}</CardContent>
       </Card>}
