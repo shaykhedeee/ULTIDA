@@ -13,6 +13,7 @@ type LibraryItem = {
   metadata: { previewUrl?: string };
   asset?: { storage_path: string; mime_type: string } | null;
 };
+type VaultEntry = { id: string; title: string; source_path: string; room: string; module_family: string; style: string; review_state: string; sha256: string; metadata: Record<string, unknown> };
 
 type CatalogModule = {
   id: string;
@@ -62,6 +63,10 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const [referenceTags, setReferenceTags] = useState('');
   const [uploadingReference, setUploadingReference] = useState(false);
   const [status, setStatus] = useState('Loading modular catalog…');
+  const [vault, setVault] = useState<VaultEntry[]>([]);
+  const [vaultRoom, setVaultRoom] = useState('all');
+  const [vaultFamily, setVaultFamily] = useState('all');
+  const [vaultState, setVaultState] = useState('all');
 
   useEffect(() => {
     let live = true;
@@ -96,6 +101,16 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
             if (live) setItems(prepared);
           })());
       }
+      if (supabase) {
+        tasks.push((async () => {
+          const user = (await supabase.auth.getUser()).data.user;
+          if (!user) return;
+          const membership = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).limit(1).maybeSingle();
+          if (!membership.data?.organization_id) return;
+          const result = await supabase.from('reference_vault_entries').select('id,title,source_path,room,module_family,style,review_state,sha256,metadata').eq('organization_id', membership.data.organization_id).order('created_at', { ascending: false });
+          if (!result.error && live) setVault((result.data ?? []) as VaultEntry[]);
+        })());
+      }
 
       if (projectId && authorization) {
         tasks.push(fetch(`${apiBase()}/projects/${projectId}/material-library`, { headers: authorization })
@@ -127,6 +142,10 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   }), [items, search]);
   const visibleModules = useMemo(() => modules.filter((item) => !search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search)), [modules, search]);
   const visibleMaterials = useMemo(() => materials.filter((item) => !search || `${item.name} ${item.code} ${item.category} ${item.supplier ?? ''}`.toLowerCase().includes(search)), [materials, search]);
+  const visibleVault = useMemo(() => vault.filter((entry) => (vaultRoom === 'all' || entry.room === vaultRoom) && (vaultFamily === 'all' || entry.module_family === vaultFamily) && (vaultState === 'all' || entry.review_state === vaultState) && (!search || `${entry.title} ${entry.source_path} ${entry.room} ${entry.module_family} ${entry.style}`.toLowerCase().includes(search))), [vault, vaultRoom, vaultFamily, vaultState, search]);
+  const vaultValues = (field: 'room' | 'module_family' | 'review_state') => [...new Set(vault.map((entry) => entry[field]).filter(Boolean))].sort();
+  async function updateVault(id: string, patch: Partial<VaultEntry>) { if (!supabase) return; const { error } = await supabase.from('reference_vault_entries').update(patch).eq('id', id); if (!error) setVault((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry)); }
+  async function deleteVault(id: string) { if (!supabase || !window.confirm('Archive this reference from the vault?')) return; const { error } = await supabase.from('reference_vault_entries').update({ review_state: 'archived' }).eq('id', id); if (!error) setVault((current) => current.map((entry) => entry.id === id ? { ...entry, review_state: 'archived' } : entry)); }
 
   async function uploadReference() {
     if (!projectId || !referenceFile || !supabase) {
@@ -209,6 +228,10 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
         ))}
       </div>
 
+      {activeTab === 'templates' && <Card className="workflow">
+        <CardContent style={{display:'flex',gap:8,flexWrap:'wrap',padding:'14px 16px',borderBottom:'1px solid #e7e5e4'}}><strong style={{marginRight:8}}>Reference vault</strong>{[['room',vaultRoom,setVaultRoom],['module_family',vaultFamily,setVaultFamily],['review_state',vaultState,setVaultState]].map(([field,value,setter])=><select key={field as string} aria-label={`Filter by ${field}`} value={value as string} onChange={e=>(setter as (value:string)=>void)(e.target.value)} style={{padding:'7px 9px',border:'1px solid #d6d3d1',borderRadius:6}}><option value="all">All {String(field).replace('_',' ')}</option>{vaultValues(field as any).map(v=><option key={v} value={v}>{v}</option>)}</select>)}<Badge tone="neutral">{visibleVault.length} indexed</Badge></CardContent>
+        <CardContent>{visibleVault.length ? <div className="library-grid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:12}}>{visibleVault.map(entry=><article key={entry.id} style={{border:'1px solid #e7e5e4',borderRadius:8,padding:12}}><strong>{entry.title}</strong><small style={{display:'block',color:'#78716c',marginTop:5}}>{entry.room} · {entry.module_family} · {entry.review_state}</small><small style={{display:'block',color:'#a8a29e',marginTop:5,overflowWrap:'anywhere'}}>{entry.source_path}</small><div style={{display:'flex',gap:6,marginTop:10}}><select aria-label={`Review state for ${entry.title}`} value={entry.review_state} onChange={e=>void updateVault(entry.id,{review_state:e.target.value})} style={{padding:5,border:'1px solid #d6d3d1',borderRadius:5}}><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="archived">Archived</option></select><button type="button" onClick={()=>void deleteVault(entry.id)} style={{padding:'5px 8px',border:'1px solid #fecaca',background:'#fff1f2',color:'#991b1b',borderRadius:5}}>Archive</button></div></article>)}</div>:emptyState('No indexed references match these filters.')}</CardContent>
+      </Card>}
       {activeTab === 'templates' && <Card className="workflow">
         <CardHeader className="section-title"><div><small>STUDIO REFERENCES</small><h2>Approved references and reusable compositions</h2></div><Badge tone="neutral">{visibleTemplates.length} saved</Badge></CardHeader>
         <CardContent>{visibleTemplates.length ? <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>{visibleTemplates.map((item) => <article key={item.id} className="library-item" style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8, overflow: 'hidden' }}>{item.metadata.previewUrl ? <img src={item.metadata.previewUrl} alt="" style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }} /> : <div style={{ background: '#f5f5f4', height: 140, display: 'grid', placeItems: 'center' }}><BookOpen size={28} color="#a8a29e" /></div>}<div style={{ padding: 14 }}><strong style={{ display: 'block', fontSize: 14, color: '#1c1917' }}>{item.title}</strong><span style={{ fontSize: 12, color: '#78716c' }}>{item.kind}</span><small style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#78716c' }}>{item.tags.join(' · ') || item.notes || 'No tags added'}</small></div></article>)}</div> : emptyState('No studio references are saved yet. Add approved project images or compositions to create a reusable reference library.')}</CardContent>
