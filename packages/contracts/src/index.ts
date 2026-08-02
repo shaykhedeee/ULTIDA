@@ -53,7 +53,9 @@ export const PlanAnalysisJobSchema = z.object({
 });
 export type PlanAnalysisJob = z.infer<typeof PlanAnalysisJobSchema>;
 
-export const GeometryModelModeSchema = z.enum(['initial_design', 'site_verified']);
+// Canonical geometry modes used throughout plan, scene, render and production.
+// `site_verified` is accepted only as a legacy input and normalized by callers.
+export const GeometryModelModeSchema = z.enum(['initial_design', 'final_production']);
 export type GeometryModelMode = z.infer<typeof GeometryModelModeSchema>;
 
 export const ProvenanceKindSchema = z.enum(['visible-plan', 'derived', 'assumed', 'user-entered', 'site-measured']);
@@ -244,6 +246,7 @@ export type PlanAnalysisResultV1 = z.infer<typeof PlanAnalysisResultV1Schema>;
 
 export const CanonicalPlanV1Schema = z.object({
   schemaVersion: z.literal('plan.v1'),
+  geometryMode: GeometryModelModeSchema.default('initial_design'),
   units: z.literal('mm'),
   coordinateSystem: z.string(),
   scale: z.object({ pointA: SourcePointSchema, pointB: SourcePointSchema, pixelDistance: z.number().positive(), realDistanceMm: z.number().positive(), mmPerPixel: z.number().positive() }),

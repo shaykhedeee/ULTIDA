@@ -1113,7 +1113,7 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
     <Shell sessionEmail={sessionEmail} orgName={orgName}>
       <Routes>
         <Route index element={<Navigate to="/projects" replace />} />
-        <Route path="projects" element={<ProjectDashboard sessionEmail={sessionEmail} orgName={orgName} localDemoMode={localDemoMode} />} />
+        <Route path="projects" element={<ProjectDashboard sessionEmail={sessionEmail} orgName={orgName} />} />
         <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={null} />} />
         <Route path="templates" element={<Navigate to="/library" replace />} />
         <Route path="modules" element={<Navigate to="/library" replace />} />

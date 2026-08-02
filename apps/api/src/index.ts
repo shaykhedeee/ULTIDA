@@ -96,8 +96,11 @@ export function buildCutlist(scene: ReturnType<typeof migrateScene>) {
   const exactParts = Array.isArray((scene as any).moduleParts) ? (scene as any).moduleParts : [];
   if (!exactParts.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
 
-  // Smart grouping: normalize dimensions so 600x400 and 400x600 panels are recognized as the same part.
-  const grid = (mm: number) => Math.round(mm / 5) * 5;
+  // Smart grouping keeps orientation-independent parts together without rounding
+  // approved millimetre geometry into a different fabrication size. A 5 mm grid
+  // silently changed an approved 18 mm panel into 20 mm; retain sub-millimetre
+  // source precision and let the explicit tolerance gate handle near-matches.
+  const grid = (mm: number) => Math.round(mm * 10) / 10;
   const rows = new Map<string, { length: number; width: number; thickness: number; material: string; quantity: number; parts: string[]; ids: string[] }>();
 
   for (const part of exactParts) {
@@ -124,11 +127,18 @@ export function buildCutlist(scene: ReturnType<typeof migrateScene>) {
       id: row.ids[0], moduleId: row.ids[0], roomId: String(exactParts[0]?.roomId ?? 'unknown'),
       family: String(exactParts[0]?.semanticType ?? 'module-part'),
       partType: row.parts.join(', '), lengthMm: row.length, widthMm: row.width,
-      thicknessMm: row.thickness, edgeBandMm: row.length > 0 && row.width > 0 ? Math.round((row.length + row.width) * 2) : 0,
+      thicknessMm: row.thickness,
+      // Edge-banding is a production decision and must come from an explicit
+      // module-part policy; never infer it from rectangle dimensions.
+      edgeBandMm: 0,
       hardware: [], status: 'review_required', quantity: row.quantity,
     }));
 
-  return { partCount: parts.length, parts, assumptions: { carcassThicknessMm: 18, backThicknessMm: 6, edgeBandPolicy: 'perimeter', status: 'review_required' } };
+  // `partCount` is the number of authoritative physical parts. `parts` is the
+  // dimension-normalized schedule and may consolidate identical rows through
+  // `quantity`; conflating the two made a seven-part scene report only four
+  // physical parts in the production gate.
+  return { partCount: exactParts.length, parts, assumptions: { carcassThicknessMm: 18, backThicknessMm: 6, edgeBandPolicy: 'perimeter', status: 'review_required' } };
 }
 
 // Kept as a compatibility export for older API tests and integrations. The

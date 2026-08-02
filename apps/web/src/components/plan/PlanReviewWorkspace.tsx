@@ -409,7 +409,7 @@ export function PlanReviewWorkspace({
       const worldStart = { xMm: Math.round(x1! * mmPerPixel), yMm: Math.round(y1! * mmPerPixel) };
       const worldEnd = { xMm: Math.round(x2! * mmPerPixel), yMm: Math.round(y2! * mmPerPixel) };
       const isExternal = /external|outer|perimeter/i.test(wall.note ?? wall.label);
-      return [{ id: wall.id, sourceStart: { x: x1!, y: y1! }, sourceEnd: { x: x2!, y: y2! }, worldStart, worldEnd, lengthMm: Math.round(Math.hypot(worldEnd.xMm - worldStart.xMm, worldEnd.yMm - worldStart.yMm)), thicknessMm: wall.thicknessMm ?? (isExternal ? 254 : 152.4), heightMm: wall.heightMm ?? ceilingHeightMm!, adjacentSpaces: [], verification: 'verified', confidence: wall.confidence }];
+      return [{ id: wall.id, sourceStart: { x: x1!, y: y1! }, sourceEnd: { x: x2!, y: y2! }, worldStart, worldEnd, lengthMm: Math.round(Math.hypot(worldEnd.xMm - worldStart.xMm, worldEnd.yMm - worldStart.yMm)), thicknessMm: wall.thicknessMm ?? (isExternal ? 254 : 152.4), heightMm: wall.heightMm ?? ceilingHeightMm!, adjacentSpaces: [], verification: isInitialDesign ? 'assumed' : 'verified', confidence: wall.confidence }];
     });
     const spaces = approvalElements.filter((element) => element.kind === 'room').flatMap((room) => {
       const polygon = room.geometry.polygon ?? [];
@@ -418,14 +418,15 @@ export function PlanReviewWorkspace({
       const worldPolygon = sourcePolygon.map((point) => ({ xMm: Math.round(point.x * mmPerPixel), yMm: Math.round(point.y * mmPerPixel) }));
       if (worldPolygon[0].xMm !== worldPolygon.at(-1)?.xMm || worldPolygon[0].yMm !== worldPolygon.at(-1)?.yMm) worldPolygon.push({ ...worldPolygon[0] });
       const areaMm2 = Math.abs(worldPolygon.slice(0, -1).reduce((sum, point, index) => { const next = worldPolygon[index + 1]; return sum + point.xMm * next.yMm - next.xMm * point.yMm; }, 0) / 2);
-      return [{ id: room.id, sourcePolygon, worldPolygon, roomType: 'other', roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm!, wallRefs: [], openingRefs: [], confidence: room.confidence, verification: 'verified' }];
+      return [{ id: room.id, sourcePolygon, worldPolygon, roomType: 'other', roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm!, wallRefs: [], openingRefs: [], confidence: room.confidence, verification: isInitialDesign ? 'assumed' : 'verified' }];
     });
     const canonicalModel = {
       schemaVersion: 'plan.v1',
       geometryMode,
       source: { schemaVersion: 'plan.v1', sourceAssetId, sourceType: 'raster_image', sourceWidth: 1000, sourceHeight: 850, sourceRotation: 0, coordinateSystem: 'millimetres', scaleResolution: isInitialDesign ? 'initial_design_calibration' : 'two_point_calibration', mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservations: [] },
       state: 'approved',
-      scale: { id: crypto.randomUUID(), pointA: { xMm: scale!.pointA.x, yMm: scale!.pointA.y }, pointB: { xMm: scale!.pointB.x, yMm: scale!.pointB.y }, realMm: scale!.realDistanceMm, inferredMm: scale!.pixelDistance * mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservedMm: mmPerPixel, method: isInitialDesign ? 'initial_design_calibration' : 'two_point_calibration', verified: false },
+      geometryMode: isInitialDesign ? 'initial_design' : 'final_production',
+      scale: { id: crypto.randomUUID(), pointA: { xMm: scale!.pointA.x, yMm: scale!.pointA.y }, pointB: { xMm: scale!.pointB.x, yMm: scale!.pointB.y }, realMm: scale!.realDistanceMm, inferredMm: scale!.pixelDistance * mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservedMm: mmPerPixel, method: isInitialDesign ? 'initial_design_calibration' : 'two_point_calibration', verified: !isInitialDesign },
       ceilingHeightMm: ceilingHeightMm!,
       spaces,
       walls: wallModels,
