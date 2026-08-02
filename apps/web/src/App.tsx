@@ -30,6 +30,7 @@ import { SpacesWorkspace } from './features/spaces/SpacesWorkspace';
 import { SceneStudio } from './features/scene/SceneStudio';
 import { DesignWorkspace } from './features/design/DesignWorkspace';
 import { ProductionWorkspace } from './features/production/ProductionWorkspace';
+import { TeamWorkspace, RulesWorkspace, SettingsWorkspace } from './features/studio/StudioAdminScreens';
 
 import './intake.css';
 
@@ -1118,9 +1119,9 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
         <Route path="templates" element={<Navigate to="/library" replace />} />
         <Route path="modules" element={<Navigate to="/library" replace />} />
         <Route path="materials" element={<Navigate to="/library" replace />} />
-        <Route path="rules" element={<PlaceholderScreen title="Company Rules" description="Configure company-specific design standards: finger groove gap, loft filler, shutter widths, hardware brands, and more." icon="📏" />} />
-        <Route path="team" element={<PlaceholderScreen title="Team" description="Manage designers, production staff, and viewers in your organisation." icon="👥" />} />
-        <Route path="settings" element={<PlaceholderScreen title="Settings" description="Configure your workspace, integrations, billing, and notification preferences." icon="⚙️" />} />
+        <Route path="rules" element={<RulesWorkspace organizationId={null} />} />
+        <Route path="team" element={<TeamWorkspace organizationId={null} />} />
+        <Route path="settings" element={<SettingsWorkspace organizationId={null} orgName={orgName} />} />
         <Route path="*" element={<Navigate to="/projects" replace />} />
       </Routes>
     </Shell>

@@ -422,7 +422,6 @@ export function PlanReviewWorkspace({
     });
     const canonicalModel = {
       schemaVersion: 'plan.v1',
-      geometryMode,
       source: { schemaVersion: 'plan.v1', sourceAssetId, sourceType: 'raster_image', sourceWidth: 1000, sourceHeight: 850, sourceRotation: 0, coordinateSystem: 'millimetres', scaleResolution: isInitialDesign ? 'initial_design_calibration' : 'two_point_calibration', mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservations: [] },
       state: 'approved',
       geometryMode: isInitialDesign ? 'initial_design' : 'final_production',
