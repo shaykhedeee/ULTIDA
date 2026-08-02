@@ -254,7 +254,9 @@ export function PlanReviewWorkspace({
     return element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0));
   });
   const wallsReady = approvalElements.filter((element) => element.kind === 'wall').every((element) => (element.thicknessMm ?? 0) > 0 && (element.heightMm ?? 0) > 0);
-  const approvalReady = analysed && approvalElements.length > 0 && Boolean(scale) && Number(ceilingHeightMm) > 0 && openingsReady && wallsReady && issues.length === 0 && !elements.some((element) => element.status === 'needs_review' || element.status === 'proposed');
+  const initialDesignReady = analysed && approvalElements.some((element) => element.kind === 'wall' || element.kind === 'room') && Boolean(scale) && Number(ceilingHeightMm) > 0;
+  const finalProductionReady = initialDesignReady && openingsReady && wallsReady && issues.length === 0 && !elements.some((element) => element.status === 'needs_review' || element.status === 'proposed');
+  const approvalReady = geometryMode === 'initial_design' ? initialDesignReady : finalProductionReady;
   const analysisInFlight = /uploading|queued|processing|waiting|preparing/i.test(status);
   const layerCount = (key: LayerKey) => {
     const kinds: Partial<Record<LayerKey, PlanElement['kind'][]>> = {
