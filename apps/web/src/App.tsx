@@ -538,6 +538,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           setPlanAnalysisIssues(payload.analysis.topologyIssues ?? []);
           setPlanAnalysed(true);
           setPlanStatus('Provider analysis complete. Review and calibrate every proposal.');
+          if (stage === 'brief') navigate(`/projects/${projectId}/plan`);
         } else if (payload.status === 'failed') {
           setPlanStatus(payload.error?.message ?? 'Provider analysis failed. No geometry was generated.');
           setAnalysisJobId(null);
@@ -551,7 +552,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void poll();
     const timer = window.setInterval(() => void poll(), 2000);
     return () => { stopped = true; window.clearInterval(timer); };
-  }, [analysisJobId, analysisRefreshNonce, planAnalysed, projectId]);
+  }, [analysisJobId, analysisRefreshNonce, planAnalysed, projectId, stage, navigate]);
 
   // Determine workflow stages statuses
   const serverStageMap: Record<string, boolean> = serverStages ?? {};
@@ -603,6 +604,12 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     }
   }
 
+  function floorPlanMimeType(file: File) {
+    const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+    const byExtension: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.pdf': 'application/pdf' };
+    return byExtension[extension] ?? file.type;
+  }
+
   async function analysePlan() {
     if (!planFile) return setPlanStatus('Choose a floor plan first.');
     if (!projectId) return setPlanStatus('Create or open a project before analysing a floor plan.');
@@ -624,24 +631,26 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     let accessToken: string | null = null;
 
     if (supabase && projectId) {
-      const session = await supabase.auth.getSession();
-      accessToken = session.data.session?.access_token ?? null;
-      if (!accessToken) return setPlanStatus('Your session has expired. Sign in again before uploading a floor plan.');
-      const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
-      setPlanStatus('Preparing a secure upload...');
-      const initiated = await fetch(`${apiBase}/projects/${projectId}/floor-plans/initiate`, {
-        method: 'POST', headers: authHeaders,
-        body: JSON.stringify({ fileName: planFile.name, mimeType: planFile.type, fileSize: planFile.size })
-      });
-      const initiation = await initiated.json().catch(() => null);
-      if (!initiated.ok || !initiation?.token || !initiation?.storagePath) return setPlanStatus(initiation?.message ?? 'Secure floor-plan upload could not be initiated.');
-      setPlanStatus('Uploading original floor plan...');
-      const stored = await supabase.storage.from(initiation.bucket ?? 'project-assets').uploadToSignedUrl(initiation.storagePath, initiation.token, planFile, { contentType: planFile.type });
+      try {
+        const session = await supabase.auth.getSession();
+        accessToken = session.data.session?.access_token ?? null;
+        if (!accessToken) return setPlanStatus('Your session has expired. Sign in again before uploading a floor plan.');
+        const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
+        const mimeType = floorPlanMimeType(planFile);
+        setPlanStatus('Preparing a secure upload...');
+        const initiated = await fetch(`${apiBase}/projects/${projectId}/floor-plans/initiate`, {
+          method: 'POST', headers: authHeaders,
+          body: JSON.stringify({ fileName: planFile.name, mimeType, fileSize: planFile.size })
+        });
+        const initiation = await initiated.json().catch(() => null);
+        if (!initiated.ok || !initiation?.token || !initiation?.storagePath) return setPlanStatus(initiation?.message ?? `Secure floor-plan upload could not be initiated (HTTP ${initiated.status}).`);
+        setPlanStatus('Uploading original floor plan...');
+        const stored = await supabase.storage.from(initiation.bucket ?? 'project-assets').uploadToSignedUrl(initiation.storagePath, initiation.token, planFile, { contentType: initiation.mimeType ?? mimeType });
       if (stored.error) return setPlanStatus(`Upload failed: ${stored.error.message}`);
       setPlanStatus('Verifying upload and registering analysis...');
-      const completed = await fetch(`${apiBase}/projects/${projectId}/floor-plans/complete`, {
+        const completed = await fetch(`${apiBase}/projects/${projectId}/floor-plans/complete`, {
         method: 'POST', headers: authHeaders,
-        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: planFile.type, fileSize: planFile.size })
+        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size })
       });
       const completion = await completed.json().catch(() => null);
       if (!completed.ok || !completion?.asset?.id) return setPlanStatus(completion?.message ?? 'The uploaded floor plan could not be registered.');
@@ -653,7 +662,11 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       setPlanStatus(completion.dispatch?.dispatched === false
         ? 'Plan analysis is queued. Cloudflare worker dispatch is not configured yet.'
         : 'Plan analysis is queued with the real vision provider.');
-      return;
+        return;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Network request failed.';
+        return setPlanStatus(`Secure floor-plan upload could not be initiated. ${detail}`);
+      }
     }
 
     /* Legacy synchronous data-URL path intentionally disabled. Durable jobs

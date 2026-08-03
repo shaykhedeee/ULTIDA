@@ -17,7 +17,7 @@ if (existsSync(localEnv)) {
   dotenv.config({ path: localEnv });
 }
 
-import { getRequestSupabaseClient } from './supabase.js';
+import { getRequestSupabaseClient, getServerSupabaseClient } from './supabase.js';
 import { authenticateProjectUser, requireProjectUser } from './api-auth.js';
 import { MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, VisualProposalRequestSchema, validateProjectBrief } from '@ultida/contracts';
 import { createProviderGateway } from '@ultida/provider-gateway';
@@ -647,8 +647,11 @@ app.post('/api/projects/:projectId/floor-plans/initiate', requireProjectUser, as
   if (fileSize > 25 * 1024 * 1024) return response.status(413).json({ success: false, code: 'PLAN_TOO_LARGE', message: 'Floor plans must be 25 MB or smaller.' });
   const ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
   const allowedExts = ['.png', '.jpg', '.jpeg', '.webp', '.pdf'];
-  const allowedMimes = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
-  if (!allowedExts.includes(ext) || !allowedMimes.includes(mimeType)) {
+  const mimeByExtension: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.pdf': 'application/pdf' };
+  // File.type is not reliably populated by every browser/Windows file picker.
+  // Extension validation remains explicit; normalize the stored MIME from it.
+  const normalizedMimeType = mimeByExtension[ext];
+  if (!allowedExts.includes(ext) || !normalizedMimeType) {
     return response.status(415).json({
       success: false,
       code: 'UNSUPPORTED_FORMAT',
@@ -660,7 +663,12 @@ app.post('/api/projects/:projectId/floor-plans/initiate', requireProjectUser, as
   const safeName = String(fileName).replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').slice(-120);
   const storagePath = `${organizationId}/${projectId}/floor-plans/${assetId}-${safeName}`;
   try {
-    const signedUrlRes = await getRequestSupabaseClient(request).storage.from('project-assets').createSignedUploadUrl(storagePath);
+    // The request is already authenticated and constrained to a project member
+    // by requireProjectUser. Mint with the server-only client so storage RLS
+    // does not block a valid browser handoff before the signed token exists.
+    const storageClient = getServerSupabaseClient();
+    if (!storageClient) return response.status(503).json({ success: false, code: 'STORAGE_SIGNING_UNAVAILABLE', message: 'Secure file storage is not configured on the server yet.' });
+    const signedUrlRes = await storageClient.storage.from('project-assets').createSignedUploadUrl(storagePath);
     if (signedUrlRes.error || !signedUrlRes.data?.token) return response.status(403).json({ success: false, code: 'SIGNED_UPLOAD_DENIED', message: signedUrlRes.error?.message ?? 'A signed upload could not be created.' });
     return response.status(200).json({
       success: true,
@@ -668,6 +676,7 @@ app.post('/api/projects/:projectId/floor-plans/initiate', requireProjectUser, as
       storagePath,
       token: signedUrlRes.data.token,
       bucket: 'project-assets',
+      mimeType: normalizedMimeType,
       expiresInSeconds: 7200
     });
   } catch (err: any) {
@@ -686,28 +695,32 @@ app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, as
   const organizationId = authReq.ultidaUser!.organizationId;
   const requiredPrefix = `${organizationId}/${projectId}/floor-plans/`;
   if (!String(storagePath).startsWith(requiredPrefix)) return response.status(403).json({ success: false, code: 'INVALID_STORAGE_PATH', message: 'The upload path does not belong to this project.' });
-  const client = getRequestSupabaseClient(request);
+  // Keep the browser JWT for membership checks above, then use the trusted
+  // server client for the private object verification and durable records.
+  const client = getServerSupabaseClient();
+  if (!client) return response.status(503).json({ success: false, code: 'STORAGE_SIGNING_UNAVAILABLE', message: 'Secure file storage is not configured on the server yet.' });
   try {
     const verified = await client.storage.from('project-assets').download(storagePath);
     if (verified.error || !verified.data) return response.status(409).json({ success: false, code: 'UPLOAD_NOT_FOUND', message: verified.error?.message ?? 'The uploaded object could not be verified.' });
+    const normalizedMimeType = typeof mimeType === 'string' && ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'].includes(mimeType) ? mimeType : ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.pdf': 'application/pdf' }[String(fileName).slice(String(fileName).lastIndexOf('.')).toLowerCase()] ?? 'image/png');
     const assetPayload = {
       id: assetId,
       organization_id: organizationId,
       project_id: projectId,
       kind: 'floor_plan',
       storage_path: storagePath,
-      mime_type: mimeType || 'image/png',
+      mime_type: normalizedMimeType,
       metadata: { originalName: fileName, size: Number(fileSize) || verified.data.size },
       created_by: userId
     };
     const asset = await client.from('project_assets').insert(assetPayload).select('id').single();
     if (asset.error) return response.status(500).json({ success: false, code: 'ASSET_RECORD_FAILED', message: asset.error.message });
-    const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId: asset.data.id, fileName, mimeType, idempotencyKey: `plan:${projectId}:${asset.data.id}` }, userId);
+    const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId: asset.data.id, fileName, mimeType: normalizedMimeType, idempotencyKey: `plan:${projectId}:${asset.data.id}` }, userId);
     if (job.status === 'failed' || job.status === 'unavailable' || job.status === 'not_found') return response.status(503).json({ success: false, code: 'PLAN_JOB_CREATE_FAILED', message: 'The file was stored, but analysis could not be queued.', detail: job });
     const dispatch = await dispatchPlanAnalysisJob(process.env, job.jobId);
     return response.status(200).json({
       success: true,
-      asset: { id: asset.data.id, storagePath, name: fileName, mimeType },
+      asset: { id: asset.data.id, storagePath, name: fileName, mimeType: normalizedMimeType },
       jobId: job.jobId,
       status: job.status,
       dispatch
@@ -737,7 +750,9 @@ app.post('/api/projects/:projectId/references/initiate', requireProjectUser, asy
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').slice(-120);
   const storagePath = `${authReq.ultidaUser!.organizationId}/${projectId}/references/${assetId}-${safeName}`;
   try {
-    const signed = await getRequestSupabaseClient(request).storage.from('project-assets').createSignedUploadUrl(storagePath);
+    const storageClient = getServerSupabaseClient();
+    if (!storageClient) return response.status(503).json({ success: false, code: 'STORAGE_SIGNING_UNAVAILABLE', message: 'Secure file storage is not configured on the server yet.' });
+    const signed = await storageClient.storage.from('project-assets').createSignedUploadUrl(storagePath);
     if (signed.error || !signed.data?.token) return response.status(403).json({ success: false, code: 'SIGNED_UPLOAD_DENIED', message: signed.error?.message ?? 'A signed upload could not be created.' });
     return response.json({ success: true, assetId, storagePath, token: signed.data.token, bucket: 'project-assets', expiresInSeconds: 7200 });
   } catch (error: any) {
@@ -755,7 +770,8 @@ app.post('/api/projects/:projectId/references/complete', requireProjectUser, asy
   const organizationId = authReq.ultidaUser!.organizationId;
   const requiredPrefix = `${organizationId}/${projectId}/references/`;
   if (!storagePath.startsWith(requiredPrefix)) return response.status(403).json({ success: false, code: 'INVALID_STORAGE_PATH', message: 'The upload path does not belong to this project.' });
-  const client = getRequestSupabaseClient(request);
+  const client = getServerSupabaseClient();
+  if (!client) return response.status(503).json({ success: false, code: 'STORAGE_SIGNING_UNAVAILABLE', message: 'Secure file storage is not configured on the server yet.' });
   try {
     const downloaded = await client.storage.from('project-assets').download(storagePath);
     if (downloaded.error || !downloaded.data) return response.status(409).json({ success: false, code: 'UPLOAD_NOT_FOUND', message: downloaded.error?.message ?? 'The uploaded reference could not be verified.' });

@@ -494,6 +494,11 @@ export function PlanReviewWorkspace({
           </div>
         </div>
         {status && <p role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '6px 0 0' }}>{status}</p>}
+        {analysed && (
+          <div role="status" style={{ marginTop: 10, padding: '10px 12px', border: '1px solid var(--info-line)', borderRadius: 8, background: 'var(--info-bg)', color: 'var(--text-primary)', fontSize: 12 }}>
+            <strong>Analysis summary:</strong> {elements.filter((element) => element.kind === 'room').length} room{elements.filter((element) => element.kind === 'room').length === 1 ? '' : 's'}, {elements.filter((element) => element.kind === 'wall').length} wall candidates, {elements.filter((element) => element.kind === 'door' || element.kind === 'window').length} opening candidates, and {issues.length} item{issues.length === 1 ? '' : 's'} needing review. Initial Design can continue once you set one visible scale; all unresolved findings remain labelled as assumptions.
+          </div>
+        )}
         {geometryMode === 'initial_design' && <p className="geometry-mode-note">Initial design mode needs one trusted scale calibration, but allows unresolved findings and incomplete openings. It applies editable defaults: external walls 254 mm, internal walls 152.4 mm, ceiling 2700 mm. Outputs are proposals until site verification.</p>}
         {geometryMode === 'final_production' && <p className="geometry-mode-note production">Final production mode requires every finding to be resolved, openings dimensioned, walls assigned thickness/height, and a trusted calibration.</p>}
         {!approvalReady && analysed && <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>Calibrate one visible dimension and complete the required geometry fields to continue.</p>}
