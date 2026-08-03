@@ -3,6 +3,6 @@ docs/vault-sql/
 docs/examples-inventory.json
 node_modules/
 **/node_modules/
-**/dist/
+apps/web/dist/
 .env*
 .git/
