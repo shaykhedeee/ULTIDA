@@ -59,7 +59,7 @@ const STYLE_KEYWORDS: Record<StylePreference, string[]> = {
 
 export function deriveDesignIntent(brief: BriefCoreV1): DesignIntentV1 {
   const weights: Partial<Record<PriorityDriver, number>> = {};
-  brief.topPriorities.forEach((p, i) => { weights[p] = [1.0, 0.66, 0.33][i] ?? 0.2; });
+  brief.topPriorities.forEach((p: PriorityDriver, i: number) => { weights[p] = [1.0, 0.66, 0.33][i] ?? 0.2; });
 
   const hardConstraints: string[] = [];
   if (brief.constraints.vastuRequired) hardConstraints.push('must comply with Vastu zone recommendations for this room type');
