@@ -69,6 +69,8 @@ export function SpacesWorkspace() {
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'blocked' | 'empty' | 'error'>('loading');
   const [history, setHistory] = useState<any[]>([]);
   const [future, setFuture] = useState<any[]>([]);
+  const [annotationDraft, setAnnotationDraft] = useState('');
+  const [annotationDialogOpen, setAnnotationDialogOpen] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
 
   // ── Load approved plan geometry (no measurement re-entry) ──
@@ -231,11 +233,12 @@ export function SpacesWorkspace() {
           <section className="region canvas-region">
             <div className="toolbar">
               {[['select', 'Choose'], ['measure', 'Measure'], ['draw_room', 'Draw room'], ['redraw', 'Redraw'], ['split', 'Split'], ['merge', 'Merge'], ['wall', 'Add wall'], ['door', 'Add door'], ['window', 'Add window'], ['column', 'Column'], ['beam', 'Beam'], ['service', 'Service'], ['annotate', 'Annotate']].map(([t, label]) => (
-                <button key={t} className={`tool-btn ${tool === t ? 'active' : ''}`} onClick={() => { if (t === 'split') splitSelected(); else if (t === 'merge') mergeSelected(); else if (t === 'wall') addWall(); else if (t === 'door') addOpening('door'); else if (t === 'window') addOpening('window'); else if (t === 'beam') addBeam(); else if (t === 'service') addService(); else if (t === 'annotate') { const txt = prompt('Annotation text'); if (txt) addAnnotation(txt); } else setTool(t); }}>
+                <button key={t} className={`tool-btn ${tool === t ? 'active' : ''}`} onClick={() => { if (t === 'split') splitSelected(); else if (t === 'merge') mergeSelected(); else if (t === 'wall') addWall(); else if (t === 'door') addOpening('door'); else if (t === 'window') addOpening('window'); else if (t === 'beam') addBeam(); else if (t === 'service') addService(); else if (t === 'annotate') { setAnnotationDraft(''); setAnnotationDialogOpen(true); } else setTool(t); }}>
                   {label}
                 </button>
               ))}
             </div>
+            {annotationDialogOpen && <div className="annotation-dialog" role="dialog" aria-label="Add annotation"><label htmlFor="annotation-text">Annotation</label><input id="annotation-text" autoFocus value={annotationDraft} onChange={(e) => setAnnotationDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && annotationDraft.trim()) { addAnnotation(annotationDraft.trim()); setAnnotationDialogOpen(false); } if (e.key === 'Escape') setAnnotationDialogOpen(false); }} /><div><button type="button" onClick={() => setAnnotationDialogOpen(false)}>Cancel</button><button type="button" disabled={!annotationDraft.trim()} onClick={() => { addAnnotation(annotationDraft.trim()); setAnnotationDialogOpen(false); }}>Add annotation</button></div></div>}
             <svg ref={svgRef} className="plan-canvas" viewBox={`0 0 ${view.w} ${view.h}`} onClick={onCanvasClick}>
               {layers.rooms && rooms.filter(r => r.included !== false).map(r => {
                 const pts = r.polygon.map(p => { const q = toPx(p); return `${q.x},${q.y}`; }).join(' ');

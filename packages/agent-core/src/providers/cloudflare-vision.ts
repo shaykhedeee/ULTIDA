@@ -27,7 +27,7 @@ export class CloudflareVisionProvider implements VisionProvider {
         this.env.CLOUDFLARE_VISION_MODEL,
         this.env.CLOUDFLARE_PLAN_MODEL,
         '@cf/meta/llama-3.2-11b-vision-instruct',
-        '@cf/llava-hl/llava-1.5-7b-hf',
+        '@cf/llava-hf/llava-1.5-7b-hf',
       ].filter(Boolean) as string[])
     );
 
@@ -36,27 +36,39 @@ export class CloudflareVisionProvider implements VisionProvider {
     for (const model of candidateModels) {
       if (model.includes('8b-instruct') && !model.includes('vision')) continue;
       try {
+        const isMoondream = model.includes('moondream');
+        const image = `data:${mimeType};base64,${imageBase64}`;
         const response = await fetch(
           `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
           {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              messages: [
-                { role: 'system', content: prompt },
-                { role: 'user', content: `Extract the visible floor-plan evidence. Request ID: ${requestId}. Return JSON only.` },
-              ],
-              image: imageBase64,
-            }),
+            body: JSON.stringify(isMoondream
+              ? {
+                  task: 'query',
+                  image,
+                  question: `${prompt}\nRequest ID: ${requestId}. Return JSON only.`,
+                  reasoning: false,
+                  stream: false,
+                  temperature: 0,
+                  max_tokens: 4096,
+                }
+              : {
+                  messages: [
+                    { role: 'system', content: prompt },
+                    { role: 'user', content: `Extract the visible floor-plan evidence. Request ID: ${requestId}. Return JSON only.` },
+                  ],
+                  image: imageBase64,
+                }),
           }
         );
         const payload = (await response.json()) as {
           success?: boolean;
-          result?: { response?: string; text?: string };
+          result?: { response?: string; text?: string; answer?: string };
           errors?: Array<{ message?: string }>;
         };
-        if (response.ok && payload.success && (payload.result?.response || payload.result?.text)) {
-          const raw = payload.result.response || payload.result.text!;
+        if (response.ok && payload.success && (payload.result?.response || payload.result?.text || payload.result?.answer)) {
+          const raw = payload.result.response || payload.result.text || payload.result.answer!;
           const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
           const result = PlanVisionOutputSchema.safeParse(parsed);
           if (!result.success) {

@@ -46,6 +46,7 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
   const [aiPrompt, setAiPrompt] = useState<string>('');
   const [aiRaw, setAiRaw] = useState<string>('');
   const [geometryNotice, setGeometryNotice] = useState('Load and approve a floor plan to unlock measured design geometry.');
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     if (initialRooms.length || !projectId) return;
@@ -110,7 +111,7 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
     try {
       const parsed = parseAutoLayoutResponse(JSON.parse(aiRaw || '{"placements":[]}'));
       setPlacements(parsed);
-    } catch (e) { alert('Malformed AI layout response: ' + (e as Error).message); }
+    } catch (e) { setErrorMessage('Malformed AI layout response: ' + (e as Error).message); }
   }
 
   // Manual placement
@@ -153,7 +154,7 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
       });
       setApproved(dv);
       setInvalidated(invalidateDownstream(dv, 'design approved'));
-    } catch (e) { alert((e as Error).message); }
+    } catch (e) { setErrorMessage((e as Error).message); }
   }
 
   return (
@@ -172,6 +173,7 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
           ))}
         </div>
       </header>
+      {errorMessage && <div className="dw-error" role="alert"><span>{errorMessage}</span><button type="button" onClick={() => setErrorMessage('')}>Dismiss</button></div>}
 
       <div className="dw-body">
         <aside className="dw-left">
