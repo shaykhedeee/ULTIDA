@@ -11,6 +11,10 @@
   },
   "rewrites": [
     {
+      "source": "/api/:ultidaPath*",
+      "destination": "/api/[...path]?__ultida_path=:ultidaPath*"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }

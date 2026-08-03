@@ -5,6 +5,15 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 // if a workspace dependency is missing during function initialisation.
 export default async function handler(request: IncomingMessage, response: ServerResponse) {
   try {
+    // Vite deployments sometimes register a catch-all function only one
+    // segment deep. vercel.json rewrites all /api/* paths here and preserves
+    // the original path in a query value; restore it before Express routes.
+    const requestUrl = new URL(request.url ?? '/', 'https://ultida.local');
+    const rewrittenPath = requestUrl.searchParams.get('__ultida_path');
+    if (rewrittenPath) {
+      requestUrl.searchParams.delete('__ultida_path');
+      request.url = `/api/${rewrittenPath.replace(/^\/+/, '')}${requestUrl.search}`;
+    }
     // Vercel must execute the compiled API. Importing the TypeScript source
     // here works inconsistently across builders and can hide missing package
     // builds until the first authenticated request.
