@@ -1,0 +1,1608 @@
+{
+  "version": "curated-v1",
+  "source_count": 160,
+  "selected_count": 60,
+  "entries": [
+    {
+      "id": "ref-curated-001",
+      "title": "Modern minimalist living room and kitchenette Copy (2)",
+      "source_path": "docs/examples/Modern minimalist living room and kitchenette - Copy (2).png",
+      "preview_path": "/reference-vault/001-ddc1891636f7.png",
+      "sha256": "ddc1891636f7387b63820f60b74663bb272068dc240c73080f00c98286531fb2",
+      "byte_size": 1801197,
+      "width": 1672,
+      "height": 941,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/001-ddc1891636f7.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-002",
+      "title": "Modern minimalist living and kitchen space Copy (2)",
+      "source_path": "docs/examples/Modern minimalist living and kitchen space - Copy (2).png",
+      "preview_path": "/reference-vault/002-cab37cfa0bb2.png",
+      "sha256": "cab37cfa0bb2adc118d5f3f1dd513ad7c64ea0a87690992275072be45b579d40",
+      "byte_size": 1908381,
+      "width": 1825,
+      "height": 862,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/002-cab37cfa0bb2.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-003",
+      "title": "Modern minimalist kitchen with cozy living area Copy (2)",
+      "source_path": "docs/examples/Modern minimalist kitchen with cozy living area - Copy (2).png",
+      "preview_path": "/reference-vault/003-1f61a8aabde4.png",
+      "sha256": "1f61a8aabde4572567e616b0bb7854346d8f14cc86717a8da2ac3470fcab316c",
+      "byte_size": 1770351,
+      "width": 1393,
+      "height": 1129,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/003-1f61a8aabde4.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-004",
+      "title": "Elegant minimalist kitchen and living space Copy (2)",
+      "source_path": "docs/examples/Elegant minimalist kitchen and living space - Copy (2).png",
+      "preview_path": "/reference-vault/004-ee04b56efde7.png",
+      "sha256": "ee04b56efde779d850da2c2d353200befb7b459013abf70f2e8cfcf2681e8cc8",
+      "byte_size": 1768415,
+      "width": 1672,
+      "height": 941,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "luxury",
+      "tags": [
+        "kitchen",
+        "luxury"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/004-ee04b56efde7.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-005",
+      "title": "utility wall detailed elevation",
+      "source_path": "docs/examples/utility-wall-detailed-elevation.png",
+      "preview_path": "/reference-vault/005-7919b88e0dc1.png",
+      "sha256": "7919b88e0dc18df12f496059aeffb1fb3bda0f38cd23fb8ab6b2d61ad1bbbe77",
+      "byte_size": 234141,
+      "width": 2400,
+      "height": 1500,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "elevation",
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/005-7919b88e0dc1.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-006",
+      "title": "Modern minimalist kitchen with warm tones(3) Copy",
+      "source_path": "docs/examples/Modern minimalist kitchen with warm tones(3) - Copy.png",
+      "preview_path": "/reference-vault/006-e36e2c7c9b1a.png",
+      "sha256": "e36e2c7c9b1ad6a2fbafe69152c935fbcd613b1957d300ca4a772dc1c654531b",
+      "byte_size": 1688681,
+      "width": 1460,
+      "height": 1078,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/006-e36e2c7c9b1a.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-007",
+      "title": "Modern minimalist study nook with wardrobe Copy",
+      "source_path": "docs/examples/Modern minimalist study nook with wardrobe - Copy.png",
+      "preview_path": "/reference-vault/007-2b9d568ff444.png",
+      "sha256": "2b9d568ff44441baf217f0c6d5e71ad546804227402ca35e06a8a4ecd453ad34",
+      "byte_size": 1646506,
+      "width": 1672,
+      "height": 941,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/007-2b9d568ff444.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-008",
+      "title": "Minimalist bedroom with modern wardrobe design (1) Copy",
+      "source_path": "docs/examples/Minimalist bedroom with modern wardrobe design (1) - Copy.png",
+      "preview_path": "/reference-vault/008-5fd497f005d8.png",
+      "sha256": "5fd497f005d85fffd6198d009db123e744d3864ba1bafccafa541bc28e7c5de9",
+      "byte_size": 1621761,
+      "width": 1122,
+      "height": 1402,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/008-5fd497f005d8.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-009",
+      "title": "Modern minimalist wardrobe and study nook Copy (2)",
+      "source_path": "docs/examples/Modern minimalist wardrobe and study nook - Copy (2).png",
+      "preview_path": "/reference-vault/009-f68e47674ead.png",
+      "sha256": "f68e47674eadad277a523a35a4cecee0405f85f20281baa275b052e94d9ea00f",
+      "byte_size": 1757177,
+      "width": 1448,
+      "height": 1086,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/009-f68e47674ead.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-010",
+      "title": "modern compact study wardrobe with arched shutters (1) Copy",
+      "source_path": "docs/examples/modern compact study wardrobe with arched shutters (1) - Copy.png",
+      "preview_path": "/reference-vault/010-a0dbdf361a50.png",
+      "sha256": "a0dbdf361a504eebeb939f49adc2996fa2d577d37f6a0937d123e1153ec09d98",
+      "byte_size": 1817606,
+      "width": 1498,
+      "height": 1050,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "arched",
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/010-a0dbdf361a50.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-011",
+      "title": "Modern minimalist bedroom office nook Copy",
+      "source_path": "docs/examples/Modern minimalist bedroom-office nook - Copy.png",
+      "preview_path": "/reference-vault/011-6c55d3439149.png",
+      "sha256": "6c55d34391494a0ae34924123b1cc8832e8fa7f5589cdfb6356beceb5c26475f",
+      "byte_size": 1682957,
+      "width": 1378,
+      "height": 1142,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/011-6c55d3439149.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-012",
+      "title": "Modern minimalist bedroom with arched mirror Copy (2)",
+      "source_path": "docs/examples/Modern minimalist bedroom with arched mirror - Copy (2).png",
+      "preview_path": "/reference-vault/012-5c60a01e5b86.png",
+      "sha256": "5c60a01e5b86d149e263403dfa11c1435e807954a51ad94241b4552dd292a38f",
+      "byte_size": 1640098,
+      "width": 1672,
+      "height": 941,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "arched",
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/012-5c60a01e5b86.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-013",
+      "title": "Modern minimalist living room with TV wall(1) Copy",
+      "source_path": "docs/examples/Modern minimalist living room with TV wall(1) - Copy.png",
+      "preview_path": "/reference-vault/013-52a29a1053dc.png",
+      "sha256": "52a29a1053dcce940dacd109a1fa2d5cea18dda64fe01ad36776f68a02f1d969",
+      "byte_size": 1607619,
+      "width": 1672,
+      "height": 941,
+      "room": "living",
+      "module_family": "tv-unit",
+      "style": "modern-minimal",
+      "tags": [
+        "living",
+        "modern-minimal",
+        "tv-unit"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/013-52a29a1053dc.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-014",
+      "title": "Modern minimalist living dining interior design Copy (2)",
+      "source_path": "docs/examples/Modern minimalist living-dining interior design - Copy (2).png",
+      "preview_path": "/reference-vault/014-685f67e3ff6f.png",
+      "sha256": "685f67e3ff6fc04ff1a7da9a621a542d4b2f971464c13cfe9c76d0b797210aae",
+      "byte_size": 1953842,
+      "width": 1825,
+      "height": 862,
+      "room": "living",
+      "module_family": "tv-unit",
+      "style": "modern-minimal",
+      "tags": [
+        "living",
+        "modern-minimal",
+        "tv-unit"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/014-685f67e3ff6f.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-015",
+      "title": "Modern minimalist living room with wood accents (1) Copy",
+      "source_path": "docs/examples/Modern minimalist living room with wood accents (1) - Copy.png",
+      "preview_path": "/reference-vault/015-5705e2ee9cb1.png",
+      "sha256": "5705e2ee9cb1d266965ef5861259573ff538835ca31bc3b0b3e58f17abf8f76e",
+      "byte_size": 1800387,
+      "width": 1672,
+      "height": 941,
+      "room": "living",
+      "module_family": "tv-unit",
+      "style": "modern-minimal",
+      "tags": [
+        "living",
+        "modern-minimal",
+        "tv-unit",
+        "wood"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/015-5705e2ee9cb1.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-016",
+      "title": "Modern minimalist open plan living space Copy (2)",
+      "source_path": "docs/examples/Modern minimalist open-plan living space - Copy (2).png",
+      "preview_path": "/reference-vault/016-f106846da92c.png",
+      "sha256": "f106846da92c6aea1d07c6a7f5e6fe87a23fd0a535e15d6af6cd2e72edd4e172",
+      "byte_size": 1810550,
+      "width": 1727,
+      "height": 911,
+      "room": "living",
+      "module_family": "tv-unit",
+      "style": "modern-minimal",
+      "tags": [
+        "living",
+        "modern-minimal",
+        "tv-unit"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/016-f106846da92c.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-017",
+      "title": "Modern minimalist living space design(1) Copy",
+      "source_path": "docs/examples/Modern minimalist living space design(1) - Copy.png",
+      "preview_path": "/reference-vault/017-cd2b9919c856.png",
+      "sha256": "cd2b9919c856dd26f3c2bd06375f9d1acb782212eecfdec8601de4893cde0d9f",
+      "byte_size": 1827740,
+      "width": 1402,
+      "height": 1122,
+      "room": "living",
+      "module_family": "tv-unit",
+      "style": "modern-minimal",
+      "tags": [
+        "living",
+        "modern-minimal",
+        "tv-unit"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/017-cd2b9919c856.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-018",
+      "title": "Modern minimalist living space interior Copy (2)",
+      "source_path": "docs/examples/Modern minimalist living space interior - Copy (2).png",
+      "preview_path": "/reference-vault/018-b7dd5f1492fe.png",
+      "sha256": "b7dd5f1492feb457982fcce6572ade9c6b845fb7f7466e52e20692a0a7273dfe",
+      "byte_size": 1918560,
+      "width": 1402,
+      "height": 1122,
+      "room": "living",
+      "module_family": "tv-unit",
+      "style": "modern-minimal",
+      "tags": [
+        "living",
+        "modern-minimal",
+        "tv-unit"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/018-b7dd5f1492fe.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-019",
+      "title": "Modern pooja unit variation comparison Copy",
+      "source_path": "docs/examples/Modern pooja unit variation comparison - Copy.png",
+      "preview_path": "/reference-vault/019-a06a89855436.png",
+      "sha256": "a06a898554362cfa1ba37c366b5053da41b0d3b71a7119fa4210ad51f093aab4",
+      "byte_size": 1736034,
+      "width": 1448,
+      "height": 1086,
+      "room": "pooja",
+      "module_family": "pooja",
+      "style": "modern-minimal",
+      "tags": [
+        "modern-minimal",
+        "pooja"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/019-a06a89855436.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-020",
+      "title": "Warm minimal hallway with decorative shrine Copy",
+      "source_path": "docs/examples/Warm minimal hallway with decorative shrine - Copy.png",
+      "preview_path": "/reference-vault/020-ea872c640df6.png",
+      "sha256": "ea872c640df6017e7a74c3855a96ef1d82220c9b7ea688f9f985d9438cd78694",
+      "byte_size": 1695709,
+      "width": 1340,
+      "height": 1174,
+      "room": "pooja",
+      "module_family": "pooja",
+      "style": "modern-minimal",
+      "tags": [
+        "modern-minimal",
+        "pooja"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/020-ea872c640df6.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-021",
+      "title": "Serene temple altar in a hallway Copy",
+      "source_path": "docs/examples/Serene temple altar in a hallway - Copy.png",
+      "preview_path": "/reference-vault/021-5a47b71bad49.png",
+      "sha256": "5a47b71bad4939e7de5bcc7bb84720e3575a5ef7074506bbfe751942479fea72",
+      "byte_size": 1701472,
+      "width": 884,
+      "height": 1780,
+      "room": "pooja",
+      "module_family": "pooja",
+      "style": "modern-minimal",
+      "tags": [
+        "modern-minimal",
+        "pooja"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/021-5a47b71bad49.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-022",
+      "title": "Modern minimalist workspace with organic accents Copy",
+      "source_path": "docs/examples/Modern minimalist workspace with organic accents - Copy.png",
+      "preview_path": "/reference-vault/022-d6f4e9ee57d1.png",
+      "sha256": "d6f4e9ee57d18f55ced12ba0d03670ea9b3e6244c4e804702c78851c0f56ab69",
+      "byte_size": 1618698,
+      "width": 1398,
+      "height": 1125,
+      "room": "study",
+      "module_family": "study",
+      "style": "modern-minimal",
+      "tags": [
+        "modern-minimal",
+        "study"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/022-d6f4e9ee57d1.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-023",
+      "title": "Modern minimalist storage and workspace(1) Copy",
+      "source_path": "docs/examples/Modern minimalist storage and workspace(1) - Copy.png",
+      "preview_path": "/reference-vault/023-ae1e9b70744f.png",
+      "sha256": "ae1e9b70744f461e1006cae03046bcd629e84be7d991912dfded732b8304dae7",
+      "byte_size": 1533841,
+      "width": 1448,
+      "height": 1086,
+      "room": "study",
+      "module_family": "study",
+      "style": "modern-minimal",
+      "tags": [
+        "modern-minimal",
+        "study"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/023-ae1e9b70744f.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-024",
+      "title": "Modern minimal office with warm lighting Copy (2)",
+      "source_path": "docs/examples/Modern minimal office with warm lighting - Copy (2).png",
+      "preview_path": "/reference-vault/024-5976bb27ca03.png",
+      "sha256": "5976bb27ca03a7e4318a3bdeeb0c5f00e90fcb13cf7ccfeeec2bf6de05972a0c",
+      "byte_size": 1620145,
+      "width": 1373,
+      "height": 1145,
+      "room": "study",
+      "module_family": "study",
+      "style": "modern-minimal",
+      "tags": [
+        "modern-minimal",
+        "study",
+        "warm-lighting"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/024-5976bb27ca03.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-025",
+      "title": "Modern minimalist office nook with greenery Copy",
+      "source_path": "docs/examples/Modern minimalist office nook with greenery - Copy.png",
+      "preview_path": "/reference-vault/025-adb09122c8d1.png",
+      "sha256": "adb09122c8d1c0fd1a9022cab3bf637560abed1938e3f299fb24b5329d04f94e",
+      "byte_size": 1588784,
+      "width": 1547,
+      "height": 1016,
+      "room": "study",
+      "module_family": "study",
+      "style": "modern-minimal",
+      "tags": [
+        "modern-minimal",
+        "study"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/025-adb09122c8d1.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-026",
+      "title": "open wooden entrance door in elegant interior Copy (2)",
+      "source_path": "docs/examples/open wooden entrance door in elegant interior - Copy (2).png",
+      "preview_path": "/reference-vault/026-ebca5fba9a3f.png",
+      "sha256": "ebca5fba9a3f114831432adaa5922882cb55148d1c4dfd53a8c182f8bb0a412c",
+      "byte_size": 1950469,
+      "width": 1446,
+      "height": 1087,
+      "room": "foyer",
+      "module_family": "storage",
+      "style": "luxury",
+      "tags": [
+        "foyer",
+        "luxury",
+        "storage",
+        "wood"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/026-ebca5fba9a3f.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-027",
+      "title": "Modern Minimalist Bathroom Retreat(1) (1)",
+      "source_path": "docs/examples/Modern Minimalist Bathroom Retreat(1) (1).png",
+      "preview_path": "/reference-vault/027-3ee9dcdaca5c.png",
+      "sha256": "3ee9dcdaca5ca821b7d6eae2ce750958047b740379dfb18de78f139a70c731e9",
+      "byte_size": 2444167,
+      "width": 1402,
+      "height": 1122,
+      "room": "bathroom",
+      "module_family": "bathroom",
+      "style": "modern-minimal",
+      "tags": [
+        "bathroom",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/027-3ee9dcdaca5c.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-028",
+      "title": "Modern Minimalist Bathroom with Warm Accents (1)",
+      "source_path": "docs/examples/Modern Minimalist Bathroom with Warm Accents (1).png",
+      "preview_path": "/reference-vault/028-a8f62ab3d392.png",
+      "sha256": "a8f62ab3d392eed093e8cb520088b068b2bf2708800ea545fbbafa3d14d98e94",
+      "byte_size": 2194295,
+      "width": 1402,
+      "height": 1122,
+      "room": "bathroom",
+      "module_family": "bathroom",
+      "style": "modern-minimal",
+      "tags": [
+        "bathroom",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/028-a8f62ab3d392.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-029",
+      "title": "Modern Minimalist Bathroom with Wood Accents",
+      "source_path": "docs/examples/Modern Minimalist Bathroom with Wood Accents.png",
+      "preview_path": "/reference-vault/029-640527178f8d.png",
+      "sha256": "640527178f8dba00526258b48ca788ff9fcfac8c63d7afeb808f9b8282558296",
+      "byte_size": 2311022,
+      "width": 1402,
+      "height": 1122,
+      "room": "bathroom",
+      "module_family": "bathroom",
+      "style": "modern-minimal",
+      "tags": [
+        "bathroom",
+        "modern-minimal",
+        "wood"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/029-640527178f8d.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-030",
+      "title": "Minimalist Taupe Wet Room Bathroom (1)",
+      "source_path": "docs/examples/Minimalist Taupe Wet-Room Bathroom (1).png",
+      "preview_path": "/reference-vault/030-7bd7e8a977bf.png",
+      "sha256": "7bd7e8a977bf8c7591e3e2c33018509045ea1ce11a9b7cb78ce8726f968e3f08",
+      "byte_size": 2310383,
+      "width": 1402,
+      "height": 1122,
+      "room": "bathroom",
+      "module_family": "bathroom",
+      "style": "modern-minimal",
+      "tags": [
+        "bathroom",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/030-7bd7e8a977bf.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-031",
+      "title": "Minimalist bathroom with sleek contemporary design Copy (2)",
+      "source_path": "docs/examples/Minimalist bathroom with sleek contemporary design - Copy (2).png",
+      "preview_path": "/reference-vault/031-6f3948f48928.png",
+      "sha256": "6f3948f489287ae7d4f0e925012bf73b37989770b2d4dfbd00f66496abb3a50d",
+      "byte_size": 2096321,
+      "width": 1122,
+      "height": 1402,
+      "room": "bathroom",
+      "module_family": "bathroom",
+      "style": "modern-minimal",
+      "tags": [
+        "bathroom",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/031-6f3948f48928.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-032",
+      "title": "Ceiling High White Cistern Cabinet Copy (2)",
+      "source_path": "docs/examples/Ceiling-High White Cistern Cabinet - Copy (2).png",
+      "preview_path": "/reference-vault/032-ae224c73b5dc.png",
+      "sha256": "ae224c73b5dc2ccafb0c372a54314c2408b09f2069ea56b62ebb9488f35b74f0",
+      "byte_size": 2094737,
+      "width": 1086,
+      "height": 1448,
+      "room": "bathroom",
+      "module_family": "bathroom",
+      "style": "modern-minimal",
+      "tags": [
+        "bathroom",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/032-ae224c73b5dc.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-033",
+      "title": "gbr elevation set",
+      "source_path": "docs/examples/gbr-elevation-set.png",
+      "preview_path": "/reference-vault/033-9d09b620a75e.png",
+      "sha256": "9d09b620a75ee6be17880077b1f1ae1db495a1304def366221d9af1c3422cfee",
+      "byte_size": 218436,
+      "width": 2400,
+      "height": 1800,
+      "room": "interior",
+      "module_family": "interior",
+      "style": "modern-minimal",
+      "tags": [
+        "elevation",
+        "interior",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/033-9d09b620a75e.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-034",
+      "title": "Modern minimalism with warm wood accents Copy",
+      "source_path": "docs/examples/Modern minimalism with warm wood accents - Copy.png",
+      "preview_path": "/reference-vault/034-355f624f691c.png",
+      "sha256": "355f624f691c242e823a0150ec7f02f0ae49534d14affc336d0a1991b4e91497",
+      "byte_size": 1552349,
+      "width": 1672,
+      "height": 941,
+      "room": "interior",
+      "module_family": "interior",
+      "style": "modern-minimal",
+      "tags": [
+        "interior",
+        "modern-minimal",
+        "wood"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/034-355f624f691c.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-035",
+      "title": "Minimalist interior with modern storage system Copy",
+      "source_path": "docs/examples/Minimalist interior with modern storage system - Copy.png",
+      "preview_path": "/reference-vault/035-78733d79d595.png",
+      "sha256": "78733d79d595444621f44632d26f0743d7eb83d23f2a09327cc9dd14f821a979",
+      "byte_size": 1416268,
+      "width": 1484,
+      "height": 1060,
+      "room": "interior",
+      "module_family": "interior",
+      "style": "modern-minimal",
+      "tags": [
+        "interior",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/035-78733d79d595.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-036",
+      "title": "ultra realistic laundry room render Copy (2)",
+      "source_path": "docs/examples/ultra-realistic laundry room render - Copy (2).png",
+      "preview_path": "/reference-vault/036-de959cf3df44.png",
+      "sha256": "de959cf3df44a64ff14039c11eb7e782bf61493f9b191cfb9fa5c4e583081f54",
+      "byte_size": 1829378,
+      "width": 943,
+      "height": 1668,
+      "room": "interior",
+      "module_family": "interior",
+      "style": "modern-minimal",
+      "tags": [
+        "interior",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/036-de959cf3df44.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-037",
+      "title": "Minimalist modern corner with warm lighting Copy",
+      "source_path": "docs/examples/Minimalist modern corner with warm lighting - Copy.png",
+      "preview_path": "/reference-vault/037-4dd8b6a25dc7.png",
+      "sha256": "4dd8b6a25dc70edb415bdda6f4ad19b4c71a6bdbdeb448ca8b262dbcb1a6274a",
+      "byte_size": 1706298,
+      "width": 1254,
+      "height": 1254,
+      "room": "interior",
+      "module_family": "interior",
+      "style": "modern-minimal",
+      "tags": [
+        "interior",
+        "modern-minimal",
+        "warm-lighting"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/037-4dd8b6a25dc7.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-038",
+      "title": "Modern minimalist interior with warm lighting(1) Copy",
+      "source_path": "docs/examples/Modern minimalist interior with warm lighting(1) - Copy.png",
+      "preview_path": "/reference-vault/038-73c6d08adf93.png",
+      "sha256": "73c6d08adf9376aa9429a08f3207881f3c0857ea36eb03e0f3acebce60bb69a4",
+      "byte_size": 1612548,
+      "width": 1404,
+      "height": 1120,
+      "room": "interior",
+      "module_family": "interior",
+      "style": "modern-minimal",
+      "tags": [
+        "interior",
+        "modern-minimal",
+        "warm-lighting"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/038-73c6d08adf93.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-039",
+      "title": "Minimalist modern kitchen with warm tones(1) Copy",
+      "source_path": "docs/examples/Minimalist modern kitchen with warm tones(1) - Copy.png",
+      "preview_path": "/reference-vault/039-1786da704c5a.png",
+      "sha256": "1786da704c5a6ae17868af6be8e5bf04150b2ea3e3d88ad2dd0331e9df6d6d08",
+      "byte_size": 1708917,
+      "width": 1436,
+      "height": 1096,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/039-1786da704c5a.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-040",
+      "title": "Modern minimalist hallway with wardrobe design Copy",
+      "source_path": "docs/examples/Modern minimalist hallway with wardrobe design - Copy.png",
+      "preview_path": "/reference-vault/040-a7dcd66e4242.png",
+      "sha256": "a7dcd66e42426c1a39b37c0974eac8f4d54d327a08d6a19d2e0529e64bf46fe0",
+      "byte_size": 1466431,
+      "width": 1672,
+      "height": 941,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/040-a7dcd66e4242.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-041",
+      "title": "Modern minimalist hallway with wardrobe feature Copy",
+      "source_path": "docs/examples/Modern minimalist hallway with wardrobe feature - Copy.png",
+      "preview_path": "/reference-vault/041-6770bf54ce43.png",
+      "sha256": "6770bf54ce436a16eccaf59874313cc0639d10e472a3057d8e65c732ea5ded90",
+      "byte_size": 1477671,
+      "width": 1672,
+      "height": 941,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/041-6770bf54ce43.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-042",
+      "title": "Modern minimalist kitchen with warm tones(7) Copy",
+      "source_path": "docs/examples/Modern minimalist kitchen with warm tones(7) - Copy.png",
+      "preview_path": "/reference-vault/042-7eaf3dbfd306.png",
+      "sha256": "7eaf3dbfd306bbf551ccd67c731ba5f507db17085fe73c8c4d7d41f1ca88e1fc",
+      "byte_size": 1775364,
+      "width": 1672,
+      "height": 941,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/042-7eaf3dbfd306.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-043",
+      "title": "Modern minimalist bedroom office space Copy",
+      "source_path": "docs/examples/Modern minimalist bedroom office space - Copy.png",
+      "preview_path": "/reference-vault/043-71833d244d0d.png",
+      "sha256": "71833d244d0d9f57f9ca9f65497e78b5094a990ed8f134af90bc253b457c1448",
+      "byte_size": 1695330,
+      "width": 1296,
+      "height": 1214,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/043-71833d244d0d.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-044",
+      "title": "Minimal modern bedroom office with measurements Copy (2)",
+      "source_path": "docs/examples/Minimal modern bedroom-office with measurements - Copy (2).png",
+      "preview_path": "/reference-vault/044-577ed741688e.png",
+      "sha256": "577ed741688e3d78ba31f69a163e7eb96166fca59b1692d1470828553e05cc44",
+      "byte_size": 1821982,
+      "width": 1276,
+      "height": 1233,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/044-577ed741688e.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-045",
+      "title": "ultra realistic study and wardrobe wall Copy",
+      "source_path": "docs/examples/ultra-realistic study and wardrobe wall - Copy.png",
+      "preview_path": "/reference-vault/045-7ec65f321496.png",
+      "sha256": "7ec65f321496b65d576bbd2da97d48c28ef20d9d0003c4928f995b8d62d3a8bd",
+      "byte_size": 1523097,
+      "width": 1507,
+      "height": 1044,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/045-7ec65f321496.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-046",
+      "title": "Modern minimalist bedroom with warm lighting(2) Copy",
+      "source_path": "docs/examples/Modern minimalist bedroom with warm lighting(2) - Copy.png",
+      "preview_path": "/reference-vault/046-fe27dfd45c96.png",
+      "sha256": "fe27dfd45c9606c07c393ecbc2f1389b11e15c1c270428da4c95d56838f8fdd3",
+      "byte_size": 1629939,
+      "width": 1297,
+      "height": 1213,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe",
+        "warm-lighting"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/046-fe27dfd45c96.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-047",
+      "title": "Modern minimalist bedroom with natural wood accents Copy (2)",
+      "source_path": "docs/examples/Modern minimalist bedroom with natural wood accents - Copy (2).png",
+      "preview_path": "/reference-vault/047-c1ce4511e83d.png",
+      "sha256": "c1ce4511e83df7314693aa06234f3bbb135f908da76a8d592b3eb2fd9f7a8161",
+      "byte_size": 1823536,
+      "width": 1607,
+      "height": 979,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe",
+        "wood"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/047-c1ce4511e83d.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-048",
+      "title": "Modern minimalist kitchen with warm tones(2) Copy",
+      "source_path": "docs/examples/Modern minimalist kitchen with warm tones(2) - Copy.png",
+      "preview_path": "/reference-vault/048-ac94a44309b6.png",
+      "sha256": "ac94a44309b6ec4fbe47192ddff435fc20a8dd29abb5f0a829d5639ca888328c",
+      "byte_size": 1697489,
+      "width": 1402,
+      "height": 1122,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/048-ac94a44309b6.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-049",
+      "title": "Modern minimalist master bedroom design (1) Copy",
+      "source_path": "docs/examples/Modern minimalist master bedroom design (1) - Copy.png",
+      "preview_path": "/reference-vault/049-d1a18590223e.png",
+      "sha256": "d1a18590223e2352fdd993bf488914ac541dd540d6c65a21c3a17517afb09155",
+      "byte_size": 1866523,
+      "width": 1402,
+      "height": 1122,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/049-d1a18590223e.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-050",
+      "title": "Modern minimalist kitchen with natural light(1) Copy",
+      "source_path": "docs/examples/Modern minimalist kitchen with natural light(1) - Copy.png",
+      "preview_path": "/reference-vault/050-a2b533693ac2.png",
+      "sha256": "a2b533693ac2abed383b6feecc9942f63649d340ef31d6d6ba1fed74bda0f047",
+      "byte_size": 1726627,
+      "width": 1387,
+      "height": 1134,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/050-a2b533693ac2.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-051",
+      "title": "Modern minimalist living room design(15) Copy",
+      "source_path": "docs/examples/Modern minimalist living room design(15) - Copy.png",
+      "preview_path": "/reference-vault/051-999d353af1d8.png",
+      "sha256": "999d353af1d8002a2f1e8ebf83b2a017e186fe2e16f9db172c75d8b38689e9e4",
+      "byte_size": 1819720,
+      "width": 1508,
+      "height": 1043,
+      "room": "living",
+      "module_family": "tv-unit",
+      "style": "modern-minimal",
+      "tags": [
+        "living",
+        "modern-minimal",
+        "tv-unit"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/051-999d353af1d8.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-052",
+      "title": "Modern minimalist kitchen with warm lighting(2) (1) Copy",
+      "source_path": "docs/examples/Modern minimalist kitchen with warm lighting(2) (1) - Copy.png",
+      "preview_path": "/reference-vault/052-1d6904ef55a3.png",
+      "sha256": "1d6904ef55a3e982a9c02164bb98243d3eec59a0fde0235278401c5e35391973",
+      "byte_size": 1781047,
+      "width": 1459,
+      "height": 1078,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal",
+        "warm-lighting"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/052-1d6904ef55a3.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-053",
+      "title": "Modern minimalist kitchen with natural light(2) Copy",
+      "source_path": "docs/examples/Modern minimalist kitchen with natural light(2) - Copy.png",
+      "preview_path": "/reference-vault/053-edfb0eca9b46.png",
+      "sha256": "edfb0eca9b465d5a0639841b7bf1023702d8dd75095ded6ba847c3579d09b02e",
+      "byte_size": 1642313,
+      "width": 1435,
+      "height": 1096,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/053-edfb0eca9b46.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-054",
+      "title": "Modern minimalist bedroom and office workspace Copy (2)",
+      "source_path": "docs/examples/Modern minimalist bedroom and office workspace - Copy (2).png",
+      "preview_path": "/reference-vault/054-c8fa00bd2c4b.png",
+      "sha256": "c8fa00bd2c4bfea22cbfa8b765aaff9f1729a29d26473dfb445b1224c006bd1c",
+      "byte_size": 1829988,
+      "width": 1448,
+      "height": 1086,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/054-c8fa00bd2c4b.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-055",
+      "title": "Modern minimalist kitchen with L shape layout Copy (2)",
+      "source_path": "docs/examples/Modern minimalist kitchen with L-shape layout - Copy (2).png",
+      "preview_path": "/reference-vault/055-e94b19f0e93f.png",
+      "sha256": "e94b19f0e93f33b67dd718e6d297c1c7018e3ca67bf14da3874fdb40b2b4ee6a",
+      "byte_size": 1879400,
+      "width": 1448,
+      "height": 1086,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/055-e94b19f0e93f.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-056",
+      "title": "Modern minimalist kitchen with clean lines(2) Copy",
+      "source_path": "docs/examples/Modern minimalist kitchen with clean lines(2) - Copy.png",
+      "preview_path": "/reference-vault/056-3bb2275767d2.png",
+      "sha256": "3bb2275767d2e590a20ea505ba535586bd28c12ad5292c558708199811897bf8",
+      "byte_size": 1600842,
+      "width": 1448,
+      "height": 1086,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/056-3bb2275767d2.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-057",
+      "title": "Modern minimalist kitchen with wood accents(1) Copy",
+      "source_path": "docs/examples/Modern minimalist kitchen with wood accents(1) - Copy.png",
+      "preview_path": "/reference-vault/057-da6cb4575090.png",
+      "sha256": "da6cb4575090580b97fd6215b5f7670633bfa504d036a593c4a2ae40bf2ffdcb",
+      "byte_size": 1664512,
+      "width": 1448,
+      "height": 1086,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal",
+        "wood"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/057-da6cb4575090.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-058",
+      "title": "Modern minimalist living room design(22) Copy",
+      "source_path": "docs/examples/Modern minimalist living room design(22) - Copy.png",
+      "preview_path": "/reference-vault/058-b3d36c0c874b.png",
+      "sha256": "b3d36c0c874b7cfbadbffa345e351abb706b3a4c96cd61b3aab1c9aad2aaa934",
+      "byte_size": 1765666,
+      "width": 1448,
+      "height": 1086,
+      "room": "living",
+      "module_family": "tv-unit",
+      "style": "modern-minimal",
+      "tags": [
+        "living",
+        "modern-minimal",
+        "tv-unit"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/058-b3d36c0c874b.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-059",
+      "title": "Modern minimalist kitchen with clean lines(1) Copy",
+      "source_path": "docs/examples/Modern minimalist kitchen with clean lines(1) - Copy.png",
+      "preview_path": "/reference-vault/059-28205fff47ae.png",
+      "sha256": "28205fff47aedbccc8ddbf81791c7afd189f07315baeff897ddd2e363f499bf3",
+      "byte_size": 1625732,
+      "width": 1452,
+      "height": 1083,
+      "room": "kitchen",
+      "module_family": "kitchen",
+      "style": "modern-minimal",
+      "tags": [
+        "kitchen",
+        "modern-minimal"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/059-28205fff47ae.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    },
+    {
+      "id": "ref-curated-060",
+      "title": "Modern minimalist bedroom with beige tones Copy (2)",
+      "source_path": "docs/examples/Modern minimalist bedroom with beige tones - Copy (2).png",
+      "preview_path": "/reference-vault/060-70075531f7e7.png",
+      "sha256": "70075531f7e74980765acf1777fbf66e69631fa3ce1216c613c15610aa6b029d",
+      "byte_size": 2085835,
+      "width": 1535,
+      "height": 1024,
+      "room": "bedroom",
+      "module_family": "wardrobe",
+      "style": "modern-minimal",
+      "tags": [
+        "bedroom",
+        "beige",
+        "modern-minimal",
+        "wardrobe"
+      ],
+      "viewpoint": "render",
+      "provenance": "internal_reference",
+      "license_state": "internal_only",
+      "review_state": "approved",
+      "metadata": {
+        "previewPath": "/reference-vault/060-70075531f7e7.png",
+        "curation": "curated-v1",
+        "dimensionsAdvisory": true
+      }
+    }
+  ]
+}

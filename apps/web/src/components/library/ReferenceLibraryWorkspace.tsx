@@ -1,4 +1,4 @@
-import { BookOpen, Library as LibraryIcon, Palette, Search, Upload } from 'lucide-react';
+import { BookOpen, Library as LibraryIcon, Loader2, Palette, Search, Upload } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
@@ -62,6 +62,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referenceTags, setReferenceTags] = useState('');
   const [uploadingReference, setUploadingReference] = useState(false);
+  const [libraryLoading, setLibraryLoading] = useState(true);
   const [status, setStatus] = useState('Loading modular catalog…');
   const [vault, setVault] = useState<VaultEntry[]>([]);
   const [vaultRoom, setVaultRoom] = useState('all');
@@ -125,6 +126,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
 
       const outcomes = await Promise.allSettled(tasks);
       if (!live) return;
+      setLibraryLoading(false);
       const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
       const catalogFailed = outcomes[0]?.status === 'rejected';
       setStatus(catalogFailed
@@ -196,7 +198,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           <input aria-label="Search design library" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search library" style={{ border: 0, outline: 0, width: '100%', fontSize: 14 }} />
         </label>
       </div>
-      <p role="status" style={{ margin: '0 0 16px', color: status.includes('could not') ? '#b45309' : '#78716c', fontSize: 12 }}>{status}</p>
+      <p role="status" style={{ margin: '0 0 16px', color: status.includes('could not') ? '#b45309' : '#78716c', fontSize: 12, display: 'flex', alignItems: 'center', gap: 7 }}>{libraryLoading && <Loader2 className="ultida-spinner" size={14} aria-hidden="true" />}{status}</p>
 
       <Card className="workflow" style={{ marginBottom: 20 }}>
         <CardContent style={{ display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap', padding: 16 }}>

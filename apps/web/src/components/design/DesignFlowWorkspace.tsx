@@ -1,4 +1,4 @@
-import { Check, FileText, Image, Layers3, Palette, Plus, RefreshCw, Send, Sofa, ThumbsDown, ThumbsUp, Utensils, Wand2 } from 'lucide-react';
+import { Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Send, Sofa, ThumbsDown, ThumbsUp, Utensils, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
@@ -29,6 +29,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const [designMode, setDesignMode] = useState<'layout' | 'moodboard'>('layout');
   const [visualState, setVisualState] = useState('No visual proposal requested');
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [drawingState, setDrawingState] = useState('Generate drawing package');
   const [dxfState, setDxfState] = useState('Export DXF');
   const [cutlistState, setCutlistState] = useState('Generate cutlist');
@@ -119,15 +120,19 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   useEffect(() => {
     if (!planApproved) {
       setCatalogItems([]);
+      setCatalogLoading(false);
       return;
     }
     void (async () => {
+      setCatalogLoading(true);
       try {
         const response = await fetch(`${apiBase}/catalog/modules?room=${encodeURIComponent(room)}`, { headers: await authenticatedHeaders() });
         const payload = await response.json();
         setCatalogItems(response.ok && Array.isArray(payload.modules) ? payload.modules : []);
       } catch {
         setCatalogItems([]);
+      } finally {
+        setCatalogLoading(false);
       }
     })();
   }, [room, planApproved]);
@@ -612,7 +617,8 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                   {walls.length ? walls.map((wall) => <option key={wall.id} value={wall.id}>{wall.id}</option>) : <option value="">No verified walls</option>}
                 </select>
               </label>
-              <p className="placement-notice" role="status">
+              <p className="placement-notice" role="status" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                {catalogLoading && <Loader2 className="ultida-spinner" size={14} aria-hidden="true" />}
                 {placementNotice}
               </p>
               <label>
@@ -685,7 +691,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                     <Plus size={15} />
                   </button>
                 ))}
-                {!catalogItems.length && <p className="placement-notice">No compatible templates are available for this approved room.</p>}
+                {catalogLoading ? <p className="placement-notice"><Loader2 className="ultida-spinner" size={14} aria-hidden="true" /> Loading compatible furniture…</p> : !catalogItems.length && <p className="placement-notice">No compatible templates are available for this approved room.</p>}
               </div>
             </CardContent>
           </Card>

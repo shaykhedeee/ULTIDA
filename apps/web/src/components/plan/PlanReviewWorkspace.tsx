@@ -7,7 +7,7 @@ import {
   Ruler, Crosshair, PenTool, Plus, Split, Combine, Move,
   Home, DoorOpen, LayoutGrid, Columns, AlertTriangle,
   CheckCircle2, XCircle, Trash2, Edit3, Save, ArrowRight,
-  Eye, EyeOff, FileText, Sparkles, RefreshCw, Upload, FileUp
+  Eye, EyeOff, FileText, Loader2, Sparkles, RefreshCw, Upload, FileUp
 } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
@@ -481,7 +481,7 @@ export function PlanReviewWorkspace({
                 disabled={!fileName || analysisInFlight}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'var(--brown-mid)', color: '#fff', border: 0, borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
               >
-                {analysisInFlight ? <RefreshCw size={14} className="spin" /> : <Sparkles size={14} />} {analysisInFlight ? 'Analysing source' : 'Run AI Analysis'}
+                {analysisInFlight ? <Loader2 size={14} className="ultida-spinner" /> : <Sparkles size={14} />} {analysisInFlight ? 'Analysing source' : 'Run AI Analysis'}
               </button>
             )}
             <button
