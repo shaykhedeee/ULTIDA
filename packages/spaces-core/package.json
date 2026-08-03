@@ -17,6 +17,7 @@
     "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts"
   },
   "dependencies": {
+    "@ultida/contracts": "0.1.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
