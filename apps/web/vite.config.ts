@@ -11,6 +11,8 @@ export default defineConfig({
     // alias as well when a package has no generated dist entry.
     alias: {
       '@ultida/layout-core': resolve(webDir, '../../packages/layout-core/src'),
+      '@ultida/spaces-core': resolve(webDir, '../../packages/spaces-core/src'),
+      '@ultida/contracts': resolve(webDir, '../../packages/contracts/src'),
     },
   },
   cacheDir: '.vite',
