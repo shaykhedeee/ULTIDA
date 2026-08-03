@@ -64,11 +64,11 @@ export class CloudflareVisionProvider implements VisionProvider {
         );
         const payload = (await response.json()) as {
           success?: boolean;
-          result?: { response?: string; text?: string; answer?: string };
+          result?: { response?: string; text?: string; answer?: string; result?: { answer?: string; response?: string; text?: string } };
           errors?: Array<{ message?: string }>;
         };
-        if (response.ok && payload.success && (payload.result?.response || payload.result?.text || payload.result?.answer)) {
-          const raw = payload.result.response || payload.result.text || payload.result.answer!;
+        const raw = payload.result?.response || payload.result?.text || payload.result?.answer || payload.result?.result?.answer || payload.result?.result?.response || payload.result?.result?.text;
+        if (response.ok && payload.success && raw) {
           const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
           const result = PlanVisionOutputSchema.safeParse(parsed);
           if (!result.success) {

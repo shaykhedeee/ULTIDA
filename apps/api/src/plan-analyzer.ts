@@ -169,9 +169,9 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
         ? { task: 'query', image: input.dataUrl, question: `${prompt}\nSource file: ${input.fileName}. Return the required JSON only.`, reasoning: false, stream: false, temperature: 0, max_tokens: 4096 }
         : { messages: [{ role: 'system', content: prompt }, { role: 'user', content: `Extract the visible floor-plan evidence from ${input.fileName}. Return the required JSON only.` }], image: input.dataUrl };
       const response = await fetchWithProviderTimeout(environment, `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
-      const payload = await response.json() as { success?: boolean; result?: { response?: string; text?: string; answer?: string }; errors?: Array<{ message?: string }> };
-      if (response.ok && payload.success && (payload.result?.response || payload.result?.text || payload.result?.answer)) {
-        const content = payload.result.response || payload.result.text || payload.result.answer!;
+      const payload = await response.json() as { success?: boolean; result?: { response?: string; text?: string; answer?: string; result?: { answer?: string; response?: string; text?: string } }; errors?: Array<{ message?: string }> };
+      const content = payload.result?.response || payload.result?.text || payload.result?.answer || payload.result?.result?.answer || payload.result?.result?.response || payload.result?.result?.text;
+      if (response.ok && payload.success && content) {
         return { model, proposals: parseProposals(content, 'detector') };
       }
       lastError = new Error(payload.errors?.map((e) => e.message).join(', ') || `Cloudflare ${model} returned HTTP ${response.status}`);
