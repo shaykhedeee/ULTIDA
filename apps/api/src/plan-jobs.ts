@@ -174,7 +174,22 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
   if (!client) return { status: 'unavailable' as const };
   const job = await client.from('jobs').select('id,status,output,error,created_at,updated_at').eq('id', jobId).eq('project_id', projectId).eq('kind', 'plan-analysis').maybeSingle();
   if (job.error || !job.data) return { status: 'not_found' as const };
-  return { status: job.data.status, jobId: job.data.id, analysis: job.data.output, error: job.data.error, createdAt: job.data.created_at, updatedAt: job.data.updated_at };
+  let redispatched = false;
+  if (job.data.status === 'queued') {
+    const lastActivityMs = new Date(job.data.updated_at ?? job.data.created_at).getTime();
+    // The browser keeps polling while the review is open. Use that authenticated
+    // request as a safe self-healing trigger rather than leaving a missed queue
+    // handoff stuck forever. Updating updated_at limits this to one dispatch per
+    // ten seconds while a worker is unavailable; targeted claiming is idempotent.
+    if (Number.isFinite(lastActivityMs) && Date.now() - lastActivityMs > 10_000) {
+      const dispatch = await dispatchPlanAnalysisJob(environment, job.data.id).catch(() => ({ dispatched: false as const }));
+      if (dispatch.dispatched) {
+        redispatched = true;
+        await client.from('jobs').update({ updated_at: new Date().toISOString() }).eq('id', job.data.id).eq('status', 'queued');
+      }
+    }
+  }
+  return { status: job.data.status, jobId: job.data.id, analysis: job.data.output, error: job.data.error, createdAt: job.data.created_at, updatedAt: job.data.updated_at, redispatched };
 }
 
 export async function dispatchPlanAnalysisJob(environment: Environment, jobId: string) {

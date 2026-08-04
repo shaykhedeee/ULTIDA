@@ -355,7 +355,11 @@ app.post('/api/plan/analyze', requireProjectUser, async (request, response) => {
   const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId, fileName, mimeType, idempotencyKey }, authReq.ultidaUser!.id);
   if (job.status === 'unavailable') return response.status(503).json({ success: false, code: job.code, message: job.reason });
   if (job.status === 'not_found') return response.status(404).json({ success: false, code: 'PLAN_SOURCE_NOT_FOUND', message: job.reason });
-  return response.status(job.status === 'failed' ? 502 : 202).json({ success: job.status !== 'failed', ...job });
+  const dispatch = job.status === 'queued' ? await dispatchPlanAnalysisJob(process.env, job.jobId) : null;
+  if (job.status === 'queued' && !dispatch?.dispatched) {
+    return response.status(503).json({ success: false, code: 'PLAN_JOB_DISPATCH_UNAVAILABLE', message: dispatch?.reason ?? 'The analysis worker could not be reached.', ...job, dispatch });
+  }
+  return response.status(job.status === 'failed' ? 502 : 202).json({ success: job.status !== 'failed', ...job, dispatch });
 });
 
 app.get('/api/plan/analyze/:jobId', requireProjectUser, async (request, response) => {

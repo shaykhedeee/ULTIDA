@@ -67,6 +67,7 @@ export function SpacesWorkspace() {
   const [measureTo, setMeasureTo] = useState<Pt | null>(null);
   const [saveState, setSaveState] = useState('');
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'blocked' | 'empty' | 'error'>('loading');
+  const [reloadKey, setReloadKey] = useState(0);
   const [history, setHistory] = useState<any[]>([]);
   const [future, setFuture] = useState<any[]>([]);
   const [annotationDraft, setAnnotationDraft] = useState('');
@@ -96,7 +97,7 @@ export function SpacesWorkspace() {
       setLoadState(roomsP.length ? 'ready' : 'empty');
     })();
     return () => { live = false; };
-  }, [projectId]);
+  }, [projectId, reloadKey]);
 
   // ── History helpers (undo/redo) ──
   function snapshot() { setHistory(h => [...h, { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm }]); setFuture([]); }
@@ -201,8 +202,9 @@ export function SpacesWorkspace() {
       {saveState && <p role="status" className="save-state">{saveState}</p>}
 
       {loadState === 'loading' && <div className="spaces-empty"><Layers size={22} /><strong>Loading approved plan spaces...</strong></div>}
-      {loadState === 'blocked' && <div className="spaces-empty"><AlertTriangle size={22} /><strong>Floor Plan approval required</strong><Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}>Open Floor Plan Intelligence</Button></div>}
-      {loadState === 'empty' && <div className="spaces-empty"><Home size={22} /><strong>No room polygons derived</strong></div>}
+      {loadState === 'blocked' && <div className="spaces-empty"><AlertTriangle size={22} /><strong>Floor Plan approval required</strong><p>{saveState || 'Approve an Initial Design plan to derive editable rooms.'}</p><Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}>Open Floor Plan Intelligence</Button></div>}
+      {loadState === 'empty' && <div className="spaces-empty"><Home size={22} /><strong>No room polygons were derived</strong><p>Return to the Floor Plan canvas to add or confirm room boundaries, then create the plan version.</p><div className="spaces-empty-actions"><Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}>Open Floor Plan</Button><Button variant="ghost" onClick={() => setReloadKey(key => key + 1)}>Try again</Button></div></div>}
+      {loadState === 'error' && <div className="spaces-empty"><AlertTriangle size={22} /><strong>Spaces could not be loaded</strong><p>{saveState || 'The approved plan could not be read. Check the Floor Plan review and try again.'}</p><div className="spaces-empty-actions"><Button variant="outline" onClick={() => setReloadKey(key => key + 1)}>Try again</Button><Button variant="ghost" onClick={() => navigate(`/projects/${projectId}/plan`)}>Open Floor Plan</Button></div></div>}
 
       {loadState === 'ready' && (
         <div className="spaces-layout">

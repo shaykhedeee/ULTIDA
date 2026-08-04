@@ -32,6 +32,26 @@ const paletteByFamily: Record<string, { front: string; side: string; top: string
 };
 
 function Cabinet({ module, colours }: { module: ModulePreviewData; colours: { front: string; side: string; top: string; accent: string } }) {
+  if (module.family === 'crockery') {
+    const wide = module.widthMm >= 1800;
+    const fullHeight = module.heightMm >= 2300;
+    return <>
+      <rect x="22" y={fullHeight ? 19 : 30} width="112" height={fullHeight ? 100 : 87} rx="3" fill={colours.front} />
+      <polygon points={`${134},${fullHeight ? 19 : 30} 146,${fullHeight ? 8 : 19} 146,${fullHeight ? 108 : 117} 134,${fullHeight ? 119 : 117}`} fill={colours.side} />
+      <polygon points={`${22},${fullHeight ? 19 : 30} 134,${fullHeight ? 19 : 30} 146,${fullHeight ? 8 : 19} 35,${fullHeight ? 8 : 19}`} fill={colours.top} />
+      {fullHeight && <rect x="25" y="23" width="106" height="17" rx="1" fill={colours.top} opacity=".82" />}
+      <rect x={wide ? 31 : 40} y={fullHeight ? 44 : 39} width={wide ? 59 : 47} height="48" rx="2" fill="#6d8b91" opacity=".68" stroke={colours.accent} strokeWidth="1.4" />
+      <line x1={wide ? 50 : 55} y1={fullHeight ? 46 : 41} x2={wide ? 50 : 55} y2="90" stroke="#eff7f4" strokeWidth="1.2" />
+      <line x1={wide ? 31 : 40} y1="59" x2={wide ? 90 : 87} y2="59" stroke="#eff7f4" strokeWidth="1.2" />
+      <line x1={wide ? 31 : 40} y1="75" x2={wide ? 90 : 87} y2="75" stroke="#eff7f4" strokeWidth="1.2" />
+      <rect x={wide ? 96 : 94} y={fullHeight ? 44 : 39} width={wide ? 31 : 27} height="48" rx="2" fill={colours.top} />
+      <path d={wide ? 'M98 85 Q111 66 125 85' : 'M96 85 Q107 66 120 85'} fill="none" stroke={colours.accent} strokeWidth="2" />
+      <rect x="22" y="94" width="112" height="24" rx="2" fill={colours.front} />
+      <line x1="59" y1="94" x2="59" y2="118" stroke={colours.accent} strokeOpacity=".45" />
+      <line x1="96" y1="94" x2="96" y2="118" stroke={colours.accent} strokeOpacity=".45" />
+      <rect x="20" y="118" width="116" height="4" rx="1" fill={colours.accent} opacity=".72" />
+    </>;
+  }
   const isTall = module.family === 'wardrobe' || module.family === 'kitchen-tall' || module.family === 'utility' || module.family === 'storage';
   const isWall = module.family === 'kitchen-wall';
   const hasGlass = module.family === 'crockery' || module.tags?.some((tag) => /glass|display/i.test(tag));
@@ -65,7 +85,22 @@ function LivingPreview({ module, colours }: { module: ModulePreviewData; colours
   if (module.family === 'sofa') return <><polygon points="33,77 112,77 136,62 57,62" fill={colours.top} /><polygon points="33,77 112,77 112,106 33,106" fill={colours.front} /><polygon points="112,77 136,62 136,91 112,106" fill={colours.side} /><rect x="29" y="49" width="84" height="34" rx="8" fill={colours.front} /><rect x="22" y="67" width="18" height="31" rx="7" fill={colours.front} /><rect x="104" y="66" width="18" height="31" rx="7" fill={colours.front} /></>;
   if (module.family === 'dining') return <><polygon points="36,58 112,58 132,46 56,46" fill={colours.top} /><polygon points="36,58 112,58 112,64 36,64" fill={colours.front} /><line x1="46" y1="64" x2="39" y2="110" stroke={colours.side} strokeWidth="5" /><line x1="103" y1="64" x2="112" y2="110" stroke={colours.side} strokeWidth="5" /><rect x="18" y="72" width="16" height="25" rx="3" fill={colours.front} /><rect x="119" y="64" width="16" height="25" rx="3" fill={colours.front} /><rect x="56" y="89" width="16" height="25" rx="3" fill={colours.front} /><rect x="91" y="84" width="16" height="25" rx="3" fill={colours.front} /></>;
   const tvWide = module.widthMm >= 2200;
-  return <><rect x="25" y="23" width="106" height="83" rx="3" fill={colours.top} /><rect x="36" y="39" width={tvWide ? 52 : 42} height="34" rx="2" fill="#293235" /><rect x="39" y="42" width={tvWide ? 46 : 36} height="28" rx="1" fill="#687b7d" /><rect x="25" y="93" width="106" height="25" rx="2" fill={colours.front} /><polygon points="131,93 143,81 143,106 131,118" fill={colours.side} /><line x1="60" y1="93" x2="60" y2="118" stroke={colours.accent} strokeOpacity=".45" /><line x1="96" y1="93" x2="96" y2="118" stroke={colours.accent} strokeOpacity=".45" />{tvWide && <><rect x="94" y="32" width="25" height="55" fill="#75919a" opacity=".6" /><line x1="106" y1="34" x2="106" y2="85" stroke="#f7faf8" /></>}</>;
+  const displayTower = /profile|display|crockery|asymmetric|full-wall/i.test(module.name);
+  const fullWall = /full-wall|asymmetric|crockery/i.test(module.name);
+  const floating = /floating/i.test(module.name);
+  return <>
+    <rect x="20" y={fullWall ? 17 : 25} width="118" height={fullWall ? 95 : 81} rx="3" fill={colours.top} />
+    {fullWall && <rect x="23" y="20" width="112" height="16" rx="1" fill={colours.front} opacity=".85" />}
+    <rect x={displayTower ? 34 : 39} y={fullWall ? 43 : 40} width={displayTower ? 48 : tvWide ? 55 : 43} height="32" rx="2" fill="#202b2d" />
+    <rect x={displayTower ? 37 : 42} y={fullWall ? 46 : 43} width={displayTower ? 42 : tvWide ? 49 : 37} height="26" rx="1" fill="#6f8887" />
+    {displayTower && <><rect x="94" y={fullWall ? 39 : 31} width="29" height="52" rx="2" fill="#6e939b" opacity=".68" stroke={colours.accent} /><line x1="108.5" y1={fullWall ? 41 : 33} x2="108.5" y2="88" stroke="#f3faf8" /><line x1="96" y1="61" x2="121" y2="61" stroke="#f3faf8" /></>}
+    {fullWall && <rect x="23" y="40" width="8" height="51" fill={colours.front} opacity=".88" />}
+    <rect x="20" y={floating ? 97 : 91} width="118" height="24" rx="2" fill={colours.front} />
+    <polygon points={`138,${floating ? 97 : 91} 149,${floating ? 86 : 80} 149,${floating ? 104 : 104} 138,115`} fill={colours.side} />
+    <line x1="59" y1={floating ? 97 : 91} x2="59" y2="115" stroke={colours.accent} strokeOpacity=".45" />
+    <line x1="98" y1={floating ? 97 : 91} x2="98" y2="115" stroke={colours.accent} strokeOpacity=".45" />
+    {floating && <path d="M27 119 H132" stroke="#d8a94b" strokeWidth="2" strokeLinecap="round" opacity=".8" />}
+  </>;
 }
 
 export function ModulePreview({ module, compact = false, style }: Props) {
