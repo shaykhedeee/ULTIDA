@@ -2,7 +2,10 @@ import { z } from 'zod';
 import { CanonicalPlanModelSchema, type PlanValidationIssue } from './plan-schema.js';
 export { CanonicalPlanModelSchema, type CanonicalPlanModel } from './plan-schema.js';
 
-export const ProposalKindSchema = z.enum(['wall', 'opening', 'room', 'dimension']);
+// Fixtures are source evidence (for example a visible toilet, sink, stove or
+// refrigerator), not production furniture. They inform Spaces without
+// silently creating manufacturing geometry.
+export const ProposalKindSchema = z.enum(['wall', 'opening', 'room', 'dimension', 'fixture']);
 export const PlanProposalSchema = z.object({
   id: z.string(),
   kind: ProposalKindSchema,

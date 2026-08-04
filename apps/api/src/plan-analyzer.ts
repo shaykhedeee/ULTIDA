@@ -60,11 +60,11 @@ export function compileBriefContext(brief?: Record<string, unknown>): string {
 export function buildPlanPrompt(brief?: Record<string, unknown>) {
   const base = `You are the extraction stage of a professional interior floor-plan review system. Read the supplied source without redesigning it.
 
-Extract only visible evidence: walls, room zones, doors/windows/passages, room labels and written dimensions. Never invent a dimension, wall or opening. Preserve uncertainty.
+Extract only visible evidence: walls, room zones, doors/windows/passages, room labels, written dimensions, and existing fixed fixtures (toilet, sink, bathtub, shower, stove, refrigerator). Never invent a dimension, wall, opening or fixture. Preserve uncertainty.
 
 COORDINATES
 - Return every coordinate on a source-relative 0..1000 grid: x=0 left, x=1000 right, y=0 top, y=1000 bottom.
-- Walls use x1,y1,x2,y2. Rooms use x,y,width,height. Openings use x,y,width,kind where kind 0=door and 1=window. Dimensions use x1,y1,x2,y2,valueMm.
+- Walls use x1,y1,x2,y2. Rooms use x,y,width,height. Openings use x,y,width,kind where kind 0=door and 1=window. Dimensions use x1,y1,x2,y2,valueMm. Fixtures use x,y,width,depth only when their outline is visible.
 - Set confidence below 0.70 for occluded, faint, ambiguous or inferred entities.
 - A dimension may be returned only when its text is legible; otherwise omit it.
 - Do not merge separate parallel wall faces into arbitrary geometry.
@@ -77,7 +77,7 @@ SELF CHECK
 5. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
 6. Do not split a straight wall into redundant collinear fragments. Prefer fewer, well-evidenced candidates over guessed completeness.
 7. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
-8. Output JSON only as {"proposals":[{"kind":"wall|opening|room|dimension","confidence":0.0,"geometry":{},"note":""}]}.`;
+8. Output JSON only as {"proposals":[{"kind":"wall|opening|room|dimension|fixture","confidence":0.0,"geometry":{},"note":""}]}.`;
 
   const briefContext = compileBriefContext(brief);
   return `${base}${briefContext}`;
@@ -101,8 +101,35 @@ function normalizeGeometry(kind: PlanProposal['kind'], geometry: Record<string, 
   return normalized;
 }
 
+function extractJsonObject(raw: string): unknown {
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  try { return JSON.parse(cleaned); } catch { /* Some vision providers add a short lead-in. */ }
+  const first = cleaned.indexOf('{');
+  if (first < 0) throw new Error('Plan analyzer did not return a JSON object.');
+  let depth = 0; let quoted = false; let escaped = false;
+  for (let index = first; index < cleaned.length; index += 1) {
+    const char = cleaned[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
+    }
+    if (char === '"') { quoted = true; continue; }
+    if (char === '{') depth += 1;
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        try { return JSON.parse(cleaned.slice(first, index + 1)); }
+        catch { throw new Error('Plan analyzer returned malformed JSON.'); }
+      }
+    }
+  }
+  throw new Error('Plan analyzer returned incomplete JSON.');
+}
+
 function parseProposals(raw: string, source: 'ocr' | 'detector'): PlanProposal[] {
-  const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()) as { proposals?: unknown[] };
+  const parsed = extractJsonObject(raw) as { proposals?: unknown[] };
   const proposals = (parsed.proposals ?? []).map((item, index) => {
     const value = item as { kind?: PlanProposal['kind']; confidence?: unknown; geometry?: Record<string, unknown>; note?: unknown };
     return { id: crypto.randomUUID(), kind: value.kind, confidence: Math.max(0, Math.min(1, Number(value.confidence ?? 0))), source, status: 'needs_review' as const, geometry: normalizeGeometry(value.kind ?? 'wall', value.geometry ?? {}), note: typeof value.note === 'string' ? value.note : `Provider proposal ${index + 1} requires review.` };
@@ -129,7 +156,7 @@ async function analyzeOpenAi(environment: Environment, input: Input) {
   if (input.mimeType === 'application/pdf') throw new Error('OpenAI PDF rasterization is not configured; Gemini handles PDF analysis in this deployment.');
   const model = environment.OPENAI_VISION_MODEL || 'gpt-4o-mini';
   const prompt = buildPlanPrompt(input.brief);
-  const response = await fetchWithProviderTimeout(environment, 'https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${environment.OPENAI_API_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_schema', json_schema: { name: 'floor_plan_analysis_v1', strict: true, schema: { type: 'object', additionalProperties: false, required: ['proposals'], properties: { proposals: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'object', additionalProperties: false, required: ['kind', 'confidence', 'geometry', 'note'], properties: { kind: { type: 'string', enum: ['wall', 'opening', 'room', 'dimension'] }, confidence: { type: 'number', minimum: 0, maximum: 1 }, geometry: { type: 'object', additionalProperties: { type: 'number' } }, note: { type: 'string', maxLength: 160 } } } } } } } }, messages: [{ role: 'system', content: prompt }, { role: 'user', content: [{ type: 'text', text: `Source file ${input.fileName}. Extract visible plan evidence and run the self-check.` }, { type: 'image_url', image_url: { url: input.dataUrl, detail: 'high' } }] }] }) });
+  const response = await fetchWithProviderTimeout(environment, 'https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${environment.OPENAI_API_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_schema', json_schema: { name: 'floor_plan_analysis_v1', strict: true, schema: { type: 'object', additionalProperties: false, required: ['proposals'], properties: { proposals: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'object', additionalProperties: false, required: ['kind', 'confidence', 'geometry', 'note'], properties: { kind: { type: 'string', enum: ['wall', 'opening', 'room', 'dimension', 'fixture'] }, confidence: { type: 'number', minimum: 0, maximum: 1 }, geometry: { type: 'object', additionalProperties: { type: 'number' } }, note: { type: 'string', maxLength: 160 } } } } } } } }, messages: [{ role: 'system', content: prompt }, { role: 'user', content: [{ type: 'text', text: `Source file ${input.fileName}. Extract visible plan evidence and run the self-check.` }, { type: 'image_url', image_url: { url: input.dataUrl, detail: 'high' } }] }] }) });
   if (!response.ok) throw new Error(`OpenAI plan analyzer failed (${response.status}).`);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;

@@ -183,6 +183,11 @@
 .props-body input, .props-body select { padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; }
 .props-read { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid var(--line); padding-top: 8px; }
 .props-read div { display: flex; justify-content: space-between; font-size: 12px; }
+.detected-items { border-top: 1px solid var(--line); padding-top: 8px; font-size: 12px; color: var(--text-secondary); }
+.detected-items > strong { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.detected-items p { margin: 0; color: var(--text-muted); line-height: 1.4; }
+.detected-item-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.detected-item-list span { background: rgba(124,58,237,.09); color: #5b21b6; border: 1px solid rgba(124,58,237,.18); border-radius: 999px; padding: 3px 7px; }
 .props-empty { font-size: 12px; color: var(--text-muted); }
 .wall-id { font-family: monospace; font-size: 12px; background: #f3efe7; padding: 6px 8px; border-radius: 6px; }
 .ai-region { grid-area: ai; }

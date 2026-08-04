@@ -203,8 +203,25 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
   const job = await client.from('jobs').select('id,status,output,error,created_at,updated_at').eq('id', jobId).eq('project_id', projectId).eq('kind', 'plan-analysis').maybeSingle();
   if (job.error || !job.data) return { status: 'not_found' as const };
   let redispatched = false;
+  const lastActivityMs = new Date(job.data.updated_at ?? job.data.created_at).getTime();
+  // A serverless request can be interrupted after it claims the job but before
+  // it writes a terminal result. Recover only a genuinely idle claim and
+  // re-dispatch the exact same idempotent source job.
+  if (job.data.status === 'running' && Number.isFinite(lastActivityMs) && Date.now() - lastActivityMs > 150_000) {
+    const reset = await client.from('jobs')
+      .update({ status: 'queued', locked_at: null, locked_by: null, updated_at: new Date().toISOString() })
+      .eq('id', job.data.id)
+      .eq('status', 'running');
+    if (!reset.error) {
+      const dispatch = await dispatchPlanAnalysisJob(environment, job.data.id).catch(() => ({ dispatched: false as const }));
+      return {
+        status: 'queued' as const, jobId: job.data.id, analysis: job.data.output, error: job.data.error,
+        createdAt: job.data.created_at, updatedAt: new Date().toISOString(), redispatched: dispatch.dispatched,
+        recovery: dispatch.dispatched ? 'Recovered a stalled worker claim and re-dispatched the analysis.' : 'Analysis worker recovery could not be dispatched.'
+      };
+    }
+  }
   if (job.data.status === 'queued') {
-    const lastActivityMs = new Date(job.data.updated_at ?? job.data.created_at).getTime();
     // The browser keeps polling while the review is open. Use that authenticated
     // request as a safe self-healing trigger rather than leaving a missed queue
     // handoff stuck forever. Updating updated_at limits this to one dispatch per

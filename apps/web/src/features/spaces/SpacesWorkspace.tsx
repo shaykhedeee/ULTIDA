@@ -180,6 +180,13 @@ export function SpacesWorkspace() {
   }
 
   const sel = roomMetrics.find(m => m.room.id === selectedRoom);
+  const detectedExistingItems = annotations
+    .filter((annotation) => /^Existing fixture:/i.test(annotation.text))
+    .filter((annotation) => !annotation.position || !sel || (() => {
+      const bounds = bbox(sel.room.polygon);
+      return annotation.position.xMm >= bounds.minX && annotation.position.xMm <= bounds.maxX && annotation.position.yMm >= bounds.minY && annotation.position.yMm <= bounds.maxY;
+    })())
+    .map((annotation) => annotation.text.replace(/^Existing fixture:\s*/i, ''));
 
   return (
     <div className="spaces-workspace phase4">
@@ -283,6 +290,12 @@ export function SpacesWorkspace() {
                   <div><span>Area</span><strong>{sel.room.areaSqm.toFixed(1)} m²</strong></div>
                   <div><span>Usable wall</span><strong>{sel.usable.usableWallMm} mm</strong></div>
                   <div><span>Deductions</span><strong>{sel.usable.deductionsMm} mm</strong></div>
+                </div>
+                <div className="detected-items" aria-label="Detected existing items">
+                  <strong>Existing items detected</strong>
+                  {detectedExistingItems.length
+                    ? <div className="detected-item-list">{detectedExistingItems.map((item, index) => <span key={`${item}-${index}`}>{item}</span>)}</div>
+                    : <p>No fixed fixtures were confidently detected in this room.</p>}
                 </div>
                 <Button variant="outline" onClick={() => persistRoom(sel.room)}><Save size={13} /> Save room</Button>
               </div>

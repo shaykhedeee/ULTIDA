@@ -548,7 +548,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           setAnalysisJobId(null);
         } else {
           const queuedForMs = payload.createdAt ? Date.now() - new Date(payload.createdAt).getTime() : 0;
-          if (payload.status === 'queued' && queuedForMs > 45_000) {
+          if ((payload.status === 'queued' && queuedForMs > 45_000) || (payload.status === 'running' && queuedForMs > 150_000)) {
             if (analysisAutoRetryRef.current !== analysisJobId) {
               analysisAutoRetryRef.current = analysisJobId;
               setPlanStatus('Reconnecting the analysis worker…');
@@ -556,10 +556,10 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
               return;
             }
             setAnalysisRetryAvailable(true);
-            setPlanStatus('The analysis worker did not respond. Use Retry analysis to re-dispatch this exact source file.');
+            setPlanStatus('The analysis worker did not return a result. Use Retry analysis to re-dispatch this exact source file.');
             return;
           }
-          setPlanStatus(`Analysis ${payload.status ?? 'processing'}...`);
+          setPlanStatus(payload.recovery ?? `Analysis ${payload.status ?? 'processing'}...`);
         }
       } catch {
         if (!stopped) setPlanStatus('Analysis status could not be refreshed. Retrying...');

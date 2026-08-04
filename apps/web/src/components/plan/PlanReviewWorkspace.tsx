@@ -22,6 +22,7 @@ export type LayerKey =
   | 'rooms'
   | 'doors'
   | 'windows'
+  | 'fixtures'
   | 'columns'
   | 'beams'
   | 'services'
@@ -39,7 +40,7 @@ export type ScaleCalibration = {
 
 export type PlanElement = {
   id: string;
-  kind: 'wall' | 'room' | 'door' | 'window' | 'column' | 'beam' | 'service' | 'annotation';
+  kind: 'wall' | 'room' | 'door' | 'window' | 'fixture' | 'column' | 'beam' | 'service' | 'annotation';
   label: string;
   confidence: number;
   status: 'proposed' | 'accepted' | 'rejected' | 'needs_review';
@@ -137,6 +138,7 @@ const INITIAL_LAYERS: Record<LayerKey, { label: string; visible: boolean; count:
   rooms:       { label: 'Rooms (Polygons)',  visible: true, count: 0 },
   doors:       { label: 'Doors & Swings',    visible: true, count: 0 },
   windows:     { label: 'Windows & Gaps',    visible: true, count: 0 },
+  fixtures:    { label: 'Existing Fixtures', visible: true, count: 0 },
   columns:     { label: 'Columns & Shafts',  visible: true, count: 0 },
   beams:       { label: 'Ceiling Beams',     visible: false, count: 0 },
   services:    { label: 'Plumbing & Elec',   visible: false, count: 3 },
@@ -172,6 +174,7 @@ export function PlanReviewWorkspace({
   const [activeTool, setActiveTool] = useState<CanvasTool>('select');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ id: string; point: Point; snapshot: PlanElement[] } | null>(null);
+  const [resizing, setResizing] = useState<{ id: string; opposite: Point; snapshot: PlanElement[] } | null>(null);
   const [mergeSelection, setMergeSelection] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -239,7 +242,7 @@ export function PlanReviewWorkspace({
       label: proposal.note || `${proposal.kind} proposal ${index + 1}`,
       confidence: proposal.confidence,
       status: (proposal.status === 'accepted' || proposal.status === 'rejected' ? proposal.status : 'needs_review') as PlanElement['status'],
-      color: proposal.kind === 'wall' ? '#2563eb' : proposal.kind === 'room' ? 'rgba(197,156,45,0.18)' : '#059669',
+      color: proposal.kind === 'wall' ? '#2563eb' : proposal.kind === 'room' ? 'rgba(197,156,45,0.18)' : proposal.kind === 'fixture' ? '#7c3aed' : '#059669',
       geometry: { ...geometry, ...(polygon ? { polygon } : {}) },
       dimensionMm: proposal.kind === 'dimension' ? geometry.valueMm : undefined,
       wallId: typeof geometry.wallId === 'string' ? geometry.wallId : undefined,
@@ -284,7 +287,7 @@ export function PlanReviewWorkspace({
   const analysisInFlight = /uploading|queued|processing|preparing|reconnecting|re-dispatch/i.test(status);
   const layerCount = (key: LayerKey) => {
     const kinds: Partial<Record<LayerKey, PlanElement['kind'][]>> = {
-      walls: ['wall'], rooms: ['room'], doors: ['door'], windows: ['window'], columns: ['column'],
+      walls: ['wall'], rooms: ['room'], doors: ['door'], windows: ['window'], fixtures: ['fixture'], columns: ['column'],
       services: ['service'], annotations: ['annotation'],
     };
     if (key === 'source_plan') return preview ? 1 : 0;
@@ -348,6 +351,17 @@ export function PlanReviewWorkspace({
       if (geometry.polygon) geometry.polygon = geometry.polygon.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y }));
       return { ...element, geometry };
     }));
+  };
+
+  const resizeRoom = (id: string, opposite: Point, point: Point) => {
+    const left = Math.min(opposite.x, point.x); const top = Math.min(opposite.y, point.y);
+    const width = Math.abs(opposite.x - point.x); const height = Math.abs(opposite.y - point.y);
+    if (width < 20 || height < 20) return;
+    setElements((previous) => previous.map((element) => element.id === id ? {
+      ...element,
+      geometry: { ...element.geometry, x: left, y: top, width, height, polygon: [{ x: left, y: top }, { x: left + width, y: top }, { x: left + width, y: top + height }, { x: left, y: top + height }] },
+      areaSqm: scale ? Math.round(width * height * scale.mmPerPixel ** 2 / 10_000) / 100 : element.areaSqm,
+    } : element));
   };
 
   const splitSelectedWall = (point: Point) => {
@@ -488,6 +502,10 @@ export function PlanReviewWorkspace({
     }
     const point = canvasPoint(event);
     if (point) setPointerPoint(point);
+    if (resizing && point) {
+      resizeRoom(resizing.id, resizing.opposite, point);
+      return;
+    }
     if (!dragging) return;
     if (!point) return;
     translateElement(dragging.id, { x: point.x - dragging.point.x, y: point.y - dragging.point.y });
@@ -495,6 +513,11 @@ export function PlanReviewWorkspace({
   };
   const finishDrag = () => {
     setPanning(null);
+    if (resizing) {
+      setUndoStack((stack) => [...stack.slice(-39), resizing.snapshot]);
+      setRedoStack([]);
+    }
+    setResizing(null);
     if (dragging) {
       setUndoStack((stack) => [...stack.slice(-39), dragging.snapshot]);
       setRedoStack([]);
@@ -553,7 +576,16 @@ export function PlanReviewWorkspace({
       }).map((opening) => opening.kind === 'window'
         ? { id: opening.id, wallId: opening.wallId!, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, sillMm: opening.sillMm!, headMm: opening.headMm!, verification: 'verified', confidence: opening.confidence }
         : { id: opening.id, wallId: opening.wallId!, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, heightMm: opening.heightMm!, verification: 'verified', confidence: opening.confidence }), columns: [], beams: [], servicePoints: [],
-      annotations: elements.filter((e) => e.kind === 'annotation'),
+      annotations: approvalElements
+        .filter((element) => element.kind === 'annotation' || element.kind === 'fixture')
+        .map((element) => ({
+          id: element.id,
+          text: element.kind === 'fixture' ? `Existing fixture: ${element.label}` : element.label,
+          kind: 'note' as const,
+          position: Number.isFinite(element.geometry.x) && Number.isFinite(element.geometry.y)
+            ? { xMm: Math.round((element.geometry.x ?? 0) * mmPerPixel), yMm: Math.round((element.geometry.y ?? 0) * mmPerPixel) }
+            : undefined,
+        })),
       issues, assumptions: isInitialDesign ? ['Initial-design geometry: scale, openings, and wall roles must be verified on site before production release.', 'Incomplete door and window measurements are retained as unresolved evidence and excluded from fabrication outputs.', 'Default wall thicknesses: external 254 mm; internal 152.4 mm unless edited by the designer.', 'Default ceiling height is 2700 mm until site measurement confirms it.'] : [],
       validation: { isValid: wallModels.length > 0 && spaces.length > 0, blockingIssueCount: 0, issues: [] },
       approval: { approvedAt: new Date().toISOString() },
@@ -839,6 +871,23 @@ export function PlanReviewWorkspace({
                         style={{ cursor: 'pointer' }}
                       />
                     )}
+                    {isSelected && room.geometry.polygon && (() => {
+                      const points = room.geometry.polygon;
+                      const oppositeIndex = [2, 3, 0, 1];
+                      return points.map((point, index) => (
+                        <rect
+                          key={`${room.id}-handle-${index}`}
+                          x={point.x - 6} y={point.y - 6} width={12} height={12} rx={2}
+                          fill="#fff" stroke="#c59c2d" strokeWidth={2}
+                          style={{ cursor: 'nwse-resize' }}
+                          onMouseDown={(event) => {
+                            if (activeTool !== 'select' && activeTool !== 'move') return;
+                            event.stopPropagation();
+                            setResizing({ id: room.id, opposite: points[oppositeIndex[index]], snapshot: cloneElements(elements) });
+                          }}
+                        />
+                      ));
+                    })()}
                     {/* Room Label */}
                     {room.geometry.polygon && room.geometry.polygon[0] && (
                       <text
@@ -933,6 +982,19 @@ export function PlanReviewWorkspace({
                     onClick={(e) => { e.stopPropagation(); setSelectedId(win.id); }}
                     style={{ cursor: 'pointer' }}
                   />
+                );
+              })}
+
+              {/* Existing source fixtures are deliberately review-only. They
+                  inform Space requirements; they never become modular units. */}
+              {layers.fixtures.visible && elements.filter((e) => e.kind === 'fixture').map((fixture) => {
+                const isSelected = fixture.id === selectedId;
+                const { x = 0, y = 0, width = 34, height: depth = 34 } = fixture.geometry;
+                return (
+                  <g key={fixture.id} onClick={(event) => { event.stopPropagation(); setSelectedId(fixture.id); }} style={{ cursor: 'pointer' }}>
+                    <rect x={x - width / 2} y={y - depth / 2} width={width} height={depth} rx={4} fill="rgba(124,58,237,.16)" stroke={isSelected ? '#c59c2d' : '#7c3aed'} strokeWidth={isSelected ? 3 : 1.5} strokeDasharray={fixture.status === 'needs_review' ? '5,3' : undefined} />
+                    <text x={x} y={y + depth / 2 + 12} textAnchor="middle" fill="#5b21b6" fontSize="10" fontWeight="700" style={{ pointerEvents: 'none' }}>{fixture.label}</text>
+                  </g>
                 );
               })}
 
