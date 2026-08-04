@@ -71,6 +71,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const [vaultState, setVaultState] = useState('all');
   const [moduleFamily, setModuleFamily] = useState('all');
   const [moduleRoom, setModuleRoom] = useState('all');
+  const [archiveTarget, setArchiveTarget] = useState<VaultEntry | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -150,7 +151,12 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const visibleVault = useMemo(() => vault.filter((entry) => (vaultRoom === 'all' || entry.room === vaultRoom) && (vaultFamily === 'all' || entry.module_family === vaultFamily) && (vaultState === 'all' || entry.review_state === vaultState) && (!search || `${entry.title} ${entry.source_path} ${entry.room} ${entry.module_family} ${entry.style}`.toLowerCase().includes(search))), [vault, vaultRoom, vaultFamily, vaultState, search]);
   const vaultValues = (field: 'room' | 'module_family' | 'review_state') => [...new Set(vault.map((entry) => entry[field]).filter(Boolean))].sort();
   async function updateVault(id: string, patch: Partial<VaultEntry>) { if (!supabase) return; const { error } = await supabase.from('reference_vault_entries').update(patch).eq('id', id); if (!error) setVault((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry)); }
-  async function deleteVault(id: string) { if (!supabase || !window.confirm('Archive this reference from the vault?')) return; const { error } = await supabase.from('reference_vault_entries').update({ review_state: 'archived' }).eq('id', id); if (!error) setVault((current) => current.map((entry) => entry.id === id ? { ...entry, review_state: 'archived' } : entry)); }
+  async function deleteVault(id: string) {
+    if (!supabase) return;
+    const { error } = await supabase.from('reference_vault_entries').update({ review_state: 'archived' }).eq('id', id);
+    if (!error) setVault((current) => current.map((entry) => entry.id === id ? { ...entry, review_state: 'archived' } : entry));
+    setArchiveTarget(null);
+  }
 
   async function uploadReference() {
     if (!projectId || !referenceFile || !supabase) {
@@ -189,6 +195,16 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
 
   return (
     <div style={{ padding: '24px 32px', maxWidth: 1400, margin: '0 auto' }}>
+      {archiveTarget && <div role="presentation" style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(28,25,23,.38)', display: 'grid', placeItems: 'center', padding: 20 }} onMouseDown={(event) => { if (event.target === event.currentTarget) setArchiveTarget(null); }}>
+        <section role="dialog" aria-modal="true" aria-labelledby="archive-reference-title" style={{ width: 'min(420px, 100%)', background: '#fff', borderRadius: 12, padding: 22, boxShadow: '0 20px 60px rgba(28,25,23,.2)' }}>
+          <h2 id="archive-reference-title" style={{ margin: '0 0 8px', fontSize: 18, color: '#1c1917' }}>Archive this reference?</h2>
+          <p style={{ margin: '0 0 18px', color: '#57534e', fontSize: 13, lineHeight: 1.5 }}>{archiveTarget.title} will leave active vault results but remain recoverable as archived.</p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button type="button" onClick={() => setArchiveTarget(null)} style={{ border: '1px solid #d6d3d1', background: '#fff', color: '#57534e', borderRadius: 6, padding: '8px 12px', fontWeight: 700 }}>Cancel</button>
+            <button type="button" onClick={() => void deleteVault(archiveTarget.id)} style={{ border: 0, background: '#991b1b', color: '#fff', borderRadius: 6, padding: '8px 12px', fontWeight: 700 }}>Archive reference</button>
+          </div>
+        </section>
+      </div>}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'end', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1c1917', margin: '0 0 6px' }}>Design Library</h1>
@@ -235,7 +251,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
 
       {activeTab === 'templates' && <Card className="workflow">
         <CardContent style={{display:'flex',gap:8,flexWrap:'wrap',padding:'14px 16px',borderBottom:'1px solid #e7e5e4'}}><strong style={{marginRight:8}}>Reference vault</strong>{[['room',vaultRoom,setVaultRoom],['module_family',vaultFamily,setVaultFamily],['review_state',vaultState,setVaultState]].map(([field,value,setter])=><select key={field as string} aria-label={`Filter by ${field}`} value={value as string} onChange={e=>(setter as (value:string)=>void)(e.target.value)} style={{padding:'7px 9px',border:'1px solid #d6d3d1',borderRadius:6}}><option value="all">All {String(field).replace('_',' ')}</option>{vaultValues(field as any).map(v=><option key={v} value={v}>{v}</option>)}</select>)}<Badge tone="neutral">{visibleVault.length} indexed</Badge></CardContent>
-        <CardContent>{visibleVault.length ? <div className="library-grid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:12}}>{visibleVault.map(entry=><article key={entry.id} style={{border:'1px solid #e7e5e4',borderRadius:8,padding:12}}><strong>{entry.title}</strong><small style={{display:'block',color:'#78716c',marginTop:5}}>{entry.room} · {entry.module_family} · {entry.review_state}</small><small style={{display:'block',color:'#a8a29e',marginTop:5,overflowWrap:'anywhere'}}>{entry.source_path}</small><div style={{display:'flex',gap:6,marginTop:10}}><select aria-label={`Review state for ${entry.title}`} value={entry.review_state} onChange={e=>void updateVault(entry.id,{review_state:e.target.value})} style={{padding:5,border:'1px solid #d6d3d1',borderRadius:5}}><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="archived">Archived</option></select><button type="button" onClick={()=>void deleteVault(entry.id)} style={{padding:'5px 8px',border:'1px solid #fecaca',background:'#fff1f2',color:'#991b1b',borderRadius:5}}>Archive</button></div></article>)}</div>:emptyState('No indexed references match these filters.')}</CardContent>
+        <CardContent>{visibleVault.length ? <div className="library-grid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:12}}>{visibleVault.map(entry=><article key={entry.id} style={{border:'1px solid #e7e5e4',borderRadius:8,padding:12}}><strong>{entry.title}</strong><small style={{display:'block',color:'#78716c',marginTop:5}}>{entry.room} · {entry.module_family} · {entry.review_state}</small><small style={{display:'block',color:'#a8a29e',marginTop:5,overflowWrap:'anywhere'}}>{entry.source_path}</small><div style={{display:'flex',gap:6,marginTop:10}}><select aria-label={`Review state for ${entry.title}`} value={entry.review_state} onChange={e=>void updateVault(entry.id,{review_state:e.target.value})} style={{padding:5,border:'1px solid #d6d3d1',borderRadius:5}}><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="archived">Archived</option></select><button type="button" onClick={()=>setArchiveTarget(entry)} style={{padding:'5px 8px',border:'1px solid #fecaca',background:'#fff1f2',color:'#991b1b',borderRadius:5}}>Archive</button></div></article>)}</div>:emptyState('No indexed references match these filters.')}</CardContent>
       </Card>}
       {activeTab === 'templates' && <Card className="workflow">
         <CardHeader className="section-title"><div><small>STUDIO REFERENCES</small><h2>Approved references and reusable compositions</h2></div><Badge tone="neutral">{visibleTemplates.length} saved</Badge></CardHeader>
