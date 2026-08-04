@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import sharp from 'sharp';
 import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { reconcilePlan, type CvTraceResult, type VisionSemanticResult } from './plan/reconcile_plan.js';
 
@@ -144,6 +145,19 @@ function serverClient(environment: Environment) {
 
 function dataUrl(mimeType: string, bytes: Uint8Array) { return `data:${mimeType};base64,${Buffer.from(bytes).toString('base64')}`; }
 
+async function normalizeRasterForVision(bytes: Uint8Array, mimeType: string) {
+  if (mimeType === 'image/png') return { bytes, mimeType };
+  try {
+    // Workers AI receives an actual, self-consistent PNG irrespective of a
+    // browser's filename or encoded source format. It avoids decoder gaps for
+    // WebP/HEIC-style uploads and gives CV and vision the identical pixels.
+    const png = await sharp(Buffer.from(bytes), { animated: false }).png({ compressionLevel: 9 }).toBuffer();
+    return { bytes: new Uint8Array(png), mimeType: 'image/png' };
+  } catch (error) {
+    throw new Error(`The uploaded image could not be normalized for vision: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function rasterizePdf(bytes: Uint8Array) {
   const directory = await mkdtemp(join(tmpdir(), 'ultida-plan-'));
   const inputPath = join(directory, 'source.pdf'); const outputPrefix = join(directory, 'page');
@@ -231,8 +245,10 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       const original = new Uint8Array(await downloaded.data.arrayBuffer());
       const detectedMimeType = input.mimeType === 'application/pdf' ? null : detectRasterMimeType(original);
       const sourceRasterMimeType = detectedMimeType ?? input.mimeType;
-      const raster = input.mimeType === 'application/pdf' ? await rasterizePdf(original) : original;
-      const analysisMimeType = input.mimeType === 'application/pdf' ? 'image/png' : sourceRasterMimeType;
+      const rawRaster = input.mimeType === 'application/pdf' ? await rasterizePdf(original) : original;
+      const normalized = await normalizeRasterForVision(rawRaster, input.mimeType === 'application/pdf' ? 'image/png' : sourceRasterMimeType);
+      const raster = normalized.bytes;
+      const analysisMimeType = normalized.mimeType;
       const briefRes = await client.from('project_briefs').select('brief').eq('project_id', job.project_id).maybeSingle();
       const analysis = await analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief });
       if (!analysis) throw new Error('No configured floor-plan analysis provider is available.');
