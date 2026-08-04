@@ -1,4 +1,4 @@
-import { ArrowRight, Box, FileOutput, Image, LayoutTemplate, Layers3, PackageCheck, Plus, Ruler, Sparkles, Wand2 } from 'lucide-react';
+import { ArrowRight, Box, FileOutput, Image, LayoutTemplate, Layers3, PackageCheck, Plus, Ruler, Sparkles, Wand2, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -43,6 +43,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
 
   const openProjectStage = (project: Project) => navigate(`/projects/${project.id}/${project.workflow_stage || 'brief'}`);
   const openTool = (path: string) => navigate(path);
+  const hasProjects = projects.length > 0;
 
   return (
     <div className="studio-dashboard">
@@ -50,7 +51,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         <div>
           <p className="studio-kicker">STUDIO COMMAND CENTRE</p>
           <h1>Welcome back, {studio}.</h1>
-          <p>Start the right task, see what needs attention, and continue every project from its real workflow state.</p>
+          <p>Start a standalone task, see what needs attention, and continue every project from its real workflow state.</p>
         </div>
         <div className="studio-hero-actions">
           <button className="studio-secondary" onClick={() => openTool('/projects')}><Layers3 size={16} /> All projects</button>
@@ -58,21 +59,31 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         </div>
       </section>
 
+      <section className="studio-launchpad" aria-label="Start a task">
+        <div className="studio-launchpad-copy"><p className="studio-kicker">START A TASK</p><h2>Design tools, ready when you are.</h2><span>Use planning tools directly, then place validated work into a project when it is ready.</span></div>
+        <div className="studio-launchpad-actions">
+          <button onClick={() => openTool('/tools/modules')}><Box size={17} /><span><strong>Plan a modular unit</strong><small>TV, crockery, wardrobe, kitchen</small></span><ArrowRight size={15} /></button>
+          <button onClick={() => openTool('/tools/cnc')}><LayoutTemplate size={17} /><span><strong>Create a CNC pattern</strong><small>Size a reviewed DXF template</small></span><ArrowRight size={15} /></button>
+          <button onClick={() => openTool('/library')}><Image size={17} /><span><strong>Browse references</strong><small>Module families and studio vault</small></span><ArrowRight size={15} /></button>
+        </div>
+      </section>
+
       <section className="studio-metrics" aria-label="Studio status">
         <div><span>Active projects</span><strong>{loading ? '—' : active}</strong><small>in your current portfolio</small></div>
         <div><span>Needs review</span><strong>{loading ? '—' : inReview}</strong><small>designer attention required</small></div>
         <div><span>Production-ready</span><strong>{loading ? '—' : projects.filter((p) => p.project_status === 'approved').length}</strong><small>approved projects</small></div>
-        <div><span>Core systems</span><strong className="status-ready">Ready</strong><small>plan AI and rendering online</small></div>
+        <div><span>Next action</span><strong className="status-ready">{loading ? '…' : hasProjects ? 'Continue' : 'Create'}</strong><small>{hasProjects ? 'resume an active project' : 'start your first project'}</small></div>
       </section>
 
       <section className="studio-section">
         <div className="studio-section-heading"><div><p className="studio-kicker">DESIGN TOOLS</p><h2>Open the right workspace</h2></div><button onClick={() => openTool('/projects')}>View project flow <ArrowRight size={15} /></button></div>
         <div className="studio-tool-grid">
-          <button className="studio-tool-card featured" onClick={() => openTool('/projects')}><span className="tool-icon"><Ruler size={20} /></span><strong>Floor plan intelligence</strong><p>Upload, analyse, calibrate, review rooms and continue into Spaces.</p><span>Choose a project <ArrowRight size={14} /></span></button>
-          <button className="studio-tool-card" onClick={() => openTool('/projects')}><span className="tool-icon"><Wand2 size={20} /></span><strong>Laminate preview</strong><p>Apply a saved material and produce a scene-locked render proposal.</p><span>Open Visual Studio <ArrowRight size={14} /></span></button>
+          <button className="studio-tool-card featured" onClick={() => openTool('/projects')}><span className="tool-icon"><Ruler size={20} /></span><strong>Floor plan intelligence</strong><p>Upload, analyse, calibrate, review rooms and continue into Spaces.</p><span>Start a plan project <ArrowRight size={14} /></span></button>
+          <button className="studio-tool-card featured" onClick={() => openTool('/tools/modules')}><span className="tool-icon"><Box size={20} /></span><strong>Modular unit planner</strong><p>Pick a real TV, crockery, wardrobe or kitchen template, size it and export an initial brief.</p><span>Plan a unit <ArrowRight size={14} /></span></button>
+          <button className="studio-tool-card" onClick={() => openTool('/library')}><span className="tool-icon"><Workflow size={20} /></span><strong>Furniture catalogue</strong><p>Filter visual, dimensioned templates by module family, room and design intent.</p><span>Browse modules <ArrowRight size={14} /></span></button>
+          <button className="studio-tool-card" onClick={() => openTool('/projects')}><span className="tool-icon"><Wand2 size={20} /></span><strong>Laminate preview</strong><p>Apply a saved material and produce a scene-locked render proposal from an approved scene.</p><span>Choose a project <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card" onClick={() => openTool('/tools/cnc')}><span className="tool-icon"><LayoutTemplate size={20} /></span><strong>CNC pattern studio</strong><p>Use an image as a design reference, select a vetted pattern, size it and download DXF.</p><span>Open CNC tool <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card" onClick={() => openTool('/projects')}><span className="tool-icon"><FileOutput size={20} /></span><strong>Cutlist & production</strong><p>Generate panel, edging and hardware schedules from approved scene geometry.</p><span>Open production <ArrowRight size={14} /></span></button>
-          <button className="studio-tool-card" onClick={() => openTool('/library')}><span className="tool-icon"><Box size={20} /></span><strong>Furniture selector</strong><p>Browse parametric kitchen, wardrobe, TV, crockery and pooja modules.</p><span>Open design library <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card" onClick={() => openTool('/library')}><span className="tool-icon"><Image size={20} /></span><strong>Moodboard library</strong><p>Build a governed material palette from your studio’s saved product library.</p><span>Open materials <ArrowRight size={14} /></span></button>
         </div>
       </section>
