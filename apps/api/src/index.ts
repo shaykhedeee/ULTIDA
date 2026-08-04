@@ -27,7 +27,7 @@ import { CanonicalPlanModelSchema, parsePlanIntake } from '@ultida/plan-core';
 import { validateGeometry } from '@ultida/geometry-core';
 import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { AURA_TOOLS, listAuraTools, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
-import { createVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
+import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
 import { buildDrawingProjection, exportSceneToDxf, generateDrawingPackageSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateSketchUpRubyScript } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
@@ -640,6 +640,15 @@ app.get('/api/projects/:projectId/renders', requireProjectUser, async (request, 
   return response.json({ success: true, renders: result.renders });
 });
 
+// Render records are durable jobs, not gallery entries. The client polls this
+// endpoint for the precise job it started so failed or queued work is never
+// mistaken for a missing gallery image.
+app.get('/api/projects/:projectId/renders/:renderId', requireProjectUser, async (request, response) => {
+  const result = await getVisualJob(process.env, gateway, String(request.params.renderId), String(request.params.projectId), getRequestSupabaseClient(request));
+  if (result.status === 'not_found') return response.status(404).json({ success: false, code: 'RENDER_NOT_FOUND', message: 'Render job was not found.' });
+  return response.json({ success: true, result });
+});
+
 app.post('/api/projects/:projectId/renders', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const projectId = String(request.params.projectId);
@@ -654,7 +663,7 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
     sourceAssets: [`scene:${sceneVersionId}`],
     referenceAssets: [],
     masks: [],
-    operation: 'generate',
+    operation: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'].includes(String(options.operation)) ? options.operation : 'generate',
     style: typeof options.style === 'string' ? options.style : 'Warm contemporary Indian',
     quality: options.quality === 'draft' || options.quality === 'final' ? options.quality : 'review',
     camera: { view: 'wide-corner', lensMm: 24, eyeHeightMm: 1500 },

@@ -180,6 +180,7 @@ async function jobContext(client: SupabaseClient, request: VisualProposalRequest
 export async function createVisualJob(environment: Record<string, string | undefined>, gateway: Gateway, request: VisualProposalRequest, actorId?: string, clientOverride?: SupabaseClient) {
   const client = serverClient(environment, clientOverride);
   const jobId = crypto.randomUUID();
+  let persistedJobId: string | null = null;
   if (!actorId) {
     return { status: 'failed' as const, jobId, code: 'AUTHENTICATED_ACTOR_REQUIRED', message: 'An authenticated designer is required to start a render.', retryable: false };
   }
@@ -206,6 +207,7 @@ export async function createVisualJob(environment: Record<string, string | undef
     
     const job = await client.from('jobs').insert({ organization_id: context.project.organization_id, project_id: request.projectId, kind: 'visual_proposal', status: 'queued', idempotency_key: idempotencyKey, input: { ...normalizedRequest, renderBrief: brief }, output: { reviewStatus: 'pending' }, attempts: 1, created_by: actorId ?? null }).select('id').single();
     if (job.error || !job.data) return { status: 'failed' as const, code: 'JOB_CREATE_FAILED', reason: job.error?.message ?? 'Visual job could not be created.', retryable: true };
+    persistedJobId = job.data.id;
 
     const baseArtifacts = renderScenePerspectiveArtifacts(context.scene, { cameraId: request.camera?.view === 'elevation' ? undefined : context.scene.cameras[0]?.id });
     const technicalArtifacts = await persistTechnicalArtifacts(client, {
@@ -256,11 +258,20 @@ export async function createVisualJob(environment: Record<string, string | undef
     await client.from('jobs').update({ status: 'running', output }).eq('id', job.data.id);
     return { status: 'queued' as const, jobId: job.data.id, ...output };
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Visual job processing failed.';
+    // A persisted job must always reach a terminal state. Without this update a
+    // storage or provider exception leaves the browser polling "Rendering..." forever.
+    if (persistedJobId) {
+      await client.from('jobs').update({
+        status: 'failed',
+        error: message,
+      }).eq('id', persistedJobId);
+    }
     return {
       status: 'failed' as const,
-      jobId,
+      jobId: persistedJobId ?? jobId,
       code: 'VISUAL_JOB_ERROR',
-      message: error instanceof Error ? error.message : 'Visual job processing failed.',
+      message,
       retryable: true
     };
   }

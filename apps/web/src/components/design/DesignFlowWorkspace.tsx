@@ -178,11 +178,13 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     if (!activeVisualJobId || !projectId) return;
     const timer = window.setInterval(async () => {
       try {
-        const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { headers: await authenticatedHeaders() });
+        const response = await fetch(`${apiBase}/projects/${projectId}/renders/${activeVisualJobId}`, { headers: await authenticatedHeaders() });
         const payload = await response.json();
-        const latest = Array.isArray(payload.renders) ? payload.renders.find((render: any) => render.id === activeVisualJobId) ?? payload.renders[0] : null;
+        const latest = payload.result;
         const status = latest?.status;
-        if (status === 'succeeded' && latest?.signedUrl) {
+        if (!response.ok) {
+          setVisualState(payload.message ?? 'Render status could not be read.'); setVisualBusy(false); setActiveVisualJobId(null);
+        } else if (status === 'succeeded' && latest?.signedUrl) {
           setVisualState('Render stored privately and ready for review.'); setVisualBusy(false); setActiveVisualJobId(null); await loadRenders();
         } else if (status === 'failed') {
           setVisualState(latest?.reason ?? latest?.error ?? 'Render generation failed. No image was stored.'); setVisualBusy(false); setActiveVisualJobId(null);
@@ -268,13 +270,14 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     }
   }
 
-  async function createVisual() {
+  async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string) {
     if (!sceneVersionId) { setVisualState('Create and save a scene first.'); return; }
     if (!sceneApproved) { setVisualState('Approve the scene before generating a scene-linked render.'); return; }
     if (!projectId) { setVisualState('Select a project before generating a render.'); return; }
-    setVisualBusy(true); setVisualState('Validating scene and visual providers...');
+    setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
-      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId, idempotencyKey: `${sceneVersionId}:${room}:${style}:${quality}:${Date.now()}`, options: { roomId: room, style, quality } }) });
+      const renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
+      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId, idempotencyKey: `${sceneVersionId}:${room}:${operation}:${renderStyle}:${quality}:${Date.now()}`, options: { roomId: room, style: renderStyle, quality, operation } }) });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
         setVisualBusy(false);
@@ -286,7 +289,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
         return;
       }
       if (payload.result?.jobId) { setReviewVisualJobId(payload.result.jobId); setActiveVisualJobId(payload.result.jobId); }
-      if (payload.result?.status === 'succeeded' && payload.result?.signedUrl) { setVisualBusy(false); setVisualState('Render stored privately and ready for review.'); await loadRenders(); return; }
+      if (payload.result?.status === 'succeeded' && payload.result?.signedUrl) { setVisualBusy(false); setActiveVisualJobId(null); setVisualState('Render stored privately and ready for review.'); await loadRenders(); return; }
       if (payload.result?.jobId) { setActiveVisualJobId(payload.result.jobId); setVisualState('Render queued with scene provenance.'); return; }
       setVisualBusy(false); setVisualState('Render request returned no durable job.');
     } catch { setVisualBusy(false); setVisualState('Visual service unavailable. The approved scene is unchanged.'); }
@@ -435,7 +438,11 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                     currentLaminate={selectedLaminateObj.name}
                     onConfirmCatalogSwap={({ laminate }) => {
                       setStyle((current) => `${current}; selected persisted material: ${laminate}`);
-                      setVisualState('Material assignment saved. Create a new scene revision before requesting a render.');
+                      setVisualState('Material assignment saved. Preview it in the approved scene when ready.');
+                    }}
+                    onPreviewCatalogSwap={async ({ materialId, laminate }) => {
+                      setActiveLaminate(materialId);
+                      await createVisual('material-swap', laminate);
                     }}
                     onConfirmAiProposal={() => setVisualState('AI material proposals require an approved scene revision before rendering.')}
                   />
@@ -477,7 +484,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                     <option value="final">Final</option>
                   </select>
                 </label>
-                <Button onClick={createVisual} disabled={!sceneApproved || visualBusy}>
+                <Button onClick={() => void createVisual()} disabled={!sceneApproved || visualBusy}>
                   {visualBusy ? <RefreshCw className="spin" size={16} /> : <Wand2 size={16} />} {visualBusy ? 'Processing' : 'Generate proposal'}
                 </Button>
               </div>
@@ -492,10 +499,10 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                 </div>
               )}
               <div className="render-review-actions">
-                <Button variant="outline" onClick={() => reviewRender('reject')} disabled={!activeVisualJobId}>
+                <Button variant="outline" onClick={() => reviewRender('reject')} disabled={!reviewVisualJobId || visualBusy}>
                   <ThumbsDown size={16} /> Reject
                 </Button>
-                <Button onClick={() => reviewRender('approve')} disabled={!activeVisualJobId}>
+                <Button onClick={() => reviewRender('approve')} disabled={!reviewVisualJobId || visualBusy}>
                   <ThumbsUp size={16} /> Approve
                 </Button>
               </div>

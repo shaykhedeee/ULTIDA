@@ -11,12 +11,13 @@ type Props = {
   semanticSlot?: 'carcass' | 'shutter' | 'back_panel' | 'countertop' | 'profile' | 'glass' | 'hardware' | 'flooring' | 'wall' | 'ceiling' | 'lighting';
   currentLaminate?: string;
   onConfirmCatalogSwap?: (payload: { entityId: string; laminate: string }) => void;
+  onPreviewCatalogSwap?: (payload: { entityId: string; materialId: string; laminate: string }) => Promise<void> | void;
   onConfirmAiProposal?: (payload: { entityId: string; prompt: string; negativePrompt?: string }) => void;
 };
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
 
-export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, semanticSlot = 'shutter', currentLaminate = 'Unknown', onConfirmCatalogSwap, onConfirmAiProposal }: Props) {
+export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, semanticSlot = 'shutter', currentLaminate = 'Unknown', onConfirmCatalogSwap, onPreviewCatalogSwap, onConfirmAiProposal }: Props) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [materialId, setMaterialId] = useState('');
   const [prompt, setPrompt] = useState(`Warm contemporary Indian interior for ${entityId}. Natural materials, soft shadows.`);
@@ -53,7 +54,7 @@ export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, seman
   if (!entityId) return <div className="material-swap-panel"><p>Select a module, wall or opening to swap materials.</p></div>;
 
   const selected = materials.find((item) => item.id === materialId);
-  const applyCatalogSwap = async () => {
+  const applyCatalogSwap = async (preview = false) => {
     if (!projectId || !selected) return;
     setPending(true);
     setMessage('Saving a versioned material assignment...');
@@ -71,7 +72,12 @@ export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, seman
         return;
       }
       onConfirmCatalogSwap?.({ entityId, laminate: selected.name });
-      setMessage(`${selected.name} saved. Scene, render, drawing, and production outputs are now stale until regenerated.`);
+      if (preview) {
+        setMessage(`${selected.name} saved. Starting a scene-locked material preview...`);
+        await onPreviewCatalogSwap?.({ entityId, materialId: selected.id, laminate: selected.name });
+      } else {
+        setMessage(`${selected.name} saved. The assignment is ready for a scene-locked preview.`);
+      }
     } catch {
       setMessage('Material assignment request failed. No material was changed.');
     } finally {
@@ -93,6 +99,9 @@ export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, seman
         {selected && <small>{selected.category}{selected.finish ? ` · ${selected.finish}` : ''}{selected.availability ? ` · ${selected.availability}` : ''}</small>}
         <button type="button" disabled={pending || !projectId || !selected} onClick={() => void applyCatalogSwap()}>
           <RefreshCcw size={14} /> {pending ? 'Saving assignment...' : 'Apply saved material'}
+        </button>
+        <button type="button" disabled={pending || !projectId || !selected} onClick={() => void applyCatalogSwap(true)}>
+          <Wand2 size={14} /> {pending ? 'Preparing preview...' : 'Apply and preview in render'}
         </button>
         <p role="status">{message || `Current visual label: ${currentLaminate}`}</p>
       </div>
