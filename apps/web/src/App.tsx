@@ -16,6 +16,8 @@ import { X, Plus, ChevronRight } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
 import { Shell, DEFAULT_WORKFLOW_STAGES, type WorkflowStageConfig } from './Shell';
 import { ProjectDashboard } from './features/projects/ProjectDashboard';
+import { StudioDashboard } from './features/dashboard/StudioDashboard';
+import { CncPatternStudio } from './features/tools/CncPatternStudio';
 
 // Existing feature components — preserved
 import { BriefWorkspace, type ClientBrief, emptyBrief } from './components/brief/BriefWorkspace';
@@ -1169,8 +1171,9 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
   return (
     <Shell sessionEmail={sessionEmail} orgName={orgName}>
       <Routes>
-        <Route index element={<Navigate to="/projects" replace />} />
+        <Route index element={<StudioDashboard orgName={orgName} />} />
         <Route path="projects" element={<ProjectDashboard sessionEmail={sessionEmail} orgName={orgName} />} />
+        <Route path="tools/cnc" element={<CncPatternStudio />} />
         <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={null} />} />
         <Route path="templates" element={<Navigate to="/library" replace />} />
         <Route path="modules" element={<Navigate to="/library" replace />} />
@@ -1178,7 +1181,7 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
         <Route path="rules" element={<RulesWorkspace organizationId={null} />} />
         <Route path="team" element={<TeamWorkspace organizationId={null} />} />
         <Route path="settings" element={<SettingsWorkspace organizationId={null} orgName={orgName} />} />
-        <Route path="*" element={<Navigate to="/projects" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>
   );
@@ -1256,7 +1259,7 @@ export function App() {
   if (!sessionEmail) {
     return <SignInScreen onSuccess={(email) => {
       setSessionEmail(email);
-      navigate('/projects');
+      navigate('/');
     }} />;
   }
 

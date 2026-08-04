@@ -168,6 +168,7 @@ export function PlanReviewWorkspace({
   const [undoStack, setUndoStack] = useState<PlanElement[][]>([]);
   const [redoStack, setRedoStack] = useState<PlanElement[][]>([]);
   const [issues, setIssues] = useState<IssueItem[]>([]);
+  const [analysisQualityNotice, setAnalysisQualityNotice] = useState('');
   const [activeTool, setActiveTool] = useState<CanvasTool>('select');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ id: string; point: Point; snapshot: PlanElement[] } | null>(null);
@@ -205,7 +206,21 @@ export function PlanReviewWorkspace({
 
   useEffect(() => {
     if (!analysed) return;
-    const mapped = proposals.map((proposal, index) => {
+    // Never ask the designer to resolve the same unusable zero-length wall
+    // repeatedly. Those candidates contain no drawable source segment, so they
+    // cannot become reliable plan geometry. Keep one transparent quality notice
+    // and retain only measurable entities in the editable model.
+    const zeroLengthCandidateIds = new Set(proposals.filter((proposal) => {
+      if (proposal.kind !== 'wall') return false;
+      const geometry = proposal.geometry ?? {};
+      if (![geometry.x1, geometry.y1, geometry.x2, geometry.y2].every((value) => typeof value === 'number')) return false;
+      return Math.hypot(geometry.x2 - geometry.x1, geometry.y2 - geometry.y1) < 3;
+    }).map((proposal) => proposal.id));
+    const nonMeasurableIssues = analysisIssues.filter((issue) => /zero or negligible source length/i.test(issue.message) || Boolean(issue.entityId && zeroLengthCandidateIds.has(issue.entityId)));
+    setAnalysisQualityNotice(nonMeasurableIssues.length
+      ? `${nonMeasurableIssues.length} non-measurable wall candidate${nonMeasurableIssues.length === 1 ? ' was' : 's were'} excluded from the editable model. No source segment was available to calibrate; trace one manually only if it is visible in the source plan.`
+      : '');
+    const mapped = proposals.filter((proposal) => !zeroLengthCandidateIds.has(proposal.id)).map((proposal, index) => {
       const geometry = proposal.geometry ?? {};
       const proposalKind = proposal.kind === 'opening'
         ? (geometry.kind === 1 ? 'window' : 'door')
@@ -237,7 +252,7 @@ export function PlanReviewWorkspace({
     };
     });
     setElements(mapped);
-    setIssues(analysisIssues.map((issue, index) => ({
+    setIssues(analysisIssues.filter((issue) => !nonMeasurableIssues.includes(issue)).map((issue, index) => ({
       id: `${issue.code}-${issue.entityId ?? index}`,
       elementId: issue.entityId,
       question: issue.message,
@@ -954,7 +969,7 @@ export function PlanReviewWorkspace({
             <div className="findings-summary-grid">
               <div className="finding-chip">
                 <small>Confidence</small>
-                <strong>93.4%</strong>
+                <strong>{elements.length ? `${Math.round(elements.reduce((sum, element) => sum + element.confidence, 0) / elements.length * 100)}%` : '—'}</strong>
               </div>
               <div className="finding-chip">
                 <small>Units</small>
@@ -984,12 +999,19 @@ export function PlanReviewWorkspace({
             </div>
           </div>
 
+          {analysisQualityNotice && (
+            <div className="panel-box" style={{ marginTop: 12, borderColor: 'var(--info-line)', background: 'var(--info-bg)' }}>
+              <div className="panel-box-title" style={{ color: 'var(--brown-mid)' }}><Sparkles size={14} /><span>Detection quality</span></div>
+              <p style={{ margin: '0', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{analysisQualityNotice}</p>
+            </div>
+          )}
+
           {/* Issue Queue */}
           {issues.length > 0 && (
             <div className="panel-box" style={{ marginTop: 12 }}>
               <div className="panel-box-title" style={{ color: '#d97706' }}>
                 <AlertTriangle size={14} />
-                <span>Issue Queue ({issues.length} Need Review)</span>
+                <span>Designer decisions ({issues.length})</span>
               </div>
               <div className="issue-queue-list">
                 {issues.map((issue) => (
