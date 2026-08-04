@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyFile, reconcileToElements, UNSUPPORTED_FORMATS, type PlanElementDraft } from '../src/plan-analysis-service.js';
 import { PlanVisionOutputSchema, normalizeVisionOutput } from '@ultida/agent-core';
+import { parseProposals } from '../src/plan-analyzer.js';
 
 test('classifyFile routes known formats correctly', () => {
   assert.equal(classifyFile('plan.png', 'image/png'), 'raster');
@@ -110,4 +111,30 @@ test('reconcileToElements turns a warning into a review issue', () => {
   const ai = rawSample({ warnings: ['Drawing rotated 90 degrees — verify orientation'] });
   const { issues } = reconcileToElements(ai, null, '');
   assert.ok(issues.some((i) => i.question.includes('rotated')));
+});
+
+test('provider proposals reject malformed repeated wall objects instead of creating zero-length wall review noise', () => {
+  const malformed = JSON.stringify({
+    proposals: Array.from({ length: 8 }, () => ({
+      kind: 'wall', confidence: 0.7,
+      geometry: { 2: 0, 4: 5, 6: 0, 9: 0 },
+      note: 'Malformed wall response',
+    })),
+  });
+  assert.throws(() => parseProposals(malformed, 'detector'), /no usable room or wall geometry/i);
+});
+
+test('provider proposals retain only distinct, drawable structural evidence', () => {
+  const response = JSON.stringify({
+    proposals: [
+      { kind: 'wall', confidence: 0.9, geometry: { x1: 100, y1: 120, x2: 760, y2: 120 }, note: 'External wall' },
+      { kind: 'wall', confidence: 0.9, geometry: { x1: 760, y1: 120, x2: 100, y2: 120 }, note: 'Duplicate wall' },
+      { kind: 'room', confidence: 0.88, geometry: { x: 120, y: 140, width: 420, height: 300 }, note: 'Living room' },
+      { kind: 'dimension', confidence: 0.65, geometry: { x1: 100, y1: 100, x2: 760, y2: 100, valueMm: 4200, unexpected: 99 }, note: 'Visible dimension' },
+    ],
+  });
+  const proposals = parseProposals(response, 'detector');
+  assert.equal(proposals.filter((proposal) => proposal.kind === 'wall').length, 1);
+  assert.equal(proposals.find((proposal) => proposal.kind === 'dimension')?.geometry.unexpected, undefined);
+  assert.equal(proposals.length, 3);
 });

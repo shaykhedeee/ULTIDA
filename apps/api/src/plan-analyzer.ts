@@ -75,9 +75,12 @@ SELF CHECK
 3. Rooms have positive width and height.
 4. Notes state the visible evidence or uncertainty.
 5. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
-6. Do not split a straight wall into redundant collinear fragments. Prefer fewer, well-evidenced candidates over guessed completeness.
+6. Do not split a straight wall into redundant collinear fragments and never repeat the same wall candidate. Prefer fewer, well-evidenced candidates over guessed completeness.
 7. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
-8. Output JSON only as {"proposals":[{"kind":"wall|opening|room|dimension|fixture","confidence":0.0,"geometry":{},"note":""}]}.`;
+8. Return at most 24 proposals. Start with room boundary walls, then rooms, openings, legible dimensions and fixtures.
+9. A wall must contain exactly numeric x1,y1,x2,y2. A room must contain exactly numeric x,y,width,height. Do not use numbered keys, arrays, prose, units, or nested objects inside geometry.
+10. Output one JSON object only, with no markdown and no explanatory text:
+{"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"}]}`;
 
   const briefContext = compileBriefContext(brief);
   return `${base}${briefContext}`;
@@ -85,11 +88,49 @@ SELF CHECK
 
 const prompt = buildPlanPrompt();
 
+// Cloudflare JSON Mode is supported by Llama 3.2 Vision. The model can still
+// decline an overly complex schema, so this stays deliberately small and our
+// runtime quality gate remains the final authority.
+const CLOUDFLARE_PLAN_RESPONSE_FORMAT = {
+  type: 'json_schema',
+  json_schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['proposals'],
+    properties: {
+      proposals: {
+        type: 'array',
+        maxItems: 24,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'confidence', 'geometry', 'note'],
+          properties: {
+            kind: { type: 'string', enum: ['wall', 'opening', 'room', 'dimension', 'fixture'] },
+            confidence: { type: 'number', minimum: 0, maximum: 1 },
+            geometry: { type: 'object', additionalProperties: { type: 'number' } },
+            note: { type: 'string', maxLength: 160 },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
 function clampCoordinate(value: number) { return Math.max(0, Math.min(1000, value)); }
+
+const GEOMETRY_KEYS: Record<PlanProposal['kind'], readonly string[]> = {
+  wall: ['x1', 'y1', 'x2', 'y2'],
+  room: ['x', 'y', 'width', 'height'],
+  opening: ['x', 'y', 'width', 'height', 'kind'],
+  dimension: ['x1', 'y1', 'x2', 'y2', 'valueMm'],
+  fixture: ['x', 'y', 'width', 'depth'],
+};
 
 function normalizeGeometry(kind: PlanProposal['kind'], geometry: Record<string, unknown>) {
   const normalized: Record<string, number> = {};
   for (const [key, raw] of Object.entries(geometry)) {
+    if (!GEOMETRY_KEYS[kind].includes(key)) continue;
     const value = Number(raw);
     if (!Number.isFinite(value)) continue;
     normalized[key] = key === 'valueMm' ? Math.max(0, value) : key === 'kind' ? Math.max(0, Math.min(1, Math.round(value))) : clampCoordinate(value);
@@ -99,6 +140,39 @@ function normalizeGeometry(kind: PlanProposal['kind'], geometry: Record<string, 
     normalized.height = Math.max(0, Math.min(1000 - (normalized.y ?? 0), normalized.height ?? 0));
   }
   return normalized;
+}
+
+function hasUsableGeometry(proposal: PlanProposal) {
+  const geometry = proposal.geometry;
+  if (proposal.kind === 'wall') return Math.hypot((geometry.x2 ?? 0) - (geometry.x1 ?? 0), (geometry.y2 ?? 0) - (geometry.y1 ?? 0)) >= 12;
+  if (proposal.kind === 'room') return (geometry.width ?? 0) >= 20 && (geometry.height ?? 0) >= 20;
+  if (proposal.kind === 'opening') return (geometry.width ?? 0) >= 8;
+  if (proposal.kind === 'dimension') return Math.hypot((geometry.x2 ?? 0) - (geometry.x1 ?? 0), (geometry.y2 ?? 0) - (geometry.y1 ?? 0)) >= 8;
+  return geometry.x !== undefined && geometry.y !== undefined;
+}
+
+function wallKey(proposal: PlanProposal) {
+  const geometry = proposal.geometry;
+  const first = `${Math.round(geometry.x1 ?? 0)}:${Math.round(geometry.y1 ?? 0)}`;
+  const second = `${Math.round(geometry.x2 ?? 0)}:${Math.round(geometry.y2 ?? 0)}`;
+  return first < second ? `${first}|${second}` : `${second}|${first}`;
+}
+
+function validatePlanEvidence(proposals: PlanProposal[]) {
+  const usable = proposals.filter(hasUsableGeometry);
+  const seenWalls = new Set<string>();
+  const deduplicated = usable.filter((proposal) => {
+    if (proposal.kind !== 'wall') return true;
+    const key = wallKey(proposal);
+    if (seenWalls.has(key)) return false;
+    seenWalls.add(key);
+    return true;
+  });
+  const structural = deduplicated.filter((proposal) => proposal.kind === 'wall' || proposal.kind === 'room');
+  if (!structural.length) {
+    throw new Error('Vision response contained no usable room or wall geometry. The provider was not accepted as a floor-plan result.');
+  }
+  return deduplicated;
 }
 
 function extractJsonObject(raw: string): unknown {
@@ -128,7 +202,7 @@ function extractJsonObject(raw: string): unknown {
   throw new Error('Plan analyzer returned incomplete JSON.');
 }
 
-function parseProposals(raw: string, source: 'ocr' | 'detector'): PlanProposal[] {
+export function parseProposals(raw: string, source: 'ocr' | 'detector'): PlanProposal[] {
   const parsed = extractJsonObject(raw) as { proposals?: unknown[] };
   const proposals = (parsed.proposals ?? []).map((item, index) => {
     const value = item as { kind?: PlanProposal['kind']; confidence?: unknown; geometry?: Record<string, unknown>; note?: unknown };
@@ -136,7 +210,7 @@ function parseProposals(raw: string, source: 'ocr' | 'detector'): PlanProposal[]
   });
   const result = PlanProposalSchema.array().safeParse(proposals);
   if (!result.success) throw new Error('Plan analyzer returned an invalid proposal shape.');
-  return result.data;
+  return validatePlanEvidence(result.data);
 }
 
 function topologyIssues(proposals: PlanProposal[]) {
@@ -182,12 +256,13 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
   if (!accountId || !token) throw new Error('Cloudflare Workers AI credentials are not configured.');
   const prompt = buildPlanPrompt(input.brief);
   const candidateModels = Array.from(new Set([
-    // Moondream exposes the query/image contract used below and has proven
-    // reliable with normalized plan rasters. It must be tried before legacy
-    // chat-vision variables, whose API schema is different.
-    '@cf/moondream/moondream3.1-9B-A2B',
-    environment.CLOUDFLARE_VISION_MODEL,
+    // Llama Vision follows the compact JSON evidence contract more reliably
+    // than Moondream for dense technical drawings. An explicitly configured
+    // plan model still takes priority; Moondream remains a genuine fallback.
     environment.CLOUDFLARE_PLAN_MODEL,
+    '@cf/meta/llama-3.2-11b-vision-instruct',
+    environment.CLOUDFLARE_VISION_MODEL,
+    '@cf/moondream/moondream3.1-9B-A2B',
   ].filter(Boolean) as string[]));
   let lastError: Error | null = null;
   for (const model of candidateModels) {
@@ -196,7 +271,13 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
       const isMoondream = model.includes('moondream');
       const requestBody = isMoondream
         ? { task: 'query', image: input.dataUrl, question: `${prompt}\nSource file: ${input.fileName}. Return the required JSON only.`, reasoning: false, stream: false, temperature: 0, max_tokens: 4096 }
-        : { messages: [{ role: 'system', content: prompt }, { role: 'user', content: `Extract the visible floor-plan evidence from ${input.fileName}. Return the required JSON only.` }], image: input.dataUrl };
+        : {
+            messages: [{ role: 'system', content: prompt }, { role: 'user', content: `Extract the visible floor-plan evidence from ${input.fileName}. Return the required JSON only.` }],
+            image: input.dataUrl,
+            response_format: CLOUDFLARE_PLAN_RESPONSE_FORMAT,
+            temperature: 0,
+            max_tokens: 4096,
+          };
       const response = await fetchWithProviderTimeout(environment, `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
       const payload = await response.json() as { success?: boolean; result?: { response?: string; text?: string; answer?: string; result?: { answer?: string; response?: string; text?: string } }; errors?: Array<{ message?: string }> };
       const content = payload.result?.response || payload.result?.text || payload.result?.answer || payload.result?.result?.answer || payload.result?.result?.response || payload.result?.result?.text;
@@ -282,3 +363,5 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     verifier: verifier ? { provider: verifier.provider, entityCount: verifier.proposals.length, disagreement: Math.abs(verifier.proposals.length - primary.proposals.length) > 2 } : null
   };
 }
+
+export const __test__ = { normalizeGeometry, validatePlanEvidence };
