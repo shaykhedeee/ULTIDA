@@ -1,9 +1,10 @@
-import { Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Send, Sofa, ThumbsDown, ThumbsUp, Utensils, Wand2 } from 'lucide-react';
+import { Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Send, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 import MaterialSwapPanel from './MaterialSwapPanel';
 import './visual-studio.css';
+import { ModulePreview } from '../library/ModulePreview';
 
 type Stage = 'Design' | 'Visualize' | 'Document';
 type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration };
@@ -680,7 +681,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                   return !search || [item.name, item.family, item.description, ...item.tags].filter(Boolean).join(' ').toLowerCase().includes(search);
                 }).map((item) => (
                   <button className="catalog-item" key={item.id} onClick={() => addModule(item)} disabled={!briefComplete || !planApproved}>
-                    {item.family.startsWith('kitchen') ? <Utensils size={16} /> : item.family === 'sofa' || item.family === 'dining' || item.family === 'bed' ? <Sofa size={16} /> : <Layers3 size={16} />}
+                    <ModulePreview module={item} compact />
                     <span>
                       <strong>{item.name}</strong>
                       <small>
