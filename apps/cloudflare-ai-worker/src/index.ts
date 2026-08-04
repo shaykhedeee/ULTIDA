@@ -32,7 +32,7 @@ async function sameSecret(expected: string | undefined, supplied: string | null)
   return mismatch === 0;
 }
 
-async function processOne(env: Env, jobId: string) {
+async function processOne(env: Env, jobId?: string) {
   if (!env.API_BASE || !env.ULTIDA_WORKER_SHARED_SECRET) throw new Error('Worker API dispatch is not configured.');
   const response = await fetch(`${env.API_BASE.replace(/\/$/, '')}/internal/plan-jobs/process`, {
     method: 'POST',
@@ -43,7 +43,9 @@ async function processOne(env: Env, jobId: string) {
         ? { 'x-vercel-protection-bypass': env.VERCEL_PROTECTION_BYPASS_SECRET }
         : {})
     },
-    body: JSON.stringify({ requestedBy: 'cloudflare-queue', jobId })
+    body: JSON.stringify(jobId
+      ? { requestedBy: 'cloudflare-queue', jobId }
+      : { requestedBy: 'cloudflare-sweep' })
   });
   if (!response.ok) throw new Error(`Ultida API returned HTTP ${response.status}.`);
 }
@@ -87,5 +89,13 @@ export default {
         message.retry({ delaySeconds: 10 });
       }
     }
+  },
+
+  // Queue messages are the fast path. This tiny scheduled sweep is the
+  // durable path: it claims one queued analysis through the authenticated API
+  // every minute, covering a missed handoff or a transient queue outage even
+  // when the designer has closed the browser.
+  async scheduled(_event: unknown, env: Env, ctx: { waitUntil(promise: Promise<unknown>): void }) {
+    ctx.waitUntil(processOne(env).catch(() => undefined));
   }
 };

@@ -307,14 +307,21 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
 export async function processPlanAnalysisJobs(environment: Environment, limit = 2) {
   const client = serverClient(environment);
   if (!client) return;
-  const workerId = environment.ULTIDA_WORKER_ID || 'api-plan-worker';
-  const claimed = await client.rpc('claim_jobs', {
-    requested_kind: 'plan-analysis',
-    worker_id: workerId,
-    claim_limit: Math.max(1, Math.min(limit, 10))
-  });
-  if (claimed.error) throw new Error(`Plan job claim failed: ${claimed.error.message}`);
-  await processClaimedPlanAnalysisJobs(environment, client, (claimed.data ?? []) as Array<Record<string, any>>);
+  // This runs only as a recovery sweep; queue-delivered jobs retain their
+  // exact message priority. For a missed handoff, newest first prevents an
+  // active designer's plan being stuck behind abandoned historical jobs.
+  const candidates = await client
+    .from('jobs')
+    .select('id')
+    .eq('kind', 'plan-analysis')
+    .eq('status', 'queued')
+    .lte('available_at', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(Math.max(1, Math.min(limit, 10)));
+  if (candidates.error) throw new Error(`Plan job recovery lookup failed: ${candidates.error.message}`);
+  for (const candidate of candidates.data ?? []) {
+    await processPlanAnalysisJob(environment, String(candidate.id));
+  }
 }
 
 /** Process the exact queue message that Cloudflare delivered, so older jobs
