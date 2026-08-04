@@ -192,17 +192,8 @@ export async function dispatchPlanAnalysisJob(environment: Environment, jobId: s
   return { dispatched: true as const };
 }
 
-export async function processPlanAnalysisJobs(environment: Environment, limit = 2) {
-  const client = serverClient(environment);
-  if (!client) return;
-  const workerId = environment.ULTIDA_WORKER_ID || 'api-plan-worker';
-  const claimed = await client.rpc('claim_jobs', {
-    requested_kind: 'plan-analysis',
-    worker_id: workerId,
-    claim_limit: Math.max(1, Math.min(limit, 10))
-  });
-  if (claimed.error) throw new Error(`Plan job claim failed: ${claimed.error.message}`);
-  for (const job of claimed.data ?? []) {
+async function processClaimedPlanAnalysisJobs(environment: Environment, client: NonNullable<ReturnType<typeof serverClient>>, jobs: Array<Record<string, any>>) {
+  for (const job of jobs) {
     try {
       const input = job.input as { sourceAssetId?: string; storagePath?: string; mimeType?: string; fileName?: string };
       if (!input.storagePath || !input.mimeType || !input.fileName) throw new Error('Plan analysis job has incomplete source metadata.');
@@ -296,6 +287,40 @@ export async function processPlanAnalysisJobs(environment: Environment, limit = 
       await client.from('jobs').update({ status: 'failed', error: { code: 'PLAN_ANALYSIS_FAILED', message: error instanceof Error ? error.message : 'Plan analysis failed.' }, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
     }
   }
+}
+
+export async function processPlanAnalysisJobs(environment: Environment, limit = 2) {
+  const client = serverClient(environment);
+  if (!client) return;
+  const workerId = environment.ULTIDA_WORKER_ID || 'api-plan-worker';
+  const claimed = await client.rpc('claim_jobs', {
+    requested_kind: 'plan-analysis',
+    worker_id: workerId,
+    claim_limit: Math.max(1, Math.min(limit, 10))
+  });
+  if (claimed.error) throw new Error(`Plan job claim failed: ${claimed.error.message}`);
+  await processClaimedPlanAnalysisJobs(environment, client, (claimed.data ?? []) as Array<Record<string, any>>);
+}
+
+/** Process the exact queue message that Cloudflare delivered, so older jobs
+ * cannot delay the designer's current floor-plan analysis. */
+export async function processPlanAnalysisJob(environment: Environment, jobId: string) {
+  const client = serverClient(environment);
+  if (!client) return;
+  const workerId = environment.ULTIDA_WORKER_ID || 'api-plan-worker';
+  const now = new Date().toISOString();
+  const claimed = await client
+    .from('jobs')
+    .update({ status: 'running', locked_at: now, locked_by: workerId, updated_at: now })
+    .eq('id', jobId)
+    .eq('kind', 'plan-analysis')
+    .eq('status', 'queued')
+    .lte('available_at', now)
+    .select('*')
+    .maybeSingle();
+  if (claimed.error) throw new Error(`Targeted plan job claim failed: ${claimed.error.message}`);
+  if (!claimed.data) return;
+  await processClaimedPlanAnalysisJobs(environment, client, [claimed.data as Record<string, any>]);
 }
 
 // Narrow test seam for coordinate reconciliation. Runtime callers use only

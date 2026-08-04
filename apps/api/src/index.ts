@@ -28,7 +28,7 @@ import { validateGeometry } from '@ultida/geometry-core';
 import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { AURA_TOOLS, listAuraTools, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
-import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
+import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
 import { buildDrawingProjection, exportSceneToDxf, generateDrawingPackageSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateSketchUpRubyScript } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
 import { compileSceneV1, SceneCompilationError } from '@ultida/scene-compiler';
@@ -435,7 +435,9 @@ app.post('/api/internal/plan-jobs/process', async (request, response) => {
   const suppliedSecret = String(request.header('x-ultida-worker-secret') ?? '');
   const validSecret = configuredSecret.length > 31 && configuredSecret.length === suppliedSecret.length && timingSafeEqual(Buffer.from(configuredSecret), Buffer.from(suppliedSecret));
   if (!validSecret) return response.status(401).json({ success: false, code: 'WORKER_AUTH_FAILED' });
-  await processPlanAnalysisJobs(process.env, 1);
+  const requestedJobId = typeof request.body?.jobId === 'string' ? request.body.jobId : null;
+  if (requestedJobId) await processPlanAnalysisJob(process.env, requestedJobId);
+  else await processPlanAnalysisJobs(process.env, 1);
   return response.json({ success: true });
 });
 

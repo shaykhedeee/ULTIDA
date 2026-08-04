@@ -174,6 +174,7 @@ export function PlanReviewWorkspace({
   const [mergeSelection, setMergeSelection] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [panning, setPanning] = useState<{ x: number; y: number; origin: { x: number; y: number } } | null>(null);
 
   // Calibration state
   const [calibrating, setCalibrating] = useState(false);
@@ -265,7 +266,7 @@ export function PlanReviewWorkspace({
   const initialDesignReady = analysed && approvalElements.some((element) => element.kind === 'wall' || element.kind === 'room') && Boolean(scale) && Number(ceilingHeightMm) > 0;
   const finalProductionReady = initialDesignReady && openingsReady && wallsReady && issues.length === 0 && !elements.some((element) => element.status === 'needs_review' || element.status === 'proposed');
   const approvalReady = geometryMode === 'initial_design' ? initialDesignReady : finalProductionReady;
-  const analysisInFlight = /uploading|queued|processing|waiting|preparing/i.test(status);
+  const analysisInFlight = /uploading|queued|processing|preparing|reconnecting|re-dispatch/i.test(status);
   const layerCount = (key: LayerKey) => {
     const kinds: Partial<Record<LayerKey, PlanElement['kind'][]>> = {
       walls: ['wall'], rooms: ['room'], doors: ['door'], windows: ['window'], columns: ['column'],
@@ -463,6 +464,13 @@ export function PlanReviewWorkspace({
   };
 
   const handleCanvasMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    if (panning) {
+      setPan({
+        x: panning.origin.x + (event.clientX - panning.x) / zoom,
+        y: panning.origin.y + (event.clientY - panning.y) / zoom
+      });
+      return;
+    }
     const point = canvasPoint(event);
     if (point) setPointerPoint(point);
     if (!dragging) return;
@@ -471,11 +479,17 @@ export function PlanReviewWorkspace({
     setDragging({ ...dragging, point });
   };
   const finishDrag = () => {
+    setPanning(null);
     if (dragging) {
       setUndoStack((stack) => [...stack.slice(-39), dragging.snapshot]);
       setRedoStack([]);
     }
     setDragging(null);
+  };
+
+  const handleCanvasMouseDown = (event: React.MouseEvent<SVGSVGElement>) => {
+    if (activeTool !== 'pan') return;
+    setPanning({ x: event.clientX, y: event.clientY, origin: pan });
   };
 
   // Resolve an issue in the queue
@@ -757,6 +771,7 @@ export function PlanReviewWorkspace({
               viewBox="0 0 1000 850"
               className="interactive-svg-canvas"
               onClick={handleCanvasClick}
+              onMouseDown={handleCanvasMouseDown}
               onMouseMove={handleCanvasMove}
               onMouseUp={finishDrag}
               onMouseLeave={finishDrag}
@@ -821,7 +836,7 @@ export function PlanReviewWorkspace({
                         fontWeight="800"
                         style={{ pointerEvents: 'none', userSelect: 'none' }}
                       >
-                        {room.label} ({room.areaSqm} m²)
+                        {room.label}{typeof room.areaSqm === 'number' ? ` (${room.areaSqm.toFixed(1)} m²)` : ''}
                       </text>
                     )}
                   </g>
