@@ -155,10 +155,12 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
   if (!accountId || !token) throw new Error('Cloudflare Workers AI credentials are not configured.');
   const prompt = buildPlanPrompt(input.brief);
   const candidateModels = Array.from(new Set([
+    // Moondream exposes the query/image contract used below and has proven
+    // reliable with normalized plan rasters. It must be tried before legacy
+    // chat-vision variables, whose API schema is different.
+    '@cf/moondream/moondream3.1-9B-A2B',
     environment.CLOUDFLARE_VISION_MODEL,
     environment.CLOUDFLARE_PLAN_MODEL,
-    '@cf/meta/llama-3.2-11b-vision-instruct',
-    '@cf/llava-hf/llava-1.5-7b-hf'
   ].filter(Boolean) as string[]));
   let lastError: Error | null = null;
   for (const model of candidateModels) {
