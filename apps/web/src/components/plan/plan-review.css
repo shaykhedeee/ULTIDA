@@ -10,9 +10,15 @@
 }
 
 .workspace-heading {
-  padding-bottom: 14px;
+  padding: 18px 20px;
   border-bottom: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fffdfa 0%, #f8f0e4 100%);
+  box-shadow: 0 1px 3px rgba(39, 28, 18, .04);
 }
+
+.workspace-heading > div:first-child { gap: 20px; flex-wrap: wrap; }
+.workspace-heading h1 { letter-spacing: -.035em; }
 
 .geometry-mode-toggle {
   display: inline-flex;
@@ -176,6 +182,18 @@
   background: var(--brown-mid);
   border-color: var(--brown-mid);
   color: #fff;
+}
+.tool-btn:disabled { opacity: .42; cursor: not-allowed; }
+.tool-guidance {
+  grid-column: 1 / -1;
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #7a5715;
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 650;
 }
 
 .scale-info-box {

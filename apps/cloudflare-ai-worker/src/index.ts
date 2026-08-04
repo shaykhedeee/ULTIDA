@@ -19,6 +19,19 @@ interface MessageBatch<T> {
 
 type JobMessage = { jobId: string; kind: 'plan-analysis' };
 
+async function sameSecret(expected: string | undefined, supplied: string | null) {
+  if (!expected || !supplied) return false;
+  const encoder = new TextEncoder();
+  const [left, right] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(expected)),
+    crypto.subtle.digest('SHA-256', encoder.encode(supplied)),
+  ]);
+  const a = new Uint8Array(left); const b = new Uint8Array(right);
+  let mismatch = 0;
+  for (let index = 0; index < a.length; index += 1) mismatch |= a[index] ^ b[index];
+  return mismatch === 0;
+}
+
 async function processOne(env: Env, jobId: string) {
   if (!env.API_BASE || !env.ULTIDA_WORKER_SHARED_SECRET) throw new Error('Worker API dispatch is not configured.');
   const response = await fetch(`${env.API_BASE.replace(/\/$/, '')}/internal/plan-jobs/process`, {
@@ -46,12 +59,12 @@ export default {
         queueConsumer: true,
         // This is intentionally only a boolean. It lets the API prove that the
         // two deployments share a secret without returning any secret material.
-        dispatchAuthenticated: Boolean(env.ULTIDA_WORKER_SHARED_SECRET && suppliedSecret === env.ULTIDA_WORKER_SHARED_SECRET),
+        dispatchAuthenticated: await sameSecret(env.ULTIDA_WORKER_SHARED_SECRET, suppliedSecret),
       });
     }
     if (url.pathname === '/dispatch' && request.method === 'POST') {
       const suppliedSecret = request.headers.get('x-ultida-worker-secret');
-      if (!env.ULTIDA_WORKER_SHARED_SECRET || suppliedSecret !== env.ULTIDA_WORKER_SHARED_SECRET) {
+      if (!await sameSecret(env.ULTIDA_WORKER_SHARED_SECRET, suppliedSecret)) {
         return Response.json({ success: false, code: 'UNAUTHORIZED' }, { status: 401 });
       }
       const body = await request.json().then((value) => value as JobMessage).catch(() => null);

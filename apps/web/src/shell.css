@@ -169,19 +169,28 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   display: flex;
   flex-direction: column;
   gap: 1px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(232,201,106,.62) rgba(255,255,255,.04);
 }
+.workflow-nav::-webkit-scrollbar { width: 8px; }
+.workflow-nav::-webkit-scrollbar-track { background: rgba(255,255,255,.035); border-radius: 999px; }
+.workflow-nav::-webkit-scrollbar-thumb { background: linear-gradient(var(--gold-light), var(--gold-dim)); border: 2px solid var(--sidebar-bg); border-radius: 999px; }
 
 .workflow-nav-header {
-  padding: 10px 8px 6px;
+  padding: 10px 8px 8px;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
 .workflow-count {
-  color: rgba(255,255,255,.38);
+  color: var(--gold-light);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+  background: rgba(197,156,45,.12);
+  border: 1px solid rgba(232,201,106,.17);
+  border-radius: 999px;
+  padding: 3px 6px;
 }
 
 .workflow-nav-title {
@@ -194,7 +203,7 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   align-items: center;
   gap: 8px;
   padding: 7px 8px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 0;
   background: transparent;
   color: var(--text-sidebar);
@@ -202,13 +211,13 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   font-weight: 500;
   width: 100%;
   text-align: left;
-  transition: all .15s;
+  transition: background .15s, color .15s, transform .15s;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
 }
-.workflow-stage:hover:not(.locked) { background: rgba(255,255,255,.05); color: #fff; }
-.workflow-stage.active { background: rgba(197,156,45,.1); color: var(--gold-light); font-weight: 600; }
+.workflow-stage:hover:not(.locked) { background: rgba(255,255,255,.07); color: #fff; transform: translateX(2px); }
+.workflow-stage.active { background: linear-gradient(90deg, rgba(197,156,45,.2), rgba(197,156,45,.06)); box-shadow: inset 2px 0 0 var(--gold-light); color: var(--gold-light); font-weight: 700; }
 .workflow-stage.done { color: rgba(255,255,255,.5); }
 .workflow-stage.locked { color: rgba(255,255,255,.2); cursor: not-allowed; }
 .workflow-stage.needs_review { color: #f5c56a; }

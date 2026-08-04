@@ -10,7 +10,7 @@
  * and reached through routes.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { X, Plus, ChevronRight } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
@@ -277,6 +277,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [planAnalysisIssues, setPlanAnalysisIssues] = useState<Array<{ code: string; severity: 'warning' | 'critical'; entityId?: string; message: string }>>([]);
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
   const [analysisRetryAvailable, setAnalysisRetryAvailable] = useState(false);
+  const analysisAutoRetryRef = useRef<string | null>(null);
   const [analysisRefreshNonce, setAnalysisRefreshNonce] = useState(0);
   const [planApproved, setPlanApproved] = useState(false);
   const [sourceAssetId, setSourceAssetId] = useState<string | null>(null);
@@ -546,8 +547,14 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         } else {
           const queuedForMs = payload.createdAt ? Date.now() - new Date(payload.createdAt).getTime() : 0;
           if (payload.status === 'queued' && queuedForMs > 45_000) {
+            if (analysisAutoRetryRef.current !== analysisJobId) {
+              analysisAutoRetryRef.current = analysisJobId;
+              setPlanStatus('Reconnecting the analysis worker…');
+              void retryPlanAnalysis();
+              return;
+            }
             setAnalysisRetryAvailable(true);
-            setPlanStatus('Analysis is waiting for the AI worker. Retry analysis to securely re-dispatch this exact source file.');
+            setPlanStatus('The analysis worker did not respond. Use Retry analysis to re-dispatch this exact source file.');
             return;
           }
           setPlanStatus(`Analysis ${payload.status ?? 'processing'}...`);
@@ -665,6 +672,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       setSourceAssetId(uploadedAssetId);
       if (!completion.jobId) return setPlanStatus('The plan was stored, but no durable analysis job was created.');
       setAnalysisJobId(completion.jobId);
+      analysisAutoRetryRef.current = null;
       setAnalysisRetryAvailable(false);
       setPlanAnalysed(false);
       setPlanStatus(completion.dispatch?.dispatched === false

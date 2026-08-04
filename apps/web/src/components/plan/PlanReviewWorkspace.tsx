@@ -7,7 +7,7 @@ import {
   Ruler, Crosshair, PenTool, Plus, Split, Combine, Move,
   Home, DoorOpen, LayoutGrid, Columns, AlertTriangle,
   CheckCircle2, XCircle, Trash2, Edit3, Save, ArrowRight,
-  Eye, EyeOff, FileText, Loader2, Sparkles, RefreshCw, Upload, FileUp
+  Eye, EyeOff, FileText, Loader2, Sparkles, RefreshCw, Upload, FileUp, Undo2, Redo2
 } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
@@ -165,10 +165,12 @@ export function PlanReviewWorkspace({
   // State
   const [layers, setLayers] = useState(INITIAL_LAYERS);
   const [elements, setElements] = useState<PlanElement[]>([]);
+  const [undoStack, setUndoStack] = useState<PlanElement[][]>([]);
+  const [redoStack, setRedoStack] = useState<PlanElement[][]>([]);
   const [issues, setIssues] = useState<IssueItem[]>([]);
   const [activeTool, setActiveTool] = useState<CanvasTool>('select');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [dragging, setDragging] = useState<{ id: string; point: Point } | null>(null);
+  const [dragging, setDragging] = useState<{ id: string; point: Point; snapshot: PlanElement[] } | null>(null);
   const [mergeSelection, setMergeSelection] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -180,6 +182,8 @@ export function PlanReviewWorkspace({
   const [scale, setScale] = useState<ScaleCalibration | null>(null);
   const [ceilingHeightMm, setCeilingHeightMm] = useState<number | null>(2700);
   const [geometryMode, setGeometryMode] = useState<GeometryMode>('initial_design');
+  const [toolStart, setToolStart] = useState<Point | null>(null);
+  const [pointerPoint, setPointerPoint] = useState<Point | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -272,16 +276,41 @@ export function PlanReviewWorkspace({
     return kinds[key]?.length ? elements.filter((element) => kinds[key]?.includes(element.kind)).length : 0;
   };
 
+  const cloneElements = (items: PlanElement[]) => items.map((item) => ({ ...item, geometry: { ...item.geometry, polygon: item.geometry.polygon?.map((point) => ({ ...point })) } }));
+  const commitElements = (next: PlanElement[] | ((previous: PlanElement[]) => PlanElement[])) => {
+    setElements((previous) => {
+      setUndoStack((stack) => [...stack.slice(-39), cloneElements(previous)]);
+      setRedoStack([]);
+      return typeof next === 'function' ? next(previous) : next;
+    });
+  };
+  const undo = () => {
+    setUndoStack((stack) => {
+      const previous = stack.at(-1);
+      if (!previous) return stack;
+      setElements((current) => { setRedoStack((redo) => [...redo.slice(-39), cloneElements(current)]); return cloneElements(previous); });
+      return stack.slice(0, -1);
+    });
+  };
+  const redo = () => {
+    setRedoStack((stack) => {
+      const next = stack.at(-1);
+      if (!next) return stack;
+      setElements((current) => { setUndoStack((undoHistory) => [...undoHistory.slice(-39), cloneElements(current)]); return cloneElements(next); });
+      return stack.slice(0, -1);
+    });
+  };
+
   // Update element property
   const updateElement = (id: string, patch: Partial<PlanElement>) => {
-    setElements((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+    commitElements((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
   };
 
   // Accept element
   const acceptElement = (id: string) => updateElement(id, { status: 'accepted' });
   const rejectElement = (id: string) => updateElement(id, { status: 'rejected' });
   const deleteElement = (id: string) => {
-    setElements((prev) => prev.filter((e) => e.id !== id));
+    commitElements((prev) => prev.filter((e) => e.id !== id));
     if (selectedId === id) setSelectedId(null);
   };
 
@@ -319,7 +348,7 @@ export function PlanReviewWorkspace({
     if (distanceFromStart < 8 || distanceFromEnd < 8) return;
     const first: PlanElement = { ...wall, id: `${wall.id}-a`, label: `${wall.label} A`, geometry: { ...wall.geometry, x2: splitPoint.x, y2: splitPoint.y } };
     const second: PlanElement = { ...wall, id: `${wall.id}-b`, label: `${wall.label} B`, geometry: { ...wall.geometry, x1: splitPoint.x, y1: splitPoint.y } };
-    setElements((previous) => previous.flatMap((element) => element.id === wall.id ? [first, second] : [element]));
+    commitElements((previous) => previous.flatMap((element) => element.id === wall.id ? [first, second] : [element]));
     setSelectedId(first.id);
     setActiveTool('select');
   };
@@ -346,7 +375,7 @@ export function PlanReviewWorkspace({
       ].sort((a, b) => a.distance - b.distance);
       const match = candidates[0];
       if (!match || match.distance > 24) return previous;
-      setElements((current) => current.filter((element) => element.id !== wall.id).map((element) => element.id === first.id ? { ...element, label: `${first.label} + ${wall.label}`, geometry: { ...element.geometry, x1: match.start.x, y1: match.start.y, x2: match.end.x, y2: match.end.y } } : element));
+      commitElements((current) => current.filter((element) => element.id !== wall.id).map((element) => element.id === first.id ? { ...element, label: `${first.label} + ${wall.label}`, geometry: { ...element.geometry, x1: match.start.x, y1: match.start.y, x2: match.end.x, y2: match.end.y } } : element));
       setSelectedId(first.id);
       setActiveTool('select');
       return [];
@@ -358,6 +387,52 @@ export function PlanReviewWorkspace({
     const point = canvasPoint(e);
     if (!point) return;
     const { x, y } = point;
+
+    if (activeTool === 'draw_wall' || activeTool === 'add_room') {
+      if (!toolStart) {
+        setToolStart(point);
+        return;
+      }
+      const start = toolStart;
+      setToolStart(null);
+      if (activeTool === 'draw_wall') {
+        if (Math.hypot(point.x - start.x, point.y - start.y) < 12) return;
+        const wallNumber = elements.filter((element) => element.kind === 'wall').length + 1;
+        const wall: PlanElement = {
+          id: crypto.randomUUID(), kind: 'wall', label: `Wall ${wallNumber}`, confidence: 1, status: 'accepted', color: '#2563eb',
+          geometry: { x1: start.x, y1: start.y, x2: point.x, y2: point.y },
+          dimensionMm: scale ? Math.round(Math.hypot(point.x - start.x, point.y - start.y) * scale.mmPerPixel) : undefined,
+          thicknessMm: 152.4, heightMm: ceilingHeightMm ?? 2700, note: 'Manually traced wall',
+        };
+        commitElements((current) => [...current, wall]);
+        setSelectedId(wall.id);
+        return;
+      }
+      const left = Math.min(start.x, point.x); const top = Math.min(start.y, point.y);
+      const width = Math.abs(point.x - start.x); const height = Math.abs(point.y - start.y);
+      if (width < 20 || height < 20) return;
+      const roomNumber = elements.filter((element) => element.kind === 'room').length + 1;
+      const polygon = [{ x: left, y: top }, { x: left + width, y: top }, { x: left + width, y: top + height }, { x: left, y: top + height }];
+      const room: PlanElement = {
+        id: crypto.randomUUID(), kind: 'room', label: `Room ${roomNumber}`, confidence: 1, status: 'accepted', color: 'rgba(197,156,45,0.18)',
+        geometry: { x: left, y: top, width, height, polygon },
+        areaSqm: scale ? Math.round(width * height * scale.mmPerPixel ** 2 / 10_000) / 100 : undefined,
+        note: 'Manually defined room boundary', heightMm: ceilingHeightMm ?? 2700,
+      };
+      commitElements((current) => [...current, room]);
+      setSelectedId(room.id);
+      return;
+    }
+
+    if (activeTool === 'add_door') {
+      const walls = elements.filter((element) => element.kind === 'wall' && element.geometry.x1 !== undefined && element.geometry.y1 !== undefined && element.geometry.x2 !== undefined && element.geometry.y2 !== undefined);
+      const nearestWall = walls.map((wall) => ({ wall, distance: Math.abs((wall.geometry.y2! - wall.geometry.y1!) * point.x - (wall.geometry.x2! - wall.geometry.x1!) * point.y + wall.geometry.x2! * wall.geometry.y1! - wall.geometry.y2! * wall.geometry.x1!) / Math.max(1, Math.hypot(wall.geometry.y2! - wall.geometry.y1!, wall.geometry.x2! - wall.geometry.x1!)) })).sort((a, b) => a.distance - b.distance)[0];
+      if (!nearestWall || nearestWall.distance > 32) return;
+      const door: PlanElement = { id: crypto.randomUUID(), kind: 'door', label: `Door ${elements.filter((element) => element.kind === 'door').length + 1}`, confidence: 1, status: 'accepted', color: '#059669', geometry: { x, y, width: 28 }, wallId: nearestWall.wall.id, offsetAlongWallMm: 0, widthMm: 900, heightMm: 2100, note: 'Manually placed opening' };
+      commitElements((current) => [...current, door]);
+      setSelectedId(door.id);
+      return;
+    }
 
     if (activeTool === 'split_wall') {
       splitSelectedWall(point);
@@ -388,11 +463,19 @@ export function PlanReviewWorkspace({
   };
 
   const handleCanvasMove = (event: React.MouseEvent<SVGSVGElement>) => {
-    if (!dragging) return;
     const point = canvasPoint(event);
+    if (point) setPointerPoint(point);
+    if (!dragging) return;
     if (!point) return;
     translateElement(dragging.id, { x: point.x - dragging.point.x, y: point.y - dragging.point.y });
     setDragging({ ...dragging, point });
+  };
+  const finishDrag = () => {
+    if (dragging) {
+      setUndoStack((stack) => [...stack.slice(-39), dragging.snapshot]);
+      setRedoStack([]);
+    }
+    setDragging(null);
   };
 
   // Resolve an issue in the queue
@@ -575,14 +658,14 @@ export function PlanReviewWorkspace({
               </button>
               <button
                 className={`tool-btn${activeTool === 'draw_wall' ? ' active' : ''}`}
-                onClick={() => setActiveTool('draw_wall')}
+                onClick={() => { setActiveTool('draw_wall'); setToolStart(null); }}
                 title="Draw Wall Segment"
               >
                 <Ruler size={14} /> Draw Wall
               </button>
               <button
                 className={`tool-btn${activeTool === 'add_room' ? ' active' : ''}`}
-                onClick={() => setActiveTool('add_room')}
+                onClick={() => { setActiveTool('add_room'); setToolStart(null); }}
                 title="Add Room Polygon"
               >
                 <Home size={14} /> Add Room
@@ -615,7 +698,17 @@ export function PlanReviewWorkspace({
               >
                 <Combine size={14} /> Merge Walls
               </button>
+              <button className="tool-btn" onClick={undo} disabled={!undoStack.length} title="Undo last canvas change"><Undo2 size={14} /> Undo</button>
+              <button className="tool-btn" onClick={redo} disabled={!redoStack.length} title="Redo last canvas change"><Redo2 size={14} /> Redo</button>
             </div>
+
+            {(activeTool === 'draw_wall' || activeTool === 'add_room' || activeTool === 'add_door') && (
+              <div className="tool-guidance" role="status">
+                {activeTool === 'draw_wall' && (toolStart ? 'Click the wall end point.' : 'Click a wall start point.')}
+                {activeTool === 'add_room' && (toolStart ? 'Click the opposite corner to create this room.' : 'Click the first corner of the room rectangle.')}
+                {activeTool === 'add_door' && 'Click a visible wall to place a 900 mm door.'}
+              </div>
+            )}
 
             {/* Calibration details */}
             {scale && (
@@ -665,8 +758,8 @@ export function PlanReviewWorkspace({
               className="interactive-svg-canvas"
               onClick={handleCanvasClick}
               onMouseMove={handleCanvasMove}
-              onMouseUp={() => setDragging(null)}
-              onMouseLeave={() => setDragging(null)}
+              onMouseUp={finishDrag}
+              onMouseLeave={finishDrag}
               style={{
                 transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
                 transformOrigin: 'center center',
@@ -679,6 +772,12 @@ export function PlanReviewWorkspace({
                 </pattern>
               </defs>
               <rect width="1000" height="850" fill="url(#grid)" />
+              {toolStart && pointerPoint && activeTool === 'add_room' && (
+                <rect x={Math.min(toolStart.x, pointerPoint.x)} y={Math.min(toolStart.y, pointerPoint.y)} width={Math.abs(pointerPoint.x - toolStart.x)} height={Math.abs(pointerPoint.y - toolStart.y)} fill="rgba(197,156,45,.12)" stroke="#c59c2d" strokeWidth="2" strokeDasharray="6,4" />
+              )}
+              {toolStart && pointerPoint && activeTool === 'draw_wall' && (
+                <line x1={toolStart.x} y1={toolStart.y} x2={pointerPoint.x} y2={pointerPoint.y} stroke="#2563eb" strokeWidth="5" strokeDasharray="7,4" />
+              )}
 
               {/* Source Plan Overlay image */}
               {layers.source_plan.visible && preview && (
@@ -690,7 +789,16 @@ export function PlanReviewWorkspace({
                 const isSelected = room.id === selectedId;
                 const pointsStr = room.geometry.polygon?.map((p) => `${p.x},${p.y}`).join(' ');
                 return (
-                  <g key={room.id} onClick={(e) => { e.stopPropagation(); setSelectedId(room.id); }}>
+                  <g
+                    key={room.id}
+                    onMouseDown={(event) => {
+                      if (activeTool !== 'move') return;
+                      const point = canvasPoint(event);
+                      if (point) setDragging({ id: room.id, point, snapshot: cloneElements(elements) });
+                      event.stopPropagation();
+                    }}
+                    onClick={(e) => { e.stopPropagation(); setSelectedId(room.id); }}
+                  >
                     {pointsStr && (
                       <polygon
                         points={pointsStr}
@@ -730,7 +838,7 @@ export function PlanReviewWorkspace({
                     onMouseDown={(event) => {
                       if (activeTool !== 'move') return;
                       const point = canvasPoint(event);
-                      if (point) setDragging({ id: wall.id, point });
+                      if (point) setDragging({ id: wall.id, point, snapshot: cloneElements(elements) });
                       event.stopPropagation();
                     }}
                     onClick={(event) => {
@@ -766,7 +874,16 @@ export function PlanReviewWorkspace({
                 const isSelected = door.id === selectedId;
                 const { x = 0, y = 0 } = door.geometry;
                 return (
-                  <g key={door.id} onClick={(e) => { e.stopPropagation(); setSelectedId(door.id); }}>
+                <g
+                  key={door.id}
+                  onMouseDown={(event) => {
+                    if (activeTool !== 'move') return;
+                    const point = canvasPoint(event);
+                    if (point) setDragging({ id: door.id, point, snapshot: cloneElements(elements) });
+                    event.stopPropagation();
+                  }}
+                  onClick={(e) => { e.stopPropagation(); setSelectedId(door.id); }}
+                >
                     <circle cx={x} cy={y} r={12} fill="#059669" stroke={isSelected ? '#c59c2d' : '#fff'} strokeWidth={2} style={{ cursor: 'pointer' }} />
                     <path d={`M ${x} ${y} A 30 30 0 0 1 ${x + 30} ${y + 30}`} fill="none" stroke="#059669" strokeWidth="2" strokeDasharray="3,3" />
                   </g>
