@@ -649,8 +649,11 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
 
     if (supabase && projectId) {
       try {
-        const session = await supabase.auth.getSession();
-        accessToken = session.data.session?.access_token ?? null;
+        // A cached session may contain an expired access token even while the
+        // interface still looks signed in. Reuse the server-validated helper
+        // so signed upload URLs and the durable analysis request never start
+        // with a stale bearer token.
+        accessToken = await getValidToken();
         if (!accessToken) return setPlanStatus('Your session has expired. Sign in again before uploading a floor plan.');
         const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
         const mimeType = floorPlanMimeType(planFile);

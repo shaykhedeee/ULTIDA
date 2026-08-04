@@ -1,6 +1,6 @@
 import {
   FolderKanban, MapPin, Home, Calendar, User,
-  Plus, X, MoreHorizontal, ChevronRight, RefreshCw,
+  Plus, X, ChevronRight, RefreshCw,
   Building2, Clock, AlertCircle, Sparkles, CheckCircle2, ArrowUpRight
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
@@ -296,9 +296,6 @@ function ProjectCard({ project, index, onClick }: { project: Project; index: num
           <span>{timeAgo(project.updated_at)}</span>
         </div>
         <div className="card-footer-actions">
-          <button className="card-action-btn" onClick={(e) => { e.stopPropagation(); }}>
-            <MoreHorizontal size={12} />
-          </button>
           <button className="card-action-btn primary" onClick={(e) => { e.stopPropagation(); onClick(); }}>
             Open <ChevronRight size={12} />
           </button>
