@@ -12,6 +12,19 @@ const execFileAsync = promisify(execFile);
 type Environment = Record<string, string | undefined>;
 type PlanJobRequest = { projectId: string; sourceAssetId: string; fileName: string; mimeType: string; idempotencyKey?: string };
 
+// Browser filenames and supplied MIME types are not trustworthy enough for a
+// vision request. A WebP uploaded with a `.png` suffix made Workers AI decode
+// the bytes as PNG and fail before it could analyse the plan. Use file magic as
+// the source of truth for raster providers while retaining the original upload
+// metadata separately for audit/history.
+function detectRasterMimeType(bytes: Uint8Array): string | null {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) return 'image/png';
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (bytes.length >= 12 && String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' && String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP') return 'image/webp';
+  if (bytes.length >= 6 && (String.fromCharCode(...bytes.slice(0, 6)) === 'GIF87a' || String.fromCharCode(...bytes.slice(0, 6)) === 'GIF89a')) return 'image/gif';
+  return null;
+}
+
 /**
  * Run the deterministic OpenCV wall-tracer as a separate Python process and
  * return its candidate geometry. Returns null when Python/OpenCV is not
@@ -37,7 +50,8 @@ async function runCvTrace(raster: Uint8Array, mimeType: string): Promise<{ resul
   }
   if (!scriptPath) return { result: null as unknown as CvTraceResult, stderr: 'wall_tracer.py not found' };
   const dir = await mkdtemp(join(tmpdir(), 'ultida-cv-'));
-  const inPath = join(dir, `plan.${mimeType === 'image/png' ? 'png' : 'jpg'}`);
+  const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : mimeType === 'image/gif' ? 'gif' : 'jpg';
+  const inPath = join(dir, `plan.${extension}`);
   const outPath = join(dir, 'trace.json');
   try {
     await writeFile(inPath, raster);
@@ -215,8 +229,10 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       const downloaded = await client.storage.from('project-assets').download(input.storagePath);
       if (downloaded.error || !downloaded.data) throw new Error(downloaded.error?.message ?? 'The uploaded plan asset could not be downloaded.');
       const original = new Uint8Array(await downloaded.data.arrayBuffer());
+      const detectedMimeType = input.mimeType === 'application/pdf' ? null : detectRasterMimeType(original);
+      const sourceRasterMimeType = detectedMimeType ?? input.mimeType;
       const raster = input.mimeType === 'application/pdf' ? await rasterizePdf(original) : original;
-      const analysisMimeType = input.mimeType === 'application/pdf' ? 'image/png' : input.mimeType;
+      const analysisMimeType = input.mimeType === 'application/pdf' ? 'image/png' : sourceRasterMimeType;
       const briefRes = await client.from('project_briefs').select('brief').eq('project_id', job.project_id).maybeSingle();
       const analysis = await analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief });
       if (!analysis) throw new Error('No configured floor-plan analysis provider is available.');
@@ -241,7 +257,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         cvStatus = `cv_unavailable: ${cvTrace.stderr.slice(0, 160)}`;
       }
 
-      const output = { ...analysis, sourceAssetId: input.sourceAssetId, sourceMimeType: input.mimeType, cvCandidate: cvTrace?.result ?? null, reconciled, cvStatus };
+      const output = { ...analysis, sourceAssetId: input.sourceAssetId, sourceMimeType: input.mimeType, analysisMimeType, cvCandidate: cvTrace?.result ?? null, reconciled, cvStatus };
       const outputHash = createHash('sha256').update(JSON.stringify(output)).digest('hex');
       const analysisUuid = crypto.randomUUID();
       const primaryRun = (Array.isArray(analysis.providerRuns) ? analysis.providerRuns : []).find((run) => run.status === 'succeeded') ?? analysis.providerRuns?.[0];
