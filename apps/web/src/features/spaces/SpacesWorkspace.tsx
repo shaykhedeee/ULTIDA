@@ -72,6 +72,8 @@ export function SpacesWorkspace() {
   const [future, setFuture] = useState<any[]>([]);
   const [annotationDraft, setAnnotationDraft] = useState('');
   const [annotationDialogOpen, setAnnotationDialogOpen] = useState(false);
+  const [roomDraftStart, setRoomDraftStart] = useState<Pt | null>(null);
+  const [roomDraftCurrent, setRoomDraftCurrent] = useState<Pt | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
   // ── Load approved plan geometry (no measurement re-entry) ──
@@ -145,7 +147,32 @@ export function SpacesWorkspace() {
   function onCanvasClick(e: React.MouseEvent) {
     const pt = svgPoint(e);
     if (tool === 'measure') { if (!measureFrom) setMeasureFrom(pt); else { setMeasureTo(pt); } return; }
-    if (tool === 'draw_room' || tool === 'redraw') { /* drag handled by mousedown/up; simplified: append point */ }
+    if (tool === 'draw_room') {
+      if (!roomDraftStart) {
+        setRoomDraftStart(pt);
+        setRoomDraftCurrent(pt);
+        return;
+      }
+      const minX = Math.min(roomDraftStart.xMm, pt.xMm);
+      const minY = Math.min(roomDraftStart.yMm, pt.yMm);
+      const maxX = Math.max(roomDraftStart.xMm, pt.xMm);
+      const maxY = Math.max(roomDraftStart.yMm, pt.yMm);
+      if (maxX - minX < 300 || maxY - minY < 300) {
+        setSaveState('A room zone must be at least 300 mm × 300 mm. Click a larger rectangle.');
+        return;
+      }
+      snapshot();
+      const id = `room-manual-${Date.now()}`;
+      const polygon = [{ xMm: minX, yMm: minY }, { xMm: maxX, yMm: minY }, { xMm: maxX, yMm: maxY }, { xMm: minX, yMm: maxY }];
+      setRooms(current => [...current, { id, name: `New space ${current.length + 1}`, roomType: 'other', polygon, areaSqm: polyArea(polygon), included: true }]);
+      setSelectedRoom(id);
+      setRoomDraftStart(null);
+      setRoomDraftCurrent(null);
+      setTool('select');
+      setSaveState('New editable space added. Name and classify it in Properties, then save the room.');
+      return;
+    }
+    if (tool === 'redraw') { /* redraw remains a deliberate review action in Plan Intelligence */ }
     if (tool === 'add_column' || tool === 'add_service') {
       snapshot();
       if (tool === 'add_column') setColumns(c => [...c, { id: `col-${Date.now()}`, position: pt, sizeMm: 300 }]);
@@ -248,7 +275,11 @@ export function SpacesWorkspace() {
               ))}
             </div>
             {annotationDialogOpen && <div className="annotation-dialog" role="dialog" aria-label="Add annotation"><label htmlFor="annotation-text">Annotation</label><input id="annotation-text" autoFocus value={annotationDraft} onChange={(e) => setAnnotationDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && annotationDraft.trim()) { addAnnotation(annotationDraft.trim()); setAnnotationDialogOpen(false); } if (e.key === 'Escape') setAnnotationDialogOpen(false); }} /><div><button type="button" onClick={() => setAnnotationDialogOpen(false)}>Cancel</button><button type="button" disabled={!annotationDraft.trim()} onClick={() => { addAnnotation(annotationDraft.trim()); setAnnotationDialogOpen(false); }}>Add annotation</button></div></div>}
-            <svg ref={svgRef} className="plan-canvas" viewBox={`0 0 ${view.w} ${view.h}`} onClick={onCanvasClick}>
+            <svg ref={svgRef} className="plan-canvas" viewBox={`0 0 ${view.w} ${view.h}`} onClick={onCanvasClick} onMouseMove={(event) => { if (tool === 'draw_room' && roomDraftStart) setRoomDraftCurrent(svgPoint(event)); }}>
+              {tool === 'draw_room' && roomDraftStart && roomDraftCurrent && (() => {
+                const a = toPx(roomDraftStart); const b = toPx(roomDraftCurrent);
+                return <rect x={Math.min(a.x, b.x)} y={Math.min(a.y, b.y)} width={Math.abs(b.x - a.x)} height={Math.abs(b.y - a.y)} fill="rgba(197,156,45,.16)" stroke="var(--gold)" strokeWidth="2" strokeDasharray="6 4" pointerEvents="none" />;
+              })()}
               {layers.rooms && rooms.filter(r => r.included !== false).map(r => {
                 const pts = r.polygon.map(p => { const q = toPx(p); return `${q.x},${q.y}`; }).join(' ');
                 return <polygon key={r.id} points={pts} fill={selectedRoom === r.id ? 'rgba(197,156,45,.18)' : 'rgba(120,92,64,.10)'} stroke={selectedRoom === r.id ? 'var(--gold)' : '#7a5c3a'} strokeWidth={selectedRoom === r.id ? 2.5 : 1.5} onClick={(e) => { e.stopPropagation(); setSelectedRoom(r.id); }} />;
