@@ -614,7 +614,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     setPlanAnalysisIssues([]);
     setPlanStatus(`Attached ${file.name}. Run analysis to process.`);
     const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-    if (file.type.startsWith('image/') || ['.png','.jpg','.jpeg','.webp','.svg'].includes(ext)) {
+    if (file.type.startsWith('image/') || ['.png','.jpg','.jpeg','.webp','.gif','.bmp','.tif','.tiff','.avif','.heic','.heif','.svg'].includes(ext)) {
       setPlanPreview(URL.createObjectURL(file));
     } else {
       setPlanPreview(null);
@@ -623,7 +623,12 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
 
   function floorPlanMimeType(file: File) {
     const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-    const byExtension: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.pdf': 'application/pdf' };
+    const byExtension: Record<string, string> = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+      '.gif': 'image/gif', '.bmp': 'image/bmp', '.tif': 'image/tiff', '.tiff': 'image/tiff',
+      '.avif': 'image/avif', '.heic': 'image/heic', '.heif': 'image/heif', '.svg': 'image/svg+xml',
+      '.pdf': 'application/pdf',
+    };
     return byExtension[extension] ?? file.type;
   }
 

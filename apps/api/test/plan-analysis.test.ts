@@ -8,15 +8,17 @@ test('classifyFile routes known formats correctly', () => {
   assert.equal(classifyFile('plan.png', 'image/png'), 'raster');
   assert.equal(classifyFile('plan.jpg', 'image/jpeg'), 'raster');
   assert.equal(classifyFile('plan.webp', 'image/webp'), 'raster');
+  assert.equal(classifyFile('site-capture.heic', 'image/heic'), 'raster');
+  assert.equal(classifyFile('site-scan.tiff', 'image/tiff'), 'raster');
+  assert.equal(classifyFile('export.avif', 'image/avif'), 'raster');
   assert.equal(classifyFile('plan.PDF', 'application/pdf'), 'pdf');
   assert.equal(classifyFile('plan.svg', 'image/svg+xml'), 'vector');
   assert.equal(classifyFile('plan.dxf', 'application/dxf'), 'vector');
   assert.equal(classifyFile('plan.dwg', 'application/octet-stream'), 'unsupported');
-  assert.equal(classifyFile('plan.tiff', 'image/tiff'), 'unsupported');
 });
 
 test('UNSUPPORTED_FORMATS enumerates excluded types', () => {
-  for (const f of ['dwg', 'tiff', 'iges', 'step', 'password-protected-pdf']) {
+  for (const f of ['dwg', 'iges', 'step', 'password-protected-pdf']) {
     assert.ok(UNSUPPORTED_FORMATS.includes(f), `expected ${f} in unsupported list`);
   }
 });

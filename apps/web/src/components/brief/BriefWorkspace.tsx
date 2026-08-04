@@ -159,11 +159,11 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
           >
             <Upload size={24} style={{ color: '#8a7762' }} />
             <strong style={{ color: '#4d3428' }}>{fileName ? fileName : 'Click to select floor plan'}</strong>
-            <span style={{ fontSize: '12px', color: '#746b62' }}>PNG, JPG, WEBP, PDF</span>
+            <span style={{ fontSize: '12px', color: '#746b62' }}>Images, SVG and PDF (up to 25 MB)</span>
             <input 
               ref={fileInputRef}
               type="file" 
-              accept="image/png,image/jpeg,image/webp,application/pdf" 
+              accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/avif,image/heic,image/heif,image/svg+xml,application/pdf,.tif,.tiff,.heic,.heif" 
               onChange={onFile} 
               style={{ display: 'none' }}
             />

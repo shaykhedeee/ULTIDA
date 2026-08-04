@@ -12,7 +12,7 @@ import { getVisionProvider, type PlanVisionOutput } from '@ultida/agent-core';
 const execFileAsync = promisify(execFile);
 
 export type FileCategory =
-  | 'raster' // png/jpg/webp
+  | 'raster' // image source normalized to PNG before vision
   | 'pdf'
   | 'vector' // svg/dxf
   | 'unsupported';
@@ -24,17 +24,30 @@ export function classifyFile(fileName: string, mimeType: string): FileCategory {
     mimeType.startsWith('image/png') ||
     mimeType.startsWith('image/jpeg') ||
     mimeType.startsWith('image/webp') ||
+    mimeType.startsWith('image/gif') ||
+    mimeType.startsWith('image/bmp') ||
+    mimeType.startsWith('image/tiff') ||
+    mimeType.startsWith('image/avif') ||
+    mimeType.startsWith('image/heic') ||
+    mimeType.startsWith('image/heif') ||
     lower.endsWith('.png') ||
     lower.endsWith('.jpg') ||
     lower.endsWith('.jpeg') ||
-    lower.endsWith('.webp')
+    lower.endsWith('.webp') ||
+    lower.endsWith('.gif') ||
+    lower.endsWith('.bmp') ||
+    lower.endsWith('.tif') ||
+    lower.endsWith('.tiff') ||
+    lower.endsWith('.avif') ||
+    lower.endsWith('.heic') ||
+    lower.endsWith('.heif')
   )
     return 'raster';
   if (lower.endsWith('.svg') || lower.endsWith('.dxf')) return 'vector';
   return 'unsupported';
 }
 
-export const UNSUPPORTED_FORMATS = ['dwg', 'tiff', 'iges', 'step', 'password-protected-pdf'];
+export const UNSUPPORTED_FORMATS = ['dwg', 'iges', 'step', 'password-protected-pdf'];
 
 export type PlanElementDraft = {
   id: string;
@@ -308,7 +321,7 @@ export async function analyzePlanFile(input: {
 }): Promise<AnalysisResult> {
   const category = classifyFile(input.fileName, input.mimeType);
   if (category === 'unsupported') {
-    const err = new Error(`Unsupported file format: ${input.fileName}. Supported: PNG, JPG, WEBP, PDF. Excluded: DWG, TIFF, DXF, SVG, IGES, STEP.`);
+    const err = new Error(`Unsupported file format: ${input.fileName}. Supported: PNG, JPG, WebP, GIF, BMP, TIFF, AVIF, HEIC/HEIF, SVG, and PDF. Excluded: DWG, DXF, IGES, STEP.`);
     (err as any).code = 'UNSUPPORTED_FORMAT';
     (err as any).status = 415;
     throw err;
@@ -360,7 +373,7 @@ export async function analyzePlanFile(input: {
     mimeForVision = 'application/pdf';
   } else if (category === 'pdf') {
     // Non-Gemini providers cannot ingest PDF on this host (no rasterizer).
-    const err = new Error('PDF analysis requires the Gemini vision provider on this deployment. Configure GEMINI_* credentials or upload a raster image (PNG/JPG/WEBP).');
+    const err = new Error('PDF analysis requires a configured PDF-capable vision provider. Upload a supported raster image if PDF processing is unavailable.');
     (err as any).code = 'PDF_REQUIRES_GEMINI';
     (err as any).status = 415;
     throw err;

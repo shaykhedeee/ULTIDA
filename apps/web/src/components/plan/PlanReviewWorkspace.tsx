@@ -621,7 +621,7 @@ export function PlanReviewWorkspace({
             </div>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid var(--line)', borderRadius: 7, background: 'var(--surface)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
               <Upload size={14} /> Upload Plan File
-              <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={onFile} style={{ display: 'none' }} />
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/avif,image/heic,image/heif,image/svg+xml,application/pdf,.tif,.tiff,.heic,.heif" onChange={onFile} style={{ display: 'none' }} />
             </label>
             {onAnalyze && (
               <button

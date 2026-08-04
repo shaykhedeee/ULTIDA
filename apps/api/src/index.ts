@@ -351,7 +351,7 @@ app.post('/api/plan/analyze', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const { projectId, sourceAssetId, fileName, mimeType, idempotencyKey } = request.body ?? {};
   if (typeof sourceAssetId !== 'string' || typeof fileName !== 'string' || typeof mimeType !== 'string') return response.status(400).json({ success: false, code: 'INVALID_PLAN_UPLOAD', message: 'A stored sourceAssetId, file name and MIME type are required.' });
-  if (!['image/png', 'image/jpeg', 'image/webp', 'application/pdf'].includes(mimeType)) return response.status(400).json({ success: false, code: 'UNSUPPORTED_PLAN', message: 'Upload a PNG, JPEG, WebP, or PDF floor plan.' });
+  if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff', 'image/avif', 'image/heic', 'image/heif', 'image/svg+xml', 'application/pdf'].includes(mimeType)) return response.status(400).json({ success: false, code: 'UNSUPPORTED_PLAN', message: 'Upload a supported floor-plan image or PDF.' });
   const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId, fileName, mimeType, idempotencyKey }, authReq.ultidaUser!.id);
   if (job.status === 'unavailable') return response.status(503).json({ success: false, code: job.code, message: job.reason });
   if (job.status === 'not_found') return response.status(404).json({ success: false, code: 'PLAN_SOURCE_NOT_FOUND', message: job.reason });
@@ -699,8 +699,17 @@ app.post('/api/projects/:projectId/floor-plans/initiate', requireProjectUser, as
   }
   if (fileSize > 25 * 1024 * 1024) return response.status(413).json({ success: false, code: 'PLAN_TOO_LARGE', message: 'Floor plans must be 25 MB or smaller.' });
   const ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
-  const allowedExts = ['.png', '.jpg', '.jpeg', '.webp', '.pdf'];
-  const mimeByExtension: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.pdf': 'application/pdf' };
+  // Keep the original source private, but accept the common formats designers
+  // receive from site teams. Every raster source is normalized to a PNG inside
+  // the job before it reaches a vision provider, so the provider never has to
+  // guess from a browser filename or an exotic camera encoding.
+  const allowedExts = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff', '.avif', '.heic', '.heif', '.svg', '.pdf'];
+  const mimeByExtension: Record<string, string> = {
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+    '.gif': 'image/gif', '.bmp': 'image/bmp', '.tif': 'image/tiff', '.tiff': 'image/tiff',
+    '.avif': 'image/avif', '.heic': 'image/heic', '.heif': 'image/heif', '.svg': 'image/svg+xml',
+    '.pdf': 'application/pdf',
+  };
   // File.type is not reliably populated by every browser/Windows file picker.
   // Extension validation remains explicit; normalize the stored MIME from it.
   const normalizedMimeType = mimeByExtension[ext];
@@ -708,7 +717,7 @@ app.post('/api/projects/:projectId/floor-plans/initiate', requireProjectUser, as
     return response.status(415).json({
       success: false,
       code: 'UNSUPPORTED_FORMAT',
-      message: ext === '.dwg' ? 'DWG requires verified server-side conversion and is not supported yet.' : 'Supported formats: PNG, JPEG, WEBP, scanned PDF, and vector PDF.'
+      message: ext === '.dwg' ? 'DWG requires verified server-side conversion and is not supported yet.' : 'Supported formats: PNG, JPEG, WebP, GIF, BMP, TIFF, AVIF, HEIC/HEIF, SVG, and PDF.'
     });
   }
   const organizationId = authReq.ultidaUser!.organizationId;
@@ -755,7 +764,15 @@ app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, as
   try {
     const verified = await client.storage.from('project-assets').download(storagePath);
     if (verified.error || !verified.data) return response.status(409).json({ success: false, code: 'UPLOAD_NOT_FOUND', message: verified.error?.message ?? 'The uploaded object could not be verified.' });
-    const normalizedMimeType = typeof mimeType === 'string' && ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'].includes(mimeType) ? mimeType : ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.pdf': 'application/pdf' }[String(fileName).slice(String(fileName).lastIndexOf('.')).toLowerCase()] ?? 'image/png');
+    const mimeByExtension: Record<string, string> = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+      '.gif': 'image/gif', '.bmp': 'image/bmp', '.tif': 'image/tiff', '.tiff': 'image/tiff',
+      '.avif': 'image/avif', '.heic': 'image/heic', '.heif': 'image/heif', '.svg': 'image/svg+xml',
+      '.pdf': 'application/pdf',
+    };
+    const ext = String(fileName).slice(String(fileName).lastIndexOf('.')).toLowerCase();
+    const normalizedMimeType = mimeByExtension[ext];
+    if (!normalizedMimeType) return response.status(415).json({ success: false, code: 'UNSUPPORTED_FORMAT', message: 'This floor-plan format is not supported.' });
     const assetPayload = {
       id: assetId,
       organization_id: organizationId,
