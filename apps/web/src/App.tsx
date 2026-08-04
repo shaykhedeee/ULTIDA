@@ -276,6 +276,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [planProposals, setPlanProposals] = useState<any[]>([]);
   const [planAnalysisIssues, setPlanAnalysisIssues] = useState<Array<{ code: string; severity: 'warning' | 'critical'; entityId?: string; message: string }>>([]);
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
+  const [analysisRetryAvailable, setAnalysisRetryAvailable] = useState(false);
   const [analysisRefreshNonce, setAnalysisRefreshNonce] = useState(0);
   const [planApproved, setPlanApproved] = useState(false);
   const [sourceAssetId, setSourceAssetId] = useState<string | null>(null);
@@ -543,6 +544,12 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           setPlanStatus(payload.error?.message ?? 'Provider analysis failed. No geometry was generated.');
           setAnalysisJobId(null);
         } else {
+          const queuedForMs = payload.createdAt ? Date.now() - new Date(payload.createdAt).getTime() : 0;
+          if (payload.status === 'queued' && queuedForMs > 45_000) {
+            setAnalysisRetryAvailable(true);
+            setPlanStatus('Analysis is waiting for the AI worker. Retry analysis to securely re-dispatch this exact source file.');
+            return;
+          }
           setPlanStatus(`Analysis ${payload.status ?? 'processing'}...`);
         }
       } catch {
@@ -658,6 +665,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       setSourceAssetId(uploadedAssetId);
       if (!completion.jobId) return setPlanStatus('The plan was stored, but no durable analysis job was created.');
       setAnalysisJobId(completion.jobId);
+      setAnalysisRetryAvailable(false);
       setPlanAnalysed(false);
       setPlanStatus(completion.dispatch?.dispatched === false
         ? 'Plan analysis is queued. Cloudflare worker dispatch is not configured yet.'
@@ -710,6 +718,31 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       const detail = error instanceof Error ? error.message : 'Network request failed.';
       setPlanStatus(`Plan service could not be reached at ${apiBase}. ${detail}`);
     } */
+  }
+
+  async function retryPlanAnalysis() {
+    if (!analysisJobId || !projectId || !supabase) return;
+    const token = await getValidToken();
+    if (!token) return setPlanStatus('Your session has expired. Sign in again before retrying analysis.');
+    setAnalysisRetryAvailable(false);
+    setPlanStatus('Re-dispatching the existing floor-plan analysis…');
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/plan/analyze/${analysisJobId}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ projectId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) {
+        setAnalysisRetryAvailable(true);
+        return setPlanStatus(payload?.message ?? 'Analysis could not be re-dispatched. Please try again.');
+      }
+      setPlanStatus('Analysis re-dispatched to the vision worker…');
+    } catch {
+      setAnalysisRetryAvailable(true);
+      setPlanStatus('Analysis could not be re-dispatched because the service could not be reached.');
+    }
   }
 
   async function approvePlan(snapshot: unknown) {
@@ -1011,6 +1044,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             layoutConfig={layoutConfig}
             onFile={selectPlan}
             onAnalyze={analysePlan}
+            onRetryAnalysis={retryPlanAnalysis}
+            analysisRetryAvailable={analysisRetryAvailable}
             onApprove={approvePlan}
             onSaveDraft={(snapshot) => void savePlanDraft(snapshot)}
           />

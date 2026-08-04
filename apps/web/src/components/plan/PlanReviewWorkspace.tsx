@@ -124,6 +124,8 @@ type Props = {
   layoutConfig?: any;
   onFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAnalyze?: () => void;
+  onRetryAnalysis?: () => void;
+  analysisRetryAvailable?: boolean;
   onApprove: (canonicalModel: unknown) => void;
   onSaveDraft?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null; geometryMode: GeometryMode }) => void;
 };
@@ -155,6 +157,8 @@ export function PlanReviewWorkspace({
   initialSnapshot,
   onFile,
   onAnalyze,
+  onRetryAnalysis,
+  analysisRetryAvailable = false,
   onApprove,
   onSaveDraft,
 }: Props) {
@@ -482,6 +486,15 @@ export function PlanReviewWorkspace({
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'var(--brown-mid)', color: '#fff', border: 0, borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
               >
                 {analysisInFlight ? <Loader2 size={14} className="ultida-spinner" /> : <Sparkles size={14} />} {analysisInFlight ? 'Analysing source' : 'Run AI Analysis'}
+              </button>
+            )}
+            {onRetryAnalysis && analysisRetryAvailable && (
+              <button
+                type="button"
+                onClick={onRetryAnalysis}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#fff', color: 'var(--brown-mid)', border: '1px solid var(--brown-mid)', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+              >
+                <RefreshCw size={14} /> Retry analysis
               </button>
             )}
             <button

@@ -19,7 +19,7 @@ interface MessageBatch<T> {
 
 type JobMessage = { jobId: string; kind: 'plan-analysis' };
 
-async function processOne(env: Env) {
+async function processOne(env: Env, jobId: string) {
   if (!env.API_BASE || !env.ULTIDA_WORKER_SHARED_SECRET) throw new Error('Worker API dispatch is not configured.');
   const response = await fetch(`${env.API_BASE.replace(/\/$/, '')}/internal/plan-jobs/process`, {
     method: 'POST',
@@ -30,7 +30,7 @@ async function processOne(env: Env) {
         ? { 'x-vercel-protection-bypass': env.VERCEL_PROTECTION_BYPASS_SECRET }
         : {})
     },
-    body: JSON.stringify({ requestedBy: 'cloudflare-queue' })
+    body: JSON.stringify({ requestedBy: 'cloudflare-queue', jobId })
   });
   if (!response.ok) throw new Error(`Ultida API returned HTTP ${response.status}.`);
 }
@@ -38,7 +38,17 @@ async function processOne(env: Env) {
 export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
-    if (url.pathname === '/health') return Response.json({ success: true, service: 'ultida-ai-worker', queueConsumer: true });
+    if (url.pathname === '/health') {
+      const suppliedSecret = request.headers.get('x-ultida-worker-secret');
+      return Response.json({
+        success: true,
+        service: 'ultida-ai-worker',
+        queueConsumer: true,
+        // This is intentionally only a boolean. It lets the API prove that the
+        // two deployments share a secret without returning any secret material.
+        dispatchAuthenticated: Boolean(env.ULTIDA_WORKER_SHARED_SECRET && suppliedSecret === env.ULTIDA_WORKER_SHARED_SECRET),
+      });
+    }
     if (url.pathname === '/dispatch' && request.method === 'POST') {
       const suppliedSecret = request.headers.get('x-ultida-worker-secret');
       if (!env.ULTIDA_WORKER_SHARED_SECRET || suppliedSecret !== env.ULTIDA_WORKER_SHARED_SECRET) {
@@ -58,7 +68,7 @@ export default {
     for (const message of batch.messages) {
       try {
         if (message.body?.kind !== 'plan-analysis' || !message.body.jobId) throw new Error('Invalid plan-analysis queue message.');
-        await processOne(env);
+        await processOne(env, message.body.jobId);
         message.ack();
       } catch {
         message.retry({ delaySeconds: 10 });

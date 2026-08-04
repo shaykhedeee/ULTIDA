@@ -157,9 +157,24 @@ export function createSceneDxf(input: Record<string, unknown>) {
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '35mb' }));
 
-app.get('/api/health', (_request, response) => {
+app.get('/api/health', async (_request, response) => {
   const currentGateway = createProviderGateway(process.env);
   const hasServerSupabaseKey = Boolean(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const workerUrl = process.env.CLOUDFLARE_WORKER_URL?.replace(/\/$/, '');
+  const workerSecret = process.env.ULTIDA_WORKER_SHARED_SECRET;
+  let workerDispatchReady = false;
+  if (workerUrl && workerSecret && workerSecret.length > 31) {
+    try {
+      const workerResponse = await fetch(`${workerUrl}/health`, {
+        headers: { 'x-ultida-worker-secret': workerSecret },
+        signal: AbortSignal.timeout(5_000),
+      });
+      const workerHealth = await workerResponse.json().catch(() => null) as { queueConsumer?: unknown; dispatchAuthenticated?: unknown } | null;
+      workerDispatchReady = Boolean(workerResponse.ok && workerHealth?.queueConsumer && workerHealth?.dispatchAuthenticated);
+    } catch {
+      workerDispatchReady = false;
+    }
+  }
   const hasPlanVisionProvider = Boolean(
     process.env.OPENAI_API_KEY ||
     process.env.GEMINI_VISION_API_KEY ||
@@ -174,7 +189,7 @@ app.get('/api/health', (_request, response) => {
     status: 'ok',
     readiness: {
       supabase: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY),
-      durableJobs: hasServerSupabaseKey,
+      durableJobs: hasServerSupabaseKey && workerDispatchReady,
       planVision: hasPlanVisionProvider,
       realImageGeneration: currentGateway.status().some((provider) => provider.configured && provider.operations.includes('generate'))
     },
@@ -349,6 +364,29 @@ app.get('/api/plan/analyze/:jobId', requireProjectUser, async (request, response
   if (result.status === 'unavailable') return response.status(503).json({ success: false, code: 'PLAN_JOB_PERSISTENCE_UNAVAILABLE' });
   if (result.status === 'not_found') return response.status(404).json({ success: false, code: 'PLAN_JOB_NOT_FOUND' });
   return response.json({ success: true, ...result });
+});
+
+// A queued job may survive an interrupted provider deployment. Re-dispatch the
+// original immutable source instead of forcing the designer to upload again.
+app.post('/api/plan/analyze/:jobId/retry', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const projectId = authReq.ultidaUser!.projectId;
+  const client = getServerSupabaseClient();
+  if (!client) return response.status(503).json({ success: false, code: 'PLAN_JOB_PERSISTENCE_UNAVAILABLE', message: 'Secure job processing is not configured on the server.' });
+  const { data: job, error } = await client
+    .from('jobs')
+    .select('id,status')
+    .eq('id', request.params.jobId)
+    .eq('project_id', projectId)
+    .eq('kind', 'plan-analysis')
+    .maybeSingle();
+  if (error || !job) return response.status(404).json({ success: false, code: 'PLAN_JOB_NOT_FOUND', message: 'This floor-plan analysis job was not found.' });
+  if (job.status === 'succeeded') return response.status(409).json({ success: false, code: 'PLAN_JOB_ALREADY_COMPLETE', message: 'This floor-plan analysis has already completed.' });
+  const reset = await client.from('jobs').update({ status: 'queued', error: null, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
+  if (reset.error) return response.status(502).json({ success: false, code: 'PLAN_JOB_RETRY_FAILED', message: reset.error.message });
+  const dispatch = await dispatchPlanAnalysisJob(process.env, job.id);
+  if (!dispatch.dispatched) return response.status(503).json({ success: false, code: 'PLAN_JOB_DISPATCH_UNAVAILABLE', message: dispatch.reason ?? 'The AI worker could not be reached. Please try again shortly.' });
+  return response.status(202).json({ success: true, jobId: job.id, status: 'queued', dispatch });
 });
 
 // ─── Real plan-analysis pipeline (provider + deterministic CV/OCR + reconciliation) ───
