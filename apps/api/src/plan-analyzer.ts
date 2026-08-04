@@ -77,7 +77,7 @@ SELF CHECK
 5. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
 6. Do not split a straight wall into redundant collinear fragments and never repeat the same wall candidate. Prefer fewer, well-evidenced candidates over guessed completeness.
 7. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
-8. Return at most 24 proposals. Start with room boundary walls, then rooms, openings, legible dimensions and fixtures.
+8. Return at most 36 proposals. First cover all room boundary walls and room zones, then openings, legible dimensions and fixed fixtures. Do not sacrifice a whole room merely to describe a minor fixture.
 9. A wall must contain exactly numeric x1,y1,x2,y2. A room must contain exactly numeric x,y,width,height. Do not use numbered keys, arrays, prose, units, or nested objects inside geometry.
 10. Output one JSON object only, with no markdown and no explanatory text:
 {"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"}]}`;
@@ -100,7 +100,7 @@ const CLOUDFLARE_PLAN_RESPONSE_FORMAT = {
     properties: {
       proposals: {
         type: 'array',
-        maxItems: 24,
+        maxItems: 36,
         items: {
           type: 'object',
           additionalProperties: false,
@@ -276,7 +276,7 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
             image: input.dataUrl,
             response_format: CLOUDFLARE_PLAN_RESPONSE_FORMAT,
             temperature: 0,
-            max_tokens: 4096,
+        max_tokens: 6144,
           };
       const response = await fetchWithProviderTimeout(environment, `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
       const payload = await response.json() as { success?: boolean; result?: { response?: string; text?: string; answer?: string; result?: { answer?: string; response?: string; text?: string } }; errors?: Array<{ message?: string }> };

@@ -146,13 +146,19 @@ function serverClient(environment: Environment) {
 function dataUrl(mimeType: string, bytes: Uint8Array) { return `data:${mimeType};base64,${Buffer.from(bytes).toString('base64')}`; }
 
 async function normalizeRasterForVision(bytes: Uint8Array, mimeType: string) {
-  if (mimeType === 'image/png') return { bytes, mimeType };
   try {
-    // Workers AI receives an actual, self-consistent PNG irrespective of a
-    // browser's filename or encoded source format. It avoids decoder gaps for
-    // WebP/HEIC-style uploads and gives CV and vision the identical pixels.
-    const png = await sharp(Buffer.from(bytes), { animated: false }).png({ compressionLevel: 9 }).toBuffer();
-    return { bytes: new Uint8Array(png), mimeType: 'image/png' };
+    // Workers AI receives one self-consistent, upright PNG irrespective of a
+    // browser filename, EXIF rotation, transparency, or camera encoding. The
+    // 2400px cap retains small dimension text while preventing one oversized
+    // construction PDF/photo from consuming an unbounded vision request.
+    const source = sharp(Buffer.from(bytes), { animated: false, failOn: 'none' }).rotate().flatten({ background: '#ffffff' });
+    const png = await source
+      .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+    const metadata = await sharp(png).metadata();
+    if (!metadata.width || !metadata.height) throw new Error('the decoded source has no usable dimensions');
+    return { bytes: new Uint8Array(png), mimeType: 'image/png' as const, widthPx: metadata.width, heightPx: metadata.height };
   } catch (error) {
     throw new Error(`The uploaded image could not be normalized for vision: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -290,7 +296,16 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         cvStatus = `cv_unavailable: ${cvTrace.stderr.slice(0, 160)}`;
       }
 
-      const output = { ...analysis, sourceAssetId: input.sourceAssetId, sourceMimeType: input.mimeType, analysisMimeType, cvCandidate: cvTrace?.result ?? null, reconciled, cvStatus };
+      const output = {
+        ...analysis,
+        sourceAssetId: input.sourceAssetId,
+        sourceMimeType: input.mimeType,
+        analysisMimeType,
+        normalizedSource: { widthPx: normalized.widthPx, heightPx: normalized.heightPx, maxDimensionPx: 2400 },
+        cvCandidate: cvTrace?.result ?? null,
+        reconciled,
+        cvStatus,
+      };
       const outputHash = createHash('sha256').update(JSON.stringify(output)).digest('hex');
       const analysisUuid = crypto.randomUUID();
       const primaryRun = (Array.isArray(analysis.providerRuns) ? analysis.providerRuns : []).find((run) => run.status === 'succeeded') ?? analysis.providerRuns?.[0];
