@@ -36,6 +36,17 @@ export const CatalogModuleSchema = z.object({
 });
 export type CatalogModule = z.infer<typeof CatalogModuleSchema>;
 
+// Curated starting palette: intentionally small, brand-labelled, and never
+// treated as a substitute for a supplier's current technical datasheet.
+export const CuratedLaminateCatalog = [
+  { id: 'cubex-neutral-sand', brand: 'Cubex', name: 'Neutral Sand', family: 'solid', finish: 'matte', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['wardrobe', 'tv-unit', 'crockery', 'bed'] },
+  { id: 'cubex-walnut-grain', brand: 'Cubex', name: 'Walnut Grain', family: 'woodgrain', finish: 'textured', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'ABS', status: 'required' }, suitableFor: ['tv-unit', 'crockery', 'bed'] },
+  { id: 'advance-ivory-matte', brand: 'Advance', name: 'Ivory Matte', family: 'solid', finish: 'matte', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['kitchen', 'wardrobe', 'pooja'] },
+  { id: 'advance-stone-grey', brand: 'Advance', name: 'Stone Grey', family: 'stone', finish: 'textured', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'PVC', status: 'required' }, suitableFor: ['kitchen', 'tv-unit', 'crockery'] },
+  { id: 'virgo-sage-green', brand: 'Virgo', name: 'Sage Green', family: 'solid', finish: 'satin', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['kitchen', 'wardrobe', 'bed'] },
+  { id: 'virgo-smoked-oak', brand: 'Virgo', name: 'Smoked Oak', family: 'woodgrain', finish: 'satin', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'ABS', status: 'required' }, suitableFor: ['tv-unit', 'bed', 'crockery'] },
+] as const;
+
 export const IndianModularDesignPresetSchema = z.object({
   id: z.string(), name: z.string(), family: ModuleFamilySchema, roomTypes: z.array(RoomTypeSchema).min(1),
   referenceStyle: z.array(z.string()), elevationViews: z.array(z.enum(['external', 'internal', 'top', 'section'])).min(1),

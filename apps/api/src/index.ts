@@ -22,7 +22,7 @@ import { authenticateProjectUser, requireProjectUser } from './api-auth.js';
 import { MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, VisualProposalRequestSchema, validateProjectBrief } from '@ultida/contracts';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { SceneV1Schema } from '@ultida/scene-core';
-import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, listDesignPresets, ModuleFamilySchema, getCatalogVault } from '@ultida/catalog-core';
+import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, listDesignPresets, ModuleFamilySchema, getCatalogVault, CuratedLaminateCatalog } from '@ultida/catalog-core';
 import { CanonicalPlanModelSchema, parsePlanIntake } from '@ultida/plan-core';
 import { validateGeometry } from '@ultida/geometry-core';
 import { analyzePlanWithProvider } from './plan-analyzer.js';
@@ -210,7 +210,13 @@ app.post('/api/rules/evaluate', (request, response) => {
 });
 
 app.get('/api/catalog', (request, response) => {
-  response.json({ success: true, app: 'ultida', version: '0.1.0', providers: gateway.status() });
+  response.json({ success: true, app: 'ultida', version: '0.1.0', providers: gateway.status(), laminates: CuratedLaminateCatalog });
+});
+
+app.get('/api/catalog/laminates', (request, response) => {
+  const family = typeof request.query.family === 'string' ? request.query.family : '';
+  const result = family ? CuratedLaminateCatalog.filter((item) => item.family === family || item.suitableFor.includes(family as never)) : CuratedLaminateCatalog;
+  response.json({ success: true, laminates: result, note: 'Curated visual starting points; confirm current supplier SKU and technical sheet before production.' });
 });
 
 app.get('/api/providers', (_request, response) => response.json({ success: true, providers: gateway.status() }));
