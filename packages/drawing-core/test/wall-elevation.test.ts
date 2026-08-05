@@ -51,6 +51,23 @@ test('generateWallElevationsSvg produces styled SVG element with wall dimensions
   assert.match(svg, /tv-unit 1800mm/);
 });
 
+test('wall elevation excludes modules assigned to a different wall', () => {
+  const multiWallScene = {
+    ...testScene,
+    walls: [
+      ...testScene.walls,
+      { id: 'wall-2', start: { xMm: 3500, yMm: 0 }, end: { xMm: 3500, yMm: 3000 }, thicknessMm: 150, heightMm: 2700 },
+    ],
+    modules: [
+      ...testScene.modules,
+      { id: 'bedroom-wardrobe', roomId: 'room-1', family: 'wardrobe', widthMm: 1200, depthMm: 600, heightMm: 2400, position: { xMm: 3500, yMm: 900 }, rotationDeg: 90 },
+    ],
+  };
+  const svg = generateWallElevationsSvg(multiWallScene as any, 'wall-1');
+  assert.match(svg, /data-module-id="tv-console"/);
+  assert.doesNotMatch(svg, /data-module-id="bedroom-wardrobe"/);
+});
+
 test('drawing projection excludes coincident reversed walls to prevent double-wall exports', () => {
   const duplicated = {
     ...testScene,

@@ -1052,12 +1052,15 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string): string
   const originX = margin;
   const originY = svgH - margin;
 
-  const modulesOnWall = (scene.modules ?? []).filter((m) => !wallId || (m as any).wallId === wallId || true);
+  // Keep an elevation wall-scoped. Rendering every scene module here caused
+  // unrelated furniture to appear on each wall in multi-wall projects. The
+  // canonical projection already assigns each module to its nearest wall.
+  const modulesOnWall = buildDrawingProjection(scene).modules.filter((module) => module.wallId === wall?.id);
 
   let moduleSvgElements = '';
   for (const mod of modulesOnWall) {
-    const mx = originX + (mod.position.xMm || 100) * scale;
-    const my = originY - ((mod.position.yMm || 0) + mod.heightMm) * scale;
+    const mx = originX + (mod.offsetAlongWallMm ?? 0) * scale;
+    const my = originY - mod.heightMm * scale;
     const mw = Math.max(20, mod.widthMm * scale);
     const mh = Math.max(20, mod.heightMm * scale);
 
@@ -1112,4 +1115,3 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string): string
 }
 
 export { generateSketchUpRubyScript } from './sketchup-exporter.js';
-
