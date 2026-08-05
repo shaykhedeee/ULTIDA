@@ -36,6 +36,25 @@ every wall. It now uses the canonical drawing projection's nearest-wall
 assignment and wall-relative offset. This keeps SVG, DXF and PDF elevations
 consistent and prevents unrelated furniture from appearing on a wall sheet.
 
+## Plan-review DXF and PDF/image vectorization
+
+The locally installed `pdf-to-cad-vectorizer` skill (based on
+`Ai-LaoHuang/pdf-to-cad-vectorizer`) is retained as an interoperability aid for
+native-vector PDFs and raster drawings. Its useful guardrails are now reflected
+in ULTIDA: prefer native vector paths when available, keep raster conversion
+separate, report scaling caveats, and never claim that visual tracing recovered
+semantic CAD constraints. The skill recommends separate visual-ink,
+centerline, and outline outputs; ULTIDA's plan-review export follows the same
+separation by exporting calibrated editable entities with explicit review
+warnings.
+
+The new `/api/projects/:projectId/drawings/plan.dxf` endpoint and Plan screen
+button generate a calibrated review DXF before a scene exists. It is marked
+`PROVISIONAL INITIAL DESIGN` (or `REVIEWED FINAL PRODUCTION`) and explicitly
+states that it is not a fabrication release. Production DXF remains generated
+only from the approved `scene.v1`, so visual vectorization cannot bypass
+calibration, entity review, or scene approval.
+
 ## Release rules for future CAD integrations
 
 1. Source must be an approved `scene.v1` with a stable scene version.
