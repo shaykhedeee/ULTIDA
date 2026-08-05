@@ -35,6 +35,7 @@ import { compileSceneV1, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
 import { compileStoredModuleForScene } from './scene-module-parts.js';
 import { evaluateVastuCompliance, generateCandidates } from '@ultida/layout-core';
+import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord } from './reference-retrieval.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8800);
@@ -869,6 +870,33 @@ app.post('/api/projects/:projectId/references/complete', requireProjectUser, asy
   } catch (error: any) {
     return response.status(500).json({ success: false, code: 'REFERENCE_COMPLETE_FAILED', message: error.message ?? 'The reference could not be saved.' });
   }
+});
+
+// Retrieval is deliberately evidence-first: it only returns references inside
+// the caller's organization and never turns image inspiration into geometry.
+app.get('/api/projects/:projectId/reference-retrieval', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const text = typeof request.query.q === 'string' ? request.query.q.trim().slice(0, 240) : '';
+  const room = typeof request.query.room === 'string' ? request.query.room.trim().slice(0, 80) : '';
+  const moduleFamily = typeof request.query.moduleFamily === 'string' ? request.query.moduleFamily.trim().slice(0, 80) : '';
+  const style = typeof request.query.style === 'string' ? request.query.style.trim().slice(0, 80) : '';
+  const requestedLimit = Number(request.query.limit);
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(Math.floor(requestedLimit), 12)) : 6;
+  const client = getRequestSupabaseClient(request);
+  const result = await client
+    .from('reference_vault_entries')
+    .select('id,title,source_path,room,module_family,style,material_tags,viewpoint,review_state,metadata')
+    .eq('organization_id', authReq.ultidaUser!.organizationId)
+    .not('review_state', 'in', '(archived,rejected)')
+    .limit(240);
+  if (result.error) return response.status(500).json({ success: false, code: 'REFERENCE_RETRIEVAL_FAILED', message: result.error.message });
+  const references = retrieveReferences((result.data ?? []) as ReferenceVaultRecord[], { text, room, moduleFamily, style, limit });
+  return response.json({
+    success: true,
+    query: { text, room: room || null, moduleFamily: moduleFamily || null, style: style || null, limit },
+    references,
+    context: compileReferenceContext(references),
+  });
 });
 
 // Phase 2: Designer Draft Review Persistence Endpoints

@@ -14,7 +14,7 @@ type LibraryItem = {
   metadata: { previewUrl?: string };
   asset?: { storage_path: string; mime_type: string } | null;
 };
-type VaultEntry = { id: string; title: string; source_path: string; room: string; module_family: string; style: string; review_state: string; sha256: string; metadata: Record<string, unknown> };
+type VaultEntry = { id: string; title: string; source_path: string; room: string; module_family: string; style: string; material_tags?: string[]; review_state: string; sha256: string; metadata: Record<string, unknown> };
 
 type CatalogModule = {
   id: string;
@@ -112,7 +112,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           if (!user) return;
           const membership = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).limit(1).maybeSingle();
           if (!membership.data?.organization_id) return;
-          const result = await supabase.from('reference_vault_entries').select('id,title,source_path,room,module_family,style,review_state,sha256,metadata').eq('organization_id', membership.data.organization_id).order('created_at', { ascending: false });
+          const result = await supabase.from('reference_vault_entries').select('id,title,source_path,room,module_family,style,material_tags,review_state,sha256,metadata').eq('organization_id', membership.data.organization_id).order('created_at', { ascending: false });
           if (!result.error && live) setVault((result.data ?? []) as VaultEntry[]);
         })());
       }
@@ -148,7 +148,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   }), [items, search]);
   const visibleModules = useMemo(() => modules.filter((item) => (moduleFamily === 'all' || item.family === moduleFamily) && (moduleRoom === 'all' || item.roomTypes.includes(moduleRoom)) && (!search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search))), [modules, search, moduleFamily, moduleRoom]);
   const visibleMaterials = useMemo(() => materials.filter((item) => !search || `${item.name} ${item.code} ${item.category} ${item.supplier ?? ''}`.toLowerCase().includes(search)), [materials, search]);
-  const visibleVault = useMemo(() => vault.filter((entry) => (vaultRoom === 'all' || entry.room === vaultRoom) && (vaultFamily === 'all' || entry.module_family === vaultFamily) && (vaultState === 'all' || entry.review_state === vaultState) && (!search || `${entry.title} ${entry.source_path} ${entry.room} ${entry.module_family} ${entry.style}`.toLowerCase().includes(search))), [vault, vaultRoom, vaultFamily, vaultState, search]);
+  const visibleVault = useMemo(() => vault.filter((entry) => (vaultRoom === 'all' || entry.room === vaultRoom) && (vaultFamily === 'all' || entry.module_family === vaultFamily) && (vaultState === 'all' || entry.review_state === vaultState) && (!search || `${entry.title} ${entry.source_path} ${entry.room} ${entry.module_family} ${entry.style} ${(entry.material_tags ?? []).join(' ')} ${JSON.stringify(entry.metadata ?? {})}`.toLowerCase().includes(search))), [vault, vaultRoom, vaultFamily, vaultState, search]);
   const vaultValues = (field: 'room' | 'module_family' | 'review_state') => [...new Set(vault.map((entry) => entry[field]).filter(Boolean))].sort();
   async function updateVault(id: string, patch: Partial<VaultEntry>) { if (!supabase) return; const { error } = await supabase.from('reference_vault_entries').update(patch).eq('id', id); if (!error) setVault((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry)); }
   async function deleteVault(id: string) {
