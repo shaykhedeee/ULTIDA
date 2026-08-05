@@ -249,8 +249,9 @@ export async function createVisualJob(environment: Record<string, string | undef
         cannyEdgeMapUrl: baseArtifacts.edgeMap.url,
         materialKeyMapUrl: baseArtifacts.materialRegions[0]?.url,
       },
-      // Only Cloudflare's configured FLUX.2 adapter has a verified image-input path.
-      providerPreference: ['cloudflare'],
+      // A studio-local ComfyUI workflow may provide the strongest geometry locks.
+      // Cloudflare FLUX.2 remains the verified hosted fallback when ComfyUI is unavailable.
+      providerPreference: ['comfyui', 'cloudflare'],
     };
     await client.from('jobs').update({
       status: 'running',

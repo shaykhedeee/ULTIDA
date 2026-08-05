@@ -26,14 +26,28 @@ function readComfyWorkflow(environment: Environment): ComfyWorkflow | null {
 }
 
 function applyPrompt(workflow: ComfyWorkflow, request: VisualProposalRequest) {
+  return applyComfyTemplate(workflow, request);
+}
+
+type ComfyUploads = Partial<Record<'sourceImage' | 'depthMapImage' | 'cannyEdgeMapImage' | 'materialKeyMapImage', string>>;
+
+function applyComfyTemplate(workflow: ComfyWorkflow, request: VisualProposalRequest, uploads: ComfyUploads = {}) {
   return JSON.parse(JSON.stringify(workflow)
     .replaceAll('{{prompt}}', request.structuredPrompt)
     .replaceAll('{{negativePrompt}}', request.negativePrompt ?? '')
     .replaceAll('{{style}}', request.style)
     .replaceAll('{{sceneVersionId}}', request.sceneVersionId)
+    .replaceAll('{{sourceImage}}', uploads.sourceImage ?? '')
+    .replaceAll('{{depthMapImage}}', uploads.depthMapImage ?? '')
+    .replaceAll('{{cannyEdgeMapImage}}', uploads.cannyEdgeMapImage ?? '')
+    .replaceAll('{{materialKeyMapImage}}', uploads.materialKeyMapImage ?? '')
     .replaceAll('{{depthMapUrl}}', request.conditioningMaps?.depthMapUrl ?? '')
     .replaceAll('{{cannyEdgeMapUrl}}', request.conditioningMaps?.cannyEdgeMapUrl ?? '')
     .replaceAll('{{materialKeyMapUrl}}', request.conditioningMaps?.materialKeyMapUrl ?? ''));
+}
+
+function comfyTemplateNeeds(workflow: ComfyWorkflow, token: keyof ComfyUploads) {
+  return JSON.stringify(workflow).includes(`{{${token}}}`);
 }
 
 function isRetryableStatus(status: number) {
@@ -59,6 +73,26 @@ async function readImageAsset(asset: string): Promise<Buffer> {
   return Buffer.from(await response.arrayBuffer());
 }
 
+function assetMimeType(asset: string) {
+  return /^data:([^;]+);base64,/.exec(asset)?.[1] ?? 'image/png';
+}
+
+async function uploadComfyImage(baseUrl: string, asset: string, logicalName: string, environment: Environment): Promise<string> {
+  const bytes = await readImageAsset(asset);
+  const form = new FormData();
+  form.append('image', new Blob([Uint8Array.from(bytes)], { type: assetMimeType(asset) }), `${logicalName}.png`);
+  form.append('overwrite', 'true');
+  const response = await fetch(`${baseUrl}/upload/image`, {
+    method: 'POST',
+    headers: environment.COMFYUI_API_KEY ? { authorization: `Bearer ${environment.COMFYUI_API_KEY}` } : {},
+    body: form,
+  });
+  if (!response.ok) throw new Error(`ComfyUI image upload failed (${response.status}).`);
+  const payload = await response.json() as { name?: string; subfolder?: string };
+  if (!payload.name) throw new Error('ComfyUI image upload returned no filename.');
+  return payload.subfolder ? `${payload.subfolder}/${payload.name}` : payload.name;
+}
+
 export function createProviderGateway(environment: Environment) {
   const getProviders = (): ProviderCapabilityStatus[] => {
     const env = environment;
@@ -72,7 +106,7 @@ export function createProviderGateway(environment: Environment) {
       { id: 'cloudflare', name: 'Cloudflare Workers AI', configured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN), operations: cloudflareOperations, details: `${cloudflareModel} (${cloudflareModel.includes('flux-2') ? 'generation and image editing' : 'text-to-image only'})` },
       { id: 'openai-dall-e-3', name: 'OpenAI DALL-E 3', configured: Boolean(env.OPENAI_API_KEY), operations: ['generate'], details: 'DALL-E 3 does not support image editing.' },
       { id: 'openai-gpt-image-1', name: 'OpenAI GPT Image 1', configured: Boolean(env.OPENAI_API_KEY && env.OPENAI_IMAGE_MODEL === 'gpt-image-1'), operations: ['generate'], details: 'Image editing remains unavailable until the edits endpoint is connected.' },
-      { id: 'comfyui', name: 'ComfyUI', configured: Boolean(env.COMFYUI_BASE_URL && readComfyWorkflow(env)), operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'] }
+      { id: 'comfyui', name: 'ComfyUI', configured: Boolean(env.COMFYUI_BASE_URL && readComfyWorkflow(env)), operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'], details: 'Optional studio-local workflow. Image-conditioned operations require a {{sourceImage}} loader in the approved workflow.' }
     ];
   };
 
@@ -395,19 +429,39 @@ export function createProviderGateway(environment: Environment) {
       return { status: 'failed', code: 'COMFYUI_WORKFLOW_INVALID', message: 'COMFYUI_WORKFLOW_JSON is invalid or missing.', retryable: false, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
     }
     const baseUrl = environment.COMFYUI_BASE_URL!.replace(/\/$/, '');
-    const response = await fetch(`${baseUrl}/prompt`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...(environment.COMFYUI_API_KEY ? { authorization: `Bearer ${environment.COMFYUI_API_KEY}` } : {}) },
-      body: JSON.stringify({ prompt: applyPrompt(workflow, request), client_id: `ultida-${request.sceneVersionId}` })
-    });
-    if (!response.ok) {
-      return { status: 'failed', code: `COMFYUI_HTTP_${response.status}`, message: `ComfyUI rejected the workflow (${response.status}).`, retryable: isRetryableStatus(response.status), sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
+    try {
+      const uploads: ComfyUploads = {};
+      if (comfyTemplateNeeds(workflow, 'sourceImage')) {
+        if (!request.sourceAssets[0]) {
+          return { status: 'failed', code: 'COMFYUI_SOURCE_IMAGE_REQUIRED', message: 'The selected ComfyUI workflow requires the locked scene image.', retryable: false, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
+        }
+        uploads.sourceImage = await uploadComfyImage(baseUrl, request.sourceAssets[0], `ultida-scene-${request.sceneVersionId}`, environment);
+      }
+      const uploadOptional = async (token: keyof ComfyUploads, asset: string | undefined, filename: string) => {
+        if (!comfyTemplateNeeds(workflow, token)) return;
+        if (!asset) throw new Error(`The ComfyUI workflow requires ${token}, but ULTIDA did not create it.`);
+        uploads[token] = await uploadComfyImage(baseUrl, asset, filename, environment);
+      };
+      await uploadOptional('depthMapImage', request.conditioningMaps?.depthMapUrl, `ultida-depth-${request.sceneVersionId}`);
+      await uploadOptional('cannyEdgeMapImage', request.conditioningMaps?.cannyEdgeMapUrl, `ultida-canny-${request.sceneVersionId}`);
+      await uploadOptional('materialKeyMapImage', request.conditioningMaps?.materialKeyMapUrl, `ultida-materials-${request.sceneVersionId}`);
+
+      const response = await fetch(`${baseUrl}/prompt`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(environment.COMFYUI_API_KEY ? { authorization: `Bearer ${environment.COMFYUI_API_KEY}` } : {}) },
+        body: JSON.stringify({ prompt: applyComfyTemplate(workflow, request, uploads), client_id: `ultida-${request.sceneVersionId}` })
+      });
+      if (!response.ok) {
+        return { status: 'failed', code: `COMFYUI_HTTP_${response.status}`, message: `ComfyUI rejected the workflow (${response.status}).`, retryable: isRetryableStatus(response.status), sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
+      }
+      const payload = await response.json() as { prompt_id?: string; error?: string };
+      if (!payload.prompt_id) {
+        return { status: 'failed', code: 'COMFYUI_NO_PROMPT_ID', message: payload.error ?? 'ComfyUI did not return a prompt id.', retryable: false, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
+      }
+      return { status: 'queued', synthetic: false, provider: 'comfyui', promptId: payload.prompt_id, sourceSceneVersionId: request.sceneVersionId, operation: request.operation, attemptedProviders };
+    } catch (error) {
+      return { status: 'failed', code: 'COMFYUI_REQUEST_FAILED', message: error instanceof Error ? error.message : 'ComfyUI could not accept the render workflow.', retryable: true, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
     }
-    const payload = await response.json() as { prompt_id?: string; error?: string };
-    if (!payload.prompt_id) {
-      return { status: 'failed', code: 'COMFYUI_NO_PROMPT_ID', message: payload.error ?? 'ComfyUI did not return a prompt id.', retryable: false, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
-    }
-    return { status: 'queued', synthetic: false, provider: 'comfyui', promptId: payload.prompt_id, sourceSceneVersionId: request.sceneVersionId, operation: request.operation, attemptedProviders };
   }
 
   return {
@@ -444,7 +498,7 @@ export function createProviderGateway(environment: Environment) {
       const hasDeterministicImageInput = request.sourceAssets.some((asset) => asset.startsWith('data:image/'));
       const configuredProviders = activeProviders
         .filter((provider) => provider.configured && provider.operations.includes(request.operation))
-        .filter((provider) => !hasDeterministicImageInput || provider.id === 'cloudflare')
+        .filter((provider) => !hasDeterministicImageInput || provider.id === 'cloudflare' || (provider.id === 'comfyui' && Boolean(readComfyWorkflow(environment) && comfyTemplateNeeds(readComfyWorkflow(environment)!, 'sourceImage'))))
         .map((provider) => provider.id);
       
       if (!configuredProviders.length) {
