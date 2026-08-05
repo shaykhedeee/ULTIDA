@@ -20,6 +20,7 @@ import { StudioDashboard } from './features/dashboard/StudioDashboard';
 import { CncPatternStudio } from './features/tools/CncPatternStudio';
 import { ModularUnitPlanner } from './features/tools/ModularUnitPlanner';
 import { StudioOperations } from './features/tools/StudioOperations';
+import { AuraChat } from './features/tools/AuraChat';
 
 // Existing feature components — preserved
 import { BriefWorkspace, type ClientBrief, emptyBrief } from './components/brief/BriefWorkspace';
@@ -1239,6 +1240,7 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
         <Route path="tools/modules" element={<ModularUnitPlanner />} />
         <Route path="tools/calendar" element={<StudioOperations initialTab="calendar" />} />
         <Route path="tools/invoices" element={<StudioOperations initialTab="invoices" />} />
+        <Route path="tools/aura" element={<AuraChat />} />
         <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={null} />} />
         <Route path="templates" element={<Navigate to="/library" replace />} />
         <Route path="modules" element={<Navigate to="/library" replace />} />
