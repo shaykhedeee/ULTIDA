@@ -250,8 +250,9 @@ export async function createVisualJob(environment: Record<string, string | undef
         materialKeyMapUrl: baseArtifacts.materialRegions[0]?.url,
       },
       // A studio-local ComfyUI workflow may provide the strongest geometry locks.
-      // Cloudflare FLUX.2 remains the verified hosted fallback when ComfyUI is unavailable.
-      providerPreference: ['comfyui', 'cloudflare'],
+      // LocalAI is an optional self-hosted new-render path; Cloudflare FLUX.2
+      // remains the hosted fallback and handles locked visual revisions.
+      providerPreference: ['comfyui', 'localai', 'cloudflare'],
     };
     await client.from('jobs').update({
       status: 'running',

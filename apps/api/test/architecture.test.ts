@@ -114,6 +114,25 @@ test('Nano Banana 2 adapter persists the real Gemini image payload contract', as
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('LocalAI uses the private OpenAI-compatible image endpoint for new renders only', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | null = null;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    assert.equal(String(input), 'https://localai.private/v1/images/generations');
+    assert.equal(init?.headers && (init.headers as Record<string, string>).authorization, 'Bearer local-test-key');
+    requestBody = JSON.parse(String(init?.body));
+    return Response.json({ data: [{ b64_json: 'aW1hZ2UtYnl0ZXM=' }] });
+  }) as typeof fetch;
+  try {
+    const gateway = createProviderGateway({ LOCALAI_BASE_URL: 'https://localai.private/', LOCALAI_API_KEY: 'local-test-key', LOCALAI_IMAGE_MODEL: 'studio-sdxl' });
+    const result = await gateway.createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['scene:approved'], referenceAssets: [], masks: [], operation: 'generate', style: 'warm contemporary', structuredPrompt: 'approved geometry facts', negativePrompt: 'no geometry changes', quality: 'review', providerPreference: ['localai'] });
+    assert.equal(result.status, 'succeeded');
+    assert.equal('provider' in result ? result.provider : null, 'localai');
+    assert.equal(requestBody?.model, 'studio-sdxl');
+    assert.equal(requestBody?.response_format, 'b64_json');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('visual gateway reports provider_not_configured when no configured provider exists', async () => {
   const result = await createProviderGateway({}).createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['scene:approved'], referenceAssets: [], masks: [], operation: 'generate', style: 'warm contemporary', structuredPrompt: 'approved facts', quality: 'review', providerPreference: [] });
   assert.equal(result.status, 'provider_not_configured');
