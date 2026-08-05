@@ -20,6 +20,7 @@ type Project = {
   created_at: string;
   updated_at: string;
   assigned_designer: string | null;
+  workflow_blocker?: string | null;
 };
 
 type WorkflowStage = {
@@ -276,7 +277,7 @@ function ProjectCard({ project, index, onClick }: { project: Project; index: num
         <div className="card-owner-row">
           <div className="designer-avatar"><User size={12} /></div>
           <span>{project.assigned_designer || 'Studio team · unassigned'}</span>
-          <span className="card-next-step">Next: {getNextStep(project.workflow_stage)}</span>
+          <span className="card-next-step">{project.workflow_blocker ? project.workflow_blocker : `Next: ${getNextStep(project.workflow_stage)}`}</span>
         </div>
 
         {/* Stage dots */}
@@ -331,6 +332,13 @@ function SkeletonCard() {
 // ─── Main ProjectDashboard ────────────────────────────────────────
 const STATUS_FILTERS = ['all', 'draft', 'designing', 'client_review', 'approved', 'archived'];
 
+function apiBase() {
+  const configured = String(import.meta.env.VITE_API_BASE ?? '').trim();
+  const isLocalTarget = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/api\/?$/i.test(configured);
+  if (typeof window !== 'undefined' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(window.location.origin) && isLocalTarget) return '/api';
+  return configured || '/api';
+}
+
 export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: string | null; orgName?: string | null }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -350,7 +358,26 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
         .select('id, name, client_name, location, property_type, workflow_stage, project_status, created_at, updated_at, assigned_designer')
         .order('updated_at', { ascending: false });
       if (err) throw err;
-      setProjects((data ?? []) as Project[]);
+      const projectRows = (data ?? []) as Project[];
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token || !projectRows.length) {
+        setProjects(projectRows);
+        return;
+      }
+      const hydrated = await Promise.all(projectRows.map(async (project) => {
+        try {
+          const response = await fetch(`${apiBase()}/projects/${project.id}/workflow-status`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          const payload = await response.json().catch(() => null);
+          if (!response.ok || !payload?.success || typeof payload.stages !== 'object') return project;
+          const stage = STAGE_ORDER.find((id) => !payload.stages[id]) ?? STAGE_ORDER.at(-1)!;
+          return { ...project, workflow_stage: stage, workflow_blocker: payload.stageLockReasons?.[stage] ?? null };
+        } catch {
+          return project;
+        }
+      }));
+      setProjects(hydrated);
     } catch (e: any) {
       setError(e.message ?? 'Failed to load projects');
     } finally {

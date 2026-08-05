@@ -1433,7 +1433,7 @@ app.get(['/api/projects/:projectId/status', '/api/projects/:projectId/workflow-s
     client.from('spaces').select('id,status,verification_status,ceiling_height_mm,requirements_json').eq('project_id', projectId),
     client.from('layouts').select('id,status').eq('project_id', projectId).eq('status', 'approved'),
     client.from('scene_versions').select('id').eq('project_id', projectId).eq('status', 'approved').maybeSingle(),
-    client.from('jobs').select('id,status').eq('project_id', projectId).eq('kind', 'visual-proposal').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    client.from('jobs').select('id,status').eq('project_id', projectId).eq('kind', 'visual_proposal').order('created_at', { ascending: false }).limit(1).maybeSingle(),
     client.from('jobs').select('id').eq('project_id', projectId).eq('kind', 'drawings').order('created_at', { ascending: false }).limit(1).maybeSingle(),
     client.from('jobs').select('id').eq('project_id', projectId).eq('kind', 'presentation').order('created_at', { ascending: false }).limit(1).maybeSingle()
   ]);

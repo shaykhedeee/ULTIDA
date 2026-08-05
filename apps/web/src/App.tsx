@@ -498,7 +498,11 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (!projectId) return;
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     try {
-      const res = await fetch(`${apiBase}/projects/${projectId}/status`);
+      const token = await getValidToken();
+      if (!token) return;
+      const res = await fetch(`${apiBase}/projects/${projectId}/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const payload = await res.json();
         if (payload?.success && typeof payload?.stages === 'object') setServerStages(payload.stages as Record<string, boolean>);
