@@ -921,6 +921,49 @@ app.get('/api/projects/:projectId/reference-retrieval', requireProjectUser, asyn
   });
 });
 
+// Designer memory is explicit and reviewable. It ranks future proposals but
+// never mutates plan.v1, scene.v1, or production facts by itself.
+app.get('/api/projects/:projectId/design-decisions', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const limit = Math.max(1, Math.min(Number(request.query.limit) || 50, 200));
+  const result = await getRequestSupabaseClient(request).from('studio_design_decisions')
+    .select('id,decision_type,decision,subject,source_version_id,actor_id,created_at')
+    .eq('organization_id', authReq.ultidaUser!.organizationId).eq('project_id', String(request.params.projectId))
+    .order('created_at', { ascending: false }).limit(limit);
+  if (result.error) return response.status(500).json({ success: false, code: 'DESIGN_DECISIONS_READ_FAILED', message: result.error.message });
+  return response.json({ success: true, decisions: result.data ?? [] });
+});
+
+app.post('/api/projects/:projectId/design-decisions', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const body = request.body ?? {};
+  const allowedTypes = new Set(['layout', 'module', 'material', 'dimension', 'reference', 'render']);
+  const allowedDecisions = new Set(['accepted', 'rejected', 'corrected', 'preferred']);
+  if (!allowedTypes.has(String(body.decisionType)) || !allowedDecisions.has(String(body.decision)) || !body.subject || typeof body.subject !== 'object') {
+    return response.status(400).json({ success: false, code: 'INVALID_DESIGN_DECISION', message: 'decisionType, decision, and a structured subject are required.' });
+  }
+  const result = await getRequestSupabaseClient(request).from('studio_design_decisions').insert({
+    organization_id: authReq.ultidaUser!.organizationId, project_id: String(request.params.projectId), actor_id: authReq.ultidaUser!.id,
+    decision_type: String(body.decisionType), decision: String(body.decision), subject: body.subject, source_version_id: typeof body.sourceVersionId === 'string' ? body.sourceVersionId : null,
+  }).select('id,decision_type,decision,subject,source_version_id,created_at').single();
+  if (result.error) return response.status(500).json({ success: false, code: 'DESIGN_DECISION_WRITE_FAILED', message: result.error.message });
+  return response.status(201).json({ success: true, decision: result.data });
+});
+
+// AURA chat is a supervised command surface: it can inspect available tools
+// and create proposals, but every write still goes through an explicit preview.
+app.post('/api/projects/:projectId/aura/chat', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const message = typeof request.body?.message === 'string' ? request.body.message.trim().slice(0, 1200) : '';
+  if (!message) return response.status(400).json({ success: false, code: 'AURA_MESSAGE_REQUIRED', message: 'Tell AURA what you want to inspect or propose.' });
+  const lowered = message.toLowerCase();
+  const tools = listAuraTools().filter((tool) => tool.capability !== 'not_enabled');
+  const matches = tools.filter((tool) => [tool.id, tool.label, tool.description].some((value) => lowered.includes(value.toLowerCase().split(' ')[0])));
+  const suggested = matches.length ? matches : tools.filter((tool) => tool.group === (lowered.includes('kitchen') || lowered.includes('wardrobe') || lowered.includes('tv') ? 'scene' : lowered.includes('laminate') || lowered.includes('render') ? 'visual' : 'scene'));
+  const memory = await getRequestSupabaseClient(request).from('studio_design_decisions').select('decision_type,decision,subject,created_at').eq('organization_id', authReq.ultidaUser!.organizationId).eq('project_id', String(request.params.projectId)).order('created_at', { ascending: false }).limit(20);
+  return response.json({ success: true, message: 'I can prepare a supervised proposal. Nothing will change until you review and approve it.', tools: suggested.map((tool) => ({ id: tool.id, label: tool.label, mode: tool.mode, requires: tool.requires })), memory: { decisions: memory.error ? [] : (memory.data ?? []), usedForRanking: !memory.error }, next: suggested[0] ? { method: 'POST', path: `/api/aura/tools/${suggested[0].id}/preview`, body: { projectId: request.params.projectId } } : null, safety: { geometryAuthority: 'scene.v1', requiresApproval: true, rollback: true } });
+});
+
 // Phase 2: Designer Draft Review Persistence Endpoints
 app.get('/api/projects/:projectId/plan-draft', requireProjectUser, async (request, response) => {
   const client = getRequestSupabaseClient(request);
