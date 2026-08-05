@@ -7,7 +7,7 @@ import {
   Ruler, Crosshair, PenTool, Plus, Split, Combine, Move,
   Home, DoorOpen, LayoutGrid, Columns, AlertTriangle,
   CheckCircle2, XCircle, Trash2, Edit3, Save, ArrowRight,
-  Eye, EyeOff, FileText, Loader2, Sparkles, RefreshCw, Upload, FileUp, Undo2, Redo2
+  Eye, EyeOff, FileText, FileDown, Loader2, Sparkles, RefreshCw, Upload, FileUp, Undo2, Redo2
 } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
@@ -128,6 +128,7 @@ type Props = {
   onRetryAnalysis?: () => void;
   analysisRetryAvailable?: boolean;
   onApprove: (canonicalModel: unknown) => void;
+  onDownloadDxf?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null; geometryMode: GeometryMode }) => void;
   onSaveDraft?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null; geometryMode: GeometryMode }) => void;
 };
 
@@ -162,6 +163,7 @@ export function PlanReviewWorkspace({
   onRetryAnalysis,
   analysisRetryAvailable = false,
   onApprove,
+  onDownloadDxf,
   onSaveDraft,
 }: Props) {
   // State
@@ -648,6 +650,17 @@ export function PlanReviewWorkspace({
             >
               {geometryMode === 'initial_design' ? 'Create Initial Model & Continue' : 'Approve Plan & Continue to Spaces'} <ArrowRight size={14} />
             </button>
+            {onDownloadDxf && (
+              <button
+                type="button"
+                onClick={() => onDownloadDxf({ elements: approvalElements, issues, scale, ceilingHeightMm, geometryMode })}
+                disabled={!analysed || !scale || !approvalElements.some((element) => element.kind === 'wall' || element.kind === 'room')}
+                title="Download a calibrated plan-review DXF. Production DXF is generated later from the approved scene."
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: '#fff', color: 'var(--brown-mid)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+              >
+                <FileDown size={14} /> Download plan DXF
+              </button>
+            )}
           </div>
         </div>
         {status && <p role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '6px 0 0' }}>{status}</p>}

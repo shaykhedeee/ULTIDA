@@ -234,6 +234,115 @@ export function exportProjectionToDxf(projection: DrawingPackageProjection): str
   ].join('\r\n');
 }
 
+/**
+ * Export the editable floor-plan review model before a scene exists.
+ *
+ * This is deliberately a separate contract from exportSceneToDxf: an Initial
+ * Design plan is useful for CAD review, but it is not a fabrication drawing.
+ * Coordinates are source pixels multiplied by the reviewed mm-per-pixel scale.
+ */
+export type PlanDraftDxfElement = {
+  id: string;
+  kind: 'wall' | 'room' | 'door' | 'window' | 'fixture' | 'column' | 'beam' | 'service' | 'annotation';
+  label?: string;
+  geometry?: {
+    x1?: number; y1?: number; x2?: number; y2?: number;
+    x?: number; y?: number; width?: number; height?: number;
+    polygon?: Array<{ x: number; y: number }>;
+  };
+  widthMm?: number;
+  heightMm?: number;
+  sillMm?: number;
+  headMm?: number;
+  offsetAlongWallMm?: number;
+};
+
+export type PlanDraftDxfInput = {
+  planVersionId: string;
+  geometryMode: 'initial_design' | 'final_production';
+  mmPerPixel: number;
+  ceilingHeightMm?: number;
+  elements: PlanDraftDxfElement[];
+  warnings?: string[];
+};
+
+function finite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function planDraftLayer(kind: PlanDraftDxfElement['kind']) {
+  if (kind === 'wall') return 'A-WALL';
+  if (kind === 'room') return 'A-ROOM';
+  if (kind === 'door' || kind === 'window') return 'A-OPENING';
+  if (kind === 'fixture' || kind === 'column' || kind === 'beam' || kind === 'service') return 'A-FIXTURE';
+  return 'A-ANNO';
+}
+
+function planDraftRect(geometry: NonNullable<PlanDraftDxfElement['geometry']>, scale: number, layer: string) {
+  if (![geometry.x, geometry.y, geometry.width, geometry.height].every(finite)) return [];
+  const x = geometry.x! * scale;
+  const y = geometry.y! * scale;
+  const width = geometry.width! * scale;
+  const height = geometry.height! * scale;
+  if (width <= 0 || height <= 0) return [];
+  return [
+    ...dxfLine(x, y, x + width, y, layer),
+    ...dxfLine(x + width, y, x + width, y + height, layer),
+    ...dxfLine(x + width, y + height, x, y + height, layer),
+    ...dxfLine(x, y + height, x, y, layer),
+  ];
+}
+
+export function exportPlanDraftToDxf(input: PlanDraftDxfInput): string {
+  if (!input.planVersionId || !['initial_design', 'final_production'].includes(input.geometryMode)) throw new Error('A plan version and geometry mode are required.');
+  if (!finite(input.mmPerPixel) || input.mmPerPixel <= 0) throw new Error('A positive calibration scale is required.');
+  const scale = input.mmPerPixel;
+  const entities: string[] = [];
+  const points: Array<{ x: number; y: number }> = [];
+  const warnings = [...(input.warnings ?? [])];
+  const accepted = new Set<string>();
+  for (const element of input.elements ?? []) {
+    if (!element?.id || accepted.has(element.id)) continue;
+    accepted.add(element.id);
+    const geometry = element.geometry ?? {};
+    const layer = planDraftLayer(element.kind);
+    if (element.kind === 'wall' && [geometry.x1, geometry.y1, geometry.x2, geometry.y2].every(finite)) {
+      const x1 = geometry.x1! * scale; const y1 = geometry.y1! * scale;
+      const x2 = geometry.x2! * scale; const y2 = geometry.y2! * scale;
+      if (Math.hypot(x2 - x1, y2 - y1) < 0.5) { warnings.push(`Wall ${element.id} has negligible length and was skipped.`); continue; }
+      entities.push(...dxfLine(x1, y1, x2, y2, layer)); points.push({ x: x1, y: y1 }, { x: x2, y: y2 });
+    } else if (element.kind === 'room' && Array.isArray(geometry.polygon) && geometry.polygon.length >= 3) {
+      const polygon = geometry.polygon.filter((point) => finite(point?.x) && finite(point?.y)).map((point) => ({ x: point.x * scale, y: point.y * scale }));
+      if (polygon.length < 3) { warnings.push(`Room ${element.id} has an invalid boundary and was skipped.`); continue; }
+      polygon.forEach((point, index) => { const next = polygon[(index + 1) % polygon.length]; entities.push(...dxfLine(point.x, point.y, next.x, next.y, layer)); points.push(point); });
+    } else if (element.kind === 'door' || element.kind === 'window' || element.kind === 'fixture' || element.kind === 'column' || element.kind === 'beam' || element.kind === 'service') {
+      const rect = planDraftRect(geometry, scale, layer);
+      if (!rect.length) { warnings.push(`Element ${element.id} has no drawable rectangle and was skipped.`); continue; }
+      entities.push(...rect);
+      points.push({ x: (geometry.x ?? 0) * scale, y: (geometry.y ?? 0) * scale }, { x: ((geometry.x ?? 0) + (geometry.width ?? 0)) * scale, y: ((geometry.y ?? 0) + (geometry.height ?? 0)) * scale });
+    } else if (element.kind === 'annotation' && finite(geometry.x) && finite(geometry.y)) {
+      const x = geometry.x! * scale; const y = geometry.y! * scale;
+      entities.push(...dxfText(element.label ?? element.id, x, y, Math.max(25, 40 * scale), layer)); points.push({ x, y });
+    }
+  }
+  const minX = points.length ? Math.min(...points.map((point) => point.x)) : 0;
+  const minY = points.length ? Math.min(...points.map((point) => point.y)) : 0;
+  const maxX = points.length ? Math.max(...points.map((point) => point.x)) : 1000;
+  const maxY = points.length ? Math.max(...points.map((point) => point.y)) : 1000;
+  const label = input.geometryMode === 'initial_design' ? 'PROVISIONAL INITIAL DESIGN' : 'REVIEWED FINAL PRODUCTION';
+  entities.push(...dxfText(`ULTIDA | ${label} | PLAN ${input.planVersionId}`, minX, maxY + 300, 120, 'A-ANNO'));
+  entities.push(...dxfText('UNITS: MILLIMETRES | PLAN REVIEW EXPORT - NOT A FABRICATION RELEASE', minX, maxY + 140, 60, 'A-ANNO'));
+  warnings.slice(0, 12).forEach((warning, index) => entities.push(...dxfText(`WARNING: ${warning}`, minX, minY - 120 - index * 60, 40, 'A-ANNO')));
+  return [
+    '0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4',
+    '9', '$EXTMIN', '10', String(minX), '20', String(minY - 900), '30', '0',
+    '9', '$EXTMAX', '10', String(maxX), '20', String(maxY + 500), '30', '0', '0', 'ENDSEC',
+    '0', 'SECTION', '2', 'TABLES', '0', 'TABLE', '2', 'LAYER', '70', '8',
+    ...dxfLayer('0', 7), ...dxfLayer('A-WALL', 7), ...dxfLayer('A-ROOM', 3), ...dxfLayer('A-OPENING', 1), ...dxfLayer('A-FIXTURE', 30), ...dxfLayer('A-ANNO', 8), ...dxfLayer('A-DIM', 5),
+    '0', 'ENDTAB', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES', ...entities, '0', 'ENDSEC', '0', 'EOF', ''
+  ].join('\r\n');
+}
+
 export type DrawingTemplateSettings = {
   sheetSize?: 'A4' | 'A3' | 'A2' | 'A1';
   orientation?: 'landscape' | 'portrait';

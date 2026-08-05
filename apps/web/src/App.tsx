@@ -803,6 +803,53 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void fetchProjectStatus();
   }
 
+  async function downloadPlanDxf(snapshot: { elements: any[]; issues: any[]; scale: any; ceilingHeightMm: number | null; geometryMode: 'initial_design' | 'final_production' }) {
+    if (!projectId || !snapshot.scale || !snapshot.elements?.length) {
+      setPlanStatus('Calibrate one visible dimension and accept at least one wall or room before exporting DXF.');
+      return;
+    }
+    if (localDemoMode || !supabase) {
+      setPlanStatus('Sign in to download the plan DXF. Local review drafts are not downloadable production files.');
+      return;
+    }
+    const token = await getValidToken();
+    if (!token) {
+      setPlanStatus('Your session has expired. Sign in again before downloading the plan DXF.');
+      return;
+    }
+    setPlanStatus('Preparing calibrated plan DXF…');
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/projects/${projectId}/drawings/plan.dxf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          planVersionId: approvedPlanVersionId ?? analysisJobId ?? sourceAssetId ?? 'plan-review',
+          geometryMode: snapshot.geometryMode,
+          mmPerPixel: snapshot.scale.mmPerPixel,
+          ceilingHeightMm: snapshot.ceilingHeightMm,
+          elements: snapshot.elements,
+          warnings: snapshot.issues.map((issue: any) => issue.question ?? issue.message ?? issue.id).filter(Boolean),
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? `DXF export failed (HTTP ${response.status}).`);
+      }
+      const blob = await response.blob();
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = snapshot.geometryMode === 'initial_design' ? 'ultida-plan-initial-design.dxf' : 'ultida-plan-final-production.dxf';
+      document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(href);
+      setPlanStatus(snapshot.geometryMode === 'initial_design'
+        ? 'Plan DXF downloaded as a provisional Initial Design review file. Verify geometry before production release.'
+        : 'Plan DXF downloaded. Production exports remain linked to the approved scene.');
+    } catch (error) {
+      setPlanStatus(error instanceof Error ? error.message : 'Plan DXF export failed.');
+    }
+  }
+
   async function saveBrief(nextBrief: ClientBrief, isComplete = true) {
     if (localDemoMode && projectId) {
       localStorage.setItem(`ultida-brief-${projectId}`, JSON.stringify({
@@ -1070,6 +1117,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             onRetryAnalysis={retryPlanAnalysis}
             analysisRetryAvailable={analysisRetryAvailable}
             onApprove={approvePlan}
+            onDownloadDxf={downloadPlanDxf}
             onSaveDraft={(snapshot) => void savePlanDraft(snapshot)}
           />
         } />

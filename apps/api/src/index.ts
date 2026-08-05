@@ -29,7 +29,7 @@ import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { AURA_TOOLS, listAuraTools, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
-import { buildDrawingProjection, exportSceneToDxf, generateDrawingPackageSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateSketchUpRubyScript } from '@ultida/drawing-core';
+import { buildDrawingProjection, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateSketchUpRubyScript } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
 import { compileSceneV1, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
@@ -624,6 +624,27 @@ const handleDxfRequest = (request: express.Request, response: express.Response) 
 app.post('/api/drawings/dxf', handleDxfRequest);
 app.post('/api/drawings/wall-elevation.dxf', handleDxfRequest);
 app.post('/api/drawings/:sceneVersionId/dxf', handleDxfRequest);
+
+// A plan-review export is intentionally separate from the scene DXF above.
+// It lets designers take calibrated Initial Design geometry into CAD for
+// review, while the scene route remains the only production/fabrication path.
+app.post('/api/projects/:projectId/drawings/plan.dxf', requireProjectUser, (request, response) => {
+  try {
+    const projectId = String(request.params.projectId);
+    const { planVersionId, geometryMode, mmPerPixel, ceilingHeightMm, elements, warnings } = request.body ?? {};
+    if (typeof planVersionId !== 'string' || !planVersionId || !['initial_design', 'final_production'].includes(String(geometryMode))) {
+      return response.status(400).json({ success: false, code: 'INVALID_PLAN_DXF_REQUEST', message: 'planVersionId and geometryMode are required.' });
+    }
+    if (!Number.isFinite(Number(mmPerPixel)) || Number(mmPerPixel) <= 0 || !Array.isArray(elements) || elements.length === 0) {
+      return response.status(400).json({ success: false, code: 'INVALID_PLAN_DXF_GEOMETRY', message: 'A calibrated scale and at least one editable plan element are required.' });
+    }
+    const dxf = exportPlanDraftToDxf({ planVersionId: `${projectId}-${planVersionId}`, geometryMode, mmPerPixel: Number(mmPerPixel), ceilingHeightMm: Number(ceilingHeightMm) || undefined, elements, warnings: Array.isArray(warnings) ? warnings.map(String) : [] });
+    const suffix = geometryMode === 'initial_design' ? 'initial-design' : 'final-production';
+    return response.status(200).type('application/dxf').set('Content-Disposition', `attachment; filename="ultida-plan-${suffix}.dxf"`).send(dxf);
+  } catch (error: any) {
+    return response.status(422).json({ success: false, code: 'PLAN_DXF_FAILED', message: error?.message ?? 'Plan DXF export failed.' });
+  }
+});
 
 app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
   const err = error as { status?: number; code?: string; message?: string };
