@@ -20,7 +20,8 @@ export const VisualProposalRequestSchema = z.object({
     depthMapUrl: z.string().optional(),
     cannyEdgeMapUrl: z.string().optional(),
     materialKeyMapUrl: z.string().optional(),
-    normalMapUrl: z.string().optional()
+    objectMaskUrl: z.string().optional(),
+    normalMapUrl: z.string().optional(),
   }).optional(),
   providerPreference: z.array(z.string()).default([])
 });

@@ -248,6 +248,7 @@ export async function createVisualJob(environment: Record<string, string | undef
         depthMapUrl: baseArtifacts.depth.url,
         cannyEdgeMapUrl: baseArtifacts.edgeMap.url,
         materialKeyMapUrl: baseArtifacts.materialRegions[0]?.url,
+        objectMaskUrl: baseArtifacts.objectMasks[0]?.url,
       },
       // A studio-local ComfyUI workflow may provide the strongest geometry locks.
       // LocalAI is an optional self-hosted new-render path; Cloudflare FLUX.2

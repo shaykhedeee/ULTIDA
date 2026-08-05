@@ -30,7 +30,7 @@ function applyPrompt(workflow: ComfyWorkflow, request: VisualProposalRequest) {
   return applyComfyTemplate(workflow, request);
 }
 
-type ComfyUploads = Partial<Record<'sourceImage' | 'depthMapImage' | 'cannyEdgeMapImage' | 'materialKeyMapImage', string>>;
+type ComfyUploads = Partial<Record<'sourceImage' | 'depthMapImage' | 'cannyEdgeMapImage' | 'materialKeyMapImage' | 'objectMaskImage' | 'normalMapImage', string>>;
 
 function applyComfyTemplate(workflow: ComfyWorkflow, request: VisualProposalRequest, uploads: ComfyUploads = {}) {
   return JSON.parse(JSON.stringify(workflow)
@@ -42,9 +42,13 @@ function applyComfyTemplate(workflow: ComfyWorkflow, request: VisualProposalRequ
     .replaceAll('{{depthMapImage}}', uploads.depthMapImage ?? '')
     .replaceAll('{{cannyEdgeMapImage}}', uploads.cannyEdgeMapImage ?? '')
     .replaceAll('{{materialKeyMapImage}}', uploads.materialKeyMapImage ?? '')
+    .replaceAll('{{objectMaskImage}}', uploads.objectMaskImage ?? '')
+    .replaceAll('{{normalMapImage}}', uploads.normalMapImage ?? '')
     .replaceAll('{{depthMapUrl}}', request.conditioningMaps?.depthMapUrl ?? '')
     .replaceAll('{{cannyEdgeMapUrl}}', request.conditioningMaps?.cannyEdgeMapUrl ?? '')
-    .replaceAll('{{materialKeyMapUrl}}', request.conditioningMaps?.materialKeyMapUrl ?? ''));
+    .replaceAll('{{materialKeyMapUrl}}', request.conditioningMaps?.materialKeyMapUrl ?? '')
+    .replaceAll('{{objectMaskUrl}}', request.conditioningMaps?.objectMaskUrl ?? '')
+    .replaceAll('{{normalMapUrl}}', request.conditioningMaps?.normalMapUrl ?? ''));
 }
 
 function comfyTemplateNeeds(workflow: ComfyWorkflow, token: keyof ComfyUploads) {
@@ -497,6 +501,8 @@ export function createProviderGateway(environment: Environment) {
       await uploadOptional('depthMapImage', request.conditioningMaps?.depthMapUrl, `ultida-depth-${request.sceneVersionId}`);
       await uploadOptional('cannyEdgeMapImage', request.conditioningMaps?.cannyEdgeMapUrl, `ultida-canny-${request.sceneVersionId}`);
       await uploadOptional('materialKeyMapImage', request.conditioningMaps?.materialKeyMapUrl, `ultida-materials-${request.sceneVersionId}`);
+      await uploadOptional('objectMaskImage', request.conditioningMaps?.objectMaskUrl, `ultida-object-mask-${request.sceneVersionId}`);
+      await uploadOptional('normalMapImage', request.conditioningMaps?.normalMapUrl, `ultida-normal-${request.sceneVersionId}`);
 
       const response = await fetch(`${baseUrl}/prompt`, {
         method: 'POST',
