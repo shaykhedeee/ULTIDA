@@ -10,7 +10,9 @@ export type SemanticType =
   | 'profile'
   | 'glass'
   | 'lighting_channel'
-  | 'hardware';
+  | 'hardware'
+  | 'countertop'
+  | 'panel';
 
 export type CategoryType =
   | 'tv_unit'

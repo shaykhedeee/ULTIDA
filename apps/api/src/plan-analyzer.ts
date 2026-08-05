@@ -32,7 +32,6 @@ export function compileBriefContext(brief?: Record<string, unknown>): string {
   const storageNeeds = typeof brief.storageNeeds === 'string' ? brief.storageNeeds.trim() : '';
   const kitchenRequirements = typeof brief.kitchenRequirements === 'string' ? brief.kitchenRequirements.trim() : '';
   const materials = typeof brief.materials === 'string' ? brief.materials.trim() : '';
-  const timeline = typeof brief.timeline === 'string' ? brief.timeline.trim() : '';
   const appliancesServices = typeof brief.appliancesServices === 'string' ? brief.appliancesServices.trim() : '';
   const vastuPreference = typeof brief.vastuPreference === 'string' ? brief.vastuPreference.trim() : '';
   const approvalNotes = typeof brief.approvalNotes === 'string' ? brief.approvalNotes.trim() : '';
@@ -46,7 +45,6 @@ export function compileBriefContext(brief?: Record<string, unknown>): string {
     storageNeeds ? `Storage priorities: ${storageNeeds}.` : '',
     kitchenRequirements ? `Kitchen workflow guidance: ${kitchenRequirements}.` : '',
     materials ? `Preferred materials: ${materials}.` : '',
-    timeline ? `Timeline pressure: ${timeline}.` : '',
     appliancesServices ? `Appliances or services: ${appliancesServices}.` : '',
     vastuPreference ? `Vastu preference: ${vastuPreference}.` : '',
     approvalNotes ? `Client approvals and exclusions: ${approvalNotes}.` : '',
@@ -62,11 +60,11 @@ export function compileBriefContext(brief?: Record<string, unknown>): string {
 export function buildPlanPrompt(brief?: Record<string, unknown>) {
   const base = `You are the extraction stage of a professional interior floor-plan review system. Read the supplied source without redesigning it.
 
-Extract only visible evidence: walls, room zones, doors/windows/passages, room labels and written dimensions. Never invent a dimension, wall or opening. Preserve uncertainty.
+Extract only visible evidence: walls, room zones, doors/windows/passages, room labels, written dimensions, and existing plan symbols. A fixture proposal may represent a fixed fixture (toilet, sink, bathtub, shower, stove, refrigerator) or a clearly drawn existing furniture symbol (bed, sofa, dining table, wardrobe, desk). Label it exactly as visible evidence, for example "Existing bed symbol". These are review-only context; never turn them into modular furniture, manufacturing geometry, or inferred dimensions. Never invent a dimension, wall, opening or fixture. Preserve uncertainty.
 
 COORDINATES
 - Return every coordinate on a source-relative 0..1000 grid: x=0 left, x=1000 right, y=0 top, y=1000 bottom.
-- Walls use x1,y1,x2,y2. Rooms use x,y,width,height. Openings use x,y,width,kind where kind 0=door and 1=window. Dimensions use x1,y1,x2,y2,valueMm.
+- Walls use x1,y1,x2,y2. Rooms use x,y,width,height. Openings use x,y,width,kind where kind 0=door and 1=window. Dimensions use x1,y1,x2,y2,valueMm. Fixtures use x,y,width,depth only when their outline is visible.
 - Set confidence below 0.70 for occluded, faint, ambiguous or inferred entities.
 - A dimension may be returned only when its text is legible; otherwise omit it.
 - Do not merge separate parallel wall faces into arbitrary geometry.
@@ -76,10 +74,13 @@ SELF CHECK
 2. Walls have non-zero length.
 3. Rooms have positive width and height.
 4. Notes state the visible evidence or uncertainty.
-5. Return 12-24 proposals with this balanced target: 8-12 major walls, 3-5 room zones, 2-5 openings, and up to 3 legible dimensions.
-6. Do not split a straight wall into redundant collinear fragments. Omit an entity class only when no visible evidence exists.
-7. Keep each note to 12 words or fewer.
-8. Output JSON only as {"proposals":[{"kind":"wall|opening|room|dimension","confidence":0.0,"geometry":{},"note":""}]}.`;
+5. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
+6. Do not split a straight wall into redundant collinear fragments and never repeat the same wall candidate. Prefer fewer, well-evidenced candidates over guessed completeness.
+7. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
+8. Return at most 36 proposals. First cover all room boundary walls and room zones, then openings, legible dimensions and only clearly drawn existing symbols. Do not sacrifice a whole room merely to describe a minor fixture or furniture symbol.
+9. A wall must contain exactly numeric x1,y1,x2,y2. A room must contain exactly numeric x,y,width,height. Do not use numbered keys, arrays, prose, units, or nested objects inside geometry.
+10. Output one JSON object only, with no markdown and no explanatory text:
+{"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"}]}`;
 
   const briefContext = compileBriefContext(brief);
   return `${base}${briefContext}`;
@@ -87,11 +88,49 @@ SELF CHECK
 
 const prompt = buildPlanPrompt();
 
+// Cloudflare JSON Mode is supported by Llama 3.2 Vision. The model can still
+// decline an overly complex schema, so this stays deliberately small and our
+// runtime quality gate remains the final authority.
+const CLOUDFLARE_PLAN_RESPONSE_FORMAT = {
+  type: 'json_schema',
+  json_schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['proposals'],
+    properties: {
+      proposals: {
+        type: 'array',
+        maxItems: 36,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'confidence', 'geometry', 'note'],
+          properties: {
+            kind: { type: 'string', enum: ['wall', 'opening', 'room', 'dimension', 'fixture'] },
+            confidence: { type: 'number', minimum: 0, maximum: 1 },
+            geometry: { type: 'object', additionalProperties: { type: 'number' } },
+            note: { type: 'string', maxLength: 160 },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
 function clampCoordinate(value: number) { return Math.max(0, Math.min(1000, value)); }
+
+const GEOMETRY_KEYS: Record<PlanProposal['kind'], readonly string[]> = {
+  wall: ['x1', 'y1', 'x2', 'y2'],
+  room: ['x', 'y', 'width', 'height'],
+  opening: ['x', 'y', 'width', 'height', 'kind'],
+  dimension: ['x1', 'y1', 'x2', 'y2', 'valueMm'],
+  fixture: ['x', 'y', 'width', 'depth'],
+};
 
 function normalizeGeometry(kind: PlanProposal['kind'], geometry: Record<string, unknown>) {
   const normalized: Record<string, number> = {};
   for (const [key, raw] of Object.entries(geometry)) {
+    if (!GEOMETRY_KEYS[kind].includes(key)) continue;
     const value = Number(raw);
     if (!Number.isFinite(value)) continue;
     normalized[key] = key === 'valueMm' ? Math.max(0, value) : key === 'kind' ? Math.max(0, Math.min(1, Math.round(value))) : clampCoordinate(value);
@@ -103,15 +142,75 @@ function normalizeGeometry(kind: PlanProposal['kind'], geometry: Record<string, 
   return normalized;
 }
 
-function parseProposals(raw: string, source: 'ocr' | 'detector'): PlanProposal[] {
-  const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()) as { proposals?: unknown[] };
+function hasUsableGeometry(proposal: PlanProposal) {
+  const geometry = proposal.geometry;
+  if (proposal.kind === 'wall') return Math.hypot((geometry.x2 ?? 0) - (geometry.x1 ?? 0), (geometry.y2 ?? 0) - (geometry.y1 ?? 0)) >= 12;
+  if (proposal.kind === 'room') return (geometry.width ?? 0) >= 20 && (geometry.height ?? 0) >= 20;
+  if (proposal.kind === 'opening') return (geometry.width ?? 0) >= 8;
+  if (proposal.kind === 'dimension') return Math.hypot((geometry.x2 ?? 0) - (geometry.x1 ?? 0), (geometry.y2 ?? 0) - (geometry.y1 ?? 0)) >= 8;
+  return geometry.x !== undefined && geometry.y !== undefined;
+}
+
+function wallKey(proposal: PlanProposal) {
+  const geometry = proposal.geometry;
+  const first = `${Math.round(geometry.x1 ?? 0)}:${Math.round(geometry.y1 ?? 0)}`;
+  const second = `${Math.round(geometry.x2 ?? 0)}:${Math.round(geometry.y2 ?? 0)}`;
+  return first < second ? `${first}|${second}` : `${second}|${first}`;
+}
+
+function validatePlanEvidence(proposals: PlanProposal[]) {
+  const usable = proposals.filter(hasUsableGeometry);
+  const seenWalls = new Set<string>();
+  const deduplicated = usable.filter((proposal) => {
+    if (proposal.kind !== 'wall') return true;
+    const key = wallKey(proposal);
+    if (seenWalls.has(key)) return false;
+    seenWalls.add(key);
+    return true;
+  });
+  const structural = deduplicated.filter((proposal) => proposal.kind === 'wall' || proposal.kind === 'room');
+  if (!structural.length) {
+    throw new Error('Vision response contained no usable room or wall geometry. The provider was not accepted as a floor-plan result.');
+  }
+  return deduplicated;
+}
+
+function extractJsonObject(raw: string): unknown {
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  try { return JSON.parse(cleaned); } catch { /* Some vision providers add a short lead-in. */ }
+  const first = cleaned.indexOf('{');
+  if (first < 0) throw new Error('Plan analyzer did not return a JSON object.');
+  let depth = 0; let quoted = false; let escaped = false;
+  for (let index = first; index < cleaned.length; index += 1) {
+    const char = cleaned[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
+    }
+    if (char === '"') { quoted = true; continue; }
+    if (char === '{') depth += 1;
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        try { return JSON.parse(cleaned.slice(first, index + 1)); }
+        catch { throw new Error('Plan analyzer returned malformed JSON.'); }
+      }
+    }
+  }
+  throw new Error('Plan analyzer returned incomplete JSON.');
+}
+
+export function parseProposals(raw: string, source: 'ocr' | 'detector'): PlanProposal[] {
+  const parsed = extractJsonObject(raw) as { proposals?: unknown[] };
   const proposals = (parsed.proposals ?? []).map((item, index) => {
     const value = item as { kind?: PlanProposal['kind']; confidence?: unknown; geometry?: Record<string, unknown>; note?: unknown };
     return { id: crypto.randomUUID(), kind: value.kind, confidence: Math.max(0, Math.min(1, Number(value.confidence ?? 0))), source, status: 'needs_review' as const, geometry: normalizeGeometry(value.kind ?? 'wall', value.geometry ?? {}), note: typeof value.note === 'string' ? value.note : `Provider proposal ${index + 1} requires review.` };
   });
   const result = PlanProposalSchema.array().safeParse(proposals);
   if (!result.success) throw new Error('Plan analyzer returned an invalid proposal shape.');
-  return result.data;
+  return validatePlanEvidence(result.data);
 }
 
 function topologyIssues(proposals: PlanProposal[]) {
@@ -131,7 +230,7 @@ async function analyzeOpenAi(environment: Environment, input: Input) {
   if (input.mimeType === 'application/pdf') throw new Error('OpenAI PDF rasterization is not configured; Gemini handles PDF analysis in this deployment.');
   const model = environment.OPENAI_VISION_MODEL || 'gpt-4o-mini';
   const prompt = buildPlanPrompt(input.brief);
-  const response = await fetchWithProviderTimeout(environment, 'https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${environment.OPENAI_API_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_schema', json_schema: { name: 'floor_plan_analysis_v1', strict: true, schema: { type: 'object', additionalProperties: false, required: ['proposals'], properties: { proposals: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'object', additionalProperties: false, required: ['kind', 'confidence', 'geometry', 'note'], properties: { kind: { type: 'string', enum: ['wall', 'opening', 'room', 'dimension'] }, confidence: { type: 'number', minimum: 0, maximum: 1 }, geometry: { type: 'object', additionalProperties: { type: 'number' } }, note: { type: 'string', maxLength: 160 } } } } } } } }, messages: [{ role: 'system', content: prompt }, { role: 'user', content: [{ type: 'text', text: `Source file ${input.fileName}. Extract visible plan evidence and run the self-check.` }, { type: 'image_url', image_url: { url: input.dataUrl, detail: 'high' } }] }] }) });
+  const response = await fetchWithProviderTimeout(environment, 'https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${environment.OPENAI_API_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_schema', json_schema: { name: 'floor_plan_analysis_v1', strict: true, schema: { type: 'object', additionalProperties: false, required: ['proposals'], properties: { proposals: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'object', additionalProperties: false, required: ['kind', 'confidence', 'geometry', 'note'], properties: { kind: { type: 'string', enum: ['wall', 'opening', 'room', 'dimension', 'fixture'] }, confidence: { type: 'number', minimum: 0, maximum: 1 }, geometry: { type: 'object', additionalProperties: { type: 'number' } }, note: { type: 'string', maxLength: 160 } } } } } } } }, messages: [{ role: 'system', content: prompt }, { role: 'user', content: [{ type: 'text', text: `Source file ${input.fileName}. Extract visible plan evidence and run the self-check.` }, { type: 'image_url', image_url: { url: input.dataUrl, detail: 'high' } }] }] }) });
   if (!response.ok) throw new Error(`OpenAI plan analyzer failed (${response.status}).`);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;
@@ -157,19 +256,32 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
   if (!accountId || !token) throw new Error('Cloudflare Workers AI credentials are not configured.');
   const prompt = buildPlanPrompt(input.brief);
   const candidateModels = Array.from(new Set([
-    environment.CLOUDFLARE_VISION_MODEL,
+    // Llama Vision follows the compact JSON evidence contract more reliably
+    // than Moondream for dense technical drawings. An explicitly configured
+    // plan model still takes priority; Moondream remains a genuine fallback.
     environment.CLOUDFLARE_PLAN_MODEL,
     '@cf/meta/llama-3.2-11b-vision-instruct',
-    '@cf/llava-hl/llava-1.5-7b-hf'
+    environment.CLOUDFLARE_VISION_MODEL,
+    '@cf/moondream/moondream3.1-9B-A2B',
   ].filter(Boolean) as string[]));
   let lastError: Error | null = null;
   for (const model of candidateModels) {
     if (model.includes('8b-instruct') && !model.includes('vision')) continue;
     try {
-      const response = await fetchWithProviderTimeout(environment, `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'system', content: prompt }, { role: 'user', content: `Extract the visible floor-plan evidence from ${input.fileName}. Return the required JSON only.` }], image: input.dataUrl }) });
-      const payload = await response.json() as { success?: boolean; result?: { response?: string; text?: string }; errors?: Array<{ message?: string }> };
-      if (response.ok && payload.success && (payload.result?.response || payload.result?.text)) {
-        const content = payload.result.response || payload.result.text!;
+      const isMoondream = model.includes('moondream');
+      const requestBody = isMoondream
+        ? { task: 'query', image: input.dataUrl, question: `${prompt}\nSource file: ${input.fileName}. Return the required JSON only.`, reasoning: false, stream: false, temperature: 0, max_tokens: 4096 }
+        : {
+            messages: [{ role: 'system', content: prompt }, { role: 'user', content: `Extract the visible floor-plan evidence from ${input.fileName}. Return the required JSON only.` }],
+            image: input.dataUrl,
+            response_format: CLOUDFLARE_PLAN_RESPONSE_FORMAT,
+            temperature: 0,
+        max_tokens: 6144,
+          };
+      const response = await fetchWithProviderTimeout(environment, `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
+      const payload = await response.json() as { success?: boolean; result?: { response?: string; text?: string; answer?: string; result?: { answer?: string; response?: string; text?: string } }; errors?: Array<{ message?: string }> };
+      const content = payload.result?.response || payload.result?.text || payload.result?.answer || payload.result?.result?.answer || payload.result?.result?.response || payload.result?.result?.text;
+      if (response.ok && payload.success && content) {
         return { model, proposals: parseProposals(content, 'detector') };
       }
       lastError = new Error(payload.errors?.map((e) => e.message).join(', ') || `Cloudflare ${model} returned HTTP ${response.status}`);
@@ -191,7 +303,7 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
 
   const configured = [environment.OPENAI_API_KEY ? 'openai' : null, geminiVisionKey(environment) ? 'gemini' : null, environment.CLOUDFLARE_ACCOUNT_ID && environment.CLOUDFLARE_AI_TOKEN && (environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL) ? 'cloudflare' : null].filter(Boolean) as Array<'openai' | 'gemini' | 'cloudflare'>;
 
-  if (!configured.length && environment.PLAN_ANALYZER_MODE !== 'baseline') {
+  if (!configured.length) {
     const error = new Error('A real AI vision provider is required for floor-plan analysis.');
     (error as any).code = 'AI_PROVIDER_NOT_CONFIGURED';
     (error as any).stage = 'ai_analysis';
@@ -199,25 +311,6 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     (error as any).retryable = false;
     throw error;
   }
-  if (!configured.length) {
-    const issues = topologyIssues(intakeResult.proposals);
-    const confidences = intakeResult.proposals.map((proposal) => proposal.confidence);
-    return {
-      provider: 'intake-parser',
-      proposals: intakeResult.proposals,
-      intakeResult,
-      analysisVersion: PROMPT_VERSIONS.floorPlanAnalyzer,
-      source: { fileName: input.fileName, mimeType: input.mimeType, checksumSha256: createHash('sha256').update(input.dataUrl).digest('hex'), coordinateSpace: { width: 1000, height: 1000, units: 'source_relative' } },
-      ocrEvidence: intakeResult.proposals.filter((proposal) => proposal.kind === 'dimension' || proposal.kind === 'room'),
-      calibration: { status: 'required', trustedDimensionMm: null },
-      topologyIssues: issues,
-      providerRuns: [{ provider: 'intake-parser' as const, model: intakeResult.sourceFormat, status: 'succeeded' as const, latencyMs: 2 }],
-      reviewStatus: 'needs_review',
-      confidenceSummary: { minimum: confidences.length ? Math.min(...confidences) : 0, average: confidences.length ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length : 0, lowConfidenceCount: confidences.filter((value) => value < 0.7).length },
-      verifier: null
-    };
-  }
-
   const runs: ProviderRun[] = [];
   const execute = async (provider: 'openai' | 'gemini' | 'cloudflare') => {
     const started = Date.now();
@@ -270,3 +363,5 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     verifier: verifier ? { provider: verifier.provider, entityCount: verifier.proposals.length, disagreement: Math.abs(verifier.proposals.length - primary.proposals.length) > 2 } : null
   };
 }
+
+export const __test__ = { normalizeGeometry, validatePlanEvidence };

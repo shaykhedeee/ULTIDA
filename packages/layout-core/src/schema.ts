@@ -10,6 +10,24 @@ export const WardrobeShapeSchema = z.enum(['linear', 'l_shaped', 'walk_in', 'war
 export const LivingShapeSchema = z.enum(['tv_opposite_sofa', 'tv_adjacent_entrance', 'l_seating', 'parallel_seating', 'open_living_dining', 'partition_layout']);
 export const BedroomShapeSchema = z.enum(['bed_centred', 'side_wall_bed', 'wardrobe_opposite_bed', 'wardrobe_near_entrance', 'study_near_window']);
 export const PlacementAnchorSchema = z.enum(['wall', 'room', 'corner']);
+export const LayoutConstraintKindSchema = z.enum([
+  'must_be_wall_anchored',
+  'must_not_obstruct_opening',
+  'must_keep_clearance',
+  'must_be_near_service',
+  'must_be_adjacent_to',
+  'must_face',
+]);
+export const LayoutConstraintSchema = z.object({
+  id: z.string().min(1),
+  kind: LayoutConstraintKindSchema,
+  sourceId: z.string().min(1),
+  targetId: z.string().optional(),
+  valueMm: z.number().nonnegative().optional(),
+  value: z.string().optional(),
+  weight: z.number().nonnegative().default(1),
+});
+export type LayoutConstraint = z.infer<typeof LayoutConstraintSchema>;
 
 export const PlacementSchema = z.object({
   id: z.string().min(1),
@@ -24,6 +42,7 @@ export const PlacementSchema = z.object({
   heightMm: z.number().positive(),
   clearanceMm: z.number().nonnegative().default(0),
   requiredServicePoints: z.array(z.string()).default([]),
+  constraints: z.array(LayoutConstraintSchema).default([]),
 });
 export type Placement = z.infer<typeof PlacementSchema>;
 
@@ -105,7 +124,7 @@ export const LayoutInputSchema = z.object({
   requirements: z.record(z.unknown()),
   roomBoundingBoxMm: z.object({ minX: z.number(), minY: z.number(), maxX: z.number(), maxY: z.number() }),
   usableWalls: z.array(z.object({ id: z.string(), minX: z.number(), minY: z.number(), maxX: z.number(), maxY: z.number(), orientation: z.enum(['north','south','east','west']).optional() })).default([]),
-  openings: z.array(z.object({ id: z.string(), type: z.enum(['door','window']), xMm: z.number(), yMm: z.number(), widthMm: z.number(), heightMm: z.number(), swingDeg: z.number().optional() })).default([]),
+  openings: z.array(z.object({ id: z.string(), type: z.enum(['door','window']), wallId: z.string().optional(), xMm: z.number(), yMm: z.number(), widthMm: z.number(), heightMm: z.number(), swingDeg: z.number().optional() })).default([]),
   servicePoints: z.array(z.object({ id: z.string(), xMm: z.number(), yMm: z.number(), type: z.string() })).default([]),
   structuralElements: z.array(z.object({ id: z.string(), type: z.string(), xMm: z.number(), yMm: z.number(), widthMm: z.number(), depthMm: z.number() })).default([]),
   companyRules: z.record(z.unknown()).default({}),

@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { generateCandidates, validatePlacements, approveLayout, invalidateDownstream, restoreApprovedVersion, shapeCatalogFor, evaluateVastuCompliance } from '../src/index.js';
+import { generateCandidates, validatePlacements, approveLayout, invalidateDownstream, restoreApprovedVersion, shapeCatalogFor, evaluateVastuCompliance, evaluateConstraintGraph } from '../src/index.js';
 
 describe('layout-core', () => {
   test('shape catalog exposes required kitchen/tv/wardrobe/living/bedroom shapes', () => {
@@ -93,5 +93,16 @@ describe('layout-core', () => {
     const toiletEval = result.zoneEvaluations.find(e => e.spaceId === 't1');
     assert.strictEqual(toiletEval?.status, 'NON_COMPLIANT', 'toilet in north-east should be NON_COMPLIANT');
     assert.ok(toiletEval?.remedy, 'should have a remedy suggestion');
+  });
+
+  test('constraint graph explains wall anchoring, openings, and service intent', () => {
+    const placements = [{ id: 'sink', category: 'kitchen', templateFamily: 'kitchen-base', anchor: 'room', wallRef: 'missing', positionMm: [0, 0, 0], rotationYawDeg: 0, widthMm: 900, depthMm: 600, heightMm: 750, clearanceMm: 500, requiredServicePoints: [], constraints: [{ id: 'sink:plumbing', kind: 'must_be_near_service', sourceId: 'sink', targetId: 'plumbing', valueMm: 100, weight: 2 }] }];
+    const graph = evaluateConstraintGraph(placements as any, {
+      projectId: 'p1', spaceId: 's1', roomCategory: 'kitchen', floorPlanVersionId: 'fp1', shape: 'single_wall', candidateTypes: ['balanced'], requirements: {},
+      roomBoundingBoxMm: { minX: 0, minY: 0, maxX: 4000, maxY: 3000 }, usableWalls: [{ id: 'w1', minX: 0, minY: 0, maxX: 4000, maxY: 0 }], openings: [{ id: 'window-1', type: 'window', xMm: 0, yMm: 0, widthMm: 800, heightMm: 1000 }], servicePoints: [{ id: 'plumbing', xMm: 3000, yMm: 3000, type: 'plumbing' }], structuralElements: [], companyRules: {}
+    });
+    assert.ok(graph.violations.some((issue) => issue.message.includes('wall')));
+    assert.ok(graph.violations.some((issue) => issue.message.includes('service point')));
+    assert.ok(graph.score < 1);
   });
 });

@@ -4,22 +4,16 @@
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
-  "types": "./src/index.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./dist/index.js"
-    }
-  },
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "scripts": {
+    "check": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json",
-    "test": ""
+    "test": "node --import tsx --test tests/index.test.ts"
   },
   "dependencies": {
-    "@ultida/scene-core": "0.1.0",
-    "@ultida/contracts": "0.1.0"
+    "@ultida/plan-core": "0.1.0",
+    "@ultida/scene-core": "0.1.0"
   },
-  "devDependencies": {
-    "typescript": "^5.6.2"
-  }
+  "devDependencies": { "tsx": "^4.20.0", "typescript": "^5.8.0" }
 }

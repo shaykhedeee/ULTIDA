@@ -15,6 +15,16 @@ apps/*/dist/
 apps/*/node_modules/
 apps/*/tsconfig.tsbuildinfo
 
+# Local analysis/render fixtures and CLI metadata; never release as source.
+eng.traineddata
+tmp_test_*.json
+tmp_test_*.png
+supabase/.temp/
+
 .vercel
+.playwright-browsers/
 .peridot/
 .agents/
+
+.vercel
+.env*

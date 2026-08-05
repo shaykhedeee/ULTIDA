@@ -1,6 +1,63 @@
 import type { SceneV1 } from '@ultida/scene-core';
 import PDFDocument from 'pdfkit';
 
+export const ULTIDA_DRAWING_STANDARD_V1 = {
+  schema: 'drawing.standard.v1' as const,
+  units: 'mm' as const,
+  panelThicknessMm: 18,
+  wardrobeCarcassDepthMm: 560,
+  wardrobeBackThicknessMm: 20,
+  graniteThicknessMm: 20,
+  dummyRevealMm: 30,
+  defaultLightKelvin: 3000,
+  layers: {
+    walls: 'A-WALL', modules: 'A-MOD', openings: 'A-OPENING',
+    dimensions: 'A-DIM', annotations: 'A-ANNO', hatch: 'A-HATCH'
+  },
+  colors: { dimensions: '#ff3030', walls: '#1f2937', modules: '#153e75', annotations: '#111827' }
+};
+export type UltidaDrawingStandardV1 = typeof ULTIDA_DRAWING_STANDARD_V1;
+
+export function deriveWardrobeDepthMm(carcassDepthMm = ULTIDA_DRAWING_STANDARD_V1.wardrobeCarcassDepthMm, backThicknessMm = ULTIDA_DRAWING_STANDARD_V1.wardrobeBackThicknessMm) {
+  if (!Number.isFinite(carcassDepthMm) || !Number.isFinite(backThicknessMm) || carcassDepthMm <= 0 || backThicknessMm < 0) {
+    throw new Error('Wardrobe depth inputs must be finite millimetre values.');
+  }
+  return carcassDepthMm + backThicknessMm;
+}
+
+export type DimensionChainV1 = { axis: 'horizontal' | 'vertical'; originMm: number; segmentsMm: number[]; overallMm: number; label?: string };
+
+export function buildDimensionChain(axis: DimensionChainV1['axis'], segmentsMm: number[], originMm = 0, label?: string): DimensionChainV1 {
+  if (!segmentsMm.length || segmentsMm.some((value) => !Number.isFinite(value) || value <= 0)) throw new Error('Dimension chains require positive finite segments.');
+  const overallMm = segmentsMm.reduce((sum, value) => sum + value, 0);
+  return { axis, originMm, segmentsMm: [...segmentsMm], overallMm, label };
+}
+
+export type ElevationViewKindV1 = 'external' | 'internal' | 'top' | 'section';
+export type ElevationElementV1 = {
+  id: string;
+  kind: 'wall' | 'loft' | 'shutter' | 'sliding-shutter' | 'open-unit' | 'drawer' | 'hanger-space' | 'shelf' | 'skirting' | 'filler' | 'profile-glass' | 'light' | 'appliance' | 'countertop';
+  xMm: number; yMm: number; widthMm: number; heightMm: number;
+  label?: string; materialSlot?: string; quantity?: number;
+};
+export type ElevationSheetSpecV1 = {
+  schema: 'elevation.sheet.v1'; view: ElevationViewKindV1; title: string; units: 'mm';
+  overallWidthMm: number; overallHeightMm: number; horizontalChain: DimensionChainV1; verticalChain: DimensionChainV1;
+  elements: ElevationElementV1[]; sourceSceneVersionId: string; warnings: string[];
+};
+
+export function validateElevationSheet(spec: ElevationSheetSpecV1) {
+  const issues: string[] = [];
+  if (spec.horizontalChain.overallMm !== spec.overallWidthMm) issues.push('Horizontal dimension chain does not equal overall width.');
+  if (spec.verticalChain.overallMm !== spec.overallHeightMm) issues.push('Vertical dimension chain does not equal overall height.');
+  for (const element of spec.elements) {
+    if (![element.xMm, element.yMm, element.widthMm, element.heightMm].every(Number.isFinite) || element.widthMm <= 0 || element.heightMm <= 0) issues.push(`Element ${element.id} has invalid geometry.`);
+    if (element.xMm < 0 || element.yMm < 0 || element.xMm + element.widthMm > spec.overallWidthMm || element.yMm + element.heightMm > spec.overallHeightMm) issues.push(`Element ${element.id} exceeds the elevation boundary.`);
+    if (element.kind === 'profile-glass' && !element.materialSlot) issues.push(`Profile-glass element ${element.id} requires a material slot.`);
+  }
+  return { valid: issues.length === 0, issues };
+}
+
 export type DrawingLine = { id: string; layer: 'walls' | 'modules' | 'openings'; x1: number; y1: number; x2: number; y2: number };
 export type ProjectedOpening = { id: string; kind: string; wallId: string; offsetMm: number; widthMm: number; heightMm: number };
 export type ProjectedModule = { id: string; family: string; roomId: string; xMm: number; yMm: number; widthMm: number; depthMm: number; heightMm: number; rotationDeg: number; wallId?: string; offsetAlongWallMm?: number };
@@ -24,6 +81,13 @@ function finitePositive(value: number) {
 
 function wallLength(wall: SceneV1['walls'][number]) {
   return Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm);
+}
+
+/** A scene stores wall centre-lines. Coincident centre-lines are duplicates, not two walls. */
+function wallsCoincide(a: SceneV1['walls'][number], b: SceneV1['walls'][number], toleranceMm = 0.5) {
+  const close = (left: { xMm: number; yMm: number }, right: { xMm: number; yMm: number }) =>
+    Math.abs(left.xMm - right.xMm) <= toleranceMm && Math.abs(left.yMm - right.yMm) <= toleranceMm;
+  return (close(a.start, b.start) && close(a.end, b.end)) || (close(a.start, b.end) && close(a.end, b.start));
 }
 
 function moduleWallPosition(module: SceneV1['modules'][number], wall: SceneV1['walls'][number]) {
@@ -61,11 +125,18 @@ function openingLine(opening: ProjectedOpening, walls: SceneV1['walls']) {
 export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection {
   const warnings: string[] = [];
   const lines: DrawingLine[] = [];
+  const exportedWalls: SceneV1['walls'] = [];
   for (const wall of scene.walls ?? []) {
     if (!finitePositive(wallLength(wall))) {
       warnings.push(`Wall ${wall.id} has zero or invalid length and was skipped.`);
       continue;
     }
+    const duplicateOf = exportedWalls.find((candidate) => wallsCoincide(candidate, wall));
+    if (duplicateOf) {
+      warnings.push(`Wall ${wall.id} duplicates canonical wall ${duplicateOf.id} and was skipped to prevent double-wall exports.`);
+      continue;
+    }
+    exportedWalls.push(wall);
     lines.push({ id: wall.id, layer: 'walls', x1: wall.start.xMm, y1: wall.start.yMm, x2: wall.end.xMm, y2: wall.end.yMm });
   }
   const modules: ProjectedModule[] = [];
@@ -160,6 +231,115 @@ export function exportProjectionToDxf(projection: DrawingPackageProjection): str
     '0', 'ENDSEC',
     '0', 'EOF',
     ''
+  ].join('\r\n');
+}
+
+/**
+ * Export the editable floor-plan review model before a scene exists.
+ *
+ * This is deliberately a separate contract from exportSceneToDxf: an Initial
+ * Design plan is useful for CAD review, but it is not a fabrication drawing.
+ * Coordinates are source pixels multiplied by the reviewed mm-per-pixel scale.
+ */
+export type PlanDraftDxfElement = {
+  id: string;
+  kind: 'wall' | 'room' | 'door' | 'window' | 'fixture' | 'column' | 'beam' | 'service' | 'annotation';
+  label?: string;
+  geometry?: {
+    x1?: number; y1?: number; x2?: number; y2?: number;
+    x?: number; y?: number; width?: number; height?: number;
+    polygon?: Array<{ x: number; y: number }>;
+  };
+  widthMm?: number;
+  heightMm?: number;
+  sillMm?: number;
+  headMm?: number;
+  offsetAlongWallMm?: number;
+};
+
+export type PlanDraftDxfInput = {
+  planVersionId: string;
+  geometryMode: 'initial_design' | 'final_production';
+  mmPerPixel: number;
+  ceilingHeightMm?: number;
+  elements: PlanDraftDxfElement[];
+  warnings?: string[];
+};
+
+function finite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function planDraftLayer(kind: PlanDraftDxfElement['kind']) {
+  if (kind === 'wall') return 'A-WALL';
+  if (kind === 'room') return 'A-ROOM';
+  if (kind === 'door' || kind === 'window') return 'A-OPENING';
+  if (kind === 'fixture' || kind === 'column' || kind === 'beam' || kind === 'service') return 'A-FIXTURE';
+  return 'A-ANNO';
+}
+
+function planDraftRect(geometry: NonNullable<PlanDraftDxfElement['geometry']>, scale: number, layer: string) {
+  if (![geometry.x, geometry.y, geometry.width, geometry.height].every(finite)) return [];
+  const x = geometry.x! * scale;
+  const y = geometry.y! * scale;
+  const width = geometry.width! * scale;
+  const height = geometry.height! * scale;
+  if (width <= 0 || height <= 0) return [];
+  return [
+    ...dxfLine(x, y, x + width, y, layer),
+    ...dxfLine(x + width, y, x + width, y + height, layer),
+    ...dxfLine(x + width, y + height, x, y + height, layer),
+    ...dxfLine(x, y + height, x, y, layer),
+  ];
+}
+
+export function exportPlanDraftToDxf(input: PlanDraftDxfInput): string {
+  if (!input.planVersionId || !['initial_design', 'final_production'].includes(input.geometryMode)) throw new Error('A plan version and geometry mode are required.');
+  if (!finite(input.mmPerPixel) || input.mmPerPixel <= 0) throw new Error('A positive calibration scale is required.');
+  const scale = input.mmPerPixel;
+  const entities: string[] = [];
+  const points: Array<{ x: number; y: number }> = [];
+  const warnings = [...(input.warnings ?? [])];
+  const accepted = new Set<string>();
+  for (const element of input.elements ?? []) {
+    if (!element?.id || accepted.has(element.id)) continue;
+    accepted.add(element.id);
+    const geometry = element.geometry ?? {};
+    const layer = planDraftLayer(element.kind);
+    if (element.kind === 'wall' && [geometry.x1, geometry.y1, geometry.x2, geometry.y2].every(finite)) {
+      const x1 = geometry.x1! * scale; const y1 = geometry.y1! * scale;
+      const x2 = geometry.x2! * scale; const y2 = geometry.y2! * scale;
+      if (Math.hypot(x2 - x1, y2 - y1) < 0.5) { warnings.push(`Wall ${element.id} has negligible length and was skipped.`); continue; }
+      entities.push(...dxfLine(x1, y1, x2, y2, layer)); points.push({ x: x1, y: y1 }, { x: x2, y: y2 });
+    } else if (element.kind === 'room' && Array.isArray(geometry.polygon) && geometry.polygon.length >= 3) {
+      const polygon = geometry.polygon.filter((point) => finite(point?.x) && finite(point?.y)).map((point) => ({ x: point.x * scale, y: point.y * scale }));
+      if (polygon.length < 3) { warnings.push(`Room ${element.id} has an invalid boundary and was skipped.`); continue; }
+      polygon.forEach((point, index) => { const next = polygon[(index + 1) % polygon.length]; entities.push(...dxfLine(point.x, point.y, next.x, next.y, layer)); points.push(point); });
+    } else if (element.kind === 'door' || element.kind === 'window' || element.kind === 'fixture' || element.kind === 'column' || element.kind === 'beam' || element.kind === 'service') {
+      const rect = planDraftRect(geometry, scale, layer);
+      if (!rect.length) { warnings.push(`Element ${element.id} has no drawable rectangle and was skipped.`); continue; }
+      entities.push(...rect);
+      points.push({ x: (geometry.x ?? 0) * scale, y: (geometry.y ?? 0) * scale }, { x: ((geometry.x ?? 0) + (geometry.width ?? 0)) * scale, y: ((geometry.y ?? 0) + (geometry.height ?? 0)) * scale });
+    } else if (element.kind === 'annotation' && finite(geometry.x) && finite(geometry.y)) {
+      const x = geometry.x! * scale; const y = geometry.y! * scale;
+      entities.push(...dxfText(element.label ?? element.id, x, y, Math.max(25, 40 * scale), layer)); points.push({ x, y });
+    }
+  }
+  const minX = points.length ? Math.min(...points.map((point) => point.x)) : 0;
+  const minY = points.length ? Math.min(...points.map((point) => point.y)) : 0;
+  const maxX = points.length ? Math.max(...points.map((point) => point.x)) : 1000;
+  const maxY = points.length ? Math.max(...points.map((point) => point.y)) : 1000;
+  const label = input.geometryMode === 'initial_design' ? 'PROVISIONAL INITIAL DESIGN' : 'REVIEWED FINAL PRODUCTION';
+  entities.push(...dxfText(`ULTIDA | ${label} | PLAN ${input.planVersionId}`, minX, maxY + 300, 120, 'A-ANNO'));
+  entities.push(...dxfText('UNITS: MILLIMETRES | PLAN REVIEW EXPORT - NOT A FABRICATION RELEASE', minX, maxY + 140, 60, 'A-ANNO'));
+  warnings.slice(0, 12).forEach((warning, index) => entities.push(...dxfText(`WARNING: ${warning}`, minX, minY - 120 - index * 60, 40, 'A-ANNO')));
+  return [
+    '0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4',
+    '9', '$EXTMIN', '10', String(minX), '20', String(minY - 900), '30', '0',
+    '9', '$EXTMAX', '10', String(maxX), '20', String(maxY + 500), '30', '0', '0', 'ENDSEC',
+    '0', 'SECTION', '2', 'TABLES', '0', 'TABLE', '2', 'LAYER', '70', '8',
+    ...dxfLayer('0', 7), ...dxfLayer('A-WALL', 7), ...dxfLayer('A-ROOM', 3), ...dxfLayer('A-OPENING', 1), ...dxfLayer('A-FIXTURE', 30), ...dxfLayer('A-ANNO', 8), ...dxfLayer('A-DIM', 5),
+    '0', 'ENDTAB', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES', ...entities, '0', 'ENDSEC', '0', 'EOF', ''
   ].join('\r\n');
 }
 
@@ -981,12 +1161,15 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string): string
   const originX = margin;
   const originY = svgH - margin;
 
-  const modulesOnWall = (scene.modules ?? []).filter((m) => !wallId || (m as any).wallId === wallId || true);
+  // Keep an elevation wall-scoped. Rendering every scene module here caused
+  // unrelated furniture to appear on each wall in multi-wall projects. The
+  // canonical projection already assigns each module to its nearest wall.
+  const modulesOnWall = buildDrawingProjection(scene).modules.filter((module) => module.wallId === wall?.id);
 
   let moduleSvgElements = '';
   for (const mod of modulesOnWall) {
-    const mx = originX + (mod.position.xMm || 100) * scale;
-    const my = originY - ((mod.position.yMm || 0) + mod.heightMm) * scale;
+    const mx = originX + (mod.offsetAlongWallMm ?? 0) * scale;
+    const my = originY - mod.heightMm * scale;
     const mw = Math.max(20, mod.widthMm * scale);
     const mh = Math.max(20, mod.heightMm * scale);
 
@@ -1040,3 +1223,4 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string): string
 </svg>`;
 }
 
+export { generateSketchUpRubyScript } from './sketchup-exporter.js';

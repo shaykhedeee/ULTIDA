@@ -20,6 +20,18 @@
 
 .page-header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
+.studio-overview { display:flex; align-items:center; gap:24px; padding:16px 18px; margin-bottom:22px; border:1px solid var(--line); border-radius:14px; background:linear-gradient(110deg,var(--surface),rgba(197,156,45,.06)); }
+.overview-intro { display:flex; align-items:center; gap:11px; flex:1; min-width:260px; }
+.overview-icon { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; color:var(--gold-dim); background:rgba(197,156,45,.12); }
+.overview-intro strong,.overview-intro span { display:block; }
+.overview-intro strong { font-size:13px; color:var(--text-primary); }
+.overview-intro span { margin-top:3px; font-size:11px; color:var(--text-muted); }
+.overview-metric { min-width:78px; padding-left:20px; border-left:1px solid var(--line); }
+.overview-metric span { display:block; color:var(--text-muted); font-size:11px; }
+.overview-metric strong { display:block; margin-top:3px; color:var(--text-primary); font-size:20px; }
+.overview-metric.review strong { color:var(--gold-dim); }
+.overview-guide { display:flex; align-items:center; gap:6px; color:var(--text-muted); font-size:11px; white-space:nowrap; }
+
 /* ─── Filter bar ────────────────────────────── */
 .filter-bar {
   display: flex;
@@ -175,6 +187,18 @@
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 600;
+}
+
+.card-owner-row { display:flex; align-items:center; gap:6px; min-height:25px; color:var(--text-muted); font-size:11px; }
+.designer-avatar { display:grid; place-items:center; width:22px; height:22px; border-radius:50%; color:var(--brown-mid); background:rgba(197,156,45,.16); }
+.card-next-step { margin-left:auto; color:var(--gold-dim); font-weight:700; text-align:right; }
+
+@media (max-width: 700px) {
+  .studio-overview { align-items:flex-start; flex-wrap:wrap; gap:14px; }
+  .overview-intro { flex-basis:100%; }
+  .overview-metric { padding-left:0; border-left:0; min-width:66px; }
+  .overview-guide { flex-basis:100%; white-space:normal; }
+  .card-next-step { max-width:145px; }
 }
 
 /* Stage progress indicators */

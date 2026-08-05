@@ -194,3 +194,72 @@ export const PlanValidationIssueSchema = z.object({
 });
 
 export type PlanValidationIssue = z.infer<typeof PlanValidationIssueSchema>;
+
+/**
+ * Parses a feet/inches measurement string into millimetres.
+ * Handles formats:
+ * - 12' 6" or 12'-6" or 12 ft 6 in -> 3810 mm
+ * - 10' or 10 ft -> 3048 mm
+ * - 6" or 6 in -> 152.4 mm
+ * - 12.5' -> 3810 mm
+ * Returns null if string does not represent a valid feet/inches dimension.
+ */
+export function parseFeetInchesToMm(input: string): number | null {
+  if (!input || typeof input !== 'string') return null;
+  const clean = input.trim().toLowerCase();
+
+  // Pattern: 12' 6", 12'-6", 12 ft 6 in, 12'6
+  const feetInchesMatch = clean.match(/^(\d+(?:\.\d+)?)\s*(?:'|ft|-|\s)\s*(\d+(?:\.\d+)?)\s*(?:"|in)?$/);
+  if (feetInchesMatch) {
+    const feet = parseFloat(feetInchesMatch[1]);
+    const inches = parseFloat(feetInchesMatch[2]);
+    if (!isNaN(feet) && !isNaN(inches)) {
+      return Math.round(feet * 304.8 + inches * 25.4);
+    }
+  }
+
+  // Pattern: 10' or 10 ft
+  const feetOnlyMatch = clean.match(/^(\d+(?:\.\d+)?)\s*(?:'|ft)$/);
+  if (feetOnlyMatch) {
+    const feet = parseFloat(feetOnlyMatch[1]);
+    if (!isNaN(feet)) {
+      return Math.round(feet * 304.8);
+    }
+  }
+
+  // Pattern: 6" or 6 in
+  const inchesOnlyMatch = clean.match(/^(\d+(?:\.\d+)?)\s*(?:"|in)$/);
+  if (inchesOnlyMatch) {
+    const inches = parseFloat(inchesOnlyMatch[1]);
+    if (!isNaN(inches)) {
+      return Math.round(inches * 25.4);
+    }
+  }
+
+  // Pattern: plain number in mm (if already in mm)
+  const plainNum = parseFloat(clean);
+  if (!isNaN(plainNum) && plainNum > 50) {
+    return Math.round(plainNum);
+  }
+
+  return null;
+}
+
+/**
+ * Formats a millimetre measurement as dual string (mm and feet/inches).
+ * Example: 3658 mm -> { mm: 3658, ftIn: `12' 0"` }
+ */
+export function formatDualDimension(mm: number): { mm: number; ftIn: string } {
+  const safeMm = Math.max(0, Math.round(mm));
+  const totalInches = safeMm / 25.4;
+  const feet = Math.floor(totalInches / 12);
+  const inches = Math.round(totalInches % 12);
+
+  let ftIn = `${feet}' ${inches}"`;
+  if (inches === 12) {
+    ftIn = `${feet + 1}' 0"`;
+  }
+
+  return { mm: safeMm, ftIn };
+}
+

@@ -112,7 +112,6 @@ export function deriveSpaceGeometry(
     derivedAt: new Date().toISOString(),
   };
 }
-
 // ─── Readiness Gate ────────────────────────────────────────────────────────────
 export function computeSpaceReadiness(
   geometry: ReturnType<typeof deriveSpaceGeometry>,
@@ -207,3 +206,138 @@ function isPointInBoundingBox(point: { xMm: number; yMm: number }, polygon: Worl
   return point.xMm >= Math.min(...xs) && point.xMm <= Math.max(...xs) &&
          point.yMm >= Math.min(...ys) && point.yMm <= Math.max(...ys);
 }
+
+// ─── Usable-wall calculation (subtract fixed constraints) ─────────────────────
+export interface WallDeduction {
+  id: string;
+  kind: "opening" | "column" | "shaft" | "curtain_zone" | "ac_restriction" | "fixed_fixture";
+  widthMm: number;
+  clearanceMm?: number; // required working clearance added on each side
+}
+
+export interface UsableWallResult {
+  totalWallMm: number;
+  deductionsMm: number;
+  usableWallMm: number;
+  breakdown: Array<{ kind: WallDeduction["kind"]; id: string; widthMm: number; clearanceMm: number }>;
+}
+
+/**
+ * Total usable wall length for a room = sum of bounding-wall lengths minus every
+ * fixed obstruction (openings, columns, shafts, curtain zones, AC restrictions,
+ * fixed fixtures) and their required clearances. Pure + deterministic.
+ */
+export function computeUsableWallLength(
+  roomWalls: Array<{ id: string; lengthMm: number }>,
+  deductions: WallDeduction[] = []
+): UsableWallResult {
+  const totalWallMm = roomWalls.reduce((sum, w) => sum + Math.max(0, w.lengthMm), 0);
+  const breakdown: UsableWallResult["breakdown"] = [];
+  let deductionsMm = 0;
+  for (const d of deductions) {
+    const clearance = d.clearanceMm ?? 0;
+    const occupied = Math.max(0, d.widthMm) + clearance * 2;
+    deductionsMm += occupied;
+    breakdown.push({ kind: d.kind, id: d.id, widthMm: Math.max(0, d.widthMm), clearanceMm: clearance });
+  }
+  const usableWallMm = Math.max(0, Math.round(totalWallMm - deductionsMm));
+  return { totalWallMm: Math.round(totalWallMm), deductionsMm: Math.round(deductionsMm), usableWallMm, breakdown };
+}
+
+// ─── Structural edits → derived plan version (never mutate the immutable source) ─
+export interface DerivedPlanFragment extends CanonicalPlanFragment {
+  derivedFromVersionId: string;
+  revisionLabel: string;
+}
+
+export interface EditResult {
+  fragment: DerivedPlanFragment;
+  derivedVersionId: string;
+}
+
+function newVersionId(): string {
+  return "derived-" + Math.random().toString(36).slice(2, 10);
+}
+
+export function deriveFragment(source: CanonicalPlanFragment, revisionLabel = "spaces-edit"): DerivedPlanFragment {
+  return {
+    ...source,
+    walls: source.walls.map((w) => ({ ...w })),
+    rooms: source.rooms.map((r) => ({ ...r, worldGeometry: { polygon: r.worldGeometry.polygon.map((p) => ({ ...p })) } })),
+    openings: source.openings.map((o) => ({ ...o })),
+    services: (source.services ?? []).map((s) => ({ ...s })),
+    obstacles: (source.obstacles ?? []).map((o) => ({ ...o })),
+    derivedFromVersionId: (source as any).versionId ?? "approved",
+    revisionLabel,
+  };
+}
+
+export function editAddWall(source: CanonicalPlanFragment, wall: PlanWall): EditResult {
+  const f = deriveFragment(source);
+  f.walls.push(wall);
+  return { fragment: f, derivedVersionId: f.derivedFromVersionId + ":" + newVersionId() };
+}
+export function editAddOpening(source: CanonicalPlanFragment, opening: PlanOpening): EditResult {
+  const f = deriveFragment(source);
+  f.openings.push(opening);
+  return { fragment: f, derivedVersionId: f.derivedFromVersionId + ":" + newVersionId() };
+}
+export function editAddColumn(source: CanonicalPlanFragment, column: PlanObstacle): EditResult {
+  const f = deriveFragment(source);
+  f.obstacles = [...(f.obstacles ?? []), column];
+  return { fragment: f, derivedVersionId: f.derivedFromVersionId + ":" + newVersionId() };
+}
+export function editSplitRoom(source: CanonicalPlanFragment, roomId: string, polygonA: WorldPoint[], polygonB: WorldPoint[]): EditResult {
+  const f = deriveFragment(source);
+  f.rooms = f.rooms.flatMap((r) => {
+    if (r.id !== roomId) return [r];
+    const areaA = computePolygonArea(polygonA);
+    const areaB = computePolygonArea(polygonB);
+    const base = { ceilingHeightMm: r.ceilingHeightMm ?? source.ceilingHeightMm };
+    return [
+      { ...r, id: r.id + "-a", worldGeometry: { polygon: polygonA }, areaSqm: areaA },
+      { ...r, id: r.id + "-b", worldGeometry: { polygon: polygonB }, areaSqm: areaB },
+    ].map((x: any) => ({ ...x, ...base }));
+  });
+  return { fragment: f, derivedVersionId: f.derivedFromVersionId + ":" + newVersionId() };
+}
+export function editMergeRooms(source: CanonicalPlanFragment, roomIds: string[], mergedPolygon: WorldPoint[]): EditResult {
+  const f = deriveFragment(source);
+  const kept = f.rooms.filter((r) => !roomIds.includes(r.id));
+  const mergedArea = computePolygonArea(mergedPolygon);
+  const base = kept[0] ? { ceilingHeightMm: kept[0].ceilingHeightMm ?? source.ceilingHeightMm } : { ceilingHeightMm: source.ceilingHeightMm };
+  kept.push({ id: "merged-" + roomIds.join("_"), worldGeometry: { polygon: mergedPolygon }, areaSqm: mergedArea, ...(base as any) } as any);
+  f.rooms = kept;
+  return { fragment: f, derivedVersionId: f.derivedFromVersionId + ":" + newVersionId() };
+}
+
+// ─── Overlap detection (invalid overlap rule) ─────────────────────────────────
+function pointInPolygon(p: WorldPoint, poly: WorldPoint[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].xMm, yi = poly[i].yMm, xj = poly[j].xMm, yj = poly[j].yMm;
+    const intersect = (yi > p.yMm) !== (yj > p.yMm) && p.xMm < ((xj - xi) * (p.yMm - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+function segmentsIntersect(a: WorldPoint, b: WorldPoint, c: WorldPoint, d: WorldPoint): boolean {
+  const orient = (o: WorldPoint, p: WorldPoint, q: WorldPoint) =>
+    Math.sign((q.yMm - o.yMm) * (p.xMm - o.xMm) - (p.yMm - o.yMm) * (q.xMm - o.xMm));
+  const o1 = orient(a, b, c), o2 = orient(a, b, d), o3 = orient(c, d, a), o4 = orient(c, d, b);
+  return o1 !== o2 && o3 !== o4;
+}
+export function polygonsOverlap(a: WorldPoint[], b: WorldPoint[]): boolean {
+  if (a.length < 3 || b.length < 3) return false;
+  for (const p of a) if (pointInPolygon(p, b)) return true;
+  for (const p of b) if (pointInPolygon(p, a)) return true;
+  for (let i = 0; i < a.length; i++) {
+    const a1 = a[i], a2 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j++) {
+      const b1 = b[j], b2 = b[(j + 1) % b.length];
+      if (segmentsIntersect(a1, a2, b1, b2)) return true;
+    }
+  }
+  return false;
+}
+

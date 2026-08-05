@@ -58,6 +58,8 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; }
+@keyframes ultida-spin { to { transform: rotate(360deg); } }
+.ultida-spinner { animation: ultida-spin 1s linear infinite; }
 
 /* ─── App Shell ─────────────────────────────────── */
 .app-shell {

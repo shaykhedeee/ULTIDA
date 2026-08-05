@@ -23,11 +23,12 @@ test('PNG plan uses raster mode', () => {
   assert.strictEqual(result.processingMode, 'raster');
 });
 
-test('scanned PDF falls back to raster/unsupported calibration but still returns parsed baseline', () => {
+test('scanned PDF requires calibration without fabricated geometry', () => {
   const input = { projectId: 'p1', fileName: 'plan.pdf', mimeType: 'application/pdf', bytes: 2048 };
   const result = parsePlanIntake(input);
   assert.strictEqual(result.sourceFormat, 'pdf');
   assert.strictEqual(result.requiresCalibration, true);
+  assert.deepStrictEqual(result.proposals, []);
   assert.ok(result.warnings.some((warning: string) => warning.toLowerCase().includes('calibrate')));
 });
 

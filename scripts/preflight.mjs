@@ -8,4 +8,6 @@ const failed = checks.filter((check) => !check.ok);
 for (const check of checks) console.log(`${check.ok ? 'PASS' : 'FAIL'} ${check.name}`);
 let secretScanFailed = false;
 try { execFileSync(process.execPath, [fileURLToPath(new URL('./scan-secrets.mjs', import.meta.url))], { stdio: 'inherit' }); } catch { secretScanFailed = true; }
-process.exitCode = failed.length || secretScanFailed ? 1 : 0;
+let hostingContractFailed = false;
+try { execFileSync(process.execPath, [fileURLToPath(new URL('./check-hosting-contract.mjs', import.meta.url))], { stdio: 'inherit' }); } catch { hostingContractFailed = true; }
+process.exitCode = failed.length || secretScanFailed || hostingContractFailed ? 1 : 0;

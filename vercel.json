@@ -1,15 +1,21 @@
 {
   "version": 2,
-  "buildCommand": "npm run build --workspace=@ultida/web",
+  "installCommand": "npm install --include=optional --no-audit --no-fund",
+  "buildCommand": "npm run build",
   "outputDirectory": "apps/web/dist",
   "framework": "vite",
+  "functions": {
+    "api/[...path].ts": {
+      "includeFiles": "{apps/api/dist/**,packages/**/dist/**,node_modules/@ultida/**}"
+    }
+  },
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://ultida-api.vercel.app/api/:path*"
+      "source": "/api/:ultidaPath*",
+      "destination": "/api/[...path]?__ultida_path=:ultidaPath*"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }
   ]

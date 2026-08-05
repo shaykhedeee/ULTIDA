@@ -10,12 +10,17 @@
  * and reached through routes.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { X, Plus, ChevronRight } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
 import { Shell, DEFAULT_WORKFLOW_STAGES, type WorkflowStageConfig } from './Shell';
 import { ProjectDashboard } from './features/projects/ProjectDashboard';
+import { StudioDashboard } from './features/dashboard/StudioDashboard';
+import { CncPatternStudio } from './features/tools/CncPatternStudio';
+import { ModularUnitPlanner } from './features/tools/ModularUnitPlanner';
+import { StudioOperations } from './features/tools/StudioOperations';
+import { AuraChat } from './features/tools/AuraChat';
 
 // Existing feature components — preserved
 import { BriefWorkspace, type ClientBrief, emptyBrief } from './components/brief/BriefWorkspace';
@@ -27,14 +32,16 @@ import { CommercialWorkspace } from './components/commercial/CommercialWorkspace
 import { DeliveryWorkspace } from './components/delivery/DeliveryWorkspace';
 import { ReferenceLibraryWorkspace } from './components/library/ReferenceLibraryWorkspace';
 import { SpacesWorkspace } from './features/spaces/SpacesWorkspace';
+import { SceneStudio } from './features/scene/SceneStudio';
+import { DesignWorkspace } from './features/design/DesignWorkspace';
+import { ProductionWorkspace } from './features/production/ProductionWorkspace';
+import { TeamWorkspace, RulesWorkspace, SettingsWorkspace } from './features/studio/StudioAdminScreens';
 
 import './intake.css';
 
-// ─── Local demo mode ──────────────────────────────────────────────
-const localDemoMode = typeof window !== 'undefined' &&
-  ['127.0.0.1', 'localhost'].includes(window.location.hostname) &&
-  import.meta.env.VITE_LOCAL_DEMO !== 'false' &&
-  !supabaseConfigured;
+// ─── Authenticated project mode ───────────────────────────────────
+// Every persisted project action requires a real Supabase session.
+const localDemoMode = false;
 
 // ─── Types ────────────────────────────────────────────────────────
 type ProviderStatus = { id: string; configured: boolean; operations: string[] };
@@ -91,8 +98,8 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
     }
 
     if (!supabase || !supabaseConfigured) {
-      // Demo fallback
-      onSuccess(email.trim() || 'demo@ultida.local');
+      setMessage('Authentication is not configured for this environment. Configure Supabase before creating or opening projects.');
+      setBusy(false);
       return;
     }
 
@@ -105,11 +112,6 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
       : await supabase.auth.signInWithPassword({ email, password });
 
     if (result.error) {
-      // Still allow access via demo mode if Supabase fails
-      if (localDemoMode) {
-        onSuccess(email.trim() || 'demo@ultida.local');
-        return;
-      }
       setMessage(result.error.message);
     } else if (result.data.session?.user.email) {
       onSuccess(result.data.session.user.email);
@@ -183,7 +185,7 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
               padding: '8px 12px', background: '#fef3c7', borderRadius: 7, fontSize: 12,
               marginBottom: 16, color: '#92400e', fontWeight: 600, border: '1px solid #fde68a'
             }}>
-              Supabase is not configured — demo mode will be used.
+              Supabase is not configured. Project data cannot be saved until authentication is configured.
             </div>
           )}
 
@@ -233,18 +235,6 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
             </button>
           )}
 
-          {localDemoMode && (
-            <button
-              type="button"
-              onClick={() => onSuccess('demo@ultida.local')}
-              style={{
-                width: '100%', padding: 10, background: '#f5f2eb', border: '1px solid #d4c5b2',
-                borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 8, color: '#3d2a1a'
-              }}
-            >
-              🚀 Continue as Demo Studio (Instant)
-            </button>
-          )}
 
           <button
             type="button"
@@ -275,7 +265,7 @@ function PlaceholderScreen({ title, description, icon }: { title: string; descri
 
 // ─── Project Workspace ────────────────────────────────────────────
 // Hosts all the per-project stage screens, wraps them in the Shell.
-function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; orgName: string }) {
+function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMode }: { sessionEmail: string; orgName: string; setSessionEmail: (email: string | null) => void; localDemoMode: boolean }) {
   const { projectId, stage } = useParams<{ projectId: string; stage: string }>();
   const navigate = useNavigate();
 
@@ -291,6 +281,8 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
   const [planProposals, setPlanProposals] = useState<any[]>([]);
   const [planAnalysisIssues, setPlanAnalysisIssues] = useState<Array<{ code: string; severity: 'warning' | 'critical'; entityId?: string; message: string }>>([]);
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
+  const [analysisRetryAvailable, setAnalysisRetryAvailable] = useState(false);
+  const analysisAutoRetryRef = useRef<string | null>(null);
   const [analysisRefreshNonce, setAnalysisRefreshNonce] = useState(0);
   const [planApproved, setPlanApproved] = useState(false);
   const [sourceAssetId, setSourceAssetId] = useState<string | null>(null);
@@ -309,9 +301,29 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
   const [brief, setBrief] = useState<ClientBrief>(emptyBrief);
   const [briefSaved, setBriefSaved] = useState(false);
   const [layoutConfig, setLayoutConfig] = useState<LayoutConfig | null>(null);
+  const [layoutRooms, setLayoutRooms] = useState<Array<{ id: string; name: string; roomType: import('./components/layout/LayoutConfigWorkspace').RoomCategory; ceilingHeightMm?: number }>>([]);
+  const [selectedLayoutSpaceId, setSelectedLayoutSpaceId] = useState<string | null>(null);
 
   // Provider status
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
+
+  // Server-validated access token. Unlike getSession() (which reads a possibly
+  // stale localStorage token), this rejects expired/corrupt sessions and clears
+  // client state so protected project writes never use a false identity.
+  const getValidToken = async (): Promise<string | null> => {
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) {
+        void supabase.auth.signOut().catch(() => {});
+        setSessionEmail(null);
+        return null;
+      }
+      return (await supabase.auth.getSession()).data.session?.access_token ?? null;
+    } catch {
+      return null;
+    }
+  };
 
   // Load project from Supabase
   useEffect(() => {
@@ -330,13 +342,48 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
   }, [projectId]);
 
   useEffect(() => {
-    if (!supabase || !projectId) return;
+    if (!projectId) return;
     let cancelled = false;
+    if (localDemoMode) {
+      try {
+        const raw = localStorage.getItem(`ultida-brief-${projectId}`);
+        if (raw) {
+          const saved = JSON.parse(raw) as ClientBrief & { isComplete?: boolean };
+          setBrief({ ...emptyBrief, ...saved });
+          setBriefSaved(Boolean(saved.isComplete));
+        }
+        const planDraft = localStorage.getItem(`ultida-plan-draft-${projectId}`);
+        if (planDraft) {
+          const savedDraft = JSON.parse(planDraft) as { draft?: unknown; analysisId?: string | null };
+          if (savedDraft.draft && typeof savedDraft.draft === 'object') {
+            setDemoSnapshot(savedDraft.draft);
+            const draft = savedDraft.draft as { elements?: unknown[]; issues?: unknown[] };
+            if (Array.isArray(draft.elements) && draft.elements.length) {
+              setPlanProposals(draft.elements);
+              setPlanAnalysisIssues(Array.isArray(draft.issues)
+                ? draft.issues.map((issue: any) => ({
+                    code: String(issue.id ?? issue.code ?? 'LOCAL_REVIEW'),
+                    severity: issue.severity === 'critical' ? 'critical' : 'warning',
+                    message: String(issue.question ?? issue.message ?? 'Review this item.'),
+                  }))
+                : []);
+              setPlanAnalysed(true);
+            }
+          }
+          if (savedDraft.analysisId) setAnalysisJobId(savedDraft.analysisId);
+        }
+      } catch {
+        localStorage.removeItem(`ultida-brief-${projectId}`);
+        localStorage.removeItem(`ultida-plan-draft-${projectId}`);
+      }
+      return () => { cancelled = true; };
+    }
+    if (!supabase) return;
     void (async () => {
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session?.access_token) return;
+      const accessToken = await getValidToken();
+      if (!accessToken) return;
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/plan-draft`, { headers: { authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`${apiBase}/projects/${projectId}/plan-draft`, { headers: { Authorization: `Bearer ${accessToken}` } });
       const payload = await response.json().catch(() => null);
       if (!cancelled && response.ok && payload?.draft) setDemoSnapshot(payload.draft);
     })();
@@ -344,30 +391,63 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
   }, [projectId]);
 
   const savePlanDraft = useCallback(async (draft: unknown) => {
-    if (!supabase || !projectId) return;
+    if (!projectId) return;
     setDemoSnapshot(draft);
-    const session = (await supabase.auth.getSession()).data.session;
-    if (!session?.access_token) return;
+    if (localDemoMode) {
+      localStorage.setItem(`ultida-plan-draft-${projectId}`, JSON.stringify({
+        draft,
+        analysisId: analysisJobId,
+        savedAt: new Date().toISOString(),
+        persistence: 'local-review-only',
+      }));
+      return;
+    }
+    if (!supabase) return;
+    const accessToken = await getValidToken();
+    if (!accessToken) return;
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-    await fetch(`${apiBase}/projects/${projectId}/plan-draft`, {
+    // Persist the editable review draft produced by the real pipeline.
+    await fetch(`${apiBase}/projects/${projectId}/plan-analysis/draft`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ draft })
-    });
-  }, [projectId]);
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ draft, analysisId: analysisJobId })
+    }).catch(() => null);
+  }, [projectId, analysisJobId, localDemoMode]);
 
   useEffect(() => {
     if (!supabase || !projectId) return;
     let cancelled = false;
     void (async () => {
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session?.access_token) return;
+      const accessToken = await getValidToken();
+      if (!accessToken) return;
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/brief`, { headers: { authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`${apiBase}/projects/${projectId}/brief`, { headers: { Authorization: `Bearer ${accessToken}` } });
       const payload = await response.json().catch(() => null);
       if (cancelled || !response.ok || !payload?.brief) return;
       setBrief({ ...emptyBrief, ...payload.brief });
       setBriefSaved(Boolean(payload.isComplete));
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // Reload a previously saved plan-analysis draft so the designer can resume review.
+  useEffect(() => {
+    if (!supabase || !projectId) return;
+    let cancelled = false;
+    void (async () => {
+      const accessToken = await getValidToken();
+      if (!accessToken) return;
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/projects/${projectId}/plan-analysis/draft`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const payload = await response.json().catch(() => null);
+      if (cancelled || !response.ok || !payload?.draft) return;
+      const d = payload.draft;
+      if (Array.isArray(d.elements) && d.elements.length) {
+        setPlanProposals(d.elements);
+        setPlanAnalysisIssues(Array.isArray(d.issues) ? d.issues.map((i: any) => ({ code: i.id, severity: 'warning', message: i.question })) : []);
+        setPlanAnalysed(true);
+        if (d.analysisId) setAnalysisJobId(d.analysisId);
+      }
     })();
     return () => { cancelled = true; };
   }, [projectId]);
@@ -420,7 +500,11 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     if (!projectId) return;
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     try {
-      const res = await fetch(`${apiBase}/projects/${projectId}/status`);
+      const token = await getValidToken();
+      if (!token) return;
+      const res = await fetch(`${apiBase}/projects/${projectId}/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const payload = await res.json();
         if (payload?.success && typeof payload?.stages === 'object') setServerStages(payload.stages as Record<string, boolean>);
@@ -456,8 +540,8 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     const poll = async () => {
       try {
         const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-        const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token ?? '' : '';
-        const response = await fetch(`${apiBase}/plan/analyze/${analysisJobId}?projectId=${encodeURIComponent(projectId)}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+        const token = supabase ? (await getValidToken() ?? '') : '';
+        const response = await fetch(`${apiBase}/plan/analyze/${analysisJobId}?projectId=${encodeURIComponent(projectId)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         const payload = await response.json();
         if (stopped) return;
         if (payload.status === 'succeeded' && payload.analysis?.proposals) {
@@ -465,11 +549,24 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
           setPlanAnalysisIssues(payload.analysis.topologyIssues ?? []);
           setPlanAnalysed(true);
           setPlanStatus('Provider analysis complete. Review and calibrate every proposal.');
+          if (stage === 'brief') navigate(`/projects/${projectId}/plan`);
         } else if (payload.status === 'failed') {
           setPlanStatus(payload.error?.message ?? 'Provider analysis failed. No geometry was generated.');
           setAnalysisJobId(null);
         } else {
-          setPlanStatus(`Analysis ${payload.status ?? 'processing'}...`);
+          const queuedForMs = payload.createdAt ? Date.now() - new Date(payload.createdAt).getTime() : 0;
+          if ((payload.status === 'queued' && queuedForMs > 45_000) || (payload.status === 'running' && queuedForMs > 150_000)) {
+            if (analysisAutoRetryRef.current !== analysisJobId) {
+              analysisAutoRetryRef.current = analysisJobId;
+              setPlanStatus('Reconnecting the analysis worker…');
+              void retryPlanAnalysis();
+              return;
+            }
+            setAnalysisRetryAvailable(true);
+            setPlanStatus('The analysis worker did not return a result. Use Retry analysis to re-dispatch this exact source file.');
+            return;
+          }
+          setPlanStatus(payload.recovery ?? `Analysis ${payload.status ?? 'processing'}...`);
         }
       } catch {
         if (!stopped) setPlanStatus('Analysis status could not be refreshed. Retrying...');
@@ -478,7 +575,7 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     void poll();
     const timer = window.setInterval(() => void poll(), 2000);
     return () => { stopped = true; window.clearInterval(timer); };
-  }, [analysisJobId, analysisRefreshNonce, planAnalysed, projectId]);
+  }, [analysisJobId, analysisRefreshNonce, planAnalysed, projectId, stage, navigate]);
 
   // Determine workflow stages statuses
   const serverStageMap: Record<string, boolean> = serverStages ?? {};
@@ -523,16 +620,38 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     setPlanAnalysisIssues([]);
     setPlanStatus(`Attached ${file.name}. Run analysis to process.`);
     const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-    if (file.type.startsWith('image/') || ['.png','.jpg','.jpeg','.webp','.svg'].includes(ext)) {
+    if (file.type.startsWith('image/') || ['.png','.jpg','.jpeg','.webp','.gif','.bmp','.tif','.tiff','.avif','.heic','.heif','.svg'].includes(ext)) {
       setPlanPreview(URL.createObjectURL(file));
     } else {
       setPlanPreview(null);
     }
   }
 
+  function floorPlanMimeType(file: File) {
+    const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+    const byExtension: Record<string, string> = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+      '.gif': 'image/gif', '.bmp': 'image/bmp', '.tif': 'image/tiff', '.tiff': 'image/tiff',
+      '.avif': 'image/avif', '.heic': 'image/heic', '.heif': 'image/heif', '.svg': 'image/svg+xml',
+      '.pdf': 'application/pdf',
+    };
+    return byExtension[extension] ?? file.type;
+  }
+
   async function analysePlan() {
     if (!planFile) return setPlanStatus('Choose a floor plan first.');
     if (!projectId) return setPlanStatus('Create or open a project before analysing a floor plan.');
+    if (localDemoMode) {
+      const localAssetId = `local-asset-${projectId}`;
+      setSourceAssetId(localAssetId);
+      setAnalysisJobId(`local-plan-${projectId}`);
+      setPlanProposals([]);
+      setPlanAnalysisIssues([{ code: 'LOCAL_REVIEW_ONLY', severity: 'warning', message: 'Local demo review is not AI analysis. Connect Supabase and a vision provider to produce authoritative wall geometry.' }]);
+      setPlanAnalysed(true);
+      setPlanStatus('Local review draft ready. AI wall analysis is unavailable in demo mode; no measurements were invented.');
+      localStorage.setItem(`ultida-plan-${projectId}`, JSON.stringify({ fileName: planFile.name, status: 'local_review_only', assetId: localAssetId, updatedAt: new Date().toISOString() }));
+      return;
+    }
     if (!supabase) return setPlanStatus('Supabase is required for professional plan analysis. Sign in and try again.');
     setPlanStatus('Uploading and preparing review...');
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
@@ -540,58 +659,114 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     let accessToken: string | null = null;
 
     if (supabase && projectId) {
-      const session = await supabase.auth.getSession();
-      accessToken = session.data.session?.access_token ?? null;
-      if (!accessToken) return setPlanStatus('Your session has expired. Sign in again before uploading a floor plan.');
-      const authHeaders = { 'Content-Type': 'application/json', authorization: `Bearer ${accessToken}` };
-      setPlanStatus('Preparing a secure upload...');
-      const initiated = await fetch(`${apiBase}/projects/${projectId}/floor-plans/initiate`, {
-        method: 'POST', headers: authHeaders,
-        body: JSON.stringify({ fileName: planFile.name, mimeType: planFile.type, fileSize: planFile.size })
-      });
-      const initiation = await initiated.json().catch(() => null);
-      if (!initiated.ok || !initiation?.token || !initiation?.storagePath) return setPlanStatus(initiation?.message ?? 'Secure floor-plan upload could not be initiated.');
-      setPlanStatus('Uploading original floor plan...');
-      const stored = await supabase.storage.from(initiation.bucket ?? 'project-assets').uploadToSignedUrl(initiation.storagePath, initiation.token, planFile, { contentType: planFile.type });
+      try {
+        // A cached session may contain an expired access token even while the
+        // interface still looks signed in. Reuse the server-validated helper
+        // so signed upload URLs and the durable analysis request never start
+        // with a stale bearer token.
+        accessToken = await getValidToken();
+        if (!accessToken) return setPlanStatus('Your session has expired. Sign in again before uploading a floor plan.');
+        const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
+        const mimeType = floorPlanMimeType(planFile);
+        setPlanStatus('Preparing a secure upload...');
+        const initiated = await fetch(`${apiBase}/projects/${projectId}/floor-plans/initiate`, {
+          method: 'POST', headers: authHeaders,
+          body: JSON.stringify({ fileName: planFile.name, mimeType, fileSize: planFile.size })
+        });
+        const initiation = await initiated.json().catch(() => null);
+        if (!initiated.ok || !initiation?.token || !initiation?.storagePath) return setPlanStatus(initiation?.message ?? `Secure floor-plan upload could not be initiated (HTTP ${initiated.status}).`);
+        setPlanStatus('Uploading original floor plan...');
+        const stored = await supabase.storage.from(initiation.bucket ?? 'project-assets').uploadToSignedUrl(initiation.storagePath, initiation.token, planFile, { contentType: initiation.mimeType ?? mimeType });
       if (stored.error) return setPlanStatus(`Upload failed: ${stored.error.message}`);
       setPlanStatus('Verifying upload and registering analysis...');
-      const completed = await fetch(`${apiBase}/projects/${projectId}/floor-plans/complete`, {
+        const completed = await fetch(`${apiBase}/projects/${projectId}/floor-plans/complete`, {
         method: 'POST', headers: authHeaders,
-        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: planFile.type, fileSize: planFile.size })
+        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size })
       });
       const completion = await completed.json().catch(() => null);
       if (!completed.ok || !completion?.asset?.id) return setPlanStatus(completion?.message ?? 'The uploaded floor plan could not be registered.');
       uploadedAssetId = completion.asset.id;
       setSourceAssetId(uploadedAssetId);
-      if (completion.jobId) setAnalysisJobId(completion.jobId);
+      if (!completion.jobId) return setPlanStatus('The plan was stored, but no durable analysis job was created.');
+      setAnalysisJobId(completion.jobId);
+      analysisAutoRetryRef.current = null;
+      setAnalysisRetryAvailable(false);
+      setPlanAnalysed(false);
+      setPlanStatus(completion.dispatch?.dispatched === false
+        ? 'Plan analysis is queued. Cloudflare worker dispatch is not configured yet.'
+        : 'Plan analysis is queued with the real vision provider.');
+        return;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Network request failed.';
+        return setPlanStatus(`Secure floor-plan upload could not be initiated. ${detail}`);
+      }
     }
 
-    try {
+    /* Legacy synchronous data-URL path intentionally disabled. Durable jobs
+       are the only supported analysis path. */
+    /* try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (accessToken) headers.authorization = `Bearer ${accessToken}`;
-      const response = await fetch(`${apiBase}/plan/analyze`, {
+      // Real pipeline: submit the actual raster (or PDF) to a configured
+      // multimodal vision model, run deterministic CV/OCR, reconcile, and
+      // return a review draft with full provenance. Never synthesizes geometry.
+      const dataUrl = await readFileAsDataUrl(planFile);
+      const response = await fetch(`${apiBase}/projects/${projectId}/plan-analysis`, {
         method: 'POST', headers,
-        body: JSON.stringify({ projectId, sourceAssetId: uploadedAssetId, fileName: planFile.name, mimeType: planFile.type, idempotencyKey: `plan:${projectId}:${uploadedAssetId}` })
+        body: JSON.stringify({
+          fileName: planFile.name,
+          mimeType: planFile.type,
+          dataUrl,
+          assetId: uploadedAssetId ?? null,
+        })
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         const detail = payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
           ? payload.message
-          : `Plan intake failed with HTTP ${response.status}.`;
+          : `Plan analysis failed with HTTP ${response.status}.`;
         return setPlanStatus(detail);
       }
-      if (payload.status === 'succeeded' && payload.output?.proposals) {
-        setPlanProposals(payload.output.proposals);
-        setPlanAnalysisIssues(payload.output.topologyIssues ?? []);
-        setPlanAnalysed(true);
-        setPlanStatus('Provider analysis complete. Review and calibrate every proposal.');
-      } else {
-        setAnalysisJobId(payload.jobId ?? null);
-        setPlanStatus(`Analysis queued (${payload.jobId}). Waiting for the provider worker...`);
-      }
+      // Map the provider+reconciled result into the reviewable proposal shape.
+      const elements: any[] = Array.isArray(payload.elements) ? payload.elements : [];
+      const issues: any[] = Array.isArray(payload.issues) ? payload.issues : [];
+      setPlanProposals(elements);
+      setPlanAnalysisIssues(issues.map((i) => ({ code: i.id, severity: 'warning', message: i.question })));
+      if (payload.analysisId) setAnalysisJobId(payload.analysisId);
+      setPlanAnalysed(true);
+      const provenance = payload.provenance
+        ? ` (provider=${payload.provenance.provider} model=${payload.provenance.model}, ${payload.provenance.latencyMs}ms)`
+        : '';
+      const persistNote = payload.persisted === false ? ' Draft not saved to DB (migration pending).' : '';
+      setPlanStatus(`Provider analysis complete${provenance}. Review and calibrate every proposal.${persistNote}`);
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Network request failed.';
       setPlanStatus(`Plan service could not be reached at ${apiBase}. ${detail}`);
+    } */
+  }
+
+  async function retryPlanAnalysis() {
+    if (!analysisJobId || !projectId || !supabase) return;
+    const token = await getValidToken();
+    if (!token) return setPlanStatus('Your session has expired. Sign in again before retrying analysis.');
+    setAnalysisRetryAvailable(false);
+    setPlanStatus('Re-dispatching the existing floor-plan analysis…');
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/plan/analyze/${analysisJobId}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ projectId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) {
+        setAnalysisRetryAvailable(true);
+        return setPlanStatus(payload?.message ?? 'Analysis could not be re-dispatched. Please try again.');
+      }
+      setPlanStatus('Analysis re-dispatched to the vision worker…');
+    } catch {
+      setAnalysisRetryAvailable(true);
+      setPlanStatus('Analysis could not be re-dispatched because the service could not be reached.');
     }
   }
 
@@ -605,7 +780,7 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const accessToken = supabase ? (await supabase.auth.getSession()).data.session?.access_token ?? '' : '';
+      const accessToken = supabase ? (await getValidToken() ?? '') : '';
       if (accessToken) headers.authorization = `Bearer ${accessToken}`;
       const canonicalModel = snapshot;
       const response = await fetch(`${apiBase}/projects/${projectId}/plan/approve`, {
@@ -630,20 +805,79 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     void fetchProjectStatus();
   }
 
+  async function downloadPlanDxf(snapshot: { elements: any[]; issues: any[]; scale: any; ceilingHeightMm: number | null; geometryMode: 'initial_design' | 'final_production' }) {
+    if (!projectId || !snapshot.scale || !snapshot.elements?.length) {
+      setPlanStatus('Calibrate one visible dimension and accept at least one wall or room before exporting DXF.');
+      return;
+    }
+    if (localDemoMode || !supabase) {
+      setPlanStatus('Sign in to download the plan DXF. Local review drafts are not downloadable production files.');
+      return;
+    }
+    const token = await getValidToken();
+    if (!token) {
+      setPlanStatus('Your session has expired. Sign in again before downloading the plan DXF.');
+      return;
+    }
+    setPlanStatus('Preparing calibrated plan DXF…');
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/projects/${projectId}/drawings/plan.dxf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          planVersionId: approvedPlanVersionId ?? analysisJobId ?? sourceAssetId ?? 'plan-review',
+          geometryMode: snapshot.geometryMode,
+          mmPerPixel: snapshot.scale.mmPerPixel,
+          ceilingHeightMm: snapshot.ceilingHeightMm,
+          elements: snapshot.elements,
+          warnings: snapshot.issues.map((issue: any) => issue.question ?? issue.message ?? issue.id).filter(Boolean),
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? `DXF export failed (HTTP ${response.status}).`);
+      }
+      const blob = await response.blob();
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = snapshot.geometryMode === 'initial_design' ? 'ultida-plan-initial-design.dxf' : 'ultida-plan-final-production.dxf';
+      document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(href);
+      setPlanStatus(snapshot.geometryMode === 'initial_design'
+        ? 'Plan DXF downloaded as a provisional Initial Design review file. Verify geometry before production release.'
+        : 'Plan DXF downloaded. Production exports remain linked to the approved scene.');
+    } catch (error) {
+      setPlanStatus(error instanceof Error ? error.message : 'Plan DXF export failed.');
+    }
+  }
+
   async function saveBrief(nextBrief: ClientBrief, isComplete = true) {
+    if (localDemoMode && projectId) {
+      localStorage.setItem(`ultida-brief-${projectId}`, JSON.stringify({
+        ...nextBrief,
+        isComplete,
+        savedAt: new Date().toISOString(),
+      }));
+      setBrief(nextBrief);
+      setBriefSaved(isComplete);
+      if (isComplete) navigate(`/projects/${projectId}/plan`);
+      return;
+    }
     if (projectId && supabase) {
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session?.access_token) throw new Error('Your session expired. Sign in again before saving the brief.');
+      const accessToken = await getValidToken();
+      if (!accessToken) throw new Error('Your session expired. Sign in again before saving the brief.');
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
       const response = await fetch(`${apiBase}/projects/${projectId}/brief`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { authorization: `Bearer ${session.access_token}` } : {}) },
+        headers: { 'Content-Type': 'application/json', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
         body: JSON.stringify({ brief: nextBrief, isComplete })
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         const fieldDetails = payload?.fieldErrors ? ` ${Object.values(payload.fieldErrors).join(' ')}` : '';
-        throw new Error(`${payload?.message ?? 'Brief could not be saved.'}${fieldDetails}`);
+        const detail = payload?.code ? ` [${payload.code}]` : '';
+        throw new Error(`${payload?.message ?? 'Brief could not be saved.'}${detail}${fieldDetails}`);
       }
     }
     setBrief(nextBrief);
@@ -663,8 +897,8 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
       setLayoutConfig(config);
       return;
     }
-    const session = (await supabase.auth.getSession()).data.session;
-    if (!session?.access_token) throw new Error('Sign in before approving a layout.');
+    const accessToken = await getValidToken();
+    if (!accessToken) throw new Error('Sign in before approving a layout.');
     const { data: spaces, error: spacesError } = await supabase
       .from('spaces')
       .select('id')
@@ -673,7 +907,7 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
       .limit(1);
     if (spacesError || !spaces?.[0]?.id) throw new Error('Approve the floor plan and configure a space before approving a layout.');
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-    const headers = { 'Content-Type': 'application/json', authorization: `Bearer ${session.access_token}` };
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
     const created = await fetch(`${apiBase}/projects/${projectId}/layouts`, {
       method: 'POST', headers,
       body: JSON.stringify({ spaceId: spaces[0].id, layoutShape: candidate.shape, label: candidate.candidateType, candidate, score: candidate.score })
@@ -687,7 +921,78 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     void fetchProjectStatus();
   }
 
+  useEffect(() => {
+    if (!projectId || !planApproved || !supabase) return;
+    void (async () => {
+      const token = await getValidToken();
+      if (!token) return;
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/projects/${projectId}/spaces`, { headers: { Authorization: `Bearer ${token}` } });
+      const payload = await response.json().catch(() => null);
+      const rooms = Array.isArray(payload?.spaces) ? payload.spaces.map((space: any) => ({ id: String(space.id), name: String(space.name ?? space.room_type ?? space.id), roomType: String(space.room_type ?? 'other') as import('./components/layout/LayoutConfigWorkspace').RoomCategory, ceilingHeightMm: Number(space.ceiling_height_mm ?? 0) || undefined })) : [];
+      setLayoutRooms(rooms);
+      setSelectedLayoutSpaceId((current) => current && rooms.some((room: any) => room.id === current) ? current : rooms[0]?.id ?? null);
+    })();
+  }, [projectId, planApproved]);
+
+  async function handleLayoutCandidates(config: LayoutConfig, roomCategory: import('./components/layout/LayoutConfigWorkspace').RoomCategory, roomRequirements: Record<string, unknown>, spaceId: string) {
+    if (!projectId) throw new Error('Open a project before generating layout candidates.');
+    const accessToken = await getValidToken();
+    if (!accessToken) throw new Error('Sign in before generating layout candidates.');
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const response = await fetch(`${apiBase}/projects/${projectId}/layout-candidates`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ spaceId, roomCategory, requirements: roomRequirements, shape: config.shape }) });
+    const payload = await response.json();
+    if (!response.ok || !Array.isArray(payload.candidates)) throw new Error(payload.message ?? 'The approved plan could not generate layout candidates.');
+    return payload.candidates as LayoutCandidate[];
+  }
+
+  async function handleLoadLayoutDrafts(spaceId: string) {
+    if (!projectId) return [];
+    const accessToken = await getValidToken();
+    if (!accessToken) return [];
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const response = await fetch(`${apiBase}/projects/${projectId}/layouts`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !Array.isArray(payload?.layouts)) return [];
+    return payload.layouts.filter((layout: any) => layout.space_id === spaceId && layout.status === 'candidate').map((layout: any) => layout.candidate_json).filter(Boolean) as LayoutCandidate[];
+  }
+
   async function saveScene(id: string, modules: typeof sceneModules, materials: any[] = []) {
+    if (!projectId || !approvedPlanVersionId) {
+      setPlanStatus('Approve a canonical floor plan before compiling a scene.');
+      throw new Error('Approved plan required.');
+    }
+    const accessToken = await getValidToken();
+    if (!accessToken) {
+      setPlanStatus('Sign in before compiling a scene.');
+      throw new Error('Authenticated session required.');
+    }
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    try {
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ moduleInstanceIds: modules.map((module) => module.id), designVersion: 'spaces.v1', changeReason: 'Compiled from persisted moodboard modules, library assignments, and active approved plan.v1' }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success || !payload.sceneVersion) {
+        setPlanStatus(payload.message ?? 'Scene compilation failed.');
+        throw new Error(payload.message ?? 'Scene compilation failed.');
+      }
+      setSceneVersionId(payload.sceneVersion.id);
+      setSceneVersionNumber(payload.sceneVersion.version_number);
+      setSceneModules(modules);
+      setSceneMaterials(Array.isArray(payload.materials) ? payload.materials : materials);
+      setSceneApproved(false);
+      setPlanStatus('Measured scene compiled from the active plan.v1.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Scene compiler is unavailable.';
+      setPlanStatus(message);
+      throw error;
+    }
+    return;
+
+    /* Legacy local scene persistence retired; the server compiler is authoritative.
     const nextNumber = sceneVersionNumber + 1;
     let savedId = id;
     if (supabase && projectId && approvedPlanVersionId) {
@@ -753,6 +1058,7 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
     setSceneModules(modules);
     setSceneMaterials(materials);
     setSceneApproved(false);
+    */
   }
 
   async function approveScene() {
@@ -799,6 +1105,7 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
         } />
         <Route path="plan" element={
           <PlanReviewWorkspace
+            sourceAssetId={sourceAssetId}
             fileName={planFile?.name}
             preview={planPreview}
             status={planStatus}
@@ -809,7 +1116,10 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
             layoutConfig={layoutConfig}
             onFile={selectPlan}
             onAnalyze={analysePlan}
+            onRetryAnalysis={retryPlanAnalysis}
+            analysisRetryAvailable={analysisRetryAvailable}
             onApprove={approvePlan}
+            onDownloadDxf={downloadPlanDxf}
             onSaveDraft={(snapshot) => void savePlanDraft(snapshot)}
           />
         } />
@@ -817,19 +1127,26 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
         <Route path="layouts" element={
           <LayoutConfigWorkspace
             initialConfig={layoutConfig ?? undefined}
-            detectedDimensions={planAnalysed ? { lengthMm: 5200, widthMm: 3800, heightMm: 2700 } : null}
+            detectedDimensions={null}
+            rooms={layoutRooms}
+            selectedSpaceId={selectedLayoutSpaceId}
+            onSpaceChange={(spaceId) => setSelectedLayoutSpaceId(spaceId)}
+            onGenerateCandidates={handleLayoutCandidates}
+            onLoadDrafts={handleLoadLayoutDrafts}
             onGenerate={handleLayoutGenerate}
             onApproveCandidate={handleLayoutApprove}
           />
         } />
-        <Route path="modules" element={
+        <Route path="modules" element={<DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
+        <Route path="modules-legacy" element={
           <PlaceholderScreen
             title="Modules"
             description="Once your layout is approved, each modular unit opens a specialist configurator — TV unit, wardrobe, kitchen, crockery, pooja, study, and bed units with exact parametric dimensions."
             icon="📦"
           />
         } />
-        <Route path="materials" element={
+        <Route path="materials" element={<DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
+        <Route path="materials-legacy" element={
           <PlaceholderScreen
             title="Materials"
             description="Apply carcass, shutters, countertops, glass, profiles, hardware, and lighting from your company's curated material library."
@@ -837,32 +1154,25 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
           />
         } />
         <Route path="3d" element={
-          <DesignFlowWorkspace
-            stage="Design"
-            projectId={projectId ?? null}
-            planApproved={planApproved}
-            briefComplete={briefSaved}
-            sceneVersionId={sceneVersionId}
-            sceneApproved={sceneApproved}
-            modules={sceneModules}
-            materials={sceneMaterials}
-            onSceneCreated={saveScene}
-            onSceneApproved={approveScene}
-          />
+          <>
+            <SceneStudio sceneVersionId={sceneVersionId} />
+            <DesignFlowWorkspace
+              stage="Design"
+              projectId={projectId ?? null}
+              planApproved={planApproved}
+              briefComplete={briefSaved}
+              sceneVersionId={sceneVersionId}
+              sceneApproved={sceneApproved}
+              modules={sceneModules}
+              materials={sceneMaterials}
+              onSceneCreated={saveScene}
+              onSceneApproved={approveScene}
+            />
+          </>
         } />
-        <Route path="design" element={
-          <DesignFlowWorkspace
-            stage="Design"
-            projectId={projectId ?? null}
-            planApproved={planApproved}
-            briefComplete={briefSaved}
-            sceneVersionId={sceneVersionId}
-            sceneApproved={sceneApproved}
-            modules={sceneModules}
-            materials={sceneMaterials}
-            onSceneCreated={saveScene}
-            onSceneApproved={approveScene}
-          />
+        <Route path="design" element={<DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
+        <Route path="design-legacy" element={
+          <DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />
         } />
         <Route path="renders" element={
           <DesignFlowWorkspace
@@ -878,6 +1188,7 @@ function ProjectWorkspace({ sessionEmail, orgName }: { sessionEmail: string; org
             onSceneApproved={approveScene}
           />
         } />
+        <Route path="production" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
         <Route path="drawings" element={
           <DesignFlowWorkspace
             stage="Document"
@@ -923,16 +1234,21 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
   return (
     <Shell sessionEmail={sessionEmail} orgName={orgName}>
       <Routes>
-        <Route index element={<Navigate to="/projects" replace />} />
+        <Route index element={<StudioDashboard orgName={orgName} />} />
         <Route path="projects" element={<ProjectDashboard sessionEmail={sessionEmail} orgName={orgName} />} />
+        <Route path="tools/cnc" element={<CncPatternStudio />} />
+        <Route path="tools/modules" element={<ModularUnitPlanner />} />
+        <Route path="tools/calendar" element={<StudioOperations initialTab="calendar" />} />
+        <Route path="tools/invoices" element={<StudioOperations initialTab="invoices" />} />
+        <Route path="tools/aura" element={<AuraChat />} />
         <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={null} />} />
         <Route path="templates" element={<Navigate to="/library" replace />} />
         <Route path="modules" element={<Navigate to="/library" replace />} />
         <Route path="materials" element={<Navigate to="/library" replace />} />
-        <Route path="rules" element={<PlaceholderScreen title="Company Rules" description="Configure company-specific design standards: finger groove gap, loft filler, shutter widths, hardware brands, and more." icon="📏" />} />
-        <Route path="team" element={<PlaceholderScreen title="Team" description="Manage designers, production staff, and viewers in your organisation." icon="👥" />} />
-        <Route path="settings" element={<PlaceholderScreen title="Settings" description="Configure your workspace, integrations, billing, and notification preferences." icon="⚙️" />} />
-        <Route path="*" element={<Navigate to="/projects" replace />} />
+        <Route path="rules" element={<RulesWorkspace organizationId={null} />} />
+        <Route path="team" element={<TeamWorkspace organizationId={null} />} />
+        <Route path="settings" element={<SettingsWorkspace organizationId={null} orgName={orgName} />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>
   );
@@ -940,25 +1256,55 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
 
 // ─── Root App ──────────────────────────────────────────────────────
 export function App() {
-  const [sessionEmail, setSessionEmail] = useState<string | null>(
-    localDemoMode ? 'demo@ultida.local' : null
-  );
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [orgName, setOrgName] = useState<string>('');
   const navigate = useNavigate();
+
+  // Server-validated access token. Unlike getSession() (which reads a possibly
+  // stale localStorage token), this rejects expired/corrupt sessions and clears
+  // client state so protected project writes never use a false identity.
+  const getValidToken = async (): Promise<string | null> => {
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) {
+        void supabase.auth.signOut().catch(() => {});
+        setSessionEmail(null);
+        return null;
+      }
+      return (await supabase.auth.getSession()).data.session?.access_token ?? null;
+    } catch {
+      return null;
+    }
+  };
 
   // Supabase auth listener
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
-      const email = data.session?.user.email ?? null;
-      setSessionEmail(email);
-      if (email) loadOrg(data.session!.user.id);
+    let active = true;
+    // getSession() only reads localStorage and may return a STALE/expired
+    // token. getUser() is server-validated, so use it as the source of truth
+    // and self-heal expired sessions instead of getting stuck on a hard error.
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (!active) return;
+      if (error || !data.user) {
+        // Expired or corrupt session. Clear local state and require sign-in.
+        void supabase!.auth.signOut().catch(() => {});
+        setSessionEmail(null);
+        return;
+      }
+      setSessionEmail(data.user.email ?? null);
+      if (data.user.email) loadOrg(data.user.id);
     });
     const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+      if (_event === 'SIGNED_OUT') {
+        setSessionEmail(null);
+        return;
+      }
       setSessionEmail(next?.user.email ?? null);
       if (next?.user) loadOrg(next.user.id);
     });
-    return () => data.subscription.unsubscribe();
+    return () => { active = false; data.subscription.unsubscribe(); };
   }, []);
 
   async function loadOrg(userId: string) {
@@ -975,11 +1321,12 @@ export function App() {
     }
   }
 
+
   // Not authenticated
   if (!sessionEmail) {
     return <SignInScreen onSuccess={(email) => {
       setSessionEmail(email);
-      navigate('/projects');
+      navigate('/');
     }} />;
   }
 
@@ -987,7 +1334,7 @@ export function App() {
     <Routes>
       {/* Project workspace — nested routes handle the 11 stages */}
       <Route path="/projects/:projectId/*" element={
-        <ProjectWorkspace sessionEmail={sessionEmail} orgName={orgName} />
+        <ProjectWorkspace sessionEmail={sessionEmail} orgName={orgName} setSessionEmail={setSessionEmail} localDemoMode={localDemoMode} />
       } />
 
       {/* All other routes use the dashboard shell */}

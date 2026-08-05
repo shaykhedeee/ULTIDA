@@ -1,0 +1,59 @@
+import { useEffect, useState } from 'react';
+import { Bot, Send, ShieldCheck } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+
+const apiBase = import.meta.env.VITE_API_BASE ?? '/api';
+type Project = { id: string; name: string };
+type Tool = { id: string; label: string; mode: string; requires: string[] };
+type NextAction = { method: string; path: string; body: Record<string, unknown> };
+type Message = { role: 'aura' | 'designer'; text: string; tools?: Tool[]; next?: NextAction | null };
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const session = await supabase?.auth.getSession();
+  return session?.data.session?.access_token ? { Authorization: `Bearer ${session.data.session.access_token}` } : {};
+}
+
+export function AuraChat() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState('');
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([{ role: 'aura', text: 'I am AURA. I can inspect your project and prepare supervised proposals for plans, modules, materials, scenes and renders. Nothing changes without your approval.' }]);
+
+  useEffect(() => { void (async () => { const result = await supabase?.from('projects').select('id,name').neq('project_status', 'archived').order('updated_at', { ascending: false }); const next = (result?.data ?? []) as Project[]; setProjects(next); setProjectId(next[0]?.id ?? ''); })(); }, []);
+
+  async function send() {
+    const text = input.trim(); if (!text || !projectId || busy) return;
+    setInput(''); setMessages((current) => [...current, { role: 'designer', text }]); setBusy(true);
+    try {
+      const response = await fetch(`${apiBase}/projects/${projectId}/aura/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ message: text }) });
+      const payload = await response.json();
+      setMessages((current) => [...current, { role: 'aura', text: payload.message ?? payload.error ?? 'AURA could not prepare a response.', tools: payload.tools, next: payload.next }]);
+    } catch { setMessages((current) => [...current, { role: 'aura', text: 'AURA is temporarily unavailable. Your project was not changed.' }]); }
+    finally { setBusy(false); }
+  }
+
+  async function preview(message: Message, tool: Tool) {
+    if (!message.next || busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`${apiBase}${message.next.path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ ...message.next.body, projectId, toolId: tool.id }) });
+      const payload = await response.json();
+      setMessages((current) => [...current, { role: 'aura', text: payload.success ? `${tool.label} proposal is ready for review. No project data was changed.` : (payload.message ?? 'AURA could not prepare that proposal.') }]);
+    } catch { setMessages((current) => [...current, { role: 'aura', text: 'The proposal request failed safely. No project data was changed.' }]); }
+    finally { setBusy(false); }
+  }
+
+  return <main style={{ maxWidth: 980, margin: '0 auto', padding: 28 }}>
+    <p style={{ fontSize: 12, letterSpacing: 1.5, fontWeight: 800, color: '#9a7655' }}>SUPERVISED DESIGN AGENT</p>
+    <h1 style={{ margin: '4px 0 8px' }}>AURA workspace</h1>
+    <p style={{ color: '#756555' }}>Chat with your project context. AURA orchestrates existing tools; it does not self-train or silently alter geometry.</p>
+    <label style={{ display: 'block', maxWidth: 420, margin: '18px 0' }}>Project<select value={projectId} onChange={(event) => setProjectId(event.target.value)} style={{ display: 'block', width: '100%', marginTop: 6, padding: 10 }}>{!projects.length && <option value="">Create a project first</option>}{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+    <section style={{ border: '1px solid #eadfd2', borderRadius: 16, padding: 18, background: '#fffdf9', minHeight: 340 }}>
+      {messages.map((message, index) => <div key={index} style={{ display: 'flex', gap: 10, justifyContent: message.role === 'designer' ? 'flex-end' : 'flex-start', margin: '12px 0' }}><div style={{ maxWidth: '78%', padding: '12px 14px', borderRadius: 12, background: message.role === 'designer' ? '#4e3928' : '#f5ede4', color: message.role === 'designer' ? '#fff' : '#4e3928' }}>{message.role === 'aura' && <Bot size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />}{message.text}{message.tools?.length ? <div style={{ marginTop: 10, fontSize: 12 }}>{message.tools.map((tool) => <div key={tool.id} style={{ marginTop: 7 }}>• {tool.label} <small>({tool.mode})</small>{message.next && <button onClick={() => void preview(message, tool)} disabled={busy} style={{ marginLeft: 8, padding: '4px 8px', borderRadius: 6, border: '1px solid #c59c2d', background: '#fffdf9', color: '#4e3928' }}>Prepare preview</button>}</div>)}</div> : null}</div></div>)}
+      {busy && <p style={{ color: '#8a7762' }}>AURA is inspecting the project context…</p>}
+    </section>
+    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}><input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void send(); }} placeholder="Ask AURA to inspect or propose a change…" style={{ flex: 1, padding: 12, border: '1px solid #d6c4b3', borderRadius: 10 }} /><button onClick={() => void send()} disabled={!projectId || !input.trim() || busy} style={{ padding: '0 18px', border: 0, borderRadius: 10, background: '#4e3928', color: '#fff' }}><Send size={16} /></button></div>
+    <p style={{ fontSize: 12, color: '#8a7762', marginTop: 14 }}><ShieldCheck size={14} style={{ verticalAlign: 'middle' }} /> Every proposal remains reviewable and approval-gated.</p>
+  </main>;
+}

@@ -16,6 +16,6 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "node --test --test-concurrency=1 test/plan-core.test.ts"
   },
-  "dependencies": { "zod": "^3.25.0" },
+  "dependencies": { "zod": "^3.25.0", "@ultida/geometry-core": "*" },
   "devDependencies": { "tsx": "^4.20.0" }
 }

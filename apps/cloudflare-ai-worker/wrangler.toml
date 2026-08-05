@@ -3,7 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-07-23"
 
 [vars]
-API_BASE = "https://ultida-api.vercel.app/api"
+API_BASE = "https://ultida.vercel.app/api"
+
+[triggers]
+crons = ["* * * * *"]
 
 [[queues.producers]]
 binding = "AI_JOBS"

@@ -1,0 +1,2463 @@
+{
+  "generatedAt": "2026-08-02T17:20:42.755Z",
+  "root": "docs\\examples",
+  "fileCount": 328,
+  "duplicateSets": [
+    {
+      "canonical": "docs/examples/Seamless walnut fluted backing - Copy.png",
+      "duplicates": [
+        "docs/examples/Seamless walnut fluted backing (1) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Cozy minimalist bedroom with warm accents - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Cozy minimalist bedroom with warm accents - Copy.png",
+        "docs/examples/Cozy minimalist bedroom with warm accents.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Minimalist kitchen nook with wood accents - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Minimalist kitchen nook with wood accents - Copy.png",
+        "docs/examples/Minimalist kitchen nook with wood accents.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.32 PM (1) - Copy.jpeg",
+      "duplicates": [
+        "docs/examples/WhatsApp Image 2026-07-29 at 11.35.34 PM - Copy.jpeg"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist kitchen with warm lighting(2) - Copy.png",
+      "duplicates": [
+        "docs/examples/Modern minimalist kitchen with warm lighting(2) (1) - Copy.png",
+        "docs/examples/Modern minimalist kitchen with warm lighting(2) (1).png",
+        "docs/examples/Modern minimalist kitchen with warm lighting(2).png",
+        "docs/examples/Modern minimalist kitchen with warm lighting(3) - Copy.png",
+        "docs/examples/Modern minimalist kitchen with warm lighting(3) (1) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist kitchen with cozy living area - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist kitchen with cozy living area - Copy.png",
+        "docs/examples/Modern minimalist kitchen with cozy living area.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/image-gen-2(1) - Copy.png",
+      "duplicates": [
+        "docs/examples/image-gen-2(1).png",
+        "docs/examples/image-gen-2(2) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/54415309-8ea0-4f42-87d0-52631bbe4319 - Copy.png",
+      "duplicates": [
+        "docs/examples/54415309-8ea0-4f42-87d0-52631bbe4319 (1) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/24a0909e-e48d-4f57-ae3f-3bbf63c22fb2 - Copy.png",
+      "duplicates": [
+        "docs/examples/cce0294b-f5b8-47b6-a4f6-b8e378b92f95 - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/0ef3cc6b-debe-4105-b497-bcd1d911d6bd - Copy.png",
+      "duplicates": [
+        "docs/examples/e0fe43d9-1b5e-482f-b37e-17fd5910bccb - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Minimalist kitchen with warm accents - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Minimalist kitchen with warm accents - Copy.png",
+        "docs/examples/Minimalist kitchen with warm accents.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern Minimalist Bathroom Retreat(1) (1).png",
+      "duplicates": [
+        "docs/examples/Modern Minimalist Bathroom Retreat(1).png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/bf30b746-e41a-4d32-accc-9641ec07e7fa - Copy.png",
+      "duplicates": [
+        "docs/examples/bf30b746-e41a-4d32-accc-9641ec07e7fa (1) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist living room with TV wall(1) - Copy.png",
+      "duplicates": [
+        "docs/examples/Modern minimalist living room with TV wall(2) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist living room with wood accents - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist living room with wood accents - Copy.png",
+        "docs/examples/Modern minimalist living room with wood accents (1) - Copy.png",
+        "docs/examples/Modern minimalist living room with wood accents (1).png",
+        "docs/examples/Modern minimalist living room with wood accents (2) - Copy.png",
+        "docs/examples/Modern minimalist living room with wood accents.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Minimal modern bedroom-office with measurements - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Minimal modern bedroom-office with measurements - Copy.png",
+        "docs/examples/Minimal modern bedroom-office with measurements.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimal office with warm lighting - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimal office with warm lighting - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist bedroom with arched mirror - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist bedroom with arched mirror - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Minimalist bedroom with modern wardrobe design - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Minimalist bedroom with modern wardrobe design - Copy.png",
+        "docs/examples/Minimalist bedroom with modern wardrobe design (1) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist living-dining interior design - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist living-dining interior design - Copy.png",
+        "docs/examples/Modern minimalist living-dining interior design.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/elegant full-height wall paneling installation - Copy (2).png",
+      "duplicates": [
+        "docs/examples/elegant full-height wall paneling installation - Copy.png",
+        "docs/examples/elegant full-height wall paneling installation.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Minimalist bathroom with sleek contemporary design - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Minimalist bathroom with sleek contemporary design - Copy.png",
+        "docs/examples/Minimalist bathroom with sleek contemporary design.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist bedroom with beige tones - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist bedroom with beige tones - Copy.png",
+        "docs/examples/Modern minimalist bedroom with beige tones.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Minimalist Taupe Wet-Room Bathroom (1).png",
+      "duplicates": [
+        "docs/examples/Minimalist Taupe Wet-Room Bathroom.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist kitchen with warm tones(7) - Copy.png",
+      "duplicates": [
+        "docs/examples/Modern minimalist kitchen with warm tones(7).png",
+        "docs/examples/Modern minimalist kitchen with warm tones(9) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Warm minimal interior with recessed lighting - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Warm minimal interior with recessed lighting - Copy.png",
+        "docs/examples/Warm minimal interior with recessed lighting.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/1f0b63e3-6936-4ca1-9c75-1d7193742fc0 - Copy.png",
+      "duplicates": [
+        "docs/examples/5b83ca45-8576-4bab-bcfd-a01e994a954a - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Compact White-and-Wood TV Wall - Copy.png",
+      "duplicates": [
+        "docs/examples/Compact White-and-Wood TV Wall (1) - Copy.png",
+        "docs/examples/Compact White-and-Wood TV Wall (2) - Copy.png",
+        "docs/examples/Compact White-and-Wood TV Wall (2).png",
+        "docs/examples/Compact White-and-Wood TV Wall (3) - Copy.png",
+        "docs/examples/Compact White-and-Wood TV Wall (4) - Copy.png",
+        "docs/examples/Compact White-and-Wood TV Wall.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern living nook with warm tones - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern living nook with warm tones - Copy.png",
+        "docs/examples/Modern living nook with warm tones.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist kitchen with warm accents(2) - Copy.png",
+      "duplicates": [
+        "docs/examples/Modern minimalist kitchen with warm accents(2).png",
+        "docs/examples/Modern minimalist kitchen with warm accents(3) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway - Copy.png",
+        "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway (1) - Copy.png",
+        "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway (1).png",
+        "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway (2) - Copy.png",
+        "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist living and kitchen space(1) - Copy.png",
+      "duplicates": [
+        "docs/examples/Modern minimalist living and kitchen space(1).png",
+        "docs/examples/Modern minimalist living and kitchen space(2) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Budget-Friendly TV Unit with Tall Shutter - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Budget-Friendly TV Unit with Tall Shutter - Copy.png",
+        "docs/examples/Budget-Friendly TV Unit with Tall Shutter.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Centered TV console with curved accent panel - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Centered TV console with curved accent panel - Copy.png",
+        "docs/examples/Centered TV console with curved accent panel (1) - Copy.png",
+        "docs/examples/Centered TV console with curved accent panel (1).png",
+        "docs/examples/Centered TV console with curved accent panel (2) - Copy.png",
+        "docs/examples/Centered TV console with curved accent panel (2).png",
+        "docs/examples/Centered TV console with curved accent panel (3) - Copy.png",
+        "docs/examples/Centered TV console with curved accent panel (4) - Copy.png",
+        "docs/examples/Centered TV console with curved accent panel.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/White-and-wood TV unit with open shelves - Copy.png",
+      "duplicates": [
+        "docs/examples/White-and-wood TV unit with open shelves (1) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/6fcdf525-663b-4e79-8b17-4534f75c493f - Copy.png",
+      "duplicates": [
+        "docs/examples/6fcdf525-663b-4e79-8b17-4534f75c493f (1) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist living room design(15) - Copy.png",
+      "duplicates": [
+        "docs/examples/Modern minimalist living room design(15).png",
+        "docs/examples/Modern minimalist living room design(16) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.31 PM (2) - Copy.jpeg",
+      "duplicates": [
+        "docs/examples/WhatsApp Image 2026-07-29 at 11.35.32 PM (3) - Copy.jpeg"
+      ]
+    },
+    {
+      "canonical": "docs/examples/2b77298a-7600-4f95-bac2-141c759c8b9b - Copy.png",
+      "duplicates": [
+        "docs/examples/ba8c8459-4cb4-4e41-bd7b-240e2030f442 - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.31 PM (3) - Copy.jpeg",
+      "duplicates": [
+        "docs/examples/WhatsApp Image 2026-07-29 at 11.35.33 PM (2) - Copy.jpeg"
+      ]
+    },
+    {
+      "canonical": "docs/examples/6a591e75-5cc8-4db0-b268-4678ae3aee19 - Copy.png",
+      "duplicates": [
+        "docs/examples/6a591e75-5cc8-4db0-b268-4678ae3aee19 (1) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/modern compact study wardrobe with arched shutters - Copy (2).png",
+      "duplicates": [
+        "docs/examples/modern compact study wardrobe with arched shutters - Copy.png",
+        "docs/examples/modern compact study wardrobe with arched shutters (1) - Copy.png",
+        "docs/examples/modern compact study wardrobe with arched shutters (1).png",
+        "docs/examples/modern compact study wardrobe with arched shutters (2) - Copy.png",
+        "docs/examples/modern compact study wardrobe with arched shutters.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.31 PM - Copy.jpeg",
+      "duplicates": [
+        "docs/examples/WhatsApp Image 2026-07-29 at 11.35.32 PM (2) - Copy.jpeg"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern Minimalist Bathroom with Warm Accents (1).png",
+      "duplicates": [
+        "docs/examples/Modern Minimalist Bathroom with Warm Accents (2).png",
+        "docs/examples/Modern Minimalist Bathroom with Warm Accents.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern living space with warm accents(1) - Copy.png",
+      "duplicates": [
+        "docs/examples/Modern living space with warm accents(1).png",
+        "docs/examples/Modern living space with warm accents(2) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Ceiling-High White Cistern Cabinet - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Ceiling-High White Cistern Cabinet - Copy.png",
+        "docs/examples/Ceiling-High White Cistern Cabinet.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist living room design(22) - Copy.png",
+      "duplicates": [
+        "docs/examples/Modern minimalist living room design(22).png",
+        "docs/examples/Modern minimalist living room design(23) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/1784554123339 - Copy.png",
+      "duplicates": [
+        "docs/examples/file_00000000c2e4820ba5de66739e7cf71a - Copy.png",
+        "docs/examples/file_00000000c2e4820ba5de66739e7cf71a (1) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/fd682d64-dbdf-41d8-97ca-0c9e6e14afd9 - Copy.png",
+      "duplicates": [
+        "docs/examples/fd682d64-dbdf-41d8-97ca-0c9e6e14afd9 (1) - Copy.png",
+        "docs/examples/fd682d64-dbdf-41d8-97ca-0c9e6e14afd9 (2) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist living space interior - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist living space interior - Copy.png",
+        "docs/examples/Modern minimalist living space interior.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist bedroom with natural wood accents - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist bedroom with natural wood accents - Copy.png",
+        "docs/examples/Modern minimalist bedroom with natural wood accents.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist bedroom and office workspace - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist bedroom and office workspace - Copy.png",
+        "docs/examples/Modern minimalist bedroom and office workspace.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist living and kitchen space - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist living and kitchen space - Copy.png",
+        "docs/examples/Modern minimalist living and kitchen space.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/c9b4a688-2505-4826-ab07-5b93da297231 - Copy.png",
+      "duplicates": [
+        "docs/examples/c9b4a688-2505-4826-ab07-5b93da297231 (1) - Copy.png",
+        "docs/examples/c9b4a688-2505-4826-ab07-5b93da297231 (2) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist living space design(1) - Copy.png",
+      "duplicates": [
+        "docs/examples/Modern minimalist living space design(1).png",
+        "docs/examples/Modern minimalist living space design(2) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern Beige Wardrobe Entryway - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern Beige Wardrobe Entryway - Copy.png",
+        "docs/examples/Modern Beige Wardrobe Entryway.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist master bedroom design - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist master bedroom design - Copy.png",
+        "docs/examples/Modern minimalist master bedroom design (1) - Copy.png",
+        "docs/examples/Modern minimalist master bedroom design (1).png",
+        "docs/examples/Modern minimalist master bedroom design (2) - Copy.png",
+        "docs/examples/Modern minimalist master bedroom design.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist living room and kitchenette - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist living room and kitchenette - Copy.png",
+        "docs/examples/Modern minimalist living room and kitchenette.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/ultra-realistic laundry room render - Copy (2).png",
+      "duplicates": [
+        "docs/examples/ultra-realistic laundry room render - Copy.png",
+        "docs/examples/ultra-realistic laundry room render.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern laundry-kitchen nook in neutrals - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern laundry-kitchen nook in neutrals - Copy.png",
+        "docs/examples/Modern laundry-kitchen nook in neutrals.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.32 PM - Copy.jpeg",
+      "duplicates": [
+        "docs/examples/WhatsApp Image 2026-07-29 at 11.35.33 PM (3) - Copy.jpeg"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern bedroom-office with clean lines - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern bedroom-office with clean lines - Copy.png",
+        "docs/examples/Modern bedroom-office with clean lines.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist kitchen with warm tones(4) - Copy.png",
+      "duplicates": [
+        "docs/examples/Modern minimalist kitchen with warm tones(4) (1) - Copy.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist kitchen with L-shape layout - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist kitchen with L-shape layout - Copy.png",
+        "docs/examples/Modern minimalist kitchen with L-shape layout.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/open wooden entrance door in elegant interior - Copy (2).png",
+      "duplicates": [
+        "docs/examples/open wooden entrance door in elegant interior - Copy.png",
+        "docs/examples/open wooden entrance door in elegant interior.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Elegant minimalist kitchen and living space - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Elegant minimalist kitchen and living space - Copy.png",
+        "docs/examples/Elegant minimalist kitchen and living space.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist open-plan living space - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist open-plan living space - Copy.png",
+        "docs/examples/Modern minimalist open-plan living space.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/0c2453bc-4cb7-4d7d-9a5f-7eda029dcd21 (1).png",
+      "duplicates": [
+        "docs/examples/0c2453bc-4cb7-4d7d-9a5f-7eda029dcd21.png"
+      ]
+    },
+    {
+      "canonical": "docs/examples/Modern minimalist wardrobe and study nook - Copy (2).png",
+      "duplicates": [
+        "docs/examples/Modern minimalist wardrobe and study nook - Copy.png",
+        "docs/examples/Modern minimalist wardrobe and study nook.png"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "path": "docs/examples/Seamless walnut fluted backing - Copy.png",
+      "bytes": 1451823,
+      "sha256": "0088ec2e5d03fcfd2e775f1081f09584d23158096e430fe9fc9cd35799567879",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Seamless walnut fluted backing (1) - Copy.png",
+      "bytes": 1451823,
+      "sha256": "0088ec2e5d03fcfd2e775f1081f09584d23158096e430fe9fc9cd35799567879",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/efd06cb4-f7c2-485b-990c-ce5488c5d0fb.png",
+      "bytes": 3332379,
+      "sha256": "0517b67c0124df23cd8606a9e93fc073ac30cf0f33f57099f3a04268ec3160ce",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/630c58f4-b341-41d5-aa9b-de8a0388ec31 - Copy.png",
+      "bytes": 977482,
+      "sha256": "0a8030e2bb72e670d3731d10d3ba19db840e14a88d3eaf00feebfb2988b718b7",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.29 PM (1) - Copy.jpeg",
+      "bytes": 177341,
+      "sha256": "0b6cfa946b01f2538a7c11abe54ea41421f9420d97143fe16cb841da53f30bfe",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/Cozy minimalist bedroom with warm accents - Copy (2).png",
+      "bytes": 1794637,
+      "sha256": "0bde31dc4f0fa7ed0a71c44e08ea6cd48d4ba5cfce4e7074cce7e776f2d41d9a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Cozy minimalist bedroom with warm accents - Copy.png",
+      "bytes": 1794637,
+      "sha256": "0bde31dc4f0fa7ed0a71c44e08ea6cd48d4ba5cfce4e7074cce7e776f2d41d9a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Cozy minimalist bedroom with warm accents.png",
+      "bytes": 1794637,
+      "sha256": "0bde31dc4f0fa7ed0a71c44e08ea6cd48d4ba5cfce4e7074cce7e776f2d41d9a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.35 PM (1) - Copy.jpeg",
+      "bytes": 104543,
+      "sha256": "0d3660c28f24428ebf59edc2e1349e8cda25c51661e140b4610bb6e206465f02",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/Arched Mirror and Four-Shutter Wardrobe - Copy.png",
+      "bytes": 1591420,
+      "sha256": "0e89bf48261b140e4be0d8262707354db9674f1906ff678208ba1f644429f304",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/image-gen-1 - Copy.png",
+      "bytes": 1504639,
+      "sha256": "12afae9be67a4b8b25da128276e9a778a13b7df17a3c84ba6794f2d17e10e955",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/9e49918f-be69-4d55-bbdb-8730182a01c0 - Copy.png",
+      "bytes": 928721,
+      "sha256": "142ae4e42527993af8b2252d027fce3a805df269159a3f81e5603dab6259de2d",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/utility-wall-cabinet-elevation.png",
+      "bytes": 132456,
+      "sha256": "14503e2356964aa393c665349c618902f7304b93bab76c1d2877f7016a551233",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist kitchen nook with wood accents - Copy (2).png",
+      "bytes": 1753708,
+      "sha256": "14ff15a0e22a100b3f3788348f186a77bb793cdc125796982843cd4daa6a83a0",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist kitchen nook with wood accents - Copy.png",
+      "bytes": 1753708,
+      "sha256": "14ff15a0e22a100b3f3788348f186a77bb793cdc125796982843cd4daa6a83a0",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist kitchen nook with wood accents.png",
+      "bytes": 1753708,
+      "sha256": "14ff15a0e22a100b3f3788348f186a77bb793cdc125796982843cd4daa6a83a0",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/wardrobe-internal-elevation-3003.svg",
+      "bytes": 6985,
+      "sha256": "16acb81679542af7bca213c5dad691a272719ece92359f008c01e51e175f0b08",
+      "extension": "svg"
+    },
+    {
+      "path": "docs/examples/Minimalist modern kitchen with warm tones(1) - Copy.png",
+      "bytes": 1708917,
+      "sha256": "1786da704c5a6ae17868af6be8e5bf04150b2ea3e3d88ad2dd0331e9df6d6d08",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with sleek design - Copy.png",
+      "bytes": 1666894,
+      "sha256": "1a6081cb2543ddea05272692d945e9b2da97732c3a3efd34a2d4530296e76219",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.32 PM (1) - Copy.jpeg",
+      "bytes": 147543,
+      "sha256": "1cd253c52f07219b71f00404f26614d752ee1f90c95e14fc5d5e7ad18c958b78",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.34 PM - Copy.jpeg",
+      "bytes": 147543,
+      "sha256": "1cd253c52f07219b71f00404f26614d752ee1f90c95e14fc5d5e7ad18c958b78",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm lighting(2) - Copy.png",
+      "bytes": 1781047,
+      "sha256": "1d6904ef55a3e982a9c02164bb98243d3eec59a0fde0235278401c5e35391973",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm lighting(2) (1) - Copy.png",
+      "bytes": 1781047,
+      "sha256": "1d6904ef55a3e982a9c02164bb98243d3eec59a0fde0235278401c5e35391973",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm lighting(2) (1).png",
+      "bytes": 1781047,
+      "sha256": "1d6904ef55a3e982a9c02164bb98243d3eec59a0fde0235278401c5e35391973",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm lighting(2).png",
+      "bytes": 1781047,
+      "sha256": "1d6904ef55a3e982a9c02164bb98243d3eec59a0fde0235278401c5e35391973",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm lighting(3) - Copy.png",
+      "bytes": 1781047,
+      "sha256": "1d6904ef55a3e982a9c02164bb98243d3eec59a0fde0235278401c5e35391973",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm lighting(3) (1) - Copy.png",
+      "bytes": 1781047,
+      "sha256": "1d6904ef55a3e982a9c02164bb98243d3eec59a0fde0235278401c5e35391973",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/b8debdf2-a495-46ce-acad-103e34280140 - Copy.png",
+      "bytes": 20700,
+      "sha256": "1e4b8ae1975c99c8fc497c9effc95bdd37a3f7ec02f10e77267f0ebc158d1ae5",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with cozy living area - Copy (2).png",
+      "bytes": 1770351,
+      "sha256": "1f61a8aabde4572567e616b0bb7854346d8f14cc86717a8da2ac3470fcab316c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with cozy living area - Copy.png",
+      "bytes": 1770351,
+      "sha256": "1f61a8aabde4572567e616b0bb7854346d8f14cc86717a8da2ac3470fcab316c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with cozy living area.png",
+      "bytes": 1770351,
+      "sha256": "1f61a8aabde4572567e616b0bb7854346d8f14cc86717a8da2ac3470fcab316c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/8b21ab4b-6314-4d0c-a729-8efca8e2a88c - Copy.png",
+      "bytes": 175353,
+      "sha256": "2110cd2567d82eb4df0a319270de1d50187f7f0fa97175f7a71e1cbe602eb484",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern living room with sleek accents(1) - Copy.png",
+      "bytes": 1709700,
+      "sha256": "217b627f25595585818f10d83a2438c42bc0f09d8ca1ecf302e3f268006eb27b",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/image-gen-2(1) - Copy.png",
+      "bytes": 1766630,
+      "sha256": "239bd652700d7c2785c524ada60d7ee913e66c774e7c6f9bb5eae06c629f672f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/image-gen-2(1).png",
+      "bytes": 1766630,
+      "sha256": "239bd652700d7c2785c524ada60d7ee913e66c774e7c6f9bb5eae06c629f672f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/image-gen-2(2) - Copy.png",
+      "bytes": 1766630,
+      "sha256": "239bd652700d7c2785c524ada60d7ee913e66c774e7c6f9bb5eae06c629f672f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with clean lines(1) - Copy.png",
+      "bytes": 1625732,
+      "sha256": "28205fff47aedbccc8ddbf81791c7afd189f07315baeff897ddd2e363f499bf3",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/54415309-8ea0-4f42-87d0-52631bbe4319 - Copy.png",
+      "bytes": 12846,
+      "sha256": "2906d691ade6652ae1ac07f426cf77572d150c6e79dc9d0212a5e68d460548f1",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/54415309-8ea0-4f42-87d0-52631bbe4319 (1) - Copy.png",
+      "bytes": 12846,
+      "sha256": "2906d691ade6652ae1ac07f426cf77572d150c6e79dc9d0212a5e68d460548f1",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/24a0909e-e48d-4f57-ae3f-3bbf63c22fb2 - Copy.png",
+      "bytes": 456975,
+      "sha256": "2aa2a8f0f999b69f6d71e0b8554ad09e888f0b3c548b32f73b2d62d0f0614587",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/cce0294b-f5b8-47b6-a4f6-b8e378b92f95 - Copy.png",
+      "bytes": 456975,
+      "sha256": "2aa2a8f0f999b69f6d71e0b8554ad09e888f0b3c548b32f73b2d62d0f0614587",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist study nook with wardrobe - Copy.png",
+      "bytes": 1646506,
+      "sha256": "2b9d568ff44441baf217f0c6d5e71ad546804227402ca35e06a8a4ecd453ad34",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/ce015e59-34f6-475d-9ac8-f97828adc104 - Copy.png",
+      "bytes": 1246698,
+      "sha256": "31e0020b1c543ebb1ecb0ca6ca284bc7c18e90078a04a6865698050d2a9a3993",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern, minimalist luxury living space - Copy.png",
+      "bytes": 1741028,
+      "sha256": "33f8c103b16c66bf9eaa72d6814de8cafb4ce993172c9b1ee0f9f5fedbbe8cb6",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/d86a2763-f142-49a9-8532-5e517a7b308e - Copy.png",
+      "bytes": 83273,
+      "sha256": "34ee06951347496771e0e94e1365305263023861cc4ac60586211ac479f82598",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalism with warm wood accents - Copy.png",
+      "bytes": 1552349,
+      "sha256": "355f624f691c242e823a0150ec7f02f0ae49534d14affc336d0a1991b4e91497",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/c32f9dda-5087-4ad1-a6ee-26a4eb319902 - Copy.png",
+      "bytes": 444148,
+      "sha256": "35a3df14f4bf5140af14e98f3b1df7349a7c3d2ce99a05e430e26496270924b8",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/utility-wall-elevation-1596.svg",
+      "bytes": 7131,
+      "sha256": "35b3e9ad585e2c7706dba03b775448139a1d208e280aa4fe54c2fe50fdf06e6d",
+      "extension": "svg"
+    },
+    {
+      "path": "docs/examples/0ef3cc6b-debe-4105-b497-bcd1d911d6bd - Copy.png",
+      "bytes": 95035,
+      "sha256": "37d6f17ba2b79f8ca42b86a72facc195fbb853924b3c8a7bd0feb7680b9aa463",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/e0fe43d9-1b5e-482f-b37e-17fd5910bccb - Copy.png",
+      "bytes": 95035,
+      "sha256": "37d6f17ba2b79f8ca42b86a72facc195fbb853924b3c8a7bd0feb7680b9aa463",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist kitchen with warm accents - Copy (2).png",
+      "bytes": 1812677,
+      "sha256": "388ba9d25245a94cdc61b7a0c3be3e2982e02d0c246277d556aa756197e8d7e0",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist kitchen with warm accents - Copy.png",
+      "bytes": 1812677,
+      "sha256": "388ba9d25245a94cdc61b7a0c3be3e2982e02d0c246277d556aa756197e8d7e0",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist kitchen with warm accents.png",
+      "bytes": 1812677,
+      "sha256": "388ba9d25245a94cdc61b7a0c3be3e2982e02d0c246277d556aa756197e8d7e0",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with clean lines(2) - Copy.png",
+      "bytes": 1600842,
+      "sha256": "3bb2275767d2e590a20ea505ba535586bd28c12ad5292c558708199811897bf8",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Minimalist Bathroom Retreat(1) (1).png",
+      "bytes": 2444167,
+      "sha256": "3ee9dcdaca5ca821b7d6eae2ce750958047b740379dfb18de78f139a70c731e9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Minimalist Bathroom Retreat(1).png",
+      "bytes": 2444167,
+      "sha256": "3ee9dcdaca5ca821b7d6eae2ce750958047b740379dfb18de78f139a70c731e9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/51931 - Copy.jpg",
+      "bytes": 177945,
+      "sha256": "3f51c6e8ebaf628372ccde484162cd3c4a1070e8f5ed0a25c1d1a8f28183fb00",
+      "extension": "jpg"
+    },
+    {
+      "path": "docs/examples/bf30b746-e41a-4d32-accc-9641ec07e7fa - Copy.png",
+      "bytes": 611167,
+      "sha256": "408975ca6cad224912d3feebb79ff4dc50f1f22a090cdaff0cd28f13e6acf4b7",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/bf30b746-e41a-4d32-accc-9641ec07e7fa (1) - Copy.png",
+      "bytes": 611167,
+      "sha256": "408975ca6cad224912d3feebb79ff4dc50f1f22a090cdaff0cd28f13e6acf4b7",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/d8a4af97-b55d-41b4-9960-00d190f1c6eb - Copy.png",
+      "bytes": 123602,
+      "sha256": "42de636cc746061633c42e6ac2b0ef950ca9a0a5c915d3cc6c4e873e3f639d3a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/51ff12db-06cf-4b44-8cc8-ba07e5e73f4c - Copy.png",
+      "bytes": 776529,
+      "sha256": "4b2e335c1d9888cb79f4e0f08baea577acc0daf852b8529cb2a85bd901ccaaaf",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/09a18657-72ba-489b-82ce-006364798d5a.png",
+      "bytes": 2336866,
+      "sha256": "4b782577af184efc10df2f10b10679ccf3caf186f15aaa7642c85c05e791e061",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist shrine with gold accents - Copy.png",
+      "bytes": 1559742,
+      "sha256": "4c6c90ac3b3ccd95bd22589f855943fb6723154808a2429c28a2f27b82155f0f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/9c63fd23-d047-4027-b47e-b429fb201939.png",
+      "bytes": 2484458,
+      "sha256": "4ca0fb155690a38a0227f75edf629e47a1228cf83cb180c6c9035de50e84e1e2",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist modern corner with warm lighting - Copy.png",
+      "bytes": 1706298,
+      "sha256": "4dd8b6a25dc70edb415bdda6f4ad19b4c71a6bdbdeb448ca8b262dbcb1a6274a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Clean walnut mirror wall, light removed - Copy.png",
+      "bytes": 1470172,
+      "sha256": "4df106497044b63c8005a4f430889454e8376caf9fa832529a8d2ad5fc46b4d4",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room with TV wall(1) - Copy.png",
+      "bytes": 1607619,
+      "sha256": "52a29a1053dcce940dacd109a1fa2d5cea18dda64fe01ad36776f68a02f1d969",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room with TV wall(2) - Copy.png",
+      "bytes": 1607619,
+      "sha256": "52a29a1053dcce940dacd109a1fa2d5cea18dda64fe01ad36776f68a02f1d969",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/fcfb70da-7b4c-437f-bfc9-a15360f72d4b - Copy.png",
+      "bytes": 21431,
+      "sha256": "5430c247e6b7b04afad65f74c2f135903c0ebf6daf89ee5296175438e2d3e016",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/2951f67c-a2fe-4c63-9b67-101271a8e89c - Copy.png",
+      "bytes": 256817,
+      "sha256": "560ced3eefa2800b4e6627fa0c175de6aef1beb4e406c88dc521993a9db79be3",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist interior with soft lighting - Copy.png",
+      "bytes": 1532483,
+      "sha256": "5635fab4b95e10734a05ff9fe33e97199e4711b97bab1b1cb5addcbf5fd51e76",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room with wood accents - Copy (2).png",
+      "bytes": 1800387,
+      "sha256": "5705e2ee9cb1d266965ef5861259573ff538835ca31bc3b0b3e58f17abf8f76e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room with wood accents - Copy.png",
+      "bytes": 1800387,
+      "sha256": "5705e2ee9cb1d266965ef5861259573ff538835ca31bc3b0b3e58f17abf8f76e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room with wood accents (1) - Copy.png",
+      "bytes": 1800387,
+      "sha256": "5705e2ee9cb1d266965ef5861259573ff538835ca31bc3b0b3e58f17abf8f76e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room with wood accents (1).png",
+      "bytes": 1800387,
+      "sha256": "5705e2ee9cb1d266965ef5861259573ff538835ca31bc3b0b3e58f17abf8f76e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room with wood accents (2) - Copy.png",
+      "bytes": 1800387,
+      "sha256": "5705e2ee9cb1d266965ef5861259573ff538835ca31bc3b0b3e58f17abf8f76e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room with wood accents.png",
+      "bytes": 1800387,
+      "sha256": "5705e2ee9cb1d266965ef5861259573ff538835ca31bc3b0b3e58f17abf8f76e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimal modern bedroom-office with measurements - Copy (2).png",
+      "bytes": 1821982,
+      "sha256": "577ed741688e3d78ba31f69a163e7eb96166fca59b1692d1470828553e05cc44",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimal modern bedroom-office with measurements - Copy.png",
+      "bytes": 1821982,
+      "sha256": "577ed741688e3d78ba31f69a163e7eb96166fca59b1692d1470828553e05cc44",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimal modern bedroom-office with measurements.png",
+      "bytes": 1821982,
+      "sha256": "577ed741688e3d78ba31f69a163e7eb96166fca59b1692d1470828553e05cc44",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/bf0c8f03-5a67-471d-bba8-e1ad062d38f9 - Copy.png",
+      "bytes": 255088,
+      "sha256": "58a053034ecb4ed9695bce43537790ef7d00784044c3a14dcfe9c733892caaf7",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/c2f83999-b934-494c-b572-a9a32f4b6071 - Copy.png",
+      "bytes": 204331,
+      "sha256": "596e368555d404fc7b6b24d411b8e7ca592093f4a38034c04139d68f050afa77",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimal office with warm lighting - Copy (2).png",
+      "bytes": 1620145,
+      "sha256": "5976bb27ca03a7e4318a3bdeeb0c5f00e90fcb13cf7ccfeeec2bf6de05972a0c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimal office with warm lighting - Copy.png",
+      "bytes": 1620145,
+      "sha256": "5976bb27ca03a7e4318a3bdeeb0c5f00e90fcb13cf7ccfeeec2bf6de05972a0c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Serene temple altar in a hallway - Copy.png",
+      "bytes": 1701472,
+      "sha256": "5a47b71bad4939e7de5bcc7bb84720e3575a5ef7074506bbfe751942479fea72",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom with arched mirror - Copy (2).png",
+      "bytes": 1640098,
+      "sha256": "5c60a01e5b86d149e263403dfa11c1435e807954a51ad94241b4552dd292a38f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom with arched mirror - Copy.png",
+      "bytes": 1640098,
+      "sha256": "5c60a01e5b86d149e263403dfa11c1435e807954a51ad94241b4552dd292a38f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/bebcda65-5f7d-4a1e-9357-d43dc5baef9c - Copy.png",
+      "bytes": 718999,
+      "sha256": "5f5d1c91ad0191396b7d813f9b45b877a5f829c26dad3574a37187812f8d7c9b",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist bedroom with modern wardrobe design - Copy (2).png",
+      "bytes": 1621761,
+      "sha256": "5fd497f005d85fffd6198d009db123e744d3864ba1bafccafa541bc28e7c5de9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist bedroom with modern wardrobe design - Copy.png",
+      "bytes": 1621761,
+      "sha256": "5fd497f005d85fffd6198d009db123e744d3864ba1bafccafa541bc28e7c5de9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist bedroom with modern wardrobe design (1) - Copy.png",
+      "bytes": 1621761,
+      "sha256": "5fd497f005d85fffd6198d009db123e744d3864ba1bafccafa541bc28e7c5de9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/482fc4d8-7a13-4b2b-ae65-861b3b116819 - Copy.png",
+      "bytes": 1371446,
+      "sha256": "63049f3b5651bb0234509a80155554e84c9cd3841eb7f15b48c55cc4ff203719",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Minimalist Bathroom with Wood Accents.png",
+      "bytes": 2311022,
+      "sha256": "640527178f8dba00526258b48ca788ff9fcfac8c63d7afeb808f9b8282558296",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.31 PM (1) - Copy.jpeg",
+      "bytes": 87051,
+      "sha256": "6753b4374626424b4ede73bfca97095771f1486f4d8da8cb742d49f3d0471b20",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/Modern minimalist hallway with wardrobe feature - Copy.png",
+      "bytes": 1477671,
+      "sha256": "6770bf54ce436a16eccaf59874313cc0639d10e472a3057d8e65c732ea5ded90",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living-dining interior design - Copy (2).png",
+      "bytes": 1953842,
+      "sha256": "685f67e3ff6fc04ff1a7da9a621a542d4b2f971464c13cfe9c76d0b797210aae",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living-dining interior design - Copy.png",
+      "bytes": 1953842,
+      "sha256": "685f67e3ff6fc04ff1a7da9a621a542d4b2f971464c13cfe9c76d0b797210aae",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living-dining interior design.png",
+      "bytes": 1953842,
+      "sha256": "685f67e3ff6fc04ff1a7da9a621a542d4b2f971464c13cfe9c76d0b797210aae",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/3dd1d2ff-15ac-402c-b188-10f201ca1ae7 - Copy.png",
+      "bytes": 86348,
+      "sha256": "68a01fdc968af00c035d487ca9fff3c82ca44b3a9e0a14d564557457d3ecdea7",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.30 PM (3) - Copy.jpeg",
+      "bytes": 100701,
+      "sha256": "6a25447a5ca80d48ca1a44b8b3fcd6ba00ddb5a417bb6a0f9fe4f756145f5d41",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/elegant full-height wall paneling installation - Copy (2).png",
+      "bytes": 2028669,
+      "sha256": "6c39d659425f64c7c44bf6bd6ab7afeefa0d0724a7272a229d1699bb441ef6dc",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/elegant full-height wall paneling installation - Copy.png",
+      "bytes": 2028669,
+      "sha256": "6c39d659425f64c7c44bf6bd6ab7afeefa0d0724a7272a229d1699bb441ef6dc",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/elegant full-height wall paneling installation.png",
+      "bytes": 2028669,
+      "sha256": "6c39d659425f64c7c44bf6bd6ab7afeefa0d0724a7272a229d1699bb441ef6dc",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom-office nook - Copy.png",
+      "bytes": 1682957,
+      "sha256": "6c55d34391494a0ae34924123b1cc8832e8fa7f5589cdfb6356beceb5c26475f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/35d4d3c9-ba43-4b7c-95e3-83e5866065fb - Copy.png",
+      "bytes": 1606774,
+      "sha256": "6f15e9a52eae4cf7ec5d7319a425f9a0210710850841f0b5ff14cb9dbec96bd9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist bathroom with sleek contemporary design - Copy (2).png",
+      "bytes": 2096321,
+      "sha256": "6f3948f489287ae7d4f0e925012bf73b37989770b2d4dfbd00f66496abb3a50d",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist bathroom with sleek contemporary design - Copy.png",
+      "bytes": 2096321,
+      "sha256": "6f3948f489287ae7d4f0e925012bf73b37989770b2d4dfbd00f66496abb3a50d",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist bathroom with sleek contemporary design.png",
+      "bytes": 2096321,
+      "sha256": "6f3948f489287ae7d4f0e925012bf73b37989770b2d4dfbd00f66496abb3a50d",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/a0c46fca-1945-4a0d-b128-a56a0dced115 - Copy.png",
+      "bytes": 49524,
+      "sha256": "6f403496e0119ec7d3a4bfea4131483c6884863cf36fac413f53b451e581e29b",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom with beige tones - Copy (2).png",
+      "bytes": 2085835,
+      "sha256": "70075531f7e74980765acf1777fbf66e69631fa3ce1216c613c15610aa6b029d",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom with beige tones - Copy.png",
+      "bytes": 2085835,
+      "sha256": "70075531f7e74980765acf1777fbf66e69631fa3ce1216c613c15610aa6b029d",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom with beige tones.png",
+      "bytes": 2085835,
+      "sha256": "70075531f7e74980765acf1777fbf66e69631fa3ce1216c613c15610aa6b029d",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom office space - Copy.png",
+      "bytes": 1695330,
+      "sha256": "71833d244d0d9f57f9ca9f65497e78b5094a990ed8f134af90bc253b457c1448",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist interior with warm lighting(1) - Copy.png",
+      "bytes": 1612548,
+      "sha256": "73c6d08adf9376aa9429a08f3207881f3c0857ea36eb03e0f3acebce60bb69a4",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist interior with modern storage system - Copy.png",
+      "bytes": 1416268,
+      "sha256": "78733d79d595444621f44632d26f0743d7eb83d23f2a09327cc9dd14f821a979",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.34 PM (2) - Copy.jpeg",
+      "bytes": 141242,
+      "sha256": "78b162433eae4e3ae6a0d6fc3d711eaf6016ca901d1c4a645440eb5bac62e32c",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/utility-wall-detailed-elevation.png",
+      "bytes": 234141,
+      "sha256": "7919b88e0dc18df12f496059aeffb1fb3bda0f38cd23fb8ab6b2d61ad1bbbe77",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist Taupe Wet-Room Bathroom (1).png",
+      "bytes": 2310383,
+      "sha256": "7bd7e8a977bf8c7591e3e2c33018509045ea1ce11a9b7cb78ce8726f968e3f08",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist Taupe Wet-Room Bathroom.png",
+      "bytes": 2310383,
+      "sha256": "7bd7e8a977bf8c7591e3e2c33018509045ea1ce11a9b7cb78ce8726f968e3f08",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/75541f16-e3fd-4172-ae5d-c5b3a2e77176 - Copy.png",
+      "bytes": 271822,
+      "sha256": "7bef6ef3295f55e51572170ae6eafdaa9a2ffd75ffb2a66e2a5c7668e5d4b76a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/1784819076530 - Copy.png",
+      "bytes": 224247,
+      "sha256": "7c1293e733c7dfffabc3666454975b8ef9582560299e33ef60bb8944f998e23e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm tones(7) - Copy.png",
+      "bytes": 1775364,
+      "sha256": "7eaf3dbfd306bbf551ccd67c731ba5f507db17085fe73c8c4d7d41f1ca88e1fc",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm tones(7).png",
+      "bytes": 1775364,
+      "sha256": "7eaf3dbfd306bbf551ccd67c731ba5f507db17085fe73c8c4d7d41f1ca88e1fc",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm tones(9) - Copy.png",
+      "bytes": 1775364,
+      "sha256": "7eaf3dbfd306bbf551ccd67c731ba5f507db17085fe73c8c4d7d41f1ca88e1fc",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/ultra-realistic study and wardrobe wall - Copy.png",
+      "bytes": 1523097,
+      "sha256": "7ec65f321496b65d576bbd2da97d48c28ef20d9d0003c4928f995b8d62d3a8bd",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Warm minimal interior with recessed lighting - Copy (2).png",
+      "bytes": 1773126,
+      "sha256": "7ef2f4a065976abb68f92805192edeacb6582db535e449e690f2f84499c32e7b",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Warm minimal interior with recessed lighting - Copy.png",
+      "bytes": 1773126,
+      "sha256": "7ef2f4a065976abb68f92805192edeacb6582db535e449e690f2f84499c32e7b",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Warm minimal interior with recessed lighting.png",
+      "bytes": 1773126,
+      "sha256": "7ef2f4a065976abb68f92805192edeacb6582db535e449e690f2f84499c32e7b",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.30 PM (2) - Copy.jpeg",
+      "bytes": 111144,
+      "sha256": "81cf376c946d6f17f09a6c38c42dc16e986c8e1fee9feea0df0d1280db788763",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/94d35d22-f6ad-43ee-81da-b58c09fd24dc - Copy.png",
+      "bytes": 125999,
+      "sha256": "8299673004694b71cae3bf2a32fa5db7a87b8bf119fbe38fbdeaafc683eed663",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/d38bcb0d-ea62-40cb-a9c6-67f71448b4ce.png",
+      "bytes": 2644861,
+      "sha256": "83415b380e28c026a2e12544f9567e9cacb0b8da2db91f01d5bbb1b396e0247a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/1f0b63e3-6936-4ca1-9c75-1d7193742fc0 - Copy.png",
+      "bytes": 191193,
+      "sha256": "8381417880a0e9d929f26deb2c5b10216ec9e3c2b2b160897b40e8084e6da53d",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/5b83ca45-8576-4bab-bcfd-a01e994a954a - Copy.png",
+      "bytes": 191193,
+      "sha256": "8381417880a0e9d929f26deb2c5b10216ec9e3c2b2b160897b40e8084e6da53d",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/6acc3616-6e84-48b3-805c-437a3bb1a556.png",
+      "bytes": 3417360,
+      "sha256": "849a10417745f0cf2ee5dc832f48ce5a53c9df0a76713fb6f95c02632e2528bc",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Compact White-and-Wood TV Wall - Copy.png",
+      "bytes": 1741755,
+      "sha256": "859867ae8dd3e6e2c4d6ff9c25abf0b210490f6ddaac6a6ccf51a153e1ed1efd",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Compact White-and-Wood TV Wall (1) - Copy.png",
+      "bytes": 1741755,
+      "sha256": "859867ae8dd3e6e2c4d6ff9c25abf0b210490f6ddaac6a6ccf51a153e1ed1efd",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Compact White-and-Wood TV Wall (2) - Copy.png",
+      "bytes": 1741755,
+      "sha256": "859867ae8dd3e6e2c4d6ff9c25abf0b210490f6ddaac6a6ccf51a153e1ed1efd",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Compact White-and-Wood TV Wall (2).png",
+      "bytes": 1741755,
+      "sha256": "859867ae8dd3e6e2c4d6ff9c25abf0b210490f6ddaac6a6ccf51a153e1ed1efd",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Compact White-and-Wood TV Wall (3) - Copy.png",
+      "bytes": 1741755,
+      "sha256": "859867ae8dd3e6e2c4d6ff9c25abf0b210490f6ddaac6a6ccf51a153e1ed1efd",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Compact White-and-Wood TV Wall (4) - Copy.png",
+      "bytes": 1741755,
+      "sha256": "859867ae8dd3e6e2c4d6ff9c25abf0b210490f6ddaac6a6ccf51a153e1ed1efd",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Compact White-and-Wood TV Wall.png",
+      "bytes": 1741755,
+      "sha256": "859867ae8dd3e6e2c4d6ff9c25abf0b210490f6ddaac6a6ccf51a153e1ed1efd",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Cozy minimalist living room design - Copy.png",
+      "bytes": 1549427,
+      "sha256": "86c56406e13dfa53c9c9ea07f8fd662237c5722053f5b508ccc65db05a260e14",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/millenia-fp-type-a007-2-bhk-area-812-sft - Copy.png",
+      "bytes": 597975,
+      "sha256": "88fd9c3fe8874715e2dddd9cc809ffd8b8312b034e0b243ae14515c939124fd2",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern living nook with warm tones - Copy (2).png",
+      "bytes": 2040785,
+      "sha256": "89a03f909c72906dc116e3594ad19a0efc44db8a303960345a5778f722228f22",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern living nook with warm tones - Copy.png",
+      "bytes": 2040785,
+      "sha256": "89a03f909c72906dc116e3594ad19a0efc44db8a303960345a5778f722228f22",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern living nook with warm tones.png",
+      "bytes": 2040785,
+      "sha256": "89a03f909c72906dc116e3594ad19a0efc44db8a303960345a5778f722228f22",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm accents(2) - Copy.png",
+      "bytes": 1757178,
+      "sha256": "8a2f8ee134f52f0a970cbd2d8d166827da4cff27d34e1df5b8f54914d075eb45",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm accents(2).png",
+      "bytes": 1757178,
+      "sha256": "8a2f8ee134f52f0a970cbd2d8d166827da4cff27d34e1df5b8f54914d075eb45",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm accents(3) - Copy.png",
+      "bytes": 1757178,
+      "sha256": "8a2f8ee134f52f0a970cbd2d8d166827da4cff27d34e1df5b8f54914d075eb45",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/db80cd1b-8c57-431a-853f-2f8174f515bc - Copy.png",
+      "bytes": 319751,
+      "sha256": "8cf20f50a3cb20477677f4b7a8b3ee5b9d354d047c9bc2a9e4af3556155d8b7e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway - Copy (2).png",
+      "bytes": 1929305,
+      "sha256": "8d0579fdb2088012e71f74f9317a667e4d821bfc42eea21564eddf7ed5243b80",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway - Copy.png",
+      "bytes": 1929305,
+      "sha256": "8d0579fdb2088012e71f74f9317a667e4d821bfc42eea21564eddf7ed5243b80",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway (1) - Copy.png",
+      "bytes": 1929305,
+      "sha256": "8d0579fdb2088012e71f74f9317a667e4d821bfc42eea21564eddf7ed5243b80",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway (1).png",
+      "bytes": 1929305,
+      "sha256": "8d0579fdb2088012e71f74f9317a667e4d821bfc42eea21564eddf7ed5243b80",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway (2) - Copy.png",
+      "bytes": 1929305,
+      "sha256": "8d0579fdb2088012e71f74f9317a667e4d821bfc42eea21564eddf7ed5243b80",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Taupe Wardrobe Hallway with 800MM Walkway.png",
+      "bytes": 1929305,
+      "sha256": "8d0579fdb2088012e71f74f9317a667e4d821bfc42eea21564eddf7ed5243b80",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/e0a8517a-a2d6-492f-afcd-7f474ef54746.png",
+      "bytes": 2804873,
+      "sha256": "8d3d6c9856be92b9d327b3813b769ad2cb92fb52931228f4e6aa48d6133f4a86",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living and kitchen space(1) - Copy.png",
+      "bytes": 1856446,
+      "sha256": "8de344a8e9ed324a5b74cf03a28768e762e399a6793d579913d3f45bf6edae10",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living and kitchen space(1).png",
+      "bytes": 1856446,
+      "sha256": "8de344a8e9ed324a5b74cf03a28768e762e399a6793d579913d3f45bf6edae10",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living and kitchen space(2) - Copy.png",
+      "bytes": 1856446,
+      "sha256": "8de344a8e9ed324a5b74cf03a28768e762e399a6793d579913d3f45bf6edae10",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/57164fa6-2a1b-417c-a724-86169f4a94a7 - Copy.png",
+      "bytes": 263542,
+      "sha256": "8e8129c144fc8755d2393fb7386080a9cf10d4bfffddd8a4c028b3b636fb67aa",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Serene altar in minimalist space - Copy.png",
+      "bytes": 1610213,
+      "sha256": "8eda8861fa5e5c5246b99233908bbad2e134f00fff2961ea928c9ca7bafd4eb9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.33 PM - Copy.jpeg",
+      "bytes": 144116,
+      "sha256": "8fd1a9ef90b3c50d4ebfd3371ca4f98783c73708652f3571ed0780ced51f212b",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/Budget-Friendly TV Unit with Tall Shutter - Copy (2).png",
+      "bytes": 1923761,
+      "sha256": "9023ce91bab2382ab1548001a28a746c341d2734e0e062613451cc1fe90a585e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Budget-Friendly TV Unit with Tall Shutter - Copy.png",
+      "bytes": 1923761,
+      "sha256": "9023ce91bab2382ab1548001a28a746c341d2734e0e062613451cc1fe90a585e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Budget-Friendly TV Unit with Tall Shutter.png",
+      "bytes": 1923761,
+      "sha256": "9023ce91bab2382ab1548001a28a746c341d2734e0e062613451cc1fe90a585e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Centered TV console with curved accent panel - Copy (2).png",
+      "bytes": 1885509,
+      "sha256": "91bb33914cb96fc1af7b307c9c2634cef1363d2fec8e41ab52e8ca8502d9f7e9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Centered TV console with curved accent panel - Copy.png",
+      "bytes": 1885509,
+      "sha256": "91bb33914cb96fc1af7b307c9c2634cef1363d2fec8e41ab52e8ca8502d9f7e9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Centered TV console with curved accent panel (1) - Copy.png",
+      "bytes": 1885509,
+      "sha256": "91bb33914cb96fc1af7b307c9c2634cef1363d2fec8e41ab52e8ca8502d9f7e9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Centered TV console with curved accent panel (1).png",
+      "bytes": 1885509,
+      "sha256": "91bb33914cb96fc1af7b307c9c2634cef1363d2fec8e41ab52e8ca8502d9f7e9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Centered TV console with curved accent panel (2) - Copy.png",
+      "bytes": 1885509,
+      "sha256": "91bb33914cb96fc1af7b307c9c2634cef1363d2fec8e41ab52e8ca8502d9f7e9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Centered TV console with curved accent panel (2).png",
+      "bytes": 1885509,
+      "sha256": "91bb33914cb96fc1af7b307c9c2634cef1363d2fec8e41ab52e8ca8502d9f7e9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Centered TV console with curved accent panel (3) - Copy.png",
+      "bytes": 1885509,
+      "sha256": "91bb33914cb96fc1af7b307c9c2634cef1363d2fec8e41ab52e8ca8502d9f7e9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Centered TV console with curved accent panel (4) - Copy.png",
+      "bytes": 1885509,
+      "sha256": "91bb33914cb96fc1af7b307c9c2634cef1363d2fec8e41ab52e8ca8502d9f7e9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Centered TV console with curved accent panel.png",
+      "bytes": 1885509,
+      "sha256": "91bb33914cb96fc1af7b307c9c2634cef1363d2fec8e41ab52e8ca8502d9f7e9",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.30 PM - Copy.jpeg",
+      "bytes": 188669,
+      "sha256": "91cdd93194290a7d8d6f374fa8d3ce4f982159eeffbaf1ab0bd84c60d16a73ff",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.30 PM (1) - Copy.jpeg",
+      "bytes": 190124,
+      "sha256": "94dee12151457b0cf359139421935ac48a2bb3d608838290c2231bb7a1882fed",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/Warm modern kitchen corner with cozy vibes - Copy.png",
+      "bytes": 1608573,
+      "sha256": "959c2df53ec0459fed7f1d256ac6b9efb4576c8b32343c0c56d6ba0761ceb0e1",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/White-and-wood TV unit with open shelves - Copy.png",
+      "bytes": 1596300,
+      "sha256": "95a5bab7234630effdef3e23aacc26598cd0dc4d71c07ba73662dc6aa2cb6008",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/White-and-wood TV unit with open shelves (1) - Copy.png",
+      "bytes": 1596300,
+      "sha256": "95a5bab7234630effdef3e23aacc26598cd0dc4d71c07ba73662dc6aa2cb6008",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/c80c07a6-efc7-4018-b90a-bde83fbe0c14 - Copy.png",
+      "bytes": 987692,
+      "sha256": "9650db89e525afd5561b58ba3ffd4ac35ce5a4b2088daf51e04282129f1bcaa5",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/6fcdf525-663b-4e79-8b17-4534f75c493f - Copy.png",
+      "bytes": 1349994,
+      "sha256": "9823a134bfda0c2508f59ee667e48aa56b45c507edf236ab7aee58824fc52759",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/6fcdf525-663b-4e79-8b17-4534f75c493f (1) - Copy.png",
+      "bytes": 1349994,
+      "sha256": "9823a134bfda0c2508f59ee667e48aa56b45c507edf236ab7aee58824fc52759",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/aab3073c-74ab-4632-ad3b-bc6ed1e1ff64 - Copy.png",
+      "bytes": 442569,
+      "sha256": "9961505adad63463083b52084b6fd18d134a8a7aa42f99fc386f1c5ee3426477",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room design(15) - Copy.png",
+      "bytes": 1819720,
+      "sha256": "999d353af1d8002a2f1e8ebf83b2a017e186fe2e16f9db172c75d8b38689e9e4",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room design(15).png",
+      "bytes": 1819720,
+      "sha256": "999d353af1d8002a2f1e8ebf83b2a017e186fe2e16f9db172c75d8b38689e9e4",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room design(16) - Copy.png",
+      "bytes": 1819720,
+      "sha256": "999d353af1d8002a2f1e8ebf83b2a017e186fe2e16f9db172c75d8b38689e9e4",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.31 PM (2) - Copy.jpeg",
+      "bytes": 110067,
+      "sha256": "9ab30bdbacc28805dfc46bc6465c8b7e66625899ee72c350ecf9c846a344304e",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.32 PM (3) - Copy.jpeg",
+      "bytes": 110067,
+      "sha256": "9ab30bdbacc28805dfc46bc6465c8b7e66625899ee72c350ecf9c846a344304e",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/2b77298a-7600-4f95-bac2-141c759c8b9b - Copy.png",
+      "bytes": 367137,
+      "sha256": "9aeab78fb1cec6352fcb8bc7774fa7052edbf30ef330fbf6096b52f57b498421",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/ba8c8459-4cb4-4e41-bd7b-240e2030f442 - Copy.png",
+      "bytes": 367137,
+      "sha256": "9aeab78fb1cec6352fcb8bc7774fa7052edbf30ef330fbf6096b52f57b498421",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.31 PM (3) - Copy.jpeg",
+      "bytes": 98511,
+      "sha256": "9b4a3735a7f89c71a64f0ae9ebe2b30269f722c1826b3f4083f2fbf5f931743c",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.33 PM (2) - Copy.jpeg",
+      "bytes": 98511,
+      "sha256": "9b4a3735a7f89c71a64f0ae9ebe2b30269f722c1826b3f4083f2fbf5f931743c",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/gbr-elevation-set.png",
+      "bytes": 218436,
+      "sha256": "9d09b620a75ee6be17880077b1f1ae1db495a1304def366221d9af1c3422cfee",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.29 PM - Copy.jpeg",
+      "bytes": 162676,
+      "sha256": "9d751619e11516ce381a5eac77217f133543d0523412cf5a4ea8e5434e905c2b",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/ed3d89cc-4e41-4f55-b1bc-fc51eac06724 - Copy.png",
+      "bytes": 105960,
+      "sha256": "9da712aee75c8c42f80166bf440cd8a5fc54a9f9df23e330066436d201216806",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Cozy modern pink kitchen design - Copy.png",
+      "bytes": 1694453,
+      "sha256": "9e7201bdb0177bc7446e4e6edd3fece562df526fff2ad46cbe270b0b2e268b6c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/6a591e75-5cc8-4db0-b268-4678ae3aee19 - Copy.png",
+      "bytes": 107704,
+      "sha256": "9fcca14e85205b7d00443e51d3c55b6240503c69f201460281704e32d7c23ebb",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/6a591e75-5cc8-4db0-b268-4678ae3aee19 (1) - Copy.png",
+      "bytes": 107704,
+      "sha256": "9fcca14e85205b7d00443e51d3c55b6240503c69f201460281704e32d7c23ebb",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern pooja unit variation comparison - Copy.png",
+      "bytes": 1736034,
+      "sha256": "a06a898554362cfa1ba37c366b5053da41b0d3b71a7119fa4210ad51f093aab4",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist bedroom with yellow accent wall - Copy.png",
+      "bytes": 1740902,
+      "sha256": "a07bd10ceced69331b181ffa1a47d47c3045755bf761e002bfa292b1755ea89a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/modern compact study wardrobe with arched shutters - Copy (2).png",
+      "bytes": 1817606,
+      "sha256": "a0dbdf361a504eebeb939f49adc2996fa2d577d37f6a0937d123e1153ec09d98",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/modern compact study wardrobe with arched shutters - Copy.png",
+      "bytes": 1817606,
+      "sha256": "a0dbdf361a504eebeb939f49adc2996fa2d577d37f6a0937d123e1153ec09d98",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/modern compact study wardrobe with arched shutters (1) - Copy.png",
+      "bytes": 1817606,
+      "sha256": "a0dbdf361a504eebeb939f49adc2996fa2d577d37f6a0937d123e1153ec09d98",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/modern compact study wardrobe with arched shutters (1).png",
+      "bytes": 1817606,
+      "sha256": "a0dbdf361a504eebeb939f49adc2996fa2d577d37f6a0937d123e1153ec09d98",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/modern compact study wardrobe with arched shutters (2) - Copy.png",
+      "bytes": 1817606,
+      "sha256": "a0dbdf361a504eebeb939f49adc2996fa2d577d37f6a0937d123e1153ec09d98",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/modern compact study wardrobe with arched shutters.png",
+      "bytes": 1817606,
+      "sha256": "a0dbdf361a504eebeb939f49adc2996fa2d577d37f6a0937d123e1153ec09d98",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with natural light(1) - Copy.png",
+      "bytes": 1726627,
+      "sha256": "a2b533693ac2abed383b6feecc9942f63649d340ef31d6d6ba1fed74bda0f047",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.31 PM - Copy.jpeg",
+      "bytes": 157180,
+      "sha256": "a49e325c86a61b35ccc4beadd717d902d120ca1c6b302443a7626672c4555c39",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.32 PM (2) - Copy.jpeg",
+      "bytes": 157180,
+      "sha256": "a49e325c86a61b35ccc4beadd717d902d120ca1c6b302443a7626672c4555c39",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/Modern minimalist hallway with wardrobe design - Copy.png",
+      "bytes": 1466431,
+      "sha256": "a7dcd66e42426c1a39b37c0974eac8f4d54d327a08d6a19d2e0529e64bf46fe0",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Minimalist Bathroom with Warm Accents (1).png",
+      "bytes": 2194295,
+      "sha256": "a8f62ab3d392eed093e8cb520088b068b2bf2708800ea545fbbafa3d14d98e94",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Minimalist Bathroom with Warm Accents (2).png",
+      "bytes": 2194295,
+      "sha256": "a8f62ab3d392eed093e8cb520088b068b2bf2708800ea545fbbafa3d14d98e94",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Minimalist Bathroom with Warm Accents.png",
+      "bytes": 2194295,
+      "sha256": "a8f62ab3d392eed093e8cb520088b068b2bf2708800ea545fbbafa3d14d98e94",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern living space with warm accents(1) - Copy.png",
+      "bytes": 1758069,
+      "sha256": "ac2dce5750d110812282ba37fa5440dfc4eaffde32e5681e9a92b95dfcf17cf5",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern living space with warm accents(1).png",
+      "bytes": 1758069,
+      "sha256": "ac2dce5750d110812282ba37fa5440dfc4eaffde32e5681e9a92b95dfcf17cf5",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern living space with warm accents(2) - Copy.png",
+      "bytes": 1758069,
+      "sha256": "ac2dce5750d110812282ba37fa5440dfc4eaffde32e5681e9a92b95dfcf17cf5",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm tones(2) - Copy.png",
+      "bytes": 1697489,
+      "sha256": "ac94a44309b6ec4fbe47192ddff435fc20a8dd29abb5f0a829d5639ca888328c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist office nook with greenery - Copy.png",
+      "bytes": 1588784,
+      "sha256": "adb09122c8d1c0fd1a9022cab3bf637560abed1938e3f299fb24b5329d04f94e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist storage and workspace(1) - Copy.png",
+      "bytes": 1533841,
+      "sha256": "ae1e9b70744f461e1006cae03046bcd629e84be7d991912dfded732b8304dae7",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Ceiling-High White Cistern Cabinet - Copy (2).png",
+      "bytes": 2094737,
+      "sha256": "ae224c73b5dc2ccafb0c372a54314c2408b09f2069ea56b62ebb9488f35b74f0",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Ceiling-High White Cistern Cabinet - Copy.png",
+      "bytes": 2094737,
+      "sha256": "ae224c73b5dc2ccafb0c372a54314c2408b09f2069ea56b62ebb9488f35b74f0",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Ceiling-High White Cistern Cabinet.png",
+      "bytes": 2094737,
+      "sha256": "ae224c73b5dc2ccafb0c372a54314c2408b09f2069ea56b62ebb9488f35b74f0",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/7c35a5dd-f7a0-4004-aaad-db2f8460860d.png",
+      "bytes": 2560692,
+      "sha256": "ae2f3896f5d0948d4b1490aa2cb37ef9b0406b7347c512ebcd7721ceb9f9344a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room design(22) - Copy.png",
+      "bytes": 1765666,
+      "sha256": "b3d36c0c874b7cfbadbffa345e351abb706b3a4c96cd61b3aab1c9aad2aaa934",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room design(22).png",
+      "bytes": 1765666,
+      "sha256": "b3d36c0c874b7cfbadbffa345e351abb706b3a4c96cd61b3aab1c9aad2aaa934",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room design(23) - Copy.png",
+      "bytes": 1765666,
+      "sha256": "b3d36c0c874b7cfbadbffa345e351abb706b3a4c96cd61b3aab1c9aad2aaa934",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/1784554123339 - Copy.png",
+      "bytes": 159998,
+      "sha256": "b41e31f1dff29315f5cb3d88e482a642e574830e1e42cfef69bc41a87fce83e5",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/file_00000000c2e4820ba5de66739e7cf71a - Copy.png",
+      "bytes": 159998,
+      "sha256": "b41e31f1dff29315f5cb3d88e482a642e574830e1e42cfef69bc41a87fce83e5",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/file_00000000c2e4820ba5de66739e7cf71a (1) - Copy.png",
+      "bytes": 159998,
+      "sha256": "b41e31f1dff29315f5cb3d88e482a642e574830e1e42cfef69bc41a87fce83e5",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/3a8cc134-31d0-4f35-927e-9dde863024de.png",
+      "bytes": 2484391,
+      "sha256": "b4a5ca4dcca9fc69c3ff10828ee20e51316573fdd79ef17287f1f46533c031f5",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/fd682d64-dbdf-41d8-97ca-0c9e6e14afd9 - Copy.png",
+      "bytes": 1360408,
+      "sha256": "b57e85f228c748abe57d4145cfff355005754a4736f255ee860daeeac29bf753",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/fd682d64-dbdf-41d8-97ca-0c9e6e14afd9 (1) - Copy.png",
+      "bytes": 1360408,
+      "sha256": "b57e85f228c748abe57d4145cfff355005754a4736f255ee860daeeac29bf753",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/fd682d64-dbdf-41d8-97ca-0c9e6e14afd9 (2) - Copy.png",
+      "bytes": 1360408,
+      "sha256": "b57e85f228c748abe57d4145cfff355005754a4736f255ee860daeeac29bf753",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/gbr-elevation-set.svg",
+      "bytes": 10693,
+      "sha256": "b76c4499e7d2ca1824f7eaa3423892c12d829e1d55a19215550fd638c7b25fb1",
+      "extension": "svg"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living space interior - Copy (2).png",
+      "bytes": 1918560,
+      "sha256": "b7dd5f1492feb457982fcce6572ade9c6b845fb7f7466e52e20692a0a7273dfe",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living space interior - Copy.png",
+      "bytes": 1918560,
+      "sha256": "b7dd5f1492feb457982fcce6572ade9c6b845fb7f7466e52e20692a0a7273dfe",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living space interior.png",
+      "bytes": 1918560,
+      "sha256": "b7dd5f1492feb457982fcce6572ade9c6b845fb7f7466e52e20692a0a7273dfe",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern hallway with geometric wardrobe design - Copy.png",
+      "bytes": 1426622,
+      "sha256": "bc0888efc8b2be915fa4dbfa631ad95308f905586b3ec977e8104db356cc9b66",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/953f7ff2-62ed-4dab-a6b7-571540635401 - Copy.png",
+      "bytes": 554790,
+      "sha256": "c05c227e4c94d1d7b4d064fc6a7a05ee6af32c1631ff0e0dc4fa7ab3fd735972",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/30fa6777-1d1c-4694-add2-bccac50bc32c - Copy.png",
+      "bytes": 158053,
+      "sha256": "c19db8ad9df19f17bc2f4e34b7cdd0f92f81f5b5a533c2e4d0b787bffd274b3b",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom with natural wood accents - Copy (2).png",
+      "bytes": 1823536,
+      "sha256": "c1ce4511e83df7314693aa06234f3bbb135f908da76a8d592b3eb2fd9f7a8161",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom with natural wood accents - Copy.png",
+      "bytes": 1823536,
+      "sha256": "c1ce4511e83df7314693aa06234f3bbb135f908da76a8d592b3eb2fd9f7a8161",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom with natural wood accents.png",
+      "bytes": 1823536,
+      "sha256": "c1ce4511e83df7314693aa06234f3bbb135f908da76a8d592b3eb2fd9f7a8161",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.33 PM (1) - Copy.jpeg",
+      "bytes": 134353,
+      "sha256": "c2f62e97f4f96ee0323d4dff551f142a0f287befe1f0b21695b1b491beb63328",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/ff12724d-3f31-496d-8626-ce9c0300a2cc.png",
+      "bytes": 2973728,
+      "sha256": "c5fbba6c243af82ef7e86ad5df993820211141ffd59f3b95686467f27c44d223",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/cd2399e0-143d-4565-ac84-ecbacac1de65 - Copy.png",
+      "bytes": 1293326,
+      "sha256": "c8f85a446e33e2a2dc75fc583fc645df71c0d3d7468ed90caca7fad75dfd1722",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom and office workspace - Copy (2).png",
+      "bytes": 1829988,
+      "sha256": "c8fa00bd2c4bfea22cbfa8b765aaff9f1729a29d26473dfb445b1224c006bd1c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom and office workspace - Copy.png",
+      "bytes": 1829988,
+      "sha256": "c8fa00bd2c4bfea22cbfa8b765aaff9f1729a29d26473dfb445b1224c006bd1c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom and office workspace.png",
+      "bytes": 1829988,
+      "sha256": "c8fa00bd2c4bfea22cbfa8b765aaff9f1729a29d26473dfb445b1224c006bd1c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-30 at 1.37.18 AM - Copy.jpeg",
+      "bytes": 116923,
+      "sha256": "c9ff03e6e6a173f310a72335c203155419399f6a5d9b069eda414032cd8fdb06",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living and kitchen space - Copy (2).png",
+      "bytes": 1908381,
+      "sha256": "cab37cfa0bb2adc118d5f3f1dd513ad7c64ea0a87690992275072be45b579d40",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living and kitchen space - Copy.png",
+      "bytes": 1908381,
+      "sha256": "cab37cfa0bb2adc118d5f3f1dd513ad7c64ea0a87690992275072be45b579d40",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living and kitchen space.png",
+      "bytes": 1908381,
+      "sha256": "cab37cfa0bb2adc118d5f3f1dd513ad7c64ea0a87690992275072be45b579d40",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/c9b4a688-2505-4826-ab07-5b93da297231 - Copy.png",
+      "bytes": 1356827,
+      "sha256": "cc089af430a05fe5ef2a3936f63dd55af9fdc43cbb332fe8dc4b53aadee78e88",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/c9b4a688-2505-4826-ab07-5b93da297231 (1) - Copy.png",
+      "bytes": 1356827,
+      "sha256": "cc089af430a05fe5ef2a3936f63dd55af9fdc43cbb332fe8dc4b53aadee78e88",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/c9b4a688-2505-4826-ab07-5b93da297231 (2) - Copy.png",
+      "bytes": 1356827,
+      "sha256": "cc089af430a05fe5ef2a3936f63dd55af9fdc43cbb332fe8dc4b53aadee78e88",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/c713ce33-e4b7-4da6-9651-7932c515d3f2 - Copy.png",
+      "bytes": 175750,
+      "sha256": "cc6c19a8c8d431c7625ee0984bd26300005e96465651dd78d490a7e3239a9b87",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living space design(1) - Copy.png",
+      "bytes": 1827740,
+      "sha256": "cd2b9919c856dd26f3c2bd06375f9d1acb782212eecfdec8601de4893cde0d9f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living space design(1).png",
+      "bytes": 1827740,
+      "sha256": "cd2b9919c856dd26f3c2bd06375f9d1acb782212eecfdec8601de4893cde0d9f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living space design(2) - Copy.png",
+      "bytes": 1827740,
+      "sha256": "cd2b9919c856dd26f3c2bd06375f9d1acb782212eecfdec8601de4893cde0d9f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Balanced TV Wall With Tall Cabinet - Copy.png",
+      "bytes": 1608100,
+      "sha256": "ce19fcbf3ee9030e0ac7c1b1b067c0414e23f1ffb745b03d40f6311f2707065c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Beige Wardrobe Entryway - Copy (2).png",
+      "bytes": 1930820,
+      "sha256": "cf5f9d885a14ccc0ecd5769af78ea6ddcb8670249a9806d92462489c7834a811",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Beige Wardrobe Entryway - Copy.png",
+      "bytes": 1930820,
+      "sha256": "cf5f9d885a14ccc0ecd5769af78ea6ddcb8670249a9806d92462489c7834a811",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern Beige Wardrobe Entryway.png",
+      "bytes": 1930820,
+      "sha256": "cf5f9d885a14ccc0ecd5769af78ea6ddcb8670249a9806d92462489c7834a811",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist kitchenette with warm tones - Copy.png",
+      "bytes": 1638249,
+      "sha256": "cfd68b3d0d2746a2a51a87eb0504811ecf9dfbe6e587765dc4860dc8e395602d",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/c7c1570e-5aa9-4026-8f1b-b2bcc81c2d77 - Copy.png",
+      "bytes": 1491282,
+      "sha256": "d18baf17256cc34d2ce9729932c54e7e46e515ed736fc154e44390e464870a1f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist master bedroom design - Copy (2).png",
+      "bytes": 1866523,
+      "sha256": "d1a18590223e2352fdd993bf488914ac541dd540d6c65a21c3a17517afb09155",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist master bedroom design - Copy.png",
+      "bytes": 1866523,
+      "sha256": "d1a18590223e2352fdd993bf488914ac541dd540d6c65a21c3a17517afb09155",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist master bedroom design (1) - Copy.png",
+      "bytes": 1866523,
+      "sha256": "d1a18590223e2352fdd993bf488914ac541dd540d6c65a21c3a17517afb09155",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist master bedroom design (1).png",
+      "bytes": 1866523,
+      "sha256": "d1a18590223e2352fdd993bf488914ac541dd540d6c65a21c3a17517afb09155",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist master bedroom design (2) - Copy.png",
+      "bytes": 1866523,
+      "sha256": "d1a18590223e2352fdd993bf488914ac541dd540d6c65a21c3a17517afb09155",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist master bedroom design.png",
+      "bytes": 1866523,
+      "sha256": "d1a18590223e2352fdd993bf488914ac541dd540d6c65a21c3a17517afb09155",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/6bb00a19-dbd1-402d-a5ec-12a886085487 - Copy.png",
+      "bytes": 50880,
+      "sha256": "d27ce49c5398ae9646aeb66e9017ddfe9ffe37c6923c04ed309a443d574ffa64",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/d715f0eb-6efc-4067-9ddd-f258f7427b70 - Copy.png",
+      "bytes": 398692,
+      "sha256": "d6a1b685d74db3c38bc2e85cc338c766624a6510fbb96ddff9daaf9c389de190",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist workspace with organic accents - Copy.png",
+      "bytes": 1618698,
+      "sha256": "d6f4e9ee57d18f55ced12ba0d03670ea9b3e6244c4e804702c78851c0f56ab69",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist modern storage wall interior - Copy.png",
+      "bytes": 1477431,
+      "sha256": "d96b544308e2581bca1e77f897a42055260b9f1c1553517d3011f52cc2012716",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with wood accents(1) - Copy.png",
+      "bytes": 1664512,
+      "sha256": "da6cb4575090580b97fd6215b5f7670633bfa504d036a593c4a2ae40bf2ffdcb",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room and kitchenette - Copy (2).png",
+      "bytes": 1801197,
+      "sha256": "ddc1891636f7387b63820f60b74663bb272068dc240c73080f00c98286531fb2",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room and kitchenette - Copy.png",
+      "bytes": 1801197,
+      "sha256": "ddc1891636f7387b63820f60b74663bb272068dc240c73080f00c98286531fb2",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room and kitchenette.png",
+      "bytes": 1801197,
+      "sha256": "ddc1891636f7387b63820f60b74663bb272068dc240c73080f00c98286531fb2",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/ultra-realistic laundry room render - Copy (2).png",
+      "bytes": 1829378,
+      "sha256": "de959cf3df44a64ff14039c11eb7e782bf61493f9b191cfb9fa5c4e583081f54",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/ultra-realistic laundry room render - Copy.png",
+      "bytes": 1829378,
+      "sha256": "de959cf3df44a64ff14039c11eb7e782bf61493f9b191cfb9fa5c4e583081f54",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/ultra-realistic laundry room render.png",
+      "bytes": 1829378,
+      "sha256": "de959cf3df44a64ff14039c11eb7e782bf61493f9b191cfb9fa5c4e583081f54",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/utility-wall-detailed-elevation.svg",
+      "bytes": 8275,
+      "sha256": "df4ce16f094cc044d5acfd350c8047efd808204b641d5f035c504c24ae3c4f5e",
+      "extension": "svg"
+    },
+    {
+      "path": "docs/examples/utility-wall-cabinet-elevation.svg",
+      "bytes": 5772,
+      "sha256": "e219822fa233d16d224a70a11ff736b89be22ca55d1a086034b9a87eee18cb6a",
+      "extension": "svg"
+    },
+    {
+      "path": "docs/examples/Modern laundry-kitchen nook in neutrals - Copy (2).png",
+      "bytes": 1805935,
+      "sha256": "e2647b6b0e1b54bd8dc8217e19c22ad86ff7e978e8527369c02302160073b631",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern laundry-kitchen nook in neutrals - Copy.png",
+      "bytes": 1805935,
+      "sha256": "e2647b6b0e1b54bd8dc8217e19c22ad86ff7e978e8527369c02302160073b631",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern laundry-kitchen nook in neutrals.png",
+      "bytes": 1805935,
+      "sha256": "e2647b6b0e1b54bd8dc8217e19c22ad86ff7e978e8527369c02302160073b631",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.32 PM - Copy.jpeg",
+      "bytes": 110854,
+      "sha256": "e27ff61b9aae2acc9a53f53665d173ef4aba71650e818b961e142af3fb3a788a",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.33 PM (3) - Copy.jpeg",
+      "bytes": 110854,
+      "sha256": "e27ff61b9aae2acc9a53f53665d173ef4aba71650e818b961e142af3fb3a788a",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/Modern minimalist living room interior(3) - Copy.png",
+      "bytes": 1650638,
+      "sha256": "e36220a5ccd9c1d4d8378bc9ed9a617907efe73c2c9f04443ad726ac1003ffc2",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm tones(3) - Copy.png",
+      "bytes": 1688681,
+      "sha256": "e36e2c7c9b1ad6a2fbafe69152c935fbcd613b1957d300ca4a772dc1c654531b",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/4a7c3d39-83b4-44c6-8354-cbf718c5e7c5 - Copy.png",
+      "bytes": 195926,
+      "sha256": "e6ba20d27b151a54b0c6162c7a060dddab33efc8484b2edad920f74a456acd8a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern bedroom-office with clean lines - Copy (2).png",
+      "bytes": 1792638,
+      "sha256": "e767b9e7ca489e52420784d9bdaada8a85b14e5b2e7d39c84ddfe0841fb8f072",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern bedroom-office with clean lines - Copy.png",
+      "bytes": 1792638,
+      "sha256": "e767b9e7ca489e52420784d9bdaada8a85b14e5b2e7d39c84ddfe0841fb8f072",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern bedroom-office with clean lines.png",
+      "bytes": 1792638,
+      "sha256": "e767b9e7ca489e52420784d9bdaada8a85b14e5b2e7d39c84ddfe0841fb8f072",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm tones(4) - Copy.png",
+      "bytes": 1672296,
+      "sha256": "e87ee091fc814e173026b17c9ac5912dc333a3a41a92b43c7ddf2b1b04a0ea3c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with warm tones(4) (1) - Copy.png",
+      "bytes": 1672296,
+      "sha256": "e87ee091fc814e173026b17c9ac5912dc333a3a41a92b43c7ddf2b1b04a0ea3c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with L-shape layout - Copy (2).png",
+      "bytes": 1879400,
+      "sha256": "e94b19f0e93f33b67dd718e6d297c1c7018e3ca67bf14da3874fdb40b2b4ee6a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with L-shape layout - Copy.png",
+      "bytes": 1879400,
+      "sha256": "e94b19f0e93f33b67dd718e6d297c1c7018e3ca67bf14da3874fdb40b2b4ee6a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with L-shape layout.png",
+      "bytes": 1879400,
+      "sha256": "e94b19f0e93f33b67dd718e6d297c1c7018e3ca67bf14da3874fdb40b2b4ee6a",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Warm minimal hallway with decorative shrine - Copy.png",
+      "bytes": 1695709,
+      "sha256": "ea872c640df6017e7a74c3855a96ef1d82220c9b7ea688f9f985d9438cd78694",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/open wooden entrance door in elegant interior - Copy (2).png",
+      "bytes": 1950469,
+      "sha256": "ebca5fba9a3f114831432adaa5922882cb55148d1c4dfd53a8c182f8bb0a412c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/open wooden entrance door in elegant interior - Copy.png",
+      "bytes": 1950469,
+      "sha256": "ebca5fba9a3f114831432adaa5922882cb55148d1c4dfd53a8c182f8bb0a412c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/open wooden entrance door in elegant interior.png",
+      "bytes": 1950469,
+      "sha256": "ebca5fba9a3f114831432adaa5922882cb55148d1c4dfd53a8c182f8bb0a412c",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/b_CAN_YOU_MAKE_THE_PRO.png",
+      "bytes": 2148139,
+      "sha256": "ed4bb7201fef9fa3ea90732315406808573404eb5cd18b028946087ce5b26b21",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist kitchen with natural light(2) - Copy.png",
+      "bytes": 1642313,
+      "sha256": "edfb0eca9b465d5a0639841b7bf1023702d8dd75095ded6ba847c3579d09b02e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Elegant minimalist kitchen and living space - Copy (2).png",
+      "bytes": 1768415,
+      "sha256": "ee04b56efde779d850da2c2d353200befb7b459013abf70f2e8cfcf2681e8cc8",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Elegant minimalist kitchen and living space - Copy.png",
+      "bytes": 1768415,
+      "sha256": "ee04b56efde779d850da2c2d353200befb7b459013abf70f2e8cfcf2681e8cc8",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Elegant minimalist kitchen and living space.png",
+      "bytes": 1768415,
+      "sha256": "ee04b56efde779d850da2c2d353200befb7b459013abf70f2e8cfcf2681e8cc8",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/c3a20ca9-e61f-4dfd-b0bd-a537255a4786 - Copy.png",
+      "bytes": 520929,
+      "sha256": "efbd775c14232ba68f35c0556123e3a7075db2f09a8ec38b9869bb931c4d6cdc",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist open-plan living space - Copy (2).png",
+      "bytes": 1810550,
+      "sha256": "f106846da92c6aea1d07c6a7f5e6fe87a23fd0a535e15d6af6cd2e72edd4e172",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist open-plan living space - Copy.png",
+      "bytes": 1810550,
+      "sha256": "f106846da92c6aea1d07c6a7f5e6fe87a23fd0a535e15d6af6cd2e72edd4e172",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist open-plan living space.png",
+      "bytes": 1810550,
+      "sha256": "f106846da92c6aea1d07c6a7f5e6fe87a23fd0a535e15d6af6cd2e72edd4e172",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.35 PM - Copy.jpeg",
+      "bytes": 113021,
+      "sha256": "f253d68840ab0f271966d298ff78e9664fc34709137072486ca1f198b30ee3af",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/8ae5b0d1-33df-42bf-bc50-321f9c436d2f - Copy.png",
+      "bytes": 96255,
+      "sha256": "f5a82b8f73adc4d13e96621e532cb4d62aa29a998e5fd8c5f6604e8a3fbb3579",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/0c2453bc-4cb7-4d7d-9a5f-7eda029dcd21 (1).png",
+      "bytes": 2798562,
+      "sha256": "f5d9bdaa269275609e116612361529fffbd94ac841b2253bb0c8b56f983df5cf",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/0c2453bc-4cb7-4d7d-9a5f-7eda029dcd21.png",
+      "bytes": 2798562,
+      "sha256": "f5d9bdaa269275609e116612361529fffbd94ac841b2253bb0c8b56f983df5cf",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Minimalist interior design layout and specs - Copy.png",
+      "bytes": 1708905,
+      "sha256": "f5ed867b36f7b02aa655af1dfc8ee2e2d4193c2b4b6313732721f8332674b0cf",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist wardrobe and study nook - Copy (2).png",
+      "bytes": 1757177,
+      "sha256": "f68e47674eadad277a523a35a4cecee0405f85f20281baa275b052e94d9ea00f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist wardrobe and study nook - Copy.png",
+      "bytes": 1757177,
+      "sha256": "f68e47674eadad277a523a35a4cecee0405f85f20281baa275b052e94d9ea00f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/Modern minimalist wardrobe and study nook.png",
+      "bytes": 1757177,
+      "sha256": "f68e47674eadad277a523a35a4cecee0405f85f20281baa275b052e94d9ea00f",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/23507152-3a52-4a97-a8a2-013ccacd9c91 - Copy.png",
+      "bytes": 848570,
+      "sha256": "f6bb89e56b663047ec49874024b3e37a73553f22b23af3ba9095169b28401f3e",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.34 PM (3) - Copy.jpeg",
+      "bytes": 129962,
+      "sha256": "f94b017e1b8f717a25ecfb15ac8bb8dbee04356dbe2c2435853479635c1f95c6",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/Modern minimalist bedroom with warm lighting(2) - Copy.png",
+      "bytes": 1629939,
+      "sha256": "fe27dfd45c9606c07c393ecbc2f1389b11e15c1c270428da4c95d56838f8fdd3",
+      "extension": "png"
+    },
+    {
+      "path": "docs/examples/WhatsApp Image 2026-07-29 at 11.35.34 PM (1) - Copy.jpeg",
+      "bytes": 130411,
+      "sha256": "fe48f6d3229f01f353d225318d38a92fe22e59b23732493fa096b776b09a0466",
+      "extension": "jpeg"
+    },
+    {
+      "path": "docs/examples/31a1a7ab-c161-424a-8676-8cfdaf79bcb7 - Copy.png",
+      "bytes": 949611,
+      "sha256": "ff3920585d991c70664fe871f30f5b9c4a64110d32ac7b5683de26490b10812b",
+      "extension": "png"
+    }
+  ]
+}

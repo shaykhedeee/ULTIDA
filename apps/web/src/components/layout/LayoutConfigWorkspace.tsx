@@ -1,5 +1,5 @@
 import { ArrowRight, Box, Layers3, Sofa, Tv, UtensilsCrossed, BookOpen, ChevronRight, Sparkles, LayoutGrid, GaugeCircle, ShieldCheck, TriangleAlert, RotateCw, Replace } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import './layout-config.css';
 import { shapeCatalogFor, generateCandidates, validatePlacements, approveLayout, invalidateDownstream, type LayoutCandidate, type CandidateScore } from '@ultida/layout-core';
 
@@ -55,9 +55,9 @@ const ORIENTATIONS: Array<{ id: WallOrientation; label: string; icon: string; de
 
 const DEFAULT_CONFIG: LayoutConfig = {
   shape: 'rectangular',
-  lengthMm: 5200,
-  widthMm: 3800,
-  heightMm: 2700,
+  lengthMm: 0,
+  widthMm: 0,
+  heightMm: 0,
   template: 'tv-unit',
   style: 'contemporary-indian',
   wallOrientation: 'north',
@@ -68,11 +68,16 @@ type Props = {
   detectedDimensions?: { lengthMm: number; widthMm: number; heightMm: number } | null;
   roomCategory?: RoomCategory;
   roomRequirements?: Record<string, unknown>;
+  rooms?: Array<{ id: string; name: string; roomType: RoomCategory; ceilingHeightMm?: number }>;
+  selectedSpaceId?: string | null;
+  onSpaceChange?: (spaceId: string) => void;
   onGenerate?: (config: LayoutConfig) => void;
+  onGenerateCandidates?: (config: LayoutConfig, roomCategory: RoomCategory, roomRequirements: Record<string, unknown>, spaceId: string) => Promise<LayoutCandidate[]>;
+  onLoadDrafts?: (spaceId: string) => Promise<LayoutCandidate[]>;
   onApproveCandidate?: (candidate: LayoutCandidate, config: LayoutConfig) => Promise<void> | void;
 };
 
-export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomCategory = 'other', roomRequirements = {}, onGenerate, onApproveCandidate }: Props) {
+export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomCategory = 'other', roomRequirements = {}, rooms = [], selectedSpaceId, onSpaceChange, onGenerate, onGenerateCandidates, onLoadDrafts, onApproveCandidate }: Props) {
   const [config, setConfig] = useState<LayoutConfig>({
     ...DEFAULT_CONFIG,
     ...(detectedDimensions ? { lengthMm: detectedDimensions.lengthMm, widthMm: detectedDimensions.widthMm, heightMm: detectedDimensions.heightMm } : {}),
@@ -95,6 +100,15 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
   const selectedCandidate = candidates.find((c) => c.id === selectedCandidateId) ?? candidates[0] ?? null;
   const categoryTemplates = roomCategory ? templatesForCategory(roomCategory) : TEMPLATES;
 
+  useEffect(() => {
+    if (!selectedSpaceId || !onLoadDrafts) return;
+    void onLoadDrafts(selectedSpaceId).then((drafts) => {
+      if (!drafts.length) return;
+      setCandidates(drafts);
+      setSelectedCandidateId(drafts[0]?.id ?? null);
+    }).catch(() => undefined);
+  }, [selectedSpaceId]);
+
   function templatesForCategory(cat: RoomCategory) {
     if (cat === 'kitchen') return TEMPLATES.filter((t) => ['kitchen-l', 'kitchen-u'].includes(t.id));
     if (cat === 'tv_unit') return TEMPLATES.filter((t) => ['tv-unit'].includes(t.id));
@@ -105,13 +119,32 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
   }
 
   async function generateLayoutCandidates() {
+    if (config.lengthMm <= 0 || config.widthMm <= 0 || config.heightMm <= 0) {
+      setApprovalState('Enter verified room length, width, and ceiling height in millimetres before generating candidates.');
+      setActiveStep('dimensions');
+      return;
+    }
+    if (onGenerateCandidates) {
+      setApprovalState('Generating candidates from the approved plan geometry...');
+      try {
+        if (!selectedSpaceId) throw new Error('Select a room from the approved floor plan before generating candidates.');
+        const generated = await onGenerateCandidates(config, roomCategory, roomRequirements, selectedSpaceId);
+        setCandidates(generated);
+        setSelectedCandidateId(generated[0]?.id ?? null);
+        setApprovalState(generated.length ? '' : 'No valid candidates were found for the approved room geometry.');
+        setActiveStep(generated.length ? 'candidates' : 'dimensions');
+      } catch (error) {
+        setApprovalState(error instanceof Error ? error.message : 'Canonical layout generation failed.');
+      }
+      return;
+    }
     const category = roomCategory || inferCategoryFromTemplate(config.template);
     const shapes = categoryShapes.length ? categoryShapes.map((s) => s.id) : ['balanced'];
     const generated = generateCandidates({
-      projectId: 'project-local',
-      spaceId: 'space-local',
+      projectId: 'pending-server-validation',
+      spaceId: 'pending-server-validation',
       roomCategory: category,
-      floorPlanVersionId: 'fpv-local',
+      floorPlanVersionId: 'pending-server-validation',
       shape: shapes[0] ?? 'balanced',
       candidateTypes: ['maximum_storage', 'best_circulation', 'balanced', 'cost_efficient'],
       requirements: roomRequirements ?? {},
@@ -157,6 +190,19 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
           {detectedDimensions && (<span style={{ fontSize: '12px', color: 'var(--success)', background: 'var(--success-bg)', border: '1px solid var(--success-line)', padding: '4px 10px', borderRadius: '20px', fontWeight: 700 }}>✓ Dimensions detected from floor plan</span>)}
         </div>
       </div>
+
+      {rooms.length > 0 && (
+        <div className="layout-section" style={{ marginTop: '12px' }}>
+          <div className="layout-section-body" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <label htmlFor="layout-room" style={{ fontWeight: 700, fontSize: '12px' }}>Design room</label>
+            <select id="layout-room" value={selectedSpaceId ?? ''} onChange={(event) => onSpaceChange?.(event.target.value)}>
+              <option value="" disabled>Select an approved room</option>
+              {rooms.map((room) => <option key={room.id} value={room.id}>{room.name} · {room.roomType}</option>)}
+            </select>
+            <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Candidates and approvals are saved against this room.</span>
+          </div>
+        </div>
+      )}
 
       <div className="layout-steps">
         {(['shape', 'dimensions', 'template', 'style', 'orientation', 'candidates', 'review'] as const).map((step, i) => (

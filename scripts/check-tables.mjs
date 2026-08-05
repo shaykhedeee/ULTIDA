@@ -1,0 +1,10 @@
+import { config } from 'dotenv';
+config();
+import { createClient } from '@supabase/supabase-js';
+const url = process.env.SUPABASE_URL || '';
+const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const client = createClient(url, key, { auth: { persistSession: false } });
+const { data, error } = await client.from('plan_analyses').select('id').limit(1);
+console.log('plan_analyses exists:', error ? `NO (${error.message})` : 'YES');
+const { error: e2 } = await client.from('plan_analysis_drafts').select('id').limit(1);
+console.log('plan_analysis_drafts exists:', e2 ? `NO (${e2.message})` : 'YES');

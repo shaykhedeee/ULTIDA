@@ -9,10 +9,16 @@ export type ClientBrief = {
   rooms: string;
   style: string;
   budgetRange: string;
-  timeline: string;
+  lifestyle?: string;
+  storageNeeds?: string;
+  kitchenRequirements?: string;
+  materials?: string;
+  appliancesServices?: string;
+  vastuPreference?: string;
+  approvalNotes?: string;
 };
 
-export const emptyBrief: ClientBrief = { clientName: '', projectName: '', propertyType: '', rooms: '', style: '', budgetRange: '', timeline: '' };
+export const emptyBrief: ClientBrief = { clientName: '', projectName: '', propertyType: '', rooms: '', style: '', budgetRange: '', lifestyle: '', storageNeeds: '', kitchenRequirements: '', materials: '', appliancesServices: '', vastuPreference: '', approvalNotes: '' };
 
 type Props = {
   initialBrief: ClientBrief;
@@ -26,6 +32,21 @@ type Props = {
 type StyleOption = 'Contemporary' | 'Minimal' | 'Modern classic' | 'Traditional' | 'Japandi' | 'Industrial';
 type PropertyOption = 'Apartment' | 'Villa' | 'Independent home' | 'Office' | 'Retail';
 type BudgetOption = 'Under INR 5 lakh' | 'INR 5-10 lakh' | 'INR 10-20 lakh' | 'INR 20-40 lakh' | 'Above INR 40 lakh';
+const roomOptions = ['Living room', 'Kitchen', 'Master bedroom', 'Bedroom', 'Study', 'Pooja', 'Dining', 'Utility'];
+
+type BriefTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  values: Partial<ClientBrief>;
+};
+
+const briefTemplates: BriefTemplate[] = [
+  { id: 'work-from-home-couple', name: 'Work-from-home couple', description: 'Two focused work zones, calm shared spaces, and concealed storage.', values: { propertyType: 'Apartment', rooms: 'Living room | Kitchen | Master bedroom | Study', style: 'Minimal', budgetRange: 'INR 10-20 lakh', lifestyle: 'Work from home', storageNeeds: 'Balanced concealed storage', materials: 'Matte neutral laminates | Warm laminates' } },
+  { id: 'family-of-four', name: 'Family of four in a 3BHK', description: 'Practical circulation, durable finishes, and storage for daily family life.', values: { propertyType: 'Apartment', rooms: 'Living room | Kitchen | Master bedroom | Bedroom | Dining | Utility', style: 'Contemporary', budgetRange: 'INR 10-20 lakh', lifestyle: 'Family living | Young children', storageNeeds: 'Maximum storage', materials: 'Matte neutral laminates | Stone and fluted panels' } },
+  { id: 'adventurous-family', name: 'The adventurous family', description: 'Flexible hosting, display space, easy-clean materials, and adaptable storage.', values: { propertyType: 'Independent home', rooms: 'Living room | Kitchen | Master bedroom | Bedroom | Study | Dining | Utility', style: 'Modern classic', budgetRange: 'INR 20-40 lakh', lifestyle: 'Family living | Frequent hosting | Pets at home', storageNeeds: 'Balanced concealed storage', materials: 'Warm laminates | Stone and fluted panels | Glass and metal accents' } },
+  { id: 'best-without-compromise', name: 'Best without compromise', description: 'Premium detailing, tailored modular units, and material-led visual direction.', values: { propertyType: 'Villa', rooms: 'Living room | Kitchen | Master bedroom | Bedroom | Study | Pooja | Dining | Utility', style: 'Modern classic', budgetRange: 'Above INR 40 lakh', lifestyle: 'Family living | Frequent hosting', storageNeeds: 'Maximum storage', materials: 'Wood veneer | Stone and fluted panels | Glass and metal accents', vastuPreference: 'Follow vastu principles' } }
+];
 
 export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile, onAnalyze }: Props) {
   const [brief, setBrief] = useState(initialBrief);
@@ -35,10 +56,14 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
 
   useEffect(() => setBrief(initialBrief), [initialBrief]);
   const update = (key: keyof ClientBrief, value: string) => setBrief((current) => ({ ...current, [key]: value }));
-  const valid = brief.clientName.trim() && brief.projectName.trim() && brief.propertyType && brief.rooms.trim() && brief.style && brief.budgetRange && brief.timeline;
+  const applyTemplate = (template: BriefTemplate) => {
+    setBrief((current) => ({ ...current, ...template.values }));
+    setState(template.name + ' applied. You can adjust the core project details before saving.');
+  };
+  const valid = brief.clientName.trim() && brief.projectName.trim() && brief.propertyType && brief.rooms.trim() && brief.style && brief.budgetRange;
   const summary = [brief.propertyType, brief.rooms && `${brief.rooms} rooms`, brief.style, brief.budgetRange].filter(Boolean).join(' | ') || 'Complete the brief to create a useful project summary.';
   async function save(isComplete: boolean) {
-    if (isComplete && !valid) { setState('Add client, project, property, rooms, style, budget and timeline before completing the brief.'); return; }
+    if (isComplete && !valid) { setState('Choose the property, rooms, style and budget, then complete the brief.'); return; }
     setState(isComplete ? 'Completing brief...' : 'Saving draft...');
     try {
       await onSave(brief, isComplete);
@@ -63,6 +88,16 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
       )}
     </label>
   );
+  const choiceField = (key: keyof ClientBrief, label: string, options: readonly string[], multiple = false) => {
+    const selected = String(brief[key] ?? '').split('|').map((value) => value.trim()).filter(Boolean);
+    return <div className="brief-choice-field"><span>{label}</span><div className="brief-choice-grid">{options.map((option) => {
+      const active = selected.includes(option);
+      return <button key={option} type="button" disabled={!editing} className={active ? 'brief-choice active' : 'brief-choice'} onClick={() => {
+        const next = multiple ? (active ? selected.filter((value) => value !== option) : [...selected, option]) : [option];
+        update(key, next.join(' | '));
+      }} aria-pressed={active}><Check size={14} />{option}</button>;
+    })}</div></div>;
+  };
 
   return (
     <section className="brief-workspace">
@@ -84,14 +119,25 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
             <span className="brief-summary">{summary}</span>
           </CardHeader>
           <CardContent>
+            <div className="brief-choice-field">
+              <span>Start with a household profile</span>
+              <div className="brief-choice-grid">
+                {briefTemplates.map((template) => (
+                  <button key={template.id} type="button" disabled={!editing} className="brief-choice" onClick={() => applyTemplate(template)} title={template.description}>
+                    <Sparkles size={14} />
+                    <span>{template.name}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="brief-template-copy">This sets a starting direction. Floor Plan and Spaces collect room-specific requirements after geometry is available.</p>
+            </div>
             <div className="brief-grid">
               {field('clientName', 'Client name', 'e.g. Mehta family')}
               {field('projectName', 'Project name', 'e.g. Mehta Residence')}
               {field('propertyType', 'Property type', 'Apartment, villa, office...', ['Apartment','Villa','Independent home','Office','Retail'] as PropertyOption[])}
-              {field('rooms', 'Rooms / scope', 'e.g. kitchen, living, 3 bedrooms')}
+              {choiceField('rooms', 'Rooms in scope', roomOptions, true)}
               {field('style', 'Preferred style', 'e.g. warm contemporary Indian', ['Contemporary','Minimal','Modern classic','Traditional','Japandi','Industrial'] as StyleOption[])}
               {field('budgetRange', 'Budget range', 'e.g. INR 12-18 lakh', ['Under INR 5 lakh','INR 5-10 lakh','INR 10-20 lakh','INR 20-40 lakh','Above INR 40 lakh'] as BudgetOption[])}
-              {field('timeline', 'Timeline', 'e.g. design by August, install by October')}
             </div>
             <div className="brief-actions">
               <Button variant="outline" onClick={() => void save(false)} disabled={!editing}><Save size={16} /> Save draft</Button>
@@ -113,11 +159,11 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
           >
             <Upload size={24} style={{ color: '#8a7762' }} />
             <strong style={{ color: '#4d3428' }}>{fileName ? fileName : 'Click to select floor plan'}</strong>
-            <span style={{ fontSize: '12px', color: '#746b62' }}>PNG, JPG, WEBP, PDF</span>
+            <span style={{ fontSize: '12px', color: '#746b62' }}>Images, SVG and PDF (up to 25 MB)</span>
             <input 
               ref={fileInputRef}
               type="file" 
-              accept="image/png,image/jpeg,image/webp,application/pdf" 
+              accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/avif,image/heic,image/heif,image/svg+xml,application/pdf,.tif,.tiff,.heic,.heif" 
               onChange={onFile} 
               style={{ display: 'none' }}
             />

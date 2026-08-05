@@ -4,7 +4,7 @@ import {
   PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut,
   CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2
 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from './lib/supabase';
 import './shell.css';
@@ -64,6 +64,10 @@ function StageIcon({ status }: { status: WorkflowStageStatus }) {
   return <Circle size={13} style={{ color: 'rgba(255,255,255,.2)' }} />;
 }
 
+function stageStatusLabel(status: WorkflowStageStatus) {
+  return status.replaceAll('_', ' ');
+}
+
 // ─── Shell Component ──────────────────────────────────────────────
 export function Shell({
   children,
@@ -74,7 +78,7 @@ export function Shell({
   workflowStages = DEFAULT_WORKFLOW_STAGES,
   onNewProject,
 }: Props) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => window.localStorage.getItem('ultida-sidebar-collapsed') === 'true');
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -85,6 +89,10 @@ export function Shell({
   }
 
   const inProject = Boolean(projectId);
+
+  useEffect(() => {
+    window.localStorage.setItem('ultida-sidebar-collapsed', String(collapsed));
+  }, [collapsed]);
 
   return (
     <div className={`ultida-shell${collapsed ? ' sidebar-collapsed' : ''}`}>
@@ -97,7 +105,7 @@ export function Shell({
             <strong>ULTIDA</strong>
             <span>Interior Design OS</span>
           </div>
-          <button className="sidebar-collapse-btn" onClick={() => setCollapsed((c) => !c)} aria-label="Toggle sidebar">
+          <button className="sidebar-collapse-btn" onClick={() => setCollapsed((c) => !c)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
             {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
           </button>
         </div>
@@ -132,6 +140,9 @@ export function Shell({
               <span className="workflow-nav-title">
                 {projectName ? projectName.slice(0, 18) : 'Current Project'}
               </span>
+              <span className="workflow-count" aria-label={`${workflowStages.filter((stage) => stage.status === 'done').length} of ${workflowStages.length} stages complete`}>
+                {workflowStages.filter((stage) => stage.status === 'done').length}/{workflowStages.length}
+              </span>
             </div>
             {workflowStages.map((stage, i) => {
               const isActive = location.pathname.includes(`/${stage.path}`);
@@ -139,7 +150,10 @@ export function Shell({
               return (
                 <button
                   key={stage.id}
-                  className={`workflow-stage${isActive ? ' active' : ''} ${stage.status === 'done' ? 'done' : ''} ${isLocked ? 'locked' : ''}`}
+                  className={`workflow-stage${isActive ? ' active' : ''} ${stage.status === 'done' ? 'done' : ''} ${isLocked ? 'locked' : ''} ${stage.status === 'needs_review' ? 'needs_review' : ''}`}
+                  aria-current={isActive ? 'step' : undefined}
+                  aria-label={`${stage.label}: ${isLocked ? stage.lockReason ?? 'locked' : stageStatusLabel(stage.status)}`}
+                  disabled={isLocked}
                   onClick={() => {
                     if (!isLocked) {
                       navigate(`/projects/${projectId}/${stage.path}`);
@@ -148,7 +162,7 @@ export function Shell({
                   }}
                   title={isLocked ? stage.lockReason : stage.label}
                 >
-                  <span className="stage-num">{isLocked ? <Lock size={10} /> : i + 1}</span>
+                  <span className="stage-num"><StageIcon status={stage.status} /></span>
                   <span className="stage-label-text">{stage.label}</span>
                   <span className="stage-status-dot" />
                 </button>
@@ -187,8 +201,7 @@ export function Shell({
         {/* Command bar */}
         <div className="command-bar">
           <button
-            className="nav-item"
-            style={{ display: 'none', width: 'auto', padding: '6px' }}
+            className="mobile-nav-trigger"
             onClick={() => setMobileOpen((m) => !m)}
             aria-label="Open menu"
           >

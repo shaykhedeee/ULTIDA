@@ -10,8 +10,62 @@
 }
 
 .workspace-heading {
-  padding-bottom: 14px;
+  padding: 18px 20px;
   border-bottom: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fffdfa 0%, #f8f0e4 100%);
+  box-shadow: 0 1px 3px rgba(39, 28, 18, .04);
+}
+
+.workspace-heading > div:first-child { gap: 20px; flex-wrap: wrap; }
+.workspace-heading h1 { letter-spacing: -.035em; }
+
+.geometry-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--cream-warm);
+}
+
+.geometry-mode-toggle button {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font: 700 11px/1.1 inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.geometry-mode-toggle button:hover,
+.geometry-mode-toggle button:focus-visible {
+  color: var(--text-primary);
+  outline: 2px solid rgba(197,156,45,.35);
+  outline-offset: 1px;
+}
+
+.geometry-mode-toggle button.active {
+  color: var(--text-primary);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(39, 28, 18, .12);
+}
+
+.geometry-mode-note {
+  margin: 7px 0 0;
+  color: #7a5a11;
+  font-size: 12px;
+}
+
+.geometry-mode-note.production {
+  color: var(--text-muted);
+}
+
+@media (max-width: 940px) {
+  .geometry-mode-toggle { order: -1; }
 }
 
 /* ─── 3-Panel Grid Layout ────────────────────── */
@@ -128,6 +182,18 @@
   background: var(--brown-mid);
   border-color: var(--brown-mid);
   color: #fff;
+}
+.tool-btn:disabled { opacity: .42; cursor: not-allowed; }
+.tool-guidance {
+  grid-column: 1 / -1;
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #7a5715;
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 650;
 }
 
 .scale-info-box {

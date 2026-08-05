@@ -1,12 +1,26 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createHash } from 'node:crypto';
 import { compileRenderBrief } from '@ultida/agent-core';
 import type { VisualProposalRequest } from '@ultida/contracts';
+import { renderScenePerspectiveArtifacts, type BaseRenderArtifacts } from '@ultida/render-pipeline';
 import { SceneV1Schema } from '@ultida/scene-core';
 
 type Gateway = {
   createVisualProposal(request: VisualProposalRequest): Promise<any>;
   pollTaskStatus(provider: string, taskId: string): Promise<any>;
 };
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, stableValue(entry)]));
+  }
+  return value;
+}
+
+export function renderInputFingerprint(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(stableValue(value))).digest('hex');
+}
 
 function serverClient(environment: Record<string, string | undefined>, clientOverride?: SupabaseClient): SupabaseClient | null {
   if (clientOverride) return clientOverride;
@@ -21,6 +35,7 @@ function imageExtension(mimeType: string) {
   return 'png';
 }
 
+/* Legacy synthetic preview removed from the production path.
 export function generateTechnicalPreviewSvg(request: VisualProposalRequest): string {
   const style = request.style || 'Japandi Minimal';
   const width = 1200;
@@ -68,8 +83,59 @@ export function generateTechnicalPreviewSvg(request: VisualProposalRequest): str
   
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 }
+*/
 
-async function storeImage(client: SupabaseClient, context: { organizationId: string; projectId: string; sceneVersionId: string; actorId?: string }, result: any, prompt: Record<string, unknown>) {
+function dataUriToBytes(dataUri: string): Buffer {
+  const match = /^data:([^;]+);base64,([A-Za-z0-9+/=]+)$/.exec(dataUri);
+  if (!match) throw new Error('Technical render artifact is not a valid base64 data URI.');
+  return Buffer.from(match[2], 'base64');
+}
+
+async function persistTechnicalArtifacts(
+  client: SupabaseClient,
+  context: { organizationId: string; projectId: string; sceneVersionId: string; jobId: string; actorId: string },
+  artifacts: BaseRenderArtifacts,
+) {
+  const entries = [
+    { kind: 'technical_preview', label: 'rgb', value: artifacts.rgb },
+    { kind: 'render_depth', label: 'depth', value: artifacts.depth },
+    { kind: 'render_edge_map', label: 'edge', value: artifacts.edgeMap },
+    ...artifacts.objectMasks.map((value) => ({ kind: 'render_object_mask', label: `object-${value.id}`, value })),
+    ...artifacts.materialRegions.map((value) => ({ kind: 'render_material_mask', label: `material-${value.materialId}`, value })),
+  ];
+  const stored = await Promise.all(entries.map(async (entry) => {
+    const path = `${context.organizationId}/${context.projectId}/renders/${context.sceneVersionId}/technical/${context.jobId}-${entry.label}.png`;
+    const upload = await client.storage.from('project-assets').upload(path, dataUriToBytes(entry.value.url), { contentType: 'image/png', upsert: false });
+    if (upload.error) throw new Error(`Technical render upload failed: ${upload.error.message}`);
+    const artifact = await client.from('artifacts').insert({
+      organization_id: context.organizationId,
+      project_id: context.projectId,
+      scene_version_id: context.sceneVersionId,
+      job_id: context.jobId,
+      kind: entry.kind,
+      status: 'ready',
+      storage_path: path,
+      provenance: { baseHash: artifacts.baseHash, label: entry.label, synthetic: false },
+      created_by: context.actorId,
+    }).select('id').single();
+    if (artifact.error || !artifact.data) {
+      await client.storage.from('project-assets').remove([path]);
+      throw new Error(`Technical render artifact registration failed: ${artifact.error?.message ?? 'unknown error'}`);
+    }
+    return { id: artifact.data.id, path, label: entry.label };
+  }));
+  const byLabel = new Map(stored.map((entry) => [entry.label, entry]));
+  return {
+    baseHash: artifacts.baseHash,
+    rgb: byLabel.get('rgb')!,
+    depth: byLabel.get('depth')!,
+    edge: byLabel.get('edge')!,
+    objectMasks: stored.filter((entry) => entry.label.startsWith('object-')),
+    materialMasks: stored.filter((entry) => entry.label.startsWith('material-')),
+  };
+}
+
+async function storeImage(client: SupabaseClient, context: { organizationId: string; projectId: string; sceneVersionId: string; actorId?: string; jobId?: string; technicalArtifacts?: Record<string, unknown>; inputFingerprint?: string }, result: any, prompt: Record<string, unknown>) {
   let bytes: Buffer;
   let mimeType = 'image/png';
   if (result.image?.encoding === 'base64') {
@@ -87,18 +153,28 @@ async function storeImage(client: SupabaseClient, context: { organizationId: str
   const path = `${context.organizationId}/${context.projectId}/renders/${context.sceneVersionId}/${crypto.randomUUID()}.${imageExtension(mimeType)}`;
   const upload = await client.storage.from('project-assets').upload(path, bytes, { contentType: mimeType, upsert: false });
   if (upload.error) throw new Error(upload.error.message);
-  const metadata = { provider: result.provider, model: result.model, operation: result.operation, sourceSceneVersionId: context.sceneVersionId, prompt, synthetic: false, reviewStatus: 'pending' };
+  const metadata = {
+    provider: result.provider,
+    model: result.model,
+    operation: result.operation,
+    sourceSceneVersionId: context.sceneVersionId,
+    inputFingerprint: context.inputFingerprint,
+    schemaVersion: 'render-artifact.v1',
+    lockedElements: ['wall positions', 'door positions', 'window positions', 'ceiling height', 'camera pose'],
+    prompt,
+    technicalArtifacts: context.technicalArtifacts,
+    synthetic: false,
+    reviewStatus: 'pending',
+    qaStatus: 'completed_with_warnings',
+    qaWarning: 'Image evidence adapters are not yet enabled; designer review is required.',
+  };
   const assetPayload: any = { organization_id: context.organizationId, project_id: context.projectId, kind: 'render', storage_path: path, mime_type: mimeType, metadata, created_by: context.actorId ?? null };
-  let asset = await client.from('project_assets').insert(assetPayload).select('id,created_at').single();
-  if (asset.error && asset.error.message.includes('organization_id')) {
-    delete assetPayload.organization_id;
-    asset = await client.from('project_assets').insert(assetPayload).select('id,created_at').single();
-  }
+  const asset = await client.from('project_assets').insert(assetPayload).select('id,created_at').single();
   if (asset.error) {
     await client.storage.from('project-assets').remove([path]);
     throw new Error(asset.error.message);
   }
-  const artifact = await client.from('artifacts').insert({ project_id: context.projectId, scene_version_id: context.sceneVersionId, kind: 'photoreal_render', status: 'ready', storage_path: path, provenance: metadata }).select('id').single();
+  const artifact = await client.from('artifacts').insert({ organization_id: context.organizationId, project_id: context.projectId, scene_version_id: context.sceneVersionId, job_id: context.jobId ?? null, kind: 'photoreal_render', status: 'ready', storage_path: path, provenance: metadata, created_by: context.actorId ?? null }).select('id').single();
   if (artifact.error) throw new Error(artifact.error.message);
   const reference = await client.from('reference_library_items').insert({ organization_id: context.organizationId, project_id: context.projectId, asset_id: asset.data.id, title: `AI render ${new Date().toLocaleDateString('en-IN')}`, kind: 'render', tags: ['ai-render', result.provider], source: 'ultida-visual-studio', metadata, created_by: context.actorId ?? null });
   if (reference.error) throw new Error(reference.error.message);
@@ -120,6 +196,10 @@ async function jobContext(client: SupabaseClient, request: VisualProposalRequest
 export async function createVisualJob(environment: Record<string, string | undefined>, gateway: Gateway, request: VisualProposalRequest, actorId?: string, clientOverride?: SupabaseClient) {
   const client = serverClient(environment, clientOverride);
   const jobId = crypto.randomUUID();
+  let persistedJobId: string | null = null;
+  if (!actorId) {
+    return { status: 'failed' as const, jobId, code: 'AUTHENTICATED_ACTOR_REQUIRED', message: 'An authenticated designer is required to start a render.', retryable: false };
+  }
 
   // Validate the immutable source before spending provider credits.
   let preflight: Awaited<ReturnType<typeof jobContext>> | null = null;
@@ -139,13 +219,49 @@ export async function createVisualJob(environment: Record<string, string | undef
     const context = preflight ?? await jobContext(client, request);
     const brief = compileRenderBrief({ scene: context.scene, sceneVersionId: request.sceneVersionId, roomId: request.roomId, style: request.style, quality: request.quality, camera: request.camera });
     const normalizedRequest: VisualProposalRequest = { ...request, roomId: brief.roomId, structuredPrompt: brief.positivePrompt, negativePrompt: brief.negativePrompt, promptVersion: brief.version };
-    const idempotencyKey = request.idempotencyKey ?? `${request.sceneVersionId}:${brief.roomId}:${request.operation}:${brief.style}:${brief.quality}`;
+    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, style: brief.style, quality: brief.quality, camera: request.camera, references: request.referenceAssets, structuredPrompt: brief.positivePrompt, negativePrompt: brief.negativePrompt, promptVersion: brief.version });
+    const idempotencyKey = request.idempotencyKey ?? `render:${inputFingerprint}`;
     
     const job = await client.from('jobs').insert({ organization_id: context.project.organization_id, project_id: request.projectId, kind: 'visual_proposal', status: 'queued', idempotency_key: idempotencyKey, input: { ...normalizedRequest, renderBrief: brief }, output: { reviewStatus: 'pending' }, attempts: 1, created_by: actorId ?? null }).select('id').single();
-    if (job.error || !job.data) return { status: 'failed' as const, code: 'JOB_CREATE_FAILED', reason: job.error?.message ?? 'Visual job could not be created.', retryable: true };
+    if (job.error || !job.data) {
+      if (job.error?.code === '23505' || /duplicate|unique/i.test(job.error?.message ?? '')) {
+        const existing = await client.from('jobs').select('id,status,output,error').eq('idempotency_key', idempotencyKey).maybeSingle();
+        if (existing.data) return { status: existing.data.status === 'succeeded' ? 'succeeded' as const : existing.data.status === 'failed' ? 'failed' as const : 'queued' as const, jobId: existing.data.id, output: existing.data.output, error: existing.data.error, deduplicated: true };
+      }
+      return { status: 'failed' as const, code: 'JOB_CREATE_FAILED', reason: job.error?.message ?? 'Visual job could not be created.', retryable: true };
+    }
+    persistedJobId = job.data.id;
 
-    await client.from('jobs').update({ status: 'running', started_at: new Date().toISOString() }).eq('id', job.data.id);
-    const result = await gateway.createVisualProposal(normalizedRequest);
+    const baseArtifacts = renderScenePerspectiveArtifacts(context.scene, { cameraId: request.camera?.view === 'elevation' ? undefined : context.scene.cameras[0]?.id });
+    const technicalArtifacts = await persistTechnicalArtifacts(client, {
+      organizationId: context.project.organization_id,
+      projectId: request.projectId,
+      sceneVersionId: request.sceneVersionId,
+      jobId: job.data.id,
+      actorId,
+    }, baseArtifacts);
+    const providerRequest: VisualProposalRequest = {
+      ...normalizedRequest,
+      sourceAssets: [baseArtifacts.rgb.url],
+      masks: [baseArtifacts.edgeMap.url, ...baseArtifacts.objectMasks.map((mask) => mask.url), ...baseArtifacts.materialRegions.map((mask) => mask.url)],
+      conditioningMaps: {
+        depthMapUrl: baseArtifacts.depth.url,
+        cannyEdgeMapUrl: baseArtifacts.edgeMap.url,
+        materialKeyMapUrl: baseArtifacts.materialRegions[0]?.url,
+        objectMaskUrl: baseArtifacts.objectMasks[0]?.url,
+      },
+      // A studio-local ComfyUI workflow may provide the strongest geometry locks.
+      // LocalAI is an optional self-hosted new-render path; Cloudflare FLUX.2
+      // remains the hosted fallback and handles locked visual revisions.
+      providerPreference: ['comfyui', 'localai', 'cloudflare'],
+    };
+    await client.from('jobs').update({
+      status: 'running',
+      started_at: new Date().toISOString(),
+      input: { ...providerRequest, renderBrief: brief, technicalArtifacts },
+      output: { reviewStatus: 'pending', technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint },
+    }).eq('id', job.data.id);
+    const result = await gateway.createVisualProposal(providerRequest);
 
     if (result.status === 'provider_not_configured') {
       await client.from('jobs').update({ status: 'failed', error: result.message }).eq('id', job.data.id);
@@ -158,8 +274,8 @@ export async function createVisualJob(environment: Record<string, string | undef
     }
     
     if (result.status === 'succeeded') {
-      const stored = await storeImage(client, { organizationId: context.project.organization_id, projectId: request.projectId, sceneVersionId: request.sceneVersionId, actorId }, result, brief);
-      const output = { ...result, ...stored, promptVersion: brief.version };
+      const stored = await storeImage(client, { organizationId: context.project.organization_id, projectId: request.projectId, sceneVersionId: request.sceneVersionId, actorId, jobId: job.data.id, technicalArtifacts, inputFingerprint }, result, brief);
+      const output = { ...result, ...stored, promptVersion: brief.version, technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, renderStatus: 'completed_with_warnings' };
       await client.from('jobs').update({ status: 'succeeded', output }).eq('id', job.data.id);
       return { status: 'succeeded' as const, jobId: job.data.id, ...output };
     }
@@ -168,11 +284,20 @@ export async function createVisualJob(environment: Record<string, string | undef
     await client.from('jobs').update({ status: 'running', output }).eq('id', job.data.id);
     return { status: 'queued' as const, jobId: job.data.id, ...output };
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Visual job processing failed.';
+    // A persisted job must always reach a terminal state. Without this update a
+    // storage or provider exception leaves the browser polling "Rendering..." forever.
+    if (persistedJobId) {
+      await client.from('jobs').update({
+        status: 'failed',
+        error: message,
+      }).eq('id', persistedJobId);
+    }
     return {
       status: 'failed' as const,
-      jobId,
+      jobId: persistedJobId ?? jobId,
       code: 'VISUAL_JOB_ERROR',
-      message: error instanceof Error ? error.message : 'Visual job processing failed.',
+      message,
       retryable: true
     };
   }
@@ -194,8 +319,16 @@ export async function getVisualJob(environment: Record<string, string | undefine
       try {
         const project = await client.from('projects').select('organization_id').eq('id', job.data.project_id).single();
         if (project.error || !project.data) throw new Error('Project organization context was not found.');
-        const stored = await storeImage(client, { organizationId: project.data.organization_id, projectId: job.data.project_id, sceneVersionId: job.data.input.sceneVersionId, actorId: job.data.created_by }, { ...job.data.output, ...polled }, job.data.input?.renderBrief ?? {});
-        const output = { ...job.data.output, ...polled, ...stored };
+        const stored = await storeImage(client, {
+          organizationId: project.data.organization_id,
+          projectId: job.data.project_id,
+          sceneVersionId: job.data.input.sceneVersionId,
+          actorId: job.data.created_by,
+          jobId,
+          technicalArtifacts: job.data.output?.technicalArtifacts,
+          inputFingerprint: job.data.output?.inputFingerprint,
+        }, { ...job.data.output, ...polled }, job.data.input?.renderBrief ?? {});
+        const output = { ...job.data.output, ...polled, ...stored, renderStatus: 'completed_with_warnings' };
         await client.from('jobs').update({ status: 'succeeded', output }).eq('id', jobId);
         return { status: 'succeeded' as const, jobId, ...output };
       } catch (error) {

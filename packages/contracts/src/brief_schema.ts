@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /**
  * packages/contracts/src/brief_schema.ts
  *
@@ -80,8 +82,6 @@ export interface BriefCoreV1 {
    *  to complete the brief. */
   referenceImageUrls: string[];
 
-  /** Timeline as a band, same reasoning as budget. */
-  timelineBand: 'urgent_under_4_weeks' | 'standard_2_3_months' | 'flexible';
 }
 
 /**
@@ -116,4 +116,29 @@ export interface RoomRequirementsV1 {
     tvWallNeeded: boolean;
     poojaCornerNeeded: boolean;
   };
+}
+
+export const ProjectBriefV1Schema = z.object({
+  clientName: z.string().trim().max(200).default(''),
+  projectName: z.string().trim().max(200).default(''),
+  propertyType: z.string().trim().max(80).default(''),
+  rooms: z.string().trim().max(1000).default(''),
+  style: z.string().trim().max(120).default(''),
+  budgetRange: z.string().trim().max(120).default(''),
+  references: z.array(z.string().url()).max(20).default([]),
+  companyStandards: z.record(z.unknown()).default({}),
+  roomRequirements: z.record(z.unknown()).default({}),
+}).passthrough();
+
+export type ProjectBriefV1 = z.infer<typeof ProjectBriefV1Schema>;
+
+export function validateProjectBrief(value: unknown) {
+  const parsed = ProjectBriefV1Schema.safeParse(value);
+  if (parsed.success) return { valid: true as const, value: parsed.data, fieldErrors: {} };
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of parsed.error.issues) {
+    const key = issue.path[0] ? String(issue.path[0]) : 'brief';
+    fieldErrors[key] ??= issue.message;
+  }
+  return { valid: false as const, value: null, fieldErrors };
 }

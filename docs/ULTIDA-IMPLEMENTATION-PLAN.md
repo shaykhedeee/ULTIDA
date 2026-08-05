@@ -44,4 +44,9 @@ AI-generated pixels never become geometry. A render preview may accompany the pr
 
 ## Current reality
 
-The existing repository has the AURA registry, render prompt compiler, scene validation, provider gateway and approved-mutation direction. It does not yet contain a full Three.js/React Three Fiber viewport or a complete entity-picking API. The quick changer should therefore be implemented as the next vertical slice, not as an unrestricted image-editing button.
+The existing repository has the AURA registry, render prompt compiler, scene
+validation, provider gateway, approved-mutation direction, and a SceneStudio
+Three.js viewport foundation. A complete entity-picking API and authenticated
+browser verification remain outstanding. The quick changer should therefore
+be implemented as the next vertical slice, not as an unrestricted
+image-editing button.

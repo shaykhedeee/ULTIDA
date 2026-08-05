@@ -11,9 +11,17 @@ export default defineConfig({
     // alias as well when a package has no generated dist entry.
     alias: {
       '@ultida/layout-core': resolve(webDir, '../../packages/layout-core/src'),
+      '@ultida/spaces-core': resolve(webDir, '../../packages/spaces-core/src'),
+      '@ultida/contracts': resolve(webDir, '../../packages/contracts/src'),
     },
   },
   cacheDir: '.vite',
-  build: { outDir: 'dist', emptyOutDir: true },
-  server: { host: '127.0.0.1', port: 5173 }
+  // Vercel's npm install can omit Lightning CSS's optional native binding.
+  // Esbuild keeps the production minification path portable across local and Linux builds.
+  build: { outDir: 'dist', emptyOutDir: true, cssMinify: 'esbuild' },
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    proxy: { '/api': { target: 'http://127.0.0.1:8800', changeOrigin: true } }
+  }
 });

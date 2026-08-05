@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { buildRenderRecord, validateRenderOptions, validateRenderQA, applyProviderFailure, applyQA, buildEnhancementPrompt, resolveRenderState } from '../dist/index.js';
+import { buildRenderRecord, validateRenderOptions, validateRenderQA, applyProviderFailure, applyQA, buildEnhancementPrompt, resolveRenderState, buildRenderReadiness } from '../dist/index.js';
 
 const baseOptions = {
   room: 'living',
@@ -75,5 +75,39 @@ describe('render-pipeline', () => {
   test('render state resolver stays queued while scene draft', () => {
     const state = resolveRenderState({ scene: { status: 'draft' }, options: baseOptions });
     assert.ok(['queued', 'compiling_scene'].includes(state));
+  });
+
+  test('allows initial design concept renders with a visible warning', () => {
+    const readiness = buildRenderReadiness({
+      scaleVerified: false,
+      geometryMode: 'initial_design',
+      renderPurpose: 'concept',
+      planApproved: true,
+      designApproved: true,
+      sceneVersion: { id: 'scene-1', status: 'approved', updatedAt: new Date().toISOString(), approvedVersionId: 'scene-1' },
+      modulesValid: true,
+      materialsComplete: true,
+      cameraValid: true,
+      blockingIssues: [],
+    });
+    assert.strictEqual(readiness.ready, true);
+    assert.ok(readiness.issues.some((issue) => issue.code === 'INITIAL_GEOMETRY' && issue.severity === 'warning'));
+  });
+
+  test('keeps unverified scale blocking for production renders', () => {
+    const readiness = buildRenderReadiness({
+      scaleVerified: false,
+      geometryMode: 'initial_design',
+      renderPurpose: 'production',
+      planApproved: true,
+      designApproved: true,
+      sceneVersion: { id: 'scene-1', status: 'approved', updatedAt: new Date().toISOString(), approvedVersionId: 'scene-1' },
+      modulesValid: true,
+      materialsComplete: true,
+      cameraValid: true,
+      blockingIssues: [],
+    });
+    assert.strictEqual(readiness.ready, false);
+    assert.ok(readiness.issues.some((issue) => issue.code === 'SCALE_UNVERIFIED' && issue.severity === 'blocking'));
   });
 });

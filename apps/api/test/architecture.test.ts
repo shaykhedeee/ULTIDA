@@ -71,6 +71,30 @@ test('visual gateway falls back from OpenAI failure to queued ComfyUI without fa
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('ComfyUI receives the locked scene image before a geometry-conditioned workflow is queued', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  let prompt: Record<string, unknown> | null = null;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.endsWith('/upload/image')) return Response.json({ name: 'ultida-scene.png', subfolder: 'ultida' });
+    if (url.endsWith('/prompt')) {
+      prompt = JSON.parse(String(init?.body)).prompt;
+      return Response.json({ prompt_id: 'prompt-with-geometry' });
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  }) as typeof fetch;
+  try {
+    const gateway = createProviderGateway({ COMFYUI_BASE_URL: 'http://comfy.test', COMFYUI_WORKFLOW_JSON: '{"1":{"inputs":{"image":"{{sourceImage}}","text":"{{prompt}}"}}}' });
+    const result = await gateway.createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['data:image/png;base64,aW1hZ2U='], referenceAssets: [], masks: [], operation: 'material-swap', style: 'warm contemporary', structuredPrompt: 'approved facts', negativePrompt: 'no geometry changes', promptVersion: PROMPT_VERSIONS.renderDirector, quality: 'review', providerPreference: ['comfyui'] });
+    assert.equal(result.status, 'queued');
+    assert.equal('provider' in result ? result.provider : null, 'comfyui');
+    assert.deepEqual(calls, ['http://comfy.test/upload/image', 'http://comfy.test/prompt']);
+    assert.deepEqual(prompt, { '1': { inputs: { image: 'ultida/ultida-scene.png', text: 'approved facts' } } });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('Nano Banana 2 adapter persists the real Gemini image payload contract', async () => {
   const originalFetch = globalThis.fetch;
   let requestBody: Record<string, unknown> | null = null;
@@ -87,6 +111,25 @@ test('Nano Banana 2 adapter persists the real Gemini image payload contract', as
     assert.equal('image' in result ? result.image?.mimeType : null, 'image/png');
     assert.equal(requestBody?.model, 'gemini-3.1-flash-image');
     assert.deepEqual(requestBody?.response_format, { type: 'image', aspect_ratio: '16:9', image_size: '1K' });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('LocalAI uses the private OpenAI-compatible image endpoint for new renders only', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | null = null;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    assert.equal(String(input), 'https://localai.private/v1/images/generations');
+    assert.equal(init?.headers && (init.headers as Record<string, string>).authorization, 'Bearer local-test-key');
+    requestBody = JSON.parse(String(init?.body));
+    return Response.json({ data: [{ b64_json: 'aW1hZ2UtYnl0ZXM=' }] });
+  }) as typeof fetch;
+  try {
+    const gateway = createProviderGateway({ LOCALAI_BASE_URL: 'https://localai.private/', LOCALAI_API_KEY: 'local-test-key', LOCALAI_IMAGE_MODEL: 'studio-sdxl' });
+    const result = await gateway.createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['scene:approved'], referenceAssets: [], masks: [], operation: 'generate', style: 'warm contemporary', structuredPrompt: 'approved geometry facts', negativePrompt: 'no geometry changes', quality: 'review', providerPreference: ['localai'] });
+    assert.equal(result.status, 'succeeded');
+    assert.equal('provider' in result ? result.provider : null, 'localai');
+    assert.equal(requestBody?.model, 'studio-sdxl');
+    assert.equal(requestBody?.response_format, 'b64_json');
   } finally { globalThis.fetch = originalFetch; }
 });
 
