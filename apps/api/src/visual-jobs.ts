@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createHash } from 'node:crypto';
 import { compileRenderBrief } from '@ultida/agent-core';
 import type { VisualProposalRequest } from '@ultida/contracts';
 import { renderScenePerspectiveArtifacts, type BaseRenderArtifacts } from '@ultida/render-pipeline';
@@ -8,6 +9,18 @@ type Gateway = {
   createVisualProposal(request: VisualProposalRequest): Promise<any>;
   pollTaskStatus(provider: string, taskId: string): Promise<any>;
 };
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, stableValue(entry)]));
+  }
+  return value;
+}
+
+export function renderInputFingerprint(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(stableValue(value))).digest('hex');
+}
 
 function serverClient(environment: Record<string, string | undefined>, clientOverride?: SupabaseClient): SupabaseClient | null {
   if (clientOverride) return clientOverride;
@@ -122,7 +135,7 @@ async function persistTechnicalArtifacts(
   };
 }
 
-async function storeImage(client: SupabaseClient, context: { organizationId: string; projectId: string; sceneVersionId: string; actorId?: string; jobId?: string; technicalArtifacts?: Record<string, unknown> }, result: any, prompt: Record<string, unknown>) {
+async function storeImage(client: SupabaseClient, context: { organizationId: string; projectId: string; sceneVersionId: string; actorId?: string; jobId?: string; technicalArtifacts?: Record<string, unknown>; inputFingerprint?: string }, result: any, prompt: Record<string, unknown>) {
   let bytes: Buffer;
   let mimeType = 'image/png';
   if (result.image?.encoding === 'base64') {
@@ -145,6 +158,9 @@ async function storeImage(client: SupabaseClient, context: { organizationId: str
     model: result.model,
     operation: result.operation,
     sourceSceneVersionId: context.sceneVersionId,
+    inputFingerprint: context.inputFingerprint,
+    schemaVersion: 'render-artifact.v1',
+    lockedElements: ['wall positions', 'door positions', 'window positions', 'ceiling height', 'camera pose'],
     prompt,
     technicalArtifacts: context.technicalArtifacts,
     synthetic: false,
@@ -203,10 +219,17 @@ export async function createVisualJob(environment: Record<string, string | undef
     const context = preflight ?? await jobContext(client, request);
     const brief = compileRenderBrief({ scene: context.scene, sceneVersionId: request.sceneVersionId, roomId: request.roomId, style: request.style, quality: request.quality, camera: request.camera });
     const normalizedRequest: VisualProposalRequest = { ...request, roomId: brief.roomId, structuredPrompt: brief.positivePrompt, negativePrompt: brief.negativePrompt, promptVersion: brief.version };
-    const idempotencyKey = request.idempotencyKey ?? `${request.sceneVersionId}:${brief.roomId}:${request.operation}:${brief.style}:${brief.quality}`;
+    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, style: brief.style, quality: brief.quality, camera: request.camera, references: request.referenceAssets, structuredPrompt: brief.positivePrompt, negativePrompt: brief.negativePrompt, promptVersion: brief.version });
+    const idempotencyKey = request.idempotencyKey ?? `render:${inputFingerprint}`;
     
     const job = await client.from('jobs').insert({ organization_id: context.project.organization_id, project_id: request.projectId, kind: 'visual_proposal', status: 'queued', idempotency_key: idempotencyKey, input: { ...normalizedRequest, renderBrief: brief }, output: { reviewStatus: 'pending' }, attempts: 1, created_by: actorId ?? null }).select('id').single();
-    if (job.error || !job.data) return { status: 'failed' as const, code: 'JOB_CREATE_FAILED', reason: job.error?.message ?? 'Visual job could not be created.', retryable: true };
+    if (job.error || !job.data) {
+      if (job.error?.code === '23505' || /duplicate|unique/i.test(job.error?.message ?? '')) {
+        const existing = await client.from('jobs').select('id,status,output,error').eq('idempotency_key', idempotencyKey).maybeSingle();
+        if (existing.data) return { status: existing.data.status === 'succeeded' ? 'succeeded' as const : existing.data.status === 'failed' ? 'failed' as const : 'queued' as const, jobId: existing.data.id, output: existing.data.output, error: existing.data.error, deduplicated: true };
+      }
+      return { status: 'failed' as const, code: 'JOB_CREATE_FAILED', reason: job.error?.message ?? 'Visual job could not be created.', retryable: true };
+    }
     persistedJobId = job.data.id;
 
     const baseArtifacts = renderScenePerspectiveArtifacts(context.scene, { cameraId: request.camera?.view === 'elevation' ? undefined : context.scene.cameras[0]?.id });
@@ -233,7 +256,7 @@ export async function createVisualJob(environment: Record<string, string | undef
       status: 'running',
       started_at: new Date().toISOString(),
       input: { ...providerRequest, renderBrief: brief, technicalArtifacts },
-      output: { reviewStatus: 'pending', technicalArtifacts, baseHash: baseArtifacts.baseHash },
+      output: { reviewStatus: 'pending', technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint },
     }).eq('id', job.data.id);
     const result = await gateway.createVisualProposal(providerRequest);
 
@@ -248,8 +271,8 @@ export async function createVisualJob(environment: Record<string, string | undef
     }
     
     if (result.status === 'succeeded') {
-      const stored = await storeImage(client, { organizationId: context.project.organization_id, projectId: request.projectId, sceneVersionId: request.sceneVersionId, actorId, jobId: job.data.id, technicalArtifacts }, result, brief);
-      const output = { ...result, ...stored, promptVersion: brief.version, technicalArtifacts, baseHash: baseArtifacts.baseHash, renderStatus: 'completed_with_warnings' };
+      const stored = await storeImage(client, { organizationId: context.project.organization_id, projectId: request.projectId, sceneVersionId: request.sceneVersionId, actorId, jobId: job.data.id, technicalArtifacts, inputFingerprint }, result, brief);
+      const output = { ...result, ...stored, promptVersion: brief.version, technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, renderStatus: 'completed_with_warnings' };
       await client.from('jobs').update({ status: 'succeeded', output }).eq('id', job.data.id);
       return { status: 'succeeded' as const, jobId: job.data.id, ...output };
     }
@@ -300,6 +323,7 @@ export async function getVisualJob(environment: Record<string, string | undefine
           actorId: job.data.created_by,
           jobId,
           technicalArtifacts: job.data.output?.technicalArtifacts,
+          inputFingerprint: job.data.output?.inputFingerprint,
         }, { ...job.data.output, ...polled }, job.data.input?.renderBrief ?? {});
         const output = { ...job.data.output, ...polled, ...stored, renderStatus: 'completed_with_warnings' };
         await client.from('jobs').update({ status: 'succeeded', output }).eq('id', jobId);
