@@ -985,8 +985,9 @@ export function PlanReviewWorkspace({
                 );
               })}
 
-              {/* Existing source fixtures are deliberately review-only. They
-                  inform Space requirements; they never become modular units. */}
+              {/* Existing source fixtures and furniture symbols are deliberately
+                  review-only. They inform Space requirements; they never become
+                  modular units or production geometry without designer action. */}
               {layers.fixtures.visible && elements.filter((e) => e.kind === 'fixture').map((fixture) => {
                 const isSelected = fixture.id === selectedId;
                 const { x = 0, y = 0, width = 34, height: depth = 34 } = fixture.geometry;

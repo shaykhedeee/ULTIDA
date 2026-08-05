@@ -323,10 +323,10 @@ export function SpacesWorkspace() {
                   <div><span>Deductions</span><strong>{sel.usable.deductionsMm} mm</strong></div>
                 </div>
                 <div className="detected-items" aria-label="Detected existing items">
-                  <strong>Existing items detected</strong>
+                  <strong>Existing plan symbols</strong>
                   {detectedExistingItems.length
                     ? <div className="detected-item-list">{detectedExistingItems.map((item, index) => <span key={`${item}-${index}`}>{item}</span>)}</div>
-                    : <p>No fixed fixtures were confidently detected in this room.</p>}
+                    : <p>No existing fixtures or furniture symbols were confidently detected in this room.</p>}
                 </div>
                 <Button variant="outline" onClick={() => persistRoom(sel.room)}><Save size={13} /> Save room</Button>
               </div>

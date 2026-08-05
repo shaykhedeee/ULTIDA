@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyFile, reconcileToElements, UNSUPPORTED_FORMATS, type PlanElementDraft } from '../src/plan-analysis-service.js';
 import { PlanVisionOutputSchema, normalizeVisionOutput } from '@ultida/agent-core';
-import { parseProposals } from '../src/plan-analyzer.js';
+import { buildPlanPrompt, parseProposals } from '../src/plan-analyzer.js';
 
 test('classifyFile routes known formats correctly', () => {
   assert.equal(classifyFile('plan.png', 'image/png'), 'raster');
@@ -21,6 +21,12 @@ test('UNSUPPORTED_FORMATS enumerates excluded types', () => {
   for (const f of ['dwg', 'iges', 'step', 'password-protected-pdf']) {
     assert.ok(UNSUPPORTED_FORMATS.includes(f), `expected ${f} in unsupported list`);
   }
+});
+
+test('plan prompt keeps detected furniture symbols review-only', () => {
+  const prompt = buildPlanPrompt();
+  assert.match(prompt, /existing furniture symbol/i);
+  assert.match(prompt, /never turn them into modular furniture/i);
 });
 
 // Build a minimal (provider-shaped) raw output and normalize it.

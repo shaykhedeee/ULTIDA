@@ -60,7 +60,7 @@ export function compileBriefContext(brief?: Record<string, unknown>): string {
 export function buildPlanPrompt(brief?: Record<string, unknown>) {
   const base = `You are the extraction stage of a professional interior floor-plan review system. Read the supplied source without redesigning it.
 
-Extract only visible evidence: walls, room zones, doors/windows/passages, room labels, written dimensions, and existing fixed fixtures (toilet, sink, bathtub, shower, stove, refrigerator). Never invent a dimension, wall, opening or fixture. Preserve uncertainty.
+Extract only visible evidence: walls, room zones, doors/windows/passages, room labels, written dimensions, and existing plan symbols. A fixture proposal may represent a fixed fixture (toilet, sink, bathtub, shower, stove, refrigerator) or a clearly drawn existing furniture symbol (bed, sofa, dining table, wardrobe, desk). Label it exactly as visible evidence, for example "Existing bed symbol". These are review-only context; never turn them into modular furniture, manufacturing geometry, or inferred dimensions. Never invent a dimension, wall, opening or fixture. Preserve uncertainty.
 
 COORDINATES
 - Return every coordinate on a source-relative 0..1000 grid: x=0 left, x=1000 right, y=0 top, y=1000 bottom.
@@ -77,7 +77,7 @@ SELF CHECK
 5. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
 6. Do not split a straight wall into redundant collinear fragments and never repeat the same wall candidate. Prefer fewer, well-evidenced candidates over guessed completeness.
 7. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
-8. Return at most 36 proposals. First cover all room boundary walls and room zones, then openings, legible dimensions and fixed fixtures. Do not sacrifice a whole room merely to describe a minor fixture.
+8. Return at most 36 proposals. First cover all room boundary walls and room zones, then openings, legible dimensions and only clearly drawn existing symbols. Do not sacrifice a whole room merely to describe a minor fixture or furniture symbol.
 9. A wall must contain exactly numeric x1,y1,x2,y2. A room must contain exactly numeric x,y,width,height. Do not use numbered keys, arrays, prose, units, or nested objects inside geometry.
 10. Output one JSON object only, with no markdown and no explanatory text:
 {"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"}]}`;
