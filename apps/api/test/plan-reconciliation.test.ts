@@ -31,3 +31,27 @@ test('does not falsely confirm a high-confidence vision wall at a different loca
   assert.equal(result.walls[0]?.confirmedByBothPasses, false);
   assert.match(result.reviewFlags.join(' '), /did not geometrically align/i);
 });
+
+test('records independent CV evidence for an editable room proposal without approving its geometry', () => {
+  const square: CvTraceResult = {
+    ...cv,
+    walls: [
+      { ...cv.walls[0]!, id: 'north', x1: 240, y1: 300, x2: 2160, y2: 300, lengthPx: 1920 },
+      { ...cv.walls[0]!, id: 'east', x1: 2160, y1: 300, x2: 2160, y2: 1020, lengthPx: 720 },
+      { ...cv.walls[0]!, id: 'south', x1: 2160, y1: 1020, x2: 240, y2: 1020, lengthPx: 1920 },
+      { ...cv.walls[0]!, id: 'west', x1: 240, y1: 1020, x2: 240, y2: 300, lengthPx: 720 },
+    ],
+  };
+  const result = reconcilePlan(square, {
+    walls: [],
+    openings: [],
+    dimensionTextFindings: [],
+    rooms: [{
+      label: 'Living Room', roomType: 'living', confidence: 0.94,
+      approxPolygonPx: [{ x: 240, y: 300 }, { x: 2160, y: 300 }, { x: 2160, y: 1020 }, { x: 240, y: 1020 }],
+    }],
+  });
+  assert.deepEqual(result.rooms[0]?.boundaryWallIds.sort(), ['east', 'north', 'south', 'west']);
+  assert.equal(result.rooms[0]?.boundaryEvidence.status, 'candidate');
+  assert.equal(result.requiresDesignerReview, true);
+});

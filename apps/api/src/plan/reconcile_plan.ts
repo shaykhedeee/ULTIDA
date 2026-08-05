@@ -82,10 +82,14 @@ export interface ReconciledWall {
 export interface ReconciledRoom {
   label: string;
   roomType: string;
-  /** Room boundary derived from the CV wall graph, NOT the vision model's
-   *  rough polygon -- geometry always wins for shape/position, semantics
-   *  always wins for meaning. */
+  /** Evidence links only; a designer still approves the editable boundary. */
   boundaryWallIds: string[];
+  boundaryEvidence: {
+    matchedEdges: number;
+    totalEdges: number;
+    coverage: number;
+    status: 'candidate' | 'partial' | 'unconfirmed';
+  };
   semanticConfidence: number;
 }
 
@@ -165,6 +169,40 @@ function visionWallMatchesCv(
   return overlap >= Math.min(cvWall.lengthPx, visionLength) * 0.5;
 }
 
+function polygonEdgeEvidence(
+  polygon: Array<{ x: number; y: number }>,
+  walls: CvWallCandidate[],
+  tolerancePx: number,
+) {
+  if (polygon.length < 3) return { boundaryWallIds: [] as string[], matchedEdges: 0, totalEdges: 0, coverage: 0 };
+
+  const matchedIds = new Set<string>();
+  let matchedEdges = 0;
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index]!;
+    const end = polygon[(index + 1) % polygon.length]!;
+    const edgeLength = Math.hypot(end.x - start.x, end.y - start.y);
+    if (edgeLength < 1) continue;
+    const edgeAngle = Math.atan2(end.y - start.y, end.x - start.x);
+    const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    const matches = walls.filter((wall) => {
+      const wallAngle = Math.atan2(wall.y2 - wall.y1, wall.x2 - wall.x1);
+      if (angleDifferenceRadians(edgeAngle, wallAngle) > (12 * Math.PI) / 180) return false;
+      if (distancePointToSegment(midpoint.x, midpoint.y, wall.x1, wall.y1, wall.x2, wall.y2) > tolerancePx) return false;
+      const projectedStart = projectionOnSegment(start, wall);
+      const projectedEnd = projectionOnSegment(end, wall);
+      const overlap = Math.max(0, Math.min(wall.lengthPx, Math.max(projectedStart, projectedEnd)) - Math.max(0, Math.min(projectedStart, projectedEnd)));
+      return overlap >= Math.min(edgeLength, wall.lengthPx) * 0.35;
+    });
+    if (matches.length) {
+      matchedEdges += 1;
+      matches.forEach((wall) => matchedIds.add(wall.id));
+    }
+  }
+  const totalEdges = polygon.length;
+  return { boundaryWallIds: [...matchedIds], matchedEdges, totalEdges, coverage: totalEdges ? matchedEdges / totalEdges : 0 };
+}
+
 export function reconcilePlan(
   cv: CvTraceResult,
   vision: VisionSemanticResult,
@@ -205,19 +243,26 @@ export function reconcilePlan(
     reviewFlags.push('Vision wall candidates did not geometrically align with CV wall traces — inspect source alignment before approving walls.');
   }
 
-  // 2. Rooms: keep the vision model's label/type (semantics), but note we
-  // are NOT trusting its polygon for final geometry -- that should be
-  // derived from the approved wall graph once the designer confirms room
-  // boundaries in the review canvas. Here we just carry the semantic hint
-  // forward with an explicit confidence, not as measured fact.
-  const rooms: ReconciledRoom[] = vision.rooms.map(r => ({
-    label: r.label,
-    roomType: r.roomType,
-    boundaryWallIds: [], // populated by the designer during review, not guessed here
-    semanticConfidence: r.confidence,
-  }));
+  // 2. Keep vision room polygons as editable proposals, then cross-check each
+  // edge against independent CV traces. This uses a structured-polygon
+  // confidence signal without treating AI geometry as measurement or approval.
+  const rooms: ReconciledRoom[] = vision.rooms.map((r) => {
+    const evidence = polygonEdgeEvidence(r.approxPolygonPx, cv.walls, tolerancePx);
+    const status = evidence.coverage >= 0.75 ? 'candidate' : evidence.coverage > 0 ? 'partial' : 'unconfirmed';
+    return {
+      label: r.label,
+      roomType: r.roomType,
+      boundaryWallIds: evidence.boundaryWallIds,
+      boundaryEvidence: { ...evidence, status },
+      semanticConfidence: r.confidence,
+    };
+  });
   if (rooms.some(r => r.semanticConfidence < 0.7)) {
     reviewFlags.push('One or more room labels have low confidence — confirm room type manually during review.');
+  }
+
+  if (rooms.some((room) => room.boundaryEvidence.status !== 'candidate')) {
+    reviewFlags.push('One or more room boundaries only partially align with traced walls; adjust the editable room outline before approval.');
   }
 
   // 3. Cross-check: does every vision-detected room roughly correspond to
