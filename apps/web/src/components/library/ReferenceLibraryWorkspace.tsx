@@ -39,6 +39,10 @@ type Material = {
   supplier?: string | null;
   finish?: string | null;
   availability?: string | null;
+  thickness_mm?: number | null;
+  edge_band_thickness_mm?: number | null;
+  edge_band_material?: string | null;
+  edge_band_status?: string | null;
 };
 
 function apiBase() {
@@ -49,7 +53,9 @@ function apiBase() {
 }
 
 function materialSubtitle(material: Material) {
-  return [material.category, material.finish, material.supplier, material.availability]
+  const thickness = material.thickness_mm ? `${material.thickness_mm}mm sheet` : '';
+  const edge = material.edge_band_status === 'not_required' ? 'edge band integrated' : material.edge_band_thickness_mm ? `${material.edge_band_thickness_mm}mm edge` : '';
+  return [material.category, material.finish, thickness, edge, material.supplier, material.availability]
     .filter(Boolean)
     .join(' · ');
 }
