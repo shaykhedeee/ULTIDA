@@ -169,10 +169,28 @@ async function rasterizePdf(bytes: Uint8Array) {
   const inputPath = join(directory, 'source.pdf'); const outputPrefix = join(directory, 'page');
   try {
     await writeFile(inputPath, bytes);
-    await execFileAsync(process.env.PDFTOPPM_PATH || 'pdftoppm', ['-f', '1', '-singlefile', '-png', '-r', '180', inputPath, outputPrefix], { windowsHide: true, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 });
-    return await readFile(`${outputPrefix}.png`);
-  } catch (error) {
-    throw new Error(`PDF rasterization failed. Install Poppler pdftoppm on the API host or set PDFTOPPM_PATH. ${error instanceof Error ? error.message : ''}`.trim());
+    try {
+      await execFileAsync(process.env.PDFTOPPM_PATH || 'pdftoppm', ['-f', '1', '-singlefile', '-png', '-r', '180', inputPath, outputPrefix], { windowsHide: true, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 });
+      return await readFile(`${outputPrefix}.png`);
+    } catch (popplerError) {
+      // Vercel does not guarantee a Poppler binary. Sharp's bundled libvips can
+      // render the first PDF page on supported builds, so use it before failing
+      // the durable job. This keeps PDF and image sources on the exact same
+      // normalisation/vision path and prevents a missing OS executable from
+      // leaving the designer with an apparently queued analysis.
+      try {
+        return await sharp(Buffer.from(bytes), { density: 180, pages: 1, failOn: 'none' })
+          .flatten({ background: '#ffffff' })
+          .png({ compressionLevel: 9 })
+          .toBuffer();
+      } catch (sharpError) {
+        const popplerDetail = popplerError instanceof Error ? popplerError.message : String(popplerError);
+        const sharpDetail = sharpError instanceof Error ? sharpError.message : String(sharpError);
+        const error = new Error(`PDF_RASTERIZATION_UNAVAILABLE: the first page could not be rendered by Poppler or the built-in image decoder. Install Poppler (pdftoppm) on the API host, set PDFTOPPM_PATH, or upload page one as PNG/JPG. Poppler: ${popplerDetail}. Decoder: ${sharpDetail}`);
+        (error as Error & { code?: string }).code = 'PDF_RASTERIZATION_UNAVAILABLE';
+        throw error;
+      }
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -363,7 +381,8 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       }
       await client.from('jobs').update({ status: 'succeeded', output: persistedOutput, error: null, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
     } catch (error) {
-      await client.from('jobs').update({ status: 'failed', error: { code: 'PLAN_ANALYSIS_FAILED', message: error instanceof Error ? error.message : 'Plan analysis failed.' }, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
+      const typedError = error as Error & { code?: string };
+      await client.from('jobs').update({ status: 'failed', error: { code: typedError.code ?? 'PLAN_ANALYSIS_FAILED', message: error instanceof Error ? error.message : 'Plan analysis failed.' }, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
     }
   }
 }
