@@ -1,4 +1,4 @@
-import { ArrowRight, Box, FileOutput, Image, LayoutTemplate, Layers3, PackageCheck, Plus, Ruler, Sparkles, Wand2, Workflow } from 'lucide-react';
+import { ArrowRight, Box, CalendarDays, FileOutput, FileText, Image, LayoutTemplate, Layers3, PackageCheck, Plus, Ruler, Wand2, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -65,6 +65,8 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           <button onClick={() => openTool('/tools/modules')}><Box size={17} /><span><strong>Plan a modular unit</strong><small>TV, crockery, wardrobe, kitchen</small></span><ArrowRight size={15} /></button>
           <button onClick={() => openTool('/tools/cnc')}><LayoutTemplate size={17} /><span><strong>Create a CNC pattern</strong><small>Size a reviewed DXF template</small></span><ArrowRight size={15} /></button>
           <button onClick={() => openTool('/library')}><Image size={17} /><span><strong>Browse references</strong><small>Module families and studio vault</small></span><ArrowRight size={15} /></button>
+          <button onClick={() => openTool('/tools/calendar')}><CalendarDays size={17} /><span><strong>Plan studio dates</strong><small>Visits, reviews and milestones</small></span><ArrowRight size={15} /></button>
+          <button onClick={() => openTool('/tools/invoices')}><FileText size={17} /><span><strong>Manage invoices</strong><small>Project-linked finance records</small></span><ArrowRight size={15} /></button>
         </div>
       </section>
 
@@ -83,6 +85,8 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           <button className="studio-tool-card" onClick={() => openTool('/library')}><span className="tool-icon"><Workflow size={20} /></span><strong>Furniture catalogue</strong><p>Filter visual, dimensioned templates by module family, room and design intent.</p><span>Browse modules <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card" onClick={() => openTool('/projects')}><span className="tool-icon"><Wand2 size={20} /></span><strong>Laminate preview</strong><p>Apply a saved material and produce a scene-locked render proposal from an approved scene.</p><span>Choose a project <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card" onClick={() => openTool('/tools/cnc')}><span className="tool-icon"><LayoutTemplate size={20} /></span><strong>CNC pattern studio</strong><p>Use an image as a design reference, select a vetted pattern, size it and download DXF.</p><span>Open CNC tool <ArrowRight size={14} /></span></button>
+          <button className="studio-tool-card" onClick={() => openTool('/tools/calendar')}><span className="tool-icon"><CalendarDays size={20} /></span><strong>Studio calendar</strong><p>Keep site visits, client reviews, deliveries, payment dates and milestones in one place.</p><span>Open calendar <ArrowRight size={14} /></span></button>
+          <button className="studio-tool-card" onClick={() => openTool('/tools/invoices')}><span className="tool-icon"><FileText size={20} /></span><strong>Invoice workspace</strong><p>Prepare project-linked invoices from approved commercial work with transparent totals.</p><span>Open invoices <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card" onClick={() => openTool('/projects')}><span className="tool-icon"><FileOutput size={20} /></span><strong>Cutlist & production</strong><p>Generate panel, edging and hardware schedules from approved scene geometry.</p><span>Open production <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card" onClick={() => openTool('/library')}><span className="tool-icon"><Image size={20} /></span><strong>Moodboard library</strong><p>Build a governed material palette from your studio’s saved product library.</p><span>Open materials <ArrowRight size={14} /></span></button>
         </div>
