@@ -22,3 +22,4 @@ export const AURA_TOOLS: AuraTool[] = [
 export function listAuraTools(group?: AuraTool['group']) { return group ? AURA_TOOLS.filter((tool) => tool.group === group) : AURA_TOOLS; }
 
 export * from './audit.js';
+export * from './chat.js';

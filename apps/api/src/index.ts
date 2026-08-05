@@ -26,7 +26,7 @@ import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, l
 import { CanonicalPlanModelSchema, parsePlanIntake } from '@ultida/plan-core';
 import { validateGeometry } from '@ultida/geometry-core';
 import { analyzePlanWithProvider } from './plan-analyzer.js';
-import { AURA_TOOLS, listAuraTools, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
+import { AURA_TOOLS, listAuraTools, planAuraMessage, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
 import { buildDrawingProjection, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateSketchUpRubyScript } from '@ultida/drawing-core';
@@ -963,11 +963,16 @@ app.post('/api/projects/:projectId/aura/chat', requireProjectUser, async (reques
   const message = typeof request.body?.message === 'string' ? request.body.message.trim().slice(0, 1200) : '';
   if (!message) return response.status(400).json({ success: false, code: 'AURA_MESSAGE_REQUIRED', message: 'Tell AURA what you want to inspect or propose.' });
   const lowered = message.toLowerCase();
+  const plan = planAuraMessage(message);
   const tools = listAuraTools().filter((tool) => tool.capability !== 'not_enabled');
   const matches = tools.filter((tool) => [tool.id, tool.label, tool.description].some((value) => lowered.includes(value.toLowerCase().split(' ')[0])));
   const suggested = matches.length ? matches : tools.filter((tool) => tool.group === (lowered.includes('kitchen') || lowered.includes('wardrobe') || lowered.includes('tv') ? 'scene' : lowered.includes('laminate') || lowered.includes('render') ? 'visual' : 'scene'));
   const memory = await getRequestSupabaseClient(request).from('studio_design_decisions').select('decision_type,decision,subject,created_at').eq('organization_id', authReq.ultidaUser!.organizationId).eq('project_id', String(request.params.projectId)).order('created_at', { ascending: false }).limit(20);
-  return response.json({ success: true, message: 'I can prepare a supervised proposal. Nothing will change until you review and approve it.', tools: suggested.map((tool) => ({ id: tool.id, label: tool.label, mode: tool.mode, requires: tool.requires })), memory: { decisions: memory.error ? [] : (memory.data ?? []), usedForRanking: !memory.error }, next: suggested[0] ? { method: 'POST', path: `/api/aura/tools/${suggested[0].id}/preview`, body: { projectId: request.params.projectId } } : null, safety: { geometryAuthority: 'scene.v1', requiresApproval: true, rollback: true } });
+  // Never hand the client a next action that the current deployment marks as
+  // unavailable. The intent parser may identify a future capability, but the
+  // chat response must offer only an enabled recovery path.
+  const selected = (plan.tool?.capability === 'preview' ? plan.tool : null) ?? suggested[0] ?? null;
+  return response.json({ success: true, message: plan.intent === 'unknown' ? plan.clarification : `I understand this as: ${plan.summary} Nothing will change until you review and approve a proposal.`, plan, tools: suggested.map((tool) => ({ id: tool.id, label: tool.label, mode: tool.mode, requires: tool.requires })), memory: { decisions: memory.error ? [] : (memory.data ?? []), usedForRanking: !memory.error }, next: selected ? { method: 'POST', path: `/api/aura/tools/${selected.id}/preview`, body: { projectId: request.params.projectId } } : null, safety: { geometryAuthority: 'scene.v1', requiresApproval: true, rollback: true } });
 });
 
 app.get('/api/studio/calendar', requireProjectUser, async (request, response) => {
