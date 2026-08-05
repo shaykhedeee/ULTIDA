@@ -182,6 +182,7 @@ app.get('/api/health', async (_request, response) => {
     process.env.GEMINI_API_KEY ||
     process.env.GOOGLE_AI_STUDIO_KEY_1 ||
     process.env.GOOGLE_AI_STUDIO_KEY_2 ||
+    process.env.FLOORPLAN_VISION_URL ||
     (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN && process.env.CLOUDFLARE_VISION_MODEL)
   );
   return response.status(200).json({

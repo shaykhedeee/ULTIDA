@@ -6,12 +6,13 @@ import type { VisionProvider } from './plan-vision-provider.js';
 import { OpenAIVisionProvider } from './providers/openai-vision.js';
 import { GeminiVisionProvider } from './providers/gemini-vision.js';
 import { CloudflareVisionProvider } from './providers/cloudflare-vision.js';
+import { StructuredFloorplanVisionProvider } from './providers/structured-floorplan-vision.js';
 import { getVisionProvider } from './plan-vision-factory.js';
 
 export { PlanVisionOutputSchema, normalizeVisionOutput };
 export type { PlanVisionOutput };
 export type { VisionProvider };
-export { OpenAIVisionProvider, GeminiVisionProvider, CloudflareVisionProvider, getVisionProvider };
+export { OpenAIVisionProvider, GeminiVisionProvider, CloudflareVisionProvider, StructuredFloorplanVisionProvider, getVisionProvider };
 
 export const AgentExecutionStatusSchema = z.enum([
   'queued', 'validating', 'running', 'awaiting_confirmation', 'succeeded', 'failed', 'cancelled'

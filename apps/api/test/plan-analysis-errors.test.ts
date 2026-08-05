@@ -10,6 +10,32 @@ test('getVisionProvider returns null when no keys configured (fail visibly)', ()
   assert.equal(provider, null);
 });
 
+test('structured floor-plan provider is server-only, validates output, and normalizes aliases', async () => {
+  const provider = getVisionProvider({ FLOORPLAN_VISION_URL: 'https://floorplan.internal/analyze', FLOORPLAN_VISION_MODEL: 'polyroom' });
+  assert.ok(provider);
+  assert.equal(provider.name, 'structured-floorplan');
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    const request = JSON.parse(String(init?.body));
+    assert.equal(request.model, 'polyroom');
+    assert.equal(request.mimeType, 'image/png');
+    return new Response(JSON.stringify({ output: {
+      roomCandidates: [{ points: [[0, 0], [100, 0], [100, 100], [0, 100]], confidence: 0.9 }],
+      wallCandidates: [{ p1: [0, 0], p2: [100, 0], confidence: 0.8 }],
+      assumptions: ['model output is provisional'],
+    } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const result = await provider!.analyze('base64-image', 'image/png', 'extract plan', 'req-1');
+    assert.equal(result.output.roomCandidates[0].polygon.length, 4);
+    assert.equal(result.output.wallCandidates[0].x2, 100);
+    assert.equal(result.metadata.model, 'polyroom');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('analyzePlanFile throws AI_PROVIDER_NOT_CONFIGURED when no provider available', async () => {
   const buffer = await readFile(new URL('../../../floorplan analyser/ultida-flow-kit/proof/test_floorplan_input.png', import.meta.url));
   // Clear all provider env for this process
