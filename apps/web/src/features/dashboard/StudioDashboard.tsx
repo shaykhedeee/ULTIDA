@@ -5,6 +5,8 @@ import { supabase } from '../../lib/supabase';
 import './studio-dashboard.css';
 
 type Project = { id: string; name: string; client_name: string; workflow_stage: string; project_status: string; updated_at: string };
+type Review = { project_id: string; stage: string; status: string; assigned_to?: string | null };
+type Risk = { project_id: string; stage: string; severity: string; title: string; status: string };
 
 const stageLabels: Record<string, string> = {
   brief: 'Brief', plan: 'Floor plan review', spaces: 'Spaces', layouts: 'Layouts', modules: 'Modules',
@@ -23,6 +25,8 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [risks, setRisks] = useState<Risk[]>([]);
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -33,6 +37,15 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
       .order('updated_at', { ascending: false })
       .limit(6);
     setProjects((data ?? []) as Project[]);
+    const membership = await supabase.from('organization_members').select('organization_id').limit(1).maybeSingle();
+    if (membership.data?.organization_id) {
+      const [reviewResult, riskResult] = await Promise.all([
+        supabase.from('project_stage_reviews').select('project_id,stage,status,assigned_to').eq('organization_id', membership.data.organization_id).order('updated_at', { ascending: false }),
+        supabase.from('project_risks').select('project_id,stage,severity,title,status').eq('organization_id', membership.data.organization_id).neq('status', 'closed').order('created_at', { ascending: false }),
+      ]);
+      setReviews((reviewResult.data ?? []) as Review[]);
+      setRisks((riskResult.data ?? []) as Risk[]);
+    }
     setLoading(false);
   }, []);
 
@@ -44,6 +57,8 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
   const openProjectStage = (project: Project) => navigate(`/projects/${project.id}/${project.workflow_stage || 'brief'}`);
   const openTool = (path: string) => navigate(path);
   const hasProjects = projects.length > 0;
+  const pendingReviews = reviews.filter((review) => ['pending', 'changes_requested'].includes(review.status));
+  const urgentRisks = risks.filter((risk) => ['high', 'critical'].includes(risk.severity));
 
   return (
     <div className="studio-dashboard">
@@ -75,6 +90,11 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         <div><span>Needs review</span><strong>{loading ? '—' : inReview}</strong><small>designer attention required</small></div>
         <div><span>Production-ready</span><strong>{loading ? '—' : projects.filter((p) => p.project_status === 'approved').length}</strong><small>approved projects</small></div>
         <div><span>Next action</span><strong className="status-ready">{loading ? '…' : hasProjects ? 'Continue' : 'Create'}</strong><small>{hasProjects ? 'resume an active project' : 'start your first project'}</small></div>
+      </section>
+
+      <section className="studio-operations-pulse" aria-label="Operations pulse">
+        <div className="studio-pulse-card"><div className="studio-section-heading"><div><p className="studio-kicker">OPERATIONS PULSE</p><h2>Keep every handoff accountable</h2></div><button onClick={() => openTool('/projects')}>Open project reviews <ArrowRight size={15} /></button></div><div className="studio-pulse-grid"><div><strong>{pendingReviews.length}</strong><span>reviews awaiting a decision</span><small>Plan · scene · cutlist · quote · delivery</small></div><div><strong>{risks.length}</strong><span>open risks across your portfolio</span><small>{urgentRisks.length ? `${urgentRisks.length} need attention today` : 'Nothing high priority right now'}</small></div><div><strong>Version-linked</strong><span>comments and change history</span><small>Every handoff stays traceable to its source</small></div></div></div>
+        <div className="studio-risk-list"><p className="studio-kicker">WATCH LIST</p><h3>Latest blockers</h3>{risks.slice(0, 3).map((risk) => <button key={`${risk.project_id}-${risk.title}`} onClick={() => openTool(`/projects/${risk.project_id}`)}><span className={`risk-dot ${risk.severity}`} /><span><strong>{risk.title}</strong><small>{stageLabels[risk.stage] ?? risk.stage} · {risk.severity}</small></span><ArrowRight size={14} /></button>)}{!risks.length && <p className="studio-muted">No open risks. Your team is clear to move work forward.</p>}</div>
       </section>
 
       <section className="studio-section">

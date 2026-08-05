@@ -1002,6 +1002,49 @@ app.post('/api/studio/invoices', requireProjectUser, async (request, response) =
   return response.status(201).json({ success: true, invoice: result.data });
 });
 
+// Project command-centre operations: one accountable review per launch stage,
+// with version-linked comments and explicit risks. These are additive to the
+// existing approvals audit trail and are safe for Initial Design work.
+const operationStages = new Set(['plan', 'scene', 'cutlist', 'quote', 'delivery']);
+app.get('/api/projects/:projectId/operations', requireProjectUser, async (request, response) => {
+  const client = getRequestSupabaseClient(request); const projectId = String(request.params.projectId);
+  const [reviews, risks, comments, materials] = await Promise.all([
+    client.from('project_stage_reviews').select('*').eq('project_id', projectId).order('stage'),
+    client.from('project_risks').select('*').eq('project_id', projectId).neq('status', 'closed').order('created_at', { ascending: false }),
+    client.from('project_version_comments').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(100),
+    client.from('project_material_readiness').select('*').eq('project_id', projectId).order('updated_at', { ascending: false }),
+  ]);
+  const failed = [reviews, risks, comments, materials].find((result) => result.error);
+  if (failed?.error) return response.status(500).json({ success: false, code: 'OPERATIONS_READ_FAILED', message: failed.error.message });
+  return response.json({ success: true, reviews: reviews.data ?? [], risks: risks.data ?? [], comments: comments.data ?? [], materialReadiness: materials.data ?? [] });
+});
+
+app.put('/api/projects/:projectId/operations/reviews/:stage', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest; const stage = String(request.params.stage);
+  if (!operationStages.has(stage)) return response.status(400).json({ success: false, code: 'INVALID_OPERATION_STAGE', message: 'Unsupported project review stage.' });
+  const body = request.body ?? {}; const status = ['pending','changes_requested','approved','rejected'].includes(String(body.status)) ? String(body.status) : 'pending';
+  const result = await getRequestSupabaseClient(request).from('project_stage_reviews').upsert({ organization_id: authReq.ultidaUser!.organizationId, project_id: String(request.params.projectId), stage, status, assigned_to: typeof body.assignedTo === 'string' ? body.assignedTo : null, reviewer_id: status === 'pending' ? null : authReq.ultidaUser!.id, version_id: typeof body.versionId === 'string' ? body.versionId : null, notes: typeof body.notes === 'string' ? body.notes.slice(0, 2000) : '', decided_at: status === 'pending' ? null : new Date().toISOString(), created_by: authReq.ultidaUser!.id, updated_at: new Date().toISOString() }, { onConflict: 'project_id,stage' }).select('*').single();
+  if (result.error) return response.status(500).json({ success: false, code: 'REVIEW_WRITE_FAILED', message: result.error.message });
+  return response.json({ success: true, review: result.data });
+});
+
+app.post('/api/projects/:projectId/operations/comments', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest; const body = request.body ?? {};
+  if (typeof body.body !== 'string' || !body.body.trim() || typeof body.stage !== 'string') return response.status(400).json({ success: false, code: 'INVALID_COMMENT', message: 'Stage and comment body are required.' });
+  const result = await getRequestSupabaseClient(request).from('project_version_comments').insert({ organization_id: authReq.ultidaUser!.organizationId, project_id: String(request.params.projectId), stage: body.stage.slice(0, 40), version_id: typeof body.versionId === 'string' ? body.versionId : null, body: body.body.trim().slice(0, 4000), author_id: authReq.ultidaUser!.id }).select('*').single();
+  if (result.error) return response.status(500).json({ success: false, code: 'COMMENT_WRITE_FAILED', message: result.error.message });
+  return response.status(201).json({ success: true, comment: result.data });
+});
+
+app.post('/api/projects/:projectId/operations/risks', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest; const body = request.body ?? {};
+  if (typeof body.title !== 'string' || !body.title.trim()) return response.status(400).json({ success: false, code: 'INVALID_RISK', message: 'Risk title is required.' });
+  const severity = ['low','medium','high','critical'].includes(String(body.severity)) ? String(body.severity) : 'medium';
+  const result = await getRequestSupabaseClient(request).from('project_risks').insert({ organization_id: authReq.ultidaUser!.organizationId, project_id: String(request.params.projectId), stage: typeof body.stage === 'string' ? body.stage.slice(0, 40) : 'plan', severity, title: body.title.trim().slice(0, 180), description: typeof body.description === 'string' ? body.description.slice(0, 2000) : '', owner_id: typeof body.ownerId === 'string' ? body.ownerId : null, created_by: authReq.ultidaUser!.id }).select('*').single();
+  if (result.error) return response.status(500).json({ success: false, code: 'RISK_WRITE_FAILED', message: result.error.message });
+  return response.status(201).json({ success: true, risk: result.data });
+});
+
 // Phase 2: Designer Draft Review Persistence Endpoints
 app.get('/api/projects/:projectId/plan-draft', requireProjectUser, async (request, response) => {
   const client = getRequestSupabaseClient(request);
