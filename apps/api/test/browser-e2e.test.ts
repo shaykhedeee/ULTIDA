@@ -9,7 +9,13 @@ async function withServer<T>(callback: (baseUrl: string) => Promise<T>) {
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address() as AddressInfo;
-  try { return await callback(`http://127.0.0.1:${address.port}`); } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+  try { return await callback(`http://127.0.0.1:${address.port}`); } finally {
+    // Chromium can keep the fetch socket alive briefly after the page closes.
+    // Close idle/active connections explicitly so the TAP child can terminate.
+    server.closeIdleConnections?.();
+    server.closeAllConnections?.();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 }
 
 test('Browser headless verification of api documentation & status endpoints', async () => {

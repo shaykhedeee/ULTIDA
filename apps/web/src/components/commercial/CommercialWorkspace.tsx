@@ -1,19 +1,25 @@
 import { Calculator, CircleAlert, FileText, LockKeyhole } from 'lucide-react';
 import { useState } from 'react';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
+import { getSupabaseBrowserClient } from '../../lib/supabase';
 
-type Props = { briefSaved: boolean; planApproved: boolean; sceneVersionId: string | null; moduleCount: number };
+type Props = { projectId: string | null; briefSaved: boolean; planApproved: boolean; sceneVersionId: string | null; moduleCount: number };
 type Totals = { grandTotalInr: number; subtotalInr: number; gstInr: number };
 
-export function CommercialWorkspace({ briefSaved, planApproved, sceneVersionId, moduleCount }: Props) {
+export function CommercialWorkspace({ projectId, briefSaved, planApproved, sceneVersionId, moduleCount }: Props) {
   const ready = Boolean(briefSaved && planApproved && sceneVersionId && moduleCount);
   const [unitRate, setUnitRate] = useState('0'); const [labour, setLabour] = useState('0'); const [gstRate, setGstRate] = useState('0.18'); const [marginRate, setMarginRate] = useState('0.1');
   const [quote, setQuote] = useState<Totals | null>(null); const [quoteState, setQuoteState] = useState('Enter studio rates to calculate an estimate.');
   async function calculateEstimate() {
-    if (!ready || !sceneVersionId) return;
+    if (!ready || !sceneVersionId || !projectId) return;
     setQuoteState('Calculating estimate...');
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api'}/commercial/estimates`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: 'current-project', sceneVersionId, lines: [{ id: 'scene-modules', description: 'Approved modular scene scope', category: 'modular_unit', quantity: moduleCount, unit: 'module', unitRateInr: Number(unitRate), labourInr: Number(labour) }], gstRate: Number(gstRate), marginRate: Number(marginRate) }) });
+      const browserClient = getSupabaseBrowserClient();
+      if (!browserClient) return setQuoteState('Supabase is not configured in this browser.');
+      const session = await browserClient.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (!token) return setQuoteState('Sign in again before calculating an estimate.');
+      const response = await fetch(`${import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api'}/commercial/estimates`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ projectId, sceneVersionId, lines: [{ id: 'scene-modules', description: 'Approved modular scene scope', category: 'modular_unit', quantity: moduleCount, unit: 'module', unitRateInr: Number(unitRate), labourInr: Number(labour) }], gstRate: Number(gstRate), marginRate: Number(marginRate) }) });
       const payload = await response.json(); if (!response.ok) return setQuoteState(payload.message ?? 'Estimate could not be calculated.');
       setQuote(payload.estimate.totals); setQuoteState('Draft estimate calculated. Review rates before issuing.');
     } catch { setQuoteState('Commercial service unavailable. The scene is unchanged.'); }

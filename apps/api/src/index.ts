@@ -18,7 +18,7 @@ if (existsSync(localEnv)) {
 }
 
 import { getRequestSupabaseClient, getServerSupabaseClient } from './supabase.js';
-import { authenticateProjectUser, requireProjectUser } from './api-auth.js';
+import { authenticateProjectUser, requireProjectUser, requireStudioUser } from './api-auth.js';
 import { MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, VisualProposalRequestSchema, validateProjectBrief } from '@ultida/contracts';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { SceneV1Schema } from '@ultida/scene-core';
@@ -977,7 +977,7 @@ app.post('/api/projects/:projectId/aura/chat', requireProjectUser, async (reques
   return response.json({ success: true, message: plan.intent === 'unknown' ? plan.clarification : `I understand this as: ${plan.summary} Nothing will change until you review and approve a proposal.`, plan, tools: suggested.map((tool) => ({ id: tool.id, label: tool.label, mode: tool.mode, requires: tool.requires })), memory: { decisions: memory.error ? [] : (memory.data ?? []), usedForRanking: !memory.error }, next: selected && sceneVersionId ? { method: 'POST', path: `/api/aura/tools/${selected.id}/preview`, body: { projectId: request.params.projectId, sceneVersionId, roomId: 'living', widthMm: selected.id === 'place_modular_kitchen' ? 3000 : 1800, laminate: 'Cubex Neutral Sand' } } : null, safety: { geometryAuthority: 'scene.v1', requiresApproval: true, rollback: true }, recovery: sceneVersionId ? undefined : 'Approve a scene version before asking AURA to prepare a proposal.' });
 });
 
-app.get('/api/studio/calendar', requireProjectUser, async (request, response) => {
+app.get('/api/studio/calendar', requireStudioUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const from = typeof request.query.from === 'string' ? request.query.from : new Date().toISOString();
   const to = typeof request.query.to === 'string' ? request.query.to : new Date(Date.now() + 45 * 86400000).toISOString();
@@ -986,27 +986,35 @@ app.get('/api/studio/calendar', requireProjectUser, async (request, response) =>
   return response.json({ success: true, events: result.data ?? [] });
 });
 
-app.post('/api/studio/calendar', requireProjectUser, async (request, response) => {
+async function studioProjectIsAccessible(request: express.Request, organizationId: string, projectId: unknown): Promise<boolean> {
+  if (typeof projectId !== 'string' || !projectId) return true;
+  const result = await getRequestSupabaseClient(request).from('projects').select('id').eq('id', projectId).eq('organization_id', organizationId).maybeSingle();
+  return !result.error && Boolean(result.data);
+}
+
+app.post('/api/studio/calendar', requireStudioUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const body = request.body ?? {};
   if (typeof body.title !== 'string' || !body.title.trim() || !body.startsAt || Number.isNaN(Date.parse(body.startsAt))) return response.status(400).json({ success: false, code: 'INVALID_CALENDAR_EVENT', message: 'A title and valid startsAt value are required.' });
+  if (!(await studioProjectIsAccessible(request, authReq.ultidaUser!.organizationId!, body.projectId))) return response.status(422).json({ success: false, code: 'STUDIO_PROJECT_INVALID', message: 'Choose a project that belongs to this studio.' });
   const result = await getRequestSupabaseClient(request).from('studio_calendar_events').insert({ organization_id: authReq.ultidaUser!.organizationId, project_id: typeof body.projectId === 'string' ? body.projectId : null, title: body.title.trim().slice(0, 160), event_type: body.eventType ?? 'milestone', starts_at: body.startsAt, ends_at: body.endsAt ?? null, notes: typeof body.notes === 'string' ? body.notes.slice(0, 2000) : '', assigned_to: body.assignedTo ?? null, created_by: authReq.ultidaUser!.id }).select('id,project_id,title,event_type,starts_at,ends_at,status,notes,assigned_to').single();
   if (result.error) return response.status(500).json({ success: false, code: 'CALENDAR_WRITE_FAILED', message: result.error.message });
   return response.status(201).json({ success: true, event: result.data });
 });
 
-app.get('/api/studio/invoices', requireProjectUser, async (request, response) => {
+app.get('/api/studio/invoices', requireStudioUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const result = await getRequestSupabaseClient(request).from('studio_invoices').select('id,project_id,quote_id,invoice_number,client_name,currency,items,subtotal,tax,total,status,due_date,created_at').eq('organization_id', authReq.ultidaUser!.organizationId).order('created_at', { ascending: false }).limit(200);
   if (result.error) return response.status(500).json({ success: false, code: 'INVOICE_READ_FAILED', message: result.error.message });
   return response.json({ success: true, invoices: result.data ?? [] });
 });
 
-app.post('/api/studio/invoices', requireProjectUser, async (request, response) => {
+app.post('/api/studio/invoices', requireStudioUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const body = request.body ?? {};
   const items = Array.isArray(body.items) ? body.items.filter((item: any) => item && typeof item.description === 'string' && Number(item.quantity) > 0 && Number(item.rate) >= 0).map((item: any) => ({ description: item.description.trim().slice(0, 200), quantity: Number(item.quantity), rate: Number(item.rate), amount: Number(item.quantity) * Number(item.rate) })) : [];
   if (!items.length || typeof body.invoiceNumber !== 'string' || !body.invoiceNumber.trim()) return response.status(400).json({ success: false, code: 'INVALID_INVOICE', message: 'invoiceNumber and at least one valid line item are required.' });
+  if (!(await studioProjectIsAccessible(request, authReq.ultidaUser!.organizationId!, body.projectId))) return response.status(422).json({ success: false, code: 'STUDIO_PROJECT_INVALID', message: 'Choose a project that belongs to this studio.' });
   const subtotal = items.reduce((sum: number, item: any) => sum + item.amount, 0);
   const taxRate = Math.max(0, Number(body.taxRate) || 0);
   const tax = subtotal * taxRate / 100;

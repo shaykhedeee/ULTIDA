@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
 import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { reconcilePlan, type CvTraceResult, type VisionSemanticResult } from './plan/reconcile_plan.js';
+import { resolveWallTracerPath } from './wall-tracer.js';
 
 const execFileAsync = promisify(execFile);
 type Environment = Record<string, string | undefined>;
@@ -34,21 +35,7 @@ function detectRasterMimeType(bytes: Uint8Array): string | null {
  */
 async function runCvTrace(raster: Uint8Array, mimeType: string): Promise<{ result: CvTraceResult; stderr: string } | null> {
   const python = process.env.CV_PYTHON_PATH || 'python3';
-  // The wall_tracer.py lives in src/cv (tsc does not emit .py files to dist),
-  // so resolve relative to this module and fall back to the source tree.
-  const candidates = [
-    new URL('../cv/wall_tracer.py', import.meta.url),
-    new URL('../../src/cv/wall_tracer.py', import.meta.url),
-    new URL('../../../apps/api/src/cv/wall_tracer.py', import.meta.url),
-  ];
-  let scriptPath = '';
-  for (const c of candidates) {
-    try {
-      await readFile(new URL('file://' + c.pathname));
-      scriptPath = c.pathname || c.href.replace(/^file:\/\//, '');
-      break;
-    } catch { /* try next */ }
-  }
+  const scriptPath = resolveWallTracerPath();
   if (!scriptPath) return { result: null as unknown as CvTraceResult, stderr: 'wall_tracer.py not found' };
   const dir = await mkdtemp(join(tmpdir(), 'ultida-cv-'));
   const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : mimeType === 'image/gif' ? 'gif' : 'jpg';

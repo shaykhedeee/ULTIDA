@@ -2,12 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { writeFile, mkdtemp, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import sharp from 'sharp';
 import { createWorker, type Worker } from 'tesseract.js';
 import { getVisionProvider, type PlanVisionOutput } from '@ultida/agent-core';
+import { resolveWallTracerPath } from './wall-tracer.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -112,22 +112,7 @@ export async function runWallTracer(pngPath: string): Promise<{
   walls: Array<{ x1: number; y1: number; x2: number; y2: number; thicknessPx: number }>;
   openings: Array<{ x: number; y: number; widthPx: number }>;
 } | null> {
-  // Resolve the wall_tracer.py script relative to the repo root (it lives at
-  // <repo>/floorplan analyser/ultida-flow-kit/cv/wall_tracer.py). Walk up from
-  // this module's location to find the repo root regardless of src/dist layout.
-  const { fileURLToPath } = await import('node:url');
-  let dir = dirname(fileURLToPath(import.meta.url));
-  let scriptPath = '';
-  for (let i = 0; i < 5; i++) {
-    const candidate = join(dir, 'floorplan analyser', 'ultida-flow-kit', 'cv', 'wall_tracer.py');
-    if (existsSync(candidate)) {
-      scriptPath = candidate;
-      break;
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
+  const scriptPath = resolveWallTracerPath();
   if (!scriptPath) return null;
   try {
     const outPath = `${pngPath}.cv.json`;

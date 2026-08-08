@@ -58,3 +58,21 @@ export async function requireProjectUser(request: AuthenticatedRequest, response
   response.locals = { ...(response.locals ?? {}), user: { id: actor.userId } };
   next();
 }
+
+/** Authenticate an organization-scoped studio screen without inventing a project context. */
+export async function requireStudioUser(request: AuthenticatedRequest, response: Response, next: NextFunction) {
+  const url = process.env.SUPABASE_URL;
+  const apiKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_SECRET_KEY;
+  if (!url || !apiKey) return response.status(503).json({ success: false, code: 'AUTH_UNAVAILABLE', message: 'Supabase is not configured on the server.' });
+  const authorization = request.header('authorization') ?? '';
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : authorization.trim();
+  if (!token) return response.status(401).json({ success: false, code: 'AUTH_REQUIRED', message: 'Sign in before using this studio operation.' });
+  const client = createClient(url, apiKey, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: `Bearer ${token}` } } });
+  const { data: userData, error: userError } = await client.auth.getUser(token);
+  if (userError || !userData.user) return response.status(401).json({ success: false, code: 'INVALID_SESSION', message: 'The session is invalid or expired.' });
+  const { data: membership, error: membershipError } = await client.from('organization_members').select('organization_id').eq('user_id', userData.user.id).order('created_at', { ascending: true }).limit(1).maybeSingle();
+  if (membershipError || !membership?.organization_id) return response.status(403).json({ success: false, code: 'STUDIO_ACCESS_DENIED', message: 'This user is not a member of a studio organization.' });
+  request.ultidaUser = { id: userData.user.id, projectId: '', organizationId: membership.organization_id };
+  response.locals = { ...(response.locals ?? {}), user: { id: userData.user.id } };
+  next();
+}

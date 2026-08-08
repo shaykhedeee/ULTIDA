@@ -1205,6 +1205,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         } />
         <Route path="estimate" element={
           <CommercialWorkspace
+            projectId={projectId ?? null}
             briefSaved={briefSaved}
             planApproved={planApproved}
             sceneVersionId={sceneVersionId}
