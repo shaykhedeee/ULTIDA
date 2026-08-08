@@ -181,6 +181,10 @@
 .props-body { display: flex; flex-direction: column; gap: 8px; }
 .props-body label { font-size: 11px; font-weight: 700; color: var(--text-secondary); }
 .props-body input, .props-body select { padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; }
+.furniture-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.props-body .furniture-option { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.props-body .furniture-option:has(input:checked) { border-color: var(--gold); background: rgba(197,156,45,.1); color: var(--gold-dim); }
+.props-body .furniture-option input { margin: 0; }
 .props-read { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid var(--line); padding-top: 8px; }
 .props-read div { display: flex; justify-content: space-between; font-size: 12px; }
 .detected-items { border-top: 1px solid var(--line); padding-top: 8px; font-size: 12px; color: var(--text-secondary); }

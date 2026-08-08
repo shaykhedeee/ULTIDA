@@ -20,7 +20,18 @@ import './spaces.css';
 
 type Pt = { xMm: number; yMm: number };
 
-interface PlanRoom { id: string; name: string; roomType: string; polygon: Pt[]; areaSqm: number; ceilingHeightMm?: number; included?: boolean; }
+interface PlanRoom {
+  id: string;
+  spaceRecordId?: string | null;
+  name: string;
+  roomType: string;
+  polygon: Pt[];
+  areaSqm: number;
+  ceilingHeightMm?: number;
+  requiredFurniture: string[];
+  verificationStatus?: string;
+  included?: boolean;
+}
 interface PlanWall { id: string; start: Pt; end: Pt; isExterior?: boolean }
 interface PlanOpening { id: string; wallId: string; kind: string; offsetAlongWallMm: number; widthMm?: number }
 interface PlanColumn { id: string; position: Pt; sizeMm?: number }
@@ -29,9 +40,27 @@ interface PlanService { id: string; kind: string; position: Pt }
 interface PlanAnnotation { id: string; text: string; kind: string; position?: Pt }
 
 const ROOM_TYPES: Record<string, string> = {
-  living: 'Living Room', bedroom: 'Bedroom', kitchen: 'Kitchen', dining: 'Dining Room',
-  utility: 'Utility', pooja: 'Pooja Room', bathroom: 'Bathroom', other: 'Other'
+  living: 'Living Room', bedroom: 'Bedroom', master_bedroom: 'Master Bedroom', kids_bedroom: 'Kids Bedroom', kitchen: 'Kitchen', dining: 'Dining Room',
+  utility: 'Utility', pooja: 'Pooja Room', bathroom: 'Bathroom', study: 'Study', foyer: 'Foyer', other: 'Other'
 };
+
+const FURNITURE_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
+  living: [{ id: 'tv_unit', label: 'TV unit' }, { id: 'crockery_unit', label: 'Crockery unit' }, { id: 'sofa', label: 'Seating' }, { id: 'pooja_unit', label: 'Pooja unit' }],
+  bedroom: [{ id: 'wardrobe', label: 'Wardrobe' }, { id: 'bed', label: 'Bed' }, { id: 'study_unit', label: 'Study unit' }, { id: 'tv_unit', label: 'TV unit' }],
+  kitchen: [{ id: 'kitchen_base', label: 'Kitchen base units' }, { id: 'kitchen_wall', label: 'Kitchen wall units' }, { id: 'kitchen_tall', label: 'Tall unit' }, { id: 'utility_unit', label: 'Utility unit' }],
+  dining: [{ id: 'crockery_unit', label: 'Crockery unit' }, { id: 'dining_table', label: 'Dining table' }, { id: 'storage_unit', label: 'Storage unit' }],
+  utility: [{ id: 'utility_unit', label: 'Utility unit' }, { id: 'storage_unit', label: 'Storage unit' }],
+  pooja: [{ id: 'pooja_unit', label: 'Pooja unit' }, { id: 'storage_unit', label: 'Storage unit' }],
+  bathroom: [{ id: 'vanity_unit', label: 'Vanity unit' }, { id: 'storage_unit', label: 'Storage unit' }],
+  study: [{ id: 'study_unit', label: 'Study unit' }, { id: 'storage_unit', label: 'Storage unit' }],
+  foyer: [{ id: 'shoe_unit', label: 'Shoe unit' }, { id: 'foyer_console', label: 'Foyer console' }],
+  other: [{ id: 'storage_unit', label: 'Storage unit' }, { id: 'study_unit', label: 'Study unit' }, { id: 'tv_unit', label: 'TV unit' }],
+};
+
+function furnitureOptionsFor(roomType: string) {
+  if (roomType === 'master_bedroom' || roomType === 'kids_bedroom') return FURNITURE_OPTIONS.bedroom;
+  return FURNITURE_OPTIONS[roomType] ?? FURNITURE_OPTIONS.other;
+}
 
 function bbox(points: Pt[]) {
   const xs = points.map(p => p.xMm), ys = points.map(p => p.yMm);
@@ -90,7 +119,7 @@ export function SpacesWorkspace() {
       const payload = await response.json().catch(() => null);
       if (!live) return;
       if (!response.ok) { setLoadState(response.status === 409 ? 'blocked' : 'error'); setSaveState(payload?.message ?? 'Approved plan could not be loaded.'); return; }
-      const roomsP: PlanRoom[] = (payload.rooms ?? []).map((r: any) => ({ id: r.id, name: r.name, roomType: r.roomType ?? 'other', polygon: r.polygon ?? [], areaSqm: r.areaSqm ?? polyArea(r.polygon ?? []), ceilingHeightMm: r.ceilingHeightMm, included: true }));
+      const roomsP: PlanRoom[] = (payload.rooms ?? []).map((r: any) => ({ id: r.id, spaceRecordId: r.spaceRecordId, name: r.name, roomType: r.roomType ?? 'other', polygon: r.polygon ?? [], areaSqm: r.areaSqm ?? polyArea(r.polygon ?? []), ceilingHeightMm: r.ceilingHeightMm, requiredFurniture: Array.isArray(r.requiredFurniture) ? r.requiredFurniture : [], verificationStatus: r.verificationStatus, included: true }));
       if (!live) return;
       setPlan({ ceilingHeightMm: payload.ceilingHeightMm, walls: payload.walls, rooms: payload.rooms, openings: payload.openings, services: payload.services, obstacles: payload.columns } as any);
       setRooms(roomsP); setWalls(payload.walls ?? []); setOpenings(payload.openings ?? []);
@@ -121,7 +150,7 @@ export function SpacesWorkspace() {
     const usable = computeUsableWallLength(roomWalls.map(w => ({ id: w.id, lengthMm: wallLen(w) })), deductions);
     const readiness = computeSpaceReadiness(
       { spaceId: room.id, areaSqm: room.areaSqm, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, usableWalls: roomWalls.map(w => ({ id: w.id, lengthMm: Math.round(wallLen(w)), openings: [], isExterior: false })) } as any,
-      room.included !== false,
+      Boolean(room.spaceRecordId) && room.included !== false && room.requiredFurniture.length > 0,
       issues.filter(i => i.entityId === room.id)
     );
     return { room, widthMm, depthMm, wallCount: roomWalls.length, openingCount: roomOpenings.length, usable, readiness };
@@ -165,7 +194,7 @@ export function SpacesWorkspace() {
       snapshot();
       const id = `room-manual-${Date.now()}`;
       const polygon = [{ xMm: minX, yMm: minY }, { xMm: maxX, yMm: minY }, { xMm: maxX, yMm: maxY }, { xMm: minX, yMm: maxY }];
-      setRooms(current => [...current, { id, name: `New space ${current.length + 1}`, roomType: 'other', polygon, areaSqm: polyArea(polygon), included: true }]);
+      setRooms(current => [...current, { id, name: `New space ${current.length + 1}`, roomType: 'other', polygon, areaSqm: polyArea(polygon), requiredFurniture: [], included: true }]);
       setSelectedRoom(id);
       setRoomDraftStart(null);
       setRoomDraftCurrent(null);
@@ -219,7 +248,16 @@ export function SpacesWorkspace() {
   // ── Tools ──
   function includeRoom(id: string, inc: boolean) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, included: inc } : r)); }
   function setRoomCeiling(id: string, h: number) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, ceilingHeightMm: h } : r)); }
-  function setRoomType(id: string, t: string) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, roomType: t } : r)); }
+  function setRoomType(id: string, t: string) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, roomType: t, requiredFurniture: [] } : r)); }
+  function toggleFurniture(id: string, furnitureId: string) {
+    snapshot();
+    setRooms(rs => rs.map(r => r.id === id ? {
+      ...r,
+      requiredFurniture: r.requiredFurniture.includes(furnitureId)
+        ? r.requiredFurniture.filter(item => item !== furnitureId)
+        : [...r.requiredFurniture, furnitureId],
+    } : r));
+  }
   function splitSelected() {
     if (!selectedRoom) { setSaveState('Select a room first.'); return; }
     snapshot();
@@ -254,7 +292,7 @@ export function SpacesWorkspace() {
     const poly = [{ xMm: minX, yMm: minY }, { xMm: maxX, yMm: minY }, { xMm: maxX, yMm: maxY }, { xMm: minX, yMm: maxY }];
     const name = grp[0].name;
     const roomType = grp[0].roomType;
-    const merged = { id: base, name, roomType, polygon: poly, areaSqm: polyArea(poly), included: true, ceilingHeightMm: grp[0].ceilingHeightMm };
+    const merged = { id: base, name, roomType, polygon: poly, areaSqm: polyArea(poly), requiredFurniture: grp[0].requiredFurniture, included: true, ceilingHeightMm: grp[0].ceilingHeightMm };
     setRooms(rs => [...rs.filter(r => !r.id.startsWith(base + '-') && r.id !== base), merged]);
     setSelectedRoom(base);
     setTool('select');
@@ -280,12 +318,20 @@ export function SpacesWorkspace() {
 
   async function persistRoom(room: PlanRoom) {
     if (!supabase || !projectId) return;
+    if (!room.spaceRecordId) {
+      setSaveState('This is a new geometry draft. Review it in Floor Plan before configuring its requirements.');
+      return;
+    }
+    if (!room.requiredFurniture.length) {
+      setSaveState('Choose at least one required modular category before saving this room.');
+      return;
+    }
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) { setSaveState('Session expired.'); return; }
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-    const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.id}`, {
+    const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, designInclusion: room.included })
+      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture })
     });
     const p = await res.json().catch(() => null);
     setSaveState(res.ok ? 'Room saved.' : (p?.message ?? 'Save failed.'));
@@ -353,8 +399,8 @@ export function SpacesWorkspace() {
           {/* Region: Plan canvas + tools */}
           <section className="region canvas-region">
             <div className="toolbar">
-              {[['select', 'Choose'], ['measure', 'Measure'], ['draw_room', 'Draw room'], ['redraw', 'Redraw'], ['split', 'Split'], ['merge', 'Merge'], ['wall', 'Add wall'], ['door', 'Add door'], ['window', 'Add window'], ['column', 'Column'], ['beam', 'Beam'], ['service', 'Service'], ['annotate', 'Annotate']].map(([t, label]) => (
-                <button key={t} className={`tool-btn ${(tool === t || (t === 'column' && tool === 'add_column') || (t === 'service' && tool === 'add_service') || (t === 'wall' && tool === 'draw_wall') || (t === 'beam' && tool === 'draw_beam') || (t === 'door' && tool === 'add_door') || (t === 'window' && tool === 'add_window')) ? 'active' : ''}`} onClick={() => { if (t === 'split') splitSelected(); else if (t === 'merge') mergeSelected(); else if (t === 'wall') addWall(); else if (t === 'door') addOpening('door'); else if (t === 'window') addOpening('window'); else if (t === 'column') { setTool('add_column'); setSaveState('Click the canvas to place a column.'); } else if (t === 'beam') addBeam(); else if (t === 'service') { setTool('add_service'); setSaveState('Click the canvas to place a service point.'); } else if (t === 'annotate') { setAnnotationDraft(''); setAnnotationDialogOpen(true); } else setTool(t); }}>
+              {[['select', 'Choose'], ['measure', 'Measure'], ['draw_room', 'Draw room'], ['cancel_tool', 'Cancel tool'], ['split', 'Split'], ['merge', 'Merge'], ['wall', 'Add wall'], ['door', 'Add door'], ['window', 'Add window'], ['column', 'Column'], ['beam', 'Beam'], ['service', 'Service'], ['annotate', 'Annotate']].map(([t, label]) => (
+                <button key={t} className={`tool-btn ${(tool === t || (t === 'column' && tool === 'add_column') || (t === 'service' && tool === 'add_service') || (t === 'wall' && tool === 'draw_wall') || (t === 'beam' && tool === 'draw_beam') || (t === 'door' && tool === 'add_door') || (t === 'window' && tool === 'add_window')) ? 'active' : ''}`} onClick={() => { if (t === 'cancel_tool') { setTool('select'); setRoomDraftStart(null); setRoomDraftCurrent(null); setLineDraftStart(null); setMeasureFrom(null); setMeasureTo(null); setSaveState('Canvas tool cancelled.'); } else if (t === 'split') splitSelected(); else if (t === 'merge') mergeSelected(); else if (t === 'wall') addWall(); else if (t === 'door') addOpening('door'); else if (t === 'window') addOpening('window'); else if (t === 'column') { setTool('add_column'); setSaveState('Click the canvas to place a column.'); } else if (t === 'beam') addBeam(); else if (t === 'service') { setTool('add_service'); setSaveState('Click the canvas to place a service point.'); } else if (t === 'annotate') { setAnnotationDraft(''); setAnnotationDialogOpen(true); } else setTool(t); }}>
                   {label}
                 </button>
               ))}
@@ -401,6 +447,15 @@ export function SpacesWorkspace() {
                 <select value={sel.room.roomType} onChange={(e) => setRoomType(sel.room.id, e.target.value)}>{Object.entries(ROOM_TYPES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
                 <label>Ceiling height (mm)</label>
                 <input type="number" value={sel.room.ceilingHeightMm ?? ceilingHeightMm} onChange={(e) => setRoomCeiling(sel.room.id, parseInt(e.target.value, 10) || ceilingHeightMm)} />
+                <label>Required modular furniture</label>
+                <div className="furniture-options" role="group" aria-label="Required modular furniture">
+                  {furnitureOptionsFor(sel.room.roomType).map((option) => (
+                    <label key={option.id} className="furniture-option">
+                      <input type="checkbox" checked={sel.room.requiredFurniture.includes(option.id)} onChange={() => toggleFurniture(sel.room.id, option.id)} />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
                 <div className="props-read">
                   <div><span>Dimensions</span><strong>{((sel.widthMm) / 1000).toFixed(2)}m × {((sel.depthMm) / 1000).toFixed(2)}m</strong></div>
                   <div><span>Area</span><strong>{sel.room.areaSqm.toFixed(1)} m²</strong></div>
@@ -413,7 +468,9 @@ export function SpacesWorkspace() {
                     ? <div className="detected-item-list">{detectedExistingItems.map((item, index) => <span key={`${item}-${index}`}>{item}</span>)}</div>
                     : <p>No existing fixtures or furniture symbols were confidently detected in this room.</p>}
                 </div>
-                <Button variant="outline" onClick={() => persistRoom(sel.room)}><Save size={13} /> Save room</Button>
+                {sel.room.spaceRecordId
+                  ? <Button variant="outline" onClick={() => persistRoom(sel.room)}><Save size={13} /> Save room</Button>
+                  : <Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}><Pencil size={13} /> Review geometry in Plan</Button>}
               </div>
             ) : selectedWall ? (
               <div className="props-body">

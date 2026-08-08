@@ -1518,11 +1518,41 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
     .maybeSingle();
   if (version.error) return response.status(500).json({ success: false, code: 'PLAN_READ_FAILED', message: version.error.message });
   if (!version.data || !version.data.approved_at) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'An approved floor plan is required before configuring spaces.' });
+  const savedSpaces = await client
+    .from('spaces')
+    .select('id,space_id,name,room_type,ceiling_height_mm,requirements_json,settings_json,verification_status,status')
+    .eq('project_id', request.params.projectId)
+    .eq('floor_plan_version_id', version.data.id);
+  if (savedSpaces.error) return response.status(500).json({ success: false, code: 'SPACES_READ_FAILED', message: savedSpaces.error.message });
+  const savedSpaceRows = savedSpaces.data ?? [];
+  const savedSpaceByPlanRoomId = new Map(savedSpaceRows.filter((space: any) => space.space_id).map((space: any) => [String(space.space_id), space]));
+  const normalizeSpaceLabel = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ');
   const plan = version.data.canonical_model ?? {};
-  const rooms = (plan.rooms ?? plan.spaces ?? []).map((r: any) => ({
-    id: r.id, name: r.name ?? r.roomType ?? r.id, roomType: r.roomType ?? r.type ?? 'other',
-    polygon: r.worldPolygon ?? r.worldGeometry?.polygon ?? r.polygon ?? [], areaSqm: r.areaSqm, ceilingHeightMm: r.ceilingHeightMm,
-  }));
+  const rooms = (plan.rooms ?? plan.spaces ?? []).map((r: any) => {
+    const roomName = r.name ?? r.roomType ?? r.type ?? r.id;
+    const roomType = r.roomType ?? r.type ?? 'other';
+    const matchingByName = savedSpaceRows.filter((space: any) => normalizeSpaceLabel(space.name) === normalizeSpaceLabel(roomName));
+    const matchingByType = savedSpaceRows.filter((space: any) => normalizeSpaceLabel(space.room_type) === normalizeSpaceLabel(roomType));
+    const roomWords = new Set(normalizeSpaceLabel(`${r.id ?? ''} ${roomName} ${roomType}`).split(' ').filter(word => word.length > 2 && word !== 'room'));
+    const matchingByDistinctWord = savedSpaceRows.filter((space: any) => [space.name, space.room_type]
+      .flatMap((value: unknown) => normalizeSpaceLabel(value).split(' '))
+      .some(word => roomWords.has(word)));
+    const saved = savedSpaceByPlanRoomId.get(String(r.id))
+      ?? (matchingByName.length === 1 ? matchingByName[0] : null)
+      ?? (matchingByType.length === 1 ? matchingByType[0] : null)
+      ?? (matchingByDistinctWord.length === 1 ? matchingByDistinctWord[0] : null);
+    return {
+      id: r.id,
+      spaceRecordId: saved?.id ?? null,
+      name: saved?.name ?? roomName,
+      roomType: saved?.room_type ?? roomType,
+      polygon: r.worldPolygon ?? r.worldGeometry?.polygon ?? r.polygon ?? [],
+      areaSqm: r.areaSqm,
+      ceilingHeightMm: saved?.ceiling_height_mm ?? r.ceilingHeightMm,
+      requiredFurniture: Array.isArray(saved?.requirements_json?.requiredFurniture) ? saved.requirements_json.requiredFurniture : [],
+      verificationStatus: saved?.verification_status ?? 'unverified',
+    };
+  });
   const walls = (plan.walls ?? []).map((w: any) => ({
     id: w.id,
     start: w.worldStart ?? w.worldGeometry?.start ?? w.start,
