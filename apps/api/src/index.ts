@@ -1707,7 +1707,17 @@ app.post('/api/projects/:projectId/layout-candidates', requireProjectUser, async
   if (planResult.error || !planResult.data) return response.status(404).json({ success: false, code: 'PLAN_NOT_FOUND', message: 'The active approved plan could not be loaded.' });
   const plan = (planResult.data.canonical_model ?? {}) as any;
   const rooms = Array.isArray(plan.rooms) ? plan.rooms : Array.isArray(plan.spaces) ? plan.spaces : [];
-  const room = rooms.find((item: any) => item.id === spaceId) ?? rooms.find((item: any) => item.id === spaceResult.data.id);
+  const normalizeRoomLabel = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  const plannedRoomName = spaceResult.data.name ?? spaceResult.data.room_type ?? spaceId;
+  const plannedRoomWords = new Set(normalizeRoomLabel(`${plannedRoomName} ${spaceResult.data.room_type ?? ''}`).split(' ').filter(word => word.length > 2 && word !== 'room'));
+  const matchingByName = rooms.filter((item: any) => normalizeRoomLabel(item.name ?? item.roomType ?? item.type) === normalizeRoomLabel(plannedRoomName));
+  const matchingByType = rooms.filter((item: any) => normalizeRoomLabel(item.roomType ?? item.type) === normalizeRoomLabel(spaceResult.data.room_type));
+  const matchingByDistinctWord = rooms.filter((item: any) => normalizeRoomLabel(`${item.id ?? ''} ${item.name ?? ''} ${item.roomType ?? item.type ?? ''}`).split(' ').some(word => plannedRoomWords.has(word)));
+  const room = rooms.find((item: any) => item.id === spaceResult.data.space_id)
+    ?? rooms.find((item: any) => item.id === spaceId)
+    ?? (matchingByName.length === 1 ? matchingByName[0] : null)
+    ?? (matchingByType.length === 1 ? matchingByType[0] : null)
+    ?? (matchingByDistinctWord.length === 1 ? matchingByDistinctWord[0] : null);
   const polygon = room?.worldPolygon ?? room?.worldGeometry?.polygon ?? room?.polygon ?? spaceResult.data.geometry_json?.polygon ?? [];
   const points = Array.isArray(polygon) ? polygon.map((point: any) => ({ x: Number(point.xMm ?? point.x ?? point[0]), y: Number(point.yMm ?? point.y ?? point[1]) })).filter((point: any) => Number.isFinite(point.x) && Number.isFinite(point.y)) : [];
   if (points.length < 3) return response.status(422).json({ success: false, code: 'ROOM_GEOMETRY_UNAVAILABLE', message: 'The approved room has no valid canonical polygon.' });
@@ -1737,6 +1747,10 @@ app.post('/api/projects/:projectId/layouts', requireProjectUser, async (request,
   const { spaceId, layoutShape, label = 'Option A', candidate, score } = request.body ?? {};
   if (typeof spaceId !== 'string' || !candidate || typeof candidate !== 'object') return response.status(400).json({ success: false, code: 'INVALID_LAYOUT', message: 'spaceId and candidate data are required.' });
   const client = getRequestSupabaseClient(request);
+  const project = await client.from('projects').select('active_floor_plan_version_id').eq('id', request.params.projectId).single();
+  if (project.error || !project.data?.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'An active approved floor plan is required.' });
+  const space = await client.from('spaces').select('id').eq('id', spaceId).eq('project_id', request.params.projectId).eq('floor_plan_version_id', project.data.active_floor_plan_version_id).maybeSingle();
+  if (space.error || !space.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected room is not part of the active approved plan.' });
   const row = { organization_id: authReq.ultidaUser?.organizationId, project_id: request.params.projectId, space_id: spaceId, layout_shape: String(layoutShape ?? 'custom'), label: String(label), candidate_json: candidate, rule_score_json: score ?? null, status: 'candidate', created_by: authReq.ultidaUser?.id };
   const { data, error } = await client.from('layouts').insert(row).select('*').single();
   if (error) return response.status(500).json({ success: false, code: 'LAYOUT_CREATE_FAILED', message: error.message });

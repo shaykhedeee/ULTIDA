@@ -45,6 +45,32 @@ const localDemoMode = false;
 
 // ─── Types ────────────────────────────────────────────────────────
 type ProviderStatus = { id: string; configured: boolean; operations: string[] };
+type LayoutRoomContext = {
+  id: string;
+  name: string;
+  roomType: import('./components/layout/LayoutConfigWorkspace').RoomCategory;
+  ceilingHeightMm?: number;
+  requirements: Record<string, unknown>;
+  dimensions: { lengthMm: number; widthMm: number; heightMm: number } | null;
+};
+
+function toLayoutRoomCategory(roomType: unknown): import('./components/layout/LayoutConfigWorkspace').RoomCategory {
+  const normalized = String(roomType ?? '').toLowerCase();
+  if (normalized === 'kitchen') return 'kitchen';
+  if (normalized === 'living') return 'living';
+  if (normalized === 'bedroom' || normalized === 'master_bedroom' || normalized === 'kids_bedroom') return 'bedroom';
+  return 'other';
+}
+
+function roomDimensionsFromPolygon(polygon: unknown, ceilingHeightMm?: number) {
+  if (!Array.isArray(polygon)) return null;
+  const points = polygon.map((point: any) => ({ x: Number(point?.xMm ?? point?.x), y: Number(point?.yMm ?? point?.y) })).filter((point: { x: number; y: number }) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  if (points.length < 3) return null;
+  const lengthMm = Math.round(Math.max(...points.map(point => point.x)) - Math.min(...points.map(point => point.x)));
+  const widthMm = Math.round(Math.max(...points.map(point => point.y)) - Math.min(...points.map(point => point.y)));
+  if (lengthMm <= 0 || widthMm <= 0) return null;
+  return { lengthMm, widthMm, heightMm: Math.round(ceilingHeightMm ?? 2700) };
+}
 
 // ─── Auth / Sign-in screen ────────────────────────────────────────
 function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
@@ -301,7 +327,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [brief, setBrief] = useState<ClientBrief>(emptyBrief);
   const [briefSaved, setBriefSaved] = useState(false);
   const [layoutConfig, setLayoutConfig] = useState<LayoutConfig | null>(null);
-  const [layoutRooms, setLayoutRooms] = useState<Array<{ id: string; name: string; roomType: import('./components/layout/LayoutConfigWorkspace').RoomCategory; ceilingHeightMm?: number }>>([]);
+  const [layoutRooms, setLayoutRooms] = useState<LayoutRoomContext[]>([]);
   const [selectedLayoutSpaceId, setSelectedLayoutSpaceId] = useState<string | null>(null);
 
   // Provider status
@@ -899,18 +925,13 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     }
     const accessToken = await getValidToken();
     if (!accessToken) throw new Error('Sign in before approving a layout.');
-    const { data: spaces, error: spacesError } = await supabase
-      .from('spaces')
-      .select('id')
-      .eq('project_id', projectId)
-      .order('created_at')
-      .limit(1);
-    if (spacesError || !spaces?.[0]?.id) throw new Error('Approve the floor plan and configure a space before approving a layout.');
+    const spaceId = selectedLayoutSpaceId;
+    if (!spaceId || !layoutRooms.some((room) => room.id === spaceId)) throw new Error('Select a configured room before approving a layout.');
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
     const created = await fetch(`${apiBase}/projects/${projectId}/layouts`, {
       method: 'POST', headers,
-      body: JSON.stringify({ spaceId: spaces[0].id, layoutShape: candidate.shape, label: candidate.candidateType, candidate, score: candidate.score })
+      body: JSON.stringify({ spaceId, layoutShape: candidate.shape, label: candidate.candidateType, candidate, score: candidate.score })
     });
     const createdPayload = await created.json();
     if (!created.ok) throw new Error(createdPayload?.message ?? 'Layout could not be saved.');
@@ -927,9 +948,26 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       const token = await getValidToken();
       if (!token) return;
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/spaces`, { headers: { Authorization: `Bearer ${token}` } });
-      const payload = await response.json().catch(() => null);
-      const rooms = Array.isArray(payload?.spaces) ? payload.spaces.map((space: any) => ({ id: String(space.id), name: String(space.name ?? space.room_type ?? space.id), roomType: String(space.room_type ?? 'other') as import('./components/layout/LayoutConfigWorkspace').RoomCategory, ceilingHeightMm: Number(space.ceiling_height_mm ?? 0) || undefined })) : [];
+      const [spacesResponse, planResponse] = await Promise.all([
+        fetch(`${apiBase}/projects/${projectId}/spaces`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${apiBase}/projects/${projectId}/floor-plan/active`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const payload = await spacesResponse.json().catch(() => null);
+      const activePlan = await planResponse.json().catch(() => null);
+      const planRoomBySpaceId = new Map<string, any>((activePlan?.rooms ?? []).filter((room: any) => room?.spaceRecordId).map((room: any) => [String(room.spaceRecordId), room]));
+      const rooms = Array.isArray(payload?.spaces) ? payload.spaces.map((space: any) => {
+        const planRoom = planRoomBySpaceId.get(String(space.id));
+        const ceilingHeightMm = Number(space.ceiling_height_mm ?? planRoom?.ceilingHeightMm ?? 0) || undefined;
+        const polygon = planRoom?.polygon ?? space.geometry_json?.polygon ?? [];
+        return {
+          id: String(space.id),
+          name: String(space.name ?? planRoom?.name ?? space.room_type ?? space.id),
+          roomType: toLayoutRoomCategory(space.room_type ?? planRoom?.roomType),
+          ceilingHeightMm,
+          requirements: (space.requirements_json && typeof space.requirements_json === 'object') ? space.requirements_json : {},
+          dimensions: roomDimensionsFromPolygon(polygon, ceilingHeightMm),
+        };
+      }) : [];
       setLayoutRooms(rooms);
       setSelectedLayoutSpaceId((current) => current && rooms.some((room: any) => room.id === current) ? current : rooms[0]?.id ?? null);
     })();
@@ -1127,7 +1165,9 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         <Route path="layouts" element={
           <LayoutConfigWorkspace
             initialConfig={layoutConfig ?? undefined}
-            detectedDimensions={null}
+            detectedDimensions={layoutRooms.find((room) => room.id === selectedLayoutSpaceId)?.dimensions ?? null}
+            roomCategory={layoutRooms.find((room) => room.id === selectedLayoutSpaceId)?.roomType ?? 'other'}
+            roomRequirements={layoutRooms.find((room) => room.id === selectedLayoutSpaceId)?.requirements ?? {}}
             rooms={layoutRooms}
             selectedSpaceId={selectedLayoutSpaceId}
             onSpaceChange={(spaceId) => setSelectedLayoutSpaceId(spaceId)}

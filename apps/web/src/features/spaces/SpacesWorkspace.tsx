@@ -95,6 +95,7 @@ export function SpacesWorkspace() {
   const [measureFrom, setMeasureFrom] = useState<Pt | null>(null);
   const [measureTo, setMeasureTo] = useState<Pt | null>(null);
   const [saveState, setSaveState] = useState('');
+  const [openingLayouts, setOpeningLayouts] = useState(false);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'blocked' | 'empty' | 'error'>('loading');
   const [reloadKey, setReloadKey] = useState(0);
   const [history, setHistory] = useState<any[]>([]);
@@ -337,6 +338,38 @@ export function SpacesWorkspace() {
     setSaveState(res.ok ? 'Room saved.' : (p?.message ?? 'Save failed.'));
   }
 
+  async function openLayoutStudio() {
+    if (!overallReadiness.approved) {
+      setSaveState('All included rooms need saved requirements and valid geometry before opening Layout Studio.');
+      return;
+    }
+    if (!supabase || !projectId) return;
+    setOpeningLayouts(true);
+    setSaveState('Validating saved spaces…');
+    try {
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token) {
+        setSaveState('Your session expired. Sign in again.');
+        return;
+      }
+      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const response = await fetch(`${apiBase}/projects/${projectId}/spaces/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setSaveState(payload?.message ?? 'Spaces need review before Layout Studio can open.');
+        return;
+      }
+      navigate(`/projects/${projectId}/layouts`);
+    } catch {
+      setSaveState('Spaces could not be validated. Check your connection and try again.');
+    } finally {
+      setOpeningLayouts(false);
+    }
+  }
+
   const sel = roomMetrics.find(m => m.room.id === selectedRoom);
   const detectedExistingItems = annotations
     .filter((annotation) => /^Existing fixture:/i.test(annotation.text))
@@ -361,7 +394,7 @@ export function SpacesWorkspace() {
             <button className="icon-btn" onClick={redo} title="Redo"><Redo2 size={15} /></button>
           </div>
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
-          <button className="btn-primary" onClick={() => { if (!overallReadiness.approved) { setSaveState('All rooms must be ready before opening Layout Studio.'); return; } navigate(`/projects/${projectId}/layouts`); }}>Open Layout Studio →</button>
+          <button className="btn-primary" disabled={openingLayouts} onClick={() => void openLayoutStudio()}>{openingLayouts ? 'Validating spaces…' : 'Open Layout Studio →'}</button>
         </div>
       </div>
       {saveState && <p role="status" className="save-state">{saveState}</p>}

@@ -109,6 +109,19 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
     }).catch(() => undefined);
   }, [selectedSpaceId]);
 
+  useEffect(() => {
+    if (!detectedDimensions) return;
+    setConfig((current) => ({
+      ...current,
+      lengthMm: detectedDimensions.lengthMm,
+      widthMm: detectedDimensions.widthMm,
+      heightMm: detectedDimensions.heightMm,
+    }));
+    setCandidates([]);
+    setSelectedCandidateId(null);
+    setApprovalState('Room changed. Dimensions are loaded from the approved plan.');
+  }, [selectedSpaceId, detectedDimensions?.lengthMm, detectedDimensions?.widthMm, detectedDimensions?.heightMm]);
+
   function templatesForCategory(cat: RoomCategory) {
     if (cat === 'kitchen') return TEMPLATES.filter((t) => ['kitchen-l', 'kitchen-u'].includes(t.id));
     if (cat === 'tv_unit') return TEMPLATES.filter((t) => ['tv-unit'].includes(t.id));
@@ -226,10 +239,10 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
           <div className="layout-section-body">
             <div className="shape-grid">
               {(categoryShapes.length ? categoryShapes : ROOM_SHAPES).map((shape) => (
-                <div key={shape.id} className={`shape-card`}>
+                <button key={shape.id} type="button" className={`shape-card ${config.shape === shape.id ? 'selected' : ''}`} onClick={() => update('shape', shape.id as RoomShape)}>
                   <div style={{ padding: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>{shape.label}</div>
                   <div style={{ padding: '0 12px 12px', fontSize: '11px', color: 'var(--text-muted)' }}>{shape.sub}</div>
-                </div>
+                </button>
               ))}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
