@@ -394,8 +394,9 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
               <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px', background: 'var(--surface-raised)', color: 'var(--brown-mid)', border: '1px solid var(--line)', boxShadow: 'none' }} onClick={() => setActiveStep('orientation')}>← Back</button>
-              <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} disabled={!selectedCandidateId} onClick={handleApprove}><ShieldCheck size={18} /> Approve layout version</button>
+              <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} disabled={!selectedCandidateId || !selectedCandidate?.validation.valid} onClick={handleApprove}><ShieldCheck size={18} /> {selectedCandidate?.validation.valid ? 'Approve layout version' : 'Resolve blocking constraints'}</button>
             </div>
+            {!selectedCandidate?.validation.valid && selectedCandidate && <p role="status" style={{ margin: '12px 0 0', fontSize: '12px', color: 'var(--danger)' }}>This candidate has blocking constraints. Select a valid alternative or adjust the room requirements before approval.</p>}
             {approvalState && <p role="status" style={{ margin: '12px 0 0', fontSize: '12px', color: approvalState.startsWith('Layout approved') ? 'var(--success)' : 'var(--danger)' }}>{approvalState}</p>}
           </div>
         </div>

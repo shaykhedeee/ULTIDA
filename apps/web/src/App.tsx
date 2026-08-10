@@ -1106,24 +1106,21 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   }
 
   async function approveScene() {
-    if (!sceneVersionId) return;
-    if (supabase) {
-      const existing = await supabase.from('scene_versions').select('scene').eq('id', sceneVersionId).single();
-      if (existing.error || !existing.data?.scene) {
-        setPlanStatus(existing.error?.message ?? 'Scene approval could not load the saved scene.');
-        return;
-      }
-      const scene = existing.data.scene as { metadata?: Record<string, unknown> };
-      const approved = await supabase.from('scene_versions').update({
-        status: 'approved',
-        scene: { ...scene, metadata: { ...(scene.metadata ?? {}), status: 'approved' } }
-      }).eq('id', sceneVersionId);
-      if (approved.error) {
-        setPlanStatus(approved.error.message);
-        return;
-      }
+    if (!sceneVersionId || !projectId) return;
+    const accessToken = await getValidToken();
+    if (!accessToken) { setPlanStatus('Sign in again before approving a scene.'); return; }
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    try {
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/approve`, {
+        method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) { setPlanStatus(payload?.message ?? 'Scene approval failed.'); return; }
+      setSceneApproved(true);
+      setPlanStatus(`Scene v${payload.sceneVersion?.version_number ?? sceneVersionNumber} approved and ready for rendering.`);
+    } catch {
+      setPlanStatus('Scene approval service is unavailable. The draft remains unchanged.');
     }
-    setSceneApproved(true);
   }
 
   const currentStage = stage ?? 'brief';
