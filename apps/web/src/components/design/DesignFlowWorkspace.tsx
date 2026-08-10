@@ -1,6 +1,6 @@
 import { Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Send, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 import MaterialSwapPanel from './MaterialSwapPanel';
@@ -18,6 +18,7 @@ type Props = { stage: Stage; projectId: string | null; planApproved: boolean; br
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
 
 export function DesignFlowWorkspace({ stage, projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedSpaceId = searchParams.get('spaceId');
   const [room, setRoom] = useState('kitchen');
@@ -46,6 +47,9 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const [activeVisualJobId, setActiveVisualJobId] = useState<string | null>(null);
   const [reviewVisualJobId, setReviewVisualJobId] = useState<string | null>(null);
   const [visualBusy, setVisualBusy] = useState(false);
+  const [compiledSceneId, setCompiledSceneId] = useState<string | null>(sceneVersionId);
+
+  useEffect(() => { setCompiledSceneId(sceneVersionId); }, [sceneVersionId]);
 
   // Moodboard States
   const [stylePresets, setStylePresets] = useState<DesignPreset[]>([]);
@@ -277,7 +281,8 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     if (!selectedLaminateObj.id && !selectedHardwareObj.id) { setPlacementNotice('Save a real material-library selection before compiling a scene.'); return; }
     setPlacementNotice('Compiling the reviewed moodboard into scene.v1...');
     try {
-      await onSceneCreated(crypto.randomUUID(), draftModules, [selectedLaminateObj, selectedHardwareObj].filter((item) => item.id));
+      const nextSceneId = await onSceneCreated(crypto.randomUUID(), draftModules, [selectedLaminateObj, selectedHardwareObj].filter((item) => item.id));
+      if (nextSceneId) setCompiledSceneId(nextSceneId);
       setPlacementNotice('Scene compiled from persisted room anchors, module dimensions, and library materials.');
     } catch {
       setPlacementNotice('Scene compilation failed. The moodboard remains saved for correction.');
@@ -812,6 +817,9 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
               </Button>
               <Button onClick={compileMoodboard} variant="outline">
                 <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Compile {draftModules.length} reviewed module{draftModules.length === 1 ? '' : 's'} to scene.v1
+              </Button>
+              <Button disabled={!compiledSceneId || !projectId} onClick={() => navigate(`/projects/${projectId}/3d`)} variant="outline">
+                <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Inspect compiled scene in 3D
               </Button>
             </CardContent>
           </Card>
