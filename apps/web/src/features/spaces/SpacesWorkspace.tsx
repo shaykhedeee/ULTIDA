@@ -81,6 +81,7 @@ function polyArea(points: Pt[]) {
   let a = 0; for (let i = 0; i < points.length; i++) { const j = (i + 1) % points.length; a += points[i].xMm * points[j].yMm - points[j].xMm * points[i].yMm; } return Math.abs(a) / 2 / 1e6;
 }
 function wallLen(w: PlanWall) { return Math.hypot(w.end.xMm - w.start.xMm, w.end.yMm - w.start.yMm); }
+function entityId() { return crypto.randomUUID(); }
 
 export function SpacesWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -205,7 +206,7 @@ export function SpacesWorkspace() {
         return;
       }
       snapshot();
-      const id = `room-manual-${Date.now()}`;
+      const id = entityId();
       const polygon = [{ xMm: minX, yMm: minY }, { xMm: maxX, yMm: minY }, { xMm: maxX, yMm: maxY }, { xMm: minX, yMm: maxY }];
       setRooms(current => [...current, { id, name: `New space ${current.length + 1}`, roomType: 'other', polygon, areaSqm: polyArea(polygon), requiredFurniture: [], included: true }]);
       setSelectedRoom(id);
@@ -224,8 +225,8 @@ export function SpacesWorkspace() {
       const length = Math.hypot(pt.xMm - lineDraftStart.xMm, pt.yMm - lineDraftStart.yMm);
       if (length < 100) { setSaveState('Structural lines must be at least 100 mm long.'); return; }
       snapshot();
-      if (tool === 'draw_wall') setWalls(current => [...current, { id: `wall-manual-${Date.now()}`, start: lineDraftStart, end: pt, isExterior: false }]);
-      else setBeams(current => [...current, { id: `beam-manual-${Date.now()}`, start: lineDraftStart, end: pt }]);
+      if (tool === 'draw_wall') setWalls(current => [...current, { id: entityId(), start: lineDraftStart, end: pt, isExterior: false }]);
+      else setBeams(current => [...current, { id: entityId(), start: lineDraftStart, end: pt }]);
       setLineDraftStart(null); setTool('select');
       setSaveState(`${tool === 'draw_wall' ? 'Wall' : 'Beam'} added to the editable draft.`);
       return;
@@ -233,8 +234,8 @@ export function SpacesWorkspace() {
     if (tool === 'redraw') { setTool('select'); setSaveState('Canvas redraw cancelled — use Draw room to redraw a region.'); return; }
     if (tool === 'add_column' || tool === 'add_service') {
       snapshot();
-      if (tool === 'add_column') setColumns(c => [...c, { id: `col-${Date.now()}`, position: pt, sizeMm: 300 }]);
-      else setServices(s => [...s, { id: `svc-${Date.now()}`, kind: 'electrical', position: pt }]);
+      if (tool === 'add_column') setColumns(c => [...c, { id: entityId(), position: pt, sizeMm: 300 }]);
+      else setServices(s => [...s, { id: entityId(), kind: 'electrical', position: pt }]);
       setTool('select');
       setSaveState(tool === 'add_column' ? `Column placed at ${pt.xMm.toFixed(0)}, ${pt.yMm.toFixed(0)}. Select it in Properties to resize.` : `Service placed at ${pt.xMm.toFixed(0)}, ${pt.yMm.toFixed(0)}.`);
       return;
@@ -253,7 +254,7 @@ export function SpacesWorkspace() {
       const widthMm = kind === 'door' ? 900 : 1200;
       if (wallLen(nearest.wall) < widthMm + 200) { setSaveState(`This wall is too short for a ${kind}.`); return; }
       snapshot();
-      setOpenings(current => [...current, { id: `${kind}-${Date.now()}`, wallId: nearest.wall.id, kind, offsetAlongWallMm: Math.max(widthMm / 2, Math.min(wallLen(nearest.wall) - widthMm / 2, nearest.offset)), widthMm }]);
+      setOpenings(current => [...current, { id: entityId(), wallId: nearest.wall.id, kind, offsetAlongWallMm: Math.max(widthMm / 2, Math.min(wallLen(nearest.wall) - widthMm / 2, nearest.offset)), widthMm }]);
       setSelectedWall(nearest.wall.id); setTool('select'); setSaveState(`${kind === 'door' ? 'Door' : 'Window'} placed on the selected wall.`);
     }
   }
@@ -288,16 +289,27 @@ export function SpacesWorkspace() {
       ? [{ xMm: mid, yMm: b.minY }, { xMm: b.maxX, yMm: b.minY }, { xMm: b.maxX, yMm: b.maxY }, { xMm: mid, yMm: b.maxY }]
       : [{ xMm: b.minX, yMm: mid }, { xMm: b.maxX, yMm: mid }, { xMm: b.maxX, yMm: b.maxY }, { xMm: b.minX, yMm: b.maxY }];
     if (polyArea(first) < 1 || polyArea(second) < 1) { setSaveState('Cannot split: both resulting rooms must have positive area.'); return; }
-    setRooms(rs => rs.flatMap(x => x.id === r.id ? [{ ...x, id: r.id + '-a', polygon: first, areaSqm: polyArea(first), name: `${r.name} A` }, { ...x, id: r.id + '-b', polygon: second, areaSqm: polyArea(second), name: `${r.name} B` }] : [x]));
+    setRooms(rs => rs.flatMap(x => x.id === r.id ? [{ ...x, id: entityId(), spaceRecordId: null, polygon: first, areaSqm: polyArea(first), name: `${r.name} A` }, { ...x, id: entityId(), spaceRecordId: null, polygon: second, areaSqm: polyArea(second), name: `${r.name} B` }] : [x]));
     setTool('select');
     setSaveState(`Room "${r.name}" split into two spaces.`);
   }
   function mergeSelected() {
     if (!selectedRoom) { setSaveState('Select a room first.'); return; }
     snapshot();
-    const base = selectedRoom.includes('-') ? selectedRoom.split('-')[0] : selectedRoom;
-    const grp = rooms.filter(r => r.id === base || r.id.startsWith(base + '-'));
-    if (grp.length < 2) { setSaveState('Merge requires at least two sub-rooms (e.g., room-a and room-b).'); return; }
+    const selected = rooms.find((room) => room.id === selectedRoom);
+    if (!selected) { setSaveState('The selected room is no longer available.'); return; }
+    const selectedBox = bbox(selected.polygon);
+    const adjacent = rooms.find((room) => {
+      if (room.id === selected.id || room.roomType !== selected.roomType) return false;
+      const candidate = bbox(room.polygon);
+      const sharedVertical = (Math.abs(selectedBox.maxX - candidate.minX) < 1 || Math.abs(candidate.maxX - selectedBox.minX) < 1)
+        && Math.abs(selectedBox.minY - candidate.minY) < 1 && Math.abs(selectedBox.maxY - candidate.maxY) < 1;
+      const sharedHorizontal = (Math.abs(selectedBox.maxY - candidate.minY) < 1 || Math.abs(candidate.maxY - selectedBox.minY) < 1)
+        && Math.abs(selectedBox.minX - candidate.minX) < 1 && Math.abs(selectedBox.maxX - candidate.maxX) < 1;
+      return sharedVertical || sharedHorizontal;
+    });
+    const grp = adjacent ? [selected, adjacent] : [];
+    if (grp.length < 2) { setSaveState('Merge needs a touching rectangular room of the same type. Split a room first, or select one of the touching rooms.'); return; }
     const boxes = grp.map(g => bbox(g.polygon));
     const minX = Math.min(...boxes.map(b => b.minX)), minY = Math.min(...boxes.map(b => b.minY));
     const maxX = Math.max(...boxes.map(b => b.maxX)), maxY = Math.max(...boxes.map(b => b.maxY));
@@ -307,9 +319,9 @@ export function SpacesWorkspace() {
     const poly = [{ xMm: minX, yMm: minY }, { xMm: maxX, yMm: minY }, { xMm: maxX, yMm: maxY }, { xMm: minX, yMm: maxY }];
     const name = grp[0].name;
     const roomType = grp[0].roomType;
-    const merged = { id: base, name, roomType, polygon: poly, areaSqm: polyArea(poly), requiredFurniture: grp[0].requiredFurniture, included: true, ceilingHeightMm: grp[0].ceilingHeightMm };
-    setRooms(rs => [...rs.filter(r => !r.id.startsWith(base + '-') && r.id !== base), merged]);
-    setSelectedRoom(base);
+    const merged = { id: entityId(), spaceRecordId: null, name, roomType, polygon: poly, areaSqm: polyArea(poly), requiredFurniture: grp[0].requiredFurniture, included: true, ceilingHeightMm: grp[0].ceilingHeightMm };
+    setRooms(rs => [...rs.filter(r => !grp.some(item => item.id === r.id)), merged]);
+    setSelectedRoom(merged.id);
     setTool('select');
     setSaveState(`Rooms merged into "${name}".`);
   }
@@ -326,10 +338,26 @@ export function SpacesWorkspace() {
     const r = rooms.find(x => x.id === selectedRoom);
     const cx = r ? bbox(r.polygon).minX + (bbox(r.polygon).maxX - bbox(r.polygon).minX) / 2 : 500;
     const cy = r ? bbox(r.polygon).minY + (bbox(r.polygon).maxY - bbox(r.polygon).minY) / 2 : 500;
-    setServices(s => [...s, { id: `svc-${Date.now()}`, kind: 'electrical', position: { xMm: cx, yMm: cy } }]);
+    setServices(s => [...s, { id: entityId(), kind: 'electrical', position: { xMm: cx, yMm: cy } }]);
     setSaveState('Service point placed at room center.');
   }
-  function addAnnotation(text: string) { snapshot(); setAnnotations(a => [...a, { id: `ann-${Date.now()}`, text, kind: 'note' }]); }
+  function addAnnotation(text: string) { snapshot(); setAnnotations(a => [...a, { id: entityId(), text, kind: 'note' }]); }
+
+  async function saveGeometryVersion() {
+    if (!supabase || !projectId) return;
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return; }
+    setSaveState('Saving a new plan geometry version…');
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const response = await fetch(`${apiBase}/projects/${projectId}/spaces/commit-geometry`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ geometry: { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm } }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) { setSaveState(payload?.message ?? 'Geometry could not be saved as a new plan version.'); return; }
+    setSaveState(`Geometry version ${payload?.versionNumber ?? ''} saved. Room settings can now be saved and used by Layout Studio.`);
+    setReloadKey((key) => key + 1);
+  }
 
   async function persistRoom(room: PlanRoom) {
     if (!supabase || !projectId) return;
@@ -346,10 +374,7 @@ export function SpacesWorkspace() {
       body: JSON.stringify({ draft: { source: 'spaces-studio', updatedAt: new Date().toISOString(), geometry } }),
     });
     if (!draftRes.ok) { const p = await draftRes.json().catch(() => null); setSaveState(p?.message ?? 'Geometry draft could not be saved.'); return; }
-    if (!room.spaceRecordId) {
-      setSaveState('Geometry draft saved. Review it in Floor Plan to create a derived room version before layout generation.');
-      return;
-    }
+    if (!room.spaceRecordId) { await saveGeometryVersion(); return; }
     const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
       body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '' })
@@ -414,6 +439,7 @@ export function SpacesWorkspace() {
             <button className="icon-btn" onClick={redo} title="Redo"><Redo2 size={15} /></button>
           </div>
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
+          <button className="btn-secondary" onClick={() => void saveGeometryVersion()} title="Create a new approved plan version from the current room, wall, opening, column, beam, and service edits">Save geometry version</button>
           <button className="btn-secondary" disabled={!selectedRoom} onClick={() => selectedRoom && navigate(`/projects/${projectId}/design?spaceId=${encodeURIComponent(selectedRoom)}`)} title="Open the selected room in the 2D furniture placement workspace">Place furniture in 2D</button>
           <button className="btn-primary" disabled={openingLayouts} onClick={() => void openLayoutStudio()}>{openingLayouts ? 'Validating spaces…' : 'Open Layout Studio →'}</button>
         </div>

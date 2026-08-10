@@ -443,17 +443,17 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
 
             <div style={{ marginTop: '18px', display: 'flex', justifyContent: 'space-between' }}>
               <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px', background: 'var(--surface-raised)', color: 'var(--brown-mid)', border: '1px solid var(--line)', boxShadow: 'none' }} onClick={() => setActiveStep('candidates')}>← Back to candidates</button>
-              {onGenerate && (<button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} onClick={() => onGenerate(config)}>Proceed to render <ArrowRight size={16} /></button>)}
+              {onGenerate && (<button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} onClick={() => onGenerate(config)}>Continue to Modules <ArrowRight size={16} /></button>)}
             </div>
           </div>
         </div>
       )}
 
-      {/* Legacy summary + generate CTA */}
+      {/* The approved layout leads into exact parametric module placement. Rendering only becomes available after scene.v1 is compiled. */}
       <div className="generate-cta">
         <div className="generate-cta-info">
-          <h3>Generate 3D Design Render</h3>
-          <p>Use approved symbolic layout to drive deterministic scene compilation and production render pipeline.</p>
+          <h3>Continue to Module Placement</h3>
+          <p>Use the approved layout to place and configure exact modules. Rendering becomes available only after scene.v1 is compiled and approved.</p>
           <div className="generate-summary">
             <span className="gen-tag">📐 {ROOM_SHAPES.find((s) => s.id === config.shape)?.label}</span>
             <span className="gen-tag">📏 {config.lengthMm} × {config.widthMm} mm</span>
@@ -464,7 +464,7 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
         </div>
         {onGenerate && (
           <button className="btn-generate" onClick={() => onGenerate(config)}>
-            <Sparkles size={18} /> Generate 3D Render <ArrowRight size={16} />
+            <Sparkles size={18} /> Continue to Modules <ArrowRight size={16} />
           </button>
         )}
       </div>

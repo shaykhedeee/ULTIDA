@@ -1295,6 +1295,138 @@ app.post('/api/projects/:projectId/plan/approve', requireProjectUser, async (req
   return response.status(200).json({ success: true, ...(approved.data as Record<string, unknown>) });
 });
 
+// Spaces is an editable design workspace, but its geometry must never become a
+// browser-only fork.  This creates a new immutable plan.v1 revision from the
+// active plan and makes the revision the sole source for layouts and scenes.
+app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, async (request, response) => {
+  const projectId = String(request.params.projectId);
+  const geometry = request.body?.geometry as any;
+  if (!geometry || !Array.isArray(geometry.rooms) || !Array.isArray(geometry.walls) || !Array.isArray(geometry.openings)) {
+    return response.status(400).json({ success: false, code: 'INVALID_SPACE_GEOMETRY', message: 'Rooms, walls, and openings are required to save a geometry version.' });
+  }
+  const client = getRequestSupabaseClient(request);
+  const active = await client
+    .from('floor_plan_versions')
+    .select('id,source_asset_id,canonical_model')
+    .eq('project_id', projectId)
+    .eq('active_version', true)
+    .eq('status', 'approved')
+    .maybeSingle();
+  if (active.error) return response.status(500).json({ success: false, code: 'PLAN_READ_FAILED', message: active.error.message });
+  if (!active.data?.source_asset_id || !active.data.canonical_model) {
+    return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'Approve a source floor plan before saving Spaces geometry.' });
+  }
+
+  const base = CanonicalPlanModelSchema.safeParse(active.data.canonical_model);
+  if (!base.success) return response.status(422).json({ success: false, code: 'CANONICAL_PLAN_INVALID', message: 'The active plan cannot be used as a geometry source.' });
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const isPoint = (point: any) => Number.isFinite(Number(point?.xMm)) && Number.isFinite(Number(point?.yMm));
+  const closed = (points: any[]) => {
+    const clean = points.filter(isPoint).map((point) => ({ xMm: Number(point.xMm), yMm: Number(point.yMm) }));
+    if (clean.length < 3) return clean;
+    const first = clean[0], last = clean[clean.length - 1];
+    if (first.xMm !== last.xMm || first.yMm !== last.yMm) clean.push({ ...first });
+    return clean;
+  };
+  const polygonArea = (points: Array<{ xMm: number; yMm: number }>) => Math.abs(points.slice(0, -1).reduce((sum, point, index) => {
+    const next = points[index + 1];
+    return sum + point.xMm * next.yMm - next.xMm * point.yMm;
+  }, 0)) / 2;
+  const baseSpaces = new Map(base.data.spaces.map((space) => [space.id, space]));
+  const baseWalls = new Map(base.data.walls.map((wall) => [wall.id, wall]));
+  const nextSpaces = geometry.rooms.map((room: any) => {
+    const polygon = closed(Array.isArray(room?.polygon) ? room.polygon : []);
+    if (!uuid.test(String(room?.id)) || polygon.length < 4 || polygonArea(polygon) < 90000) return null;
+    const prior = baseSpaces.get(String(room.id));
+    return {
+      ...(prior ?? {}),
+      id: String(room.id),
+      sourcePolygon: polygon.map((point) => ({ x: point.xMm, y: point.yMm })),
+      worldPolygon: polygon,
+      roomType: String(room.roomType ?? prior?.roomType ?? 'other'),
+      roomName: String(room.name ?? prior?.roomName ?? 'Space'),
+      areaSqm: polygonArea(polygon) / 1e6,
+      ceilingHeightMm: Number(room.ceilingHeightMm ?? prior?.ceilingHeightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm),
+      wallRefs: Array.isArray(prior?.wallRefs) ? prior.wallRefs : [],
+      openingRefs: Array.isArray(prior?.openingRefs) ? prior.openingRefs : [],
+      verification: prior?.verification ?? 'unverified',
+    };
+  });
+  if (nextSpaces.some((space: any) => !space) || !nextSpaces.length) {
+    return response.status(422).json({ success: false, code: 'INVALID_ROOM_GEOMETRY', message: 'Each saved room needs a unique valid ID and a closed polygon at least 300 mm by 300 mm.' });
+  }
+  const nextWalls = geometry.walls.map((wall: any) => {
+    if (!uuid.test(String(wall?.id)) || !isPoint(wall?.start) || !isPoint(wall?.end)) return null;
+    const start = { xMm: Number(wall.start.xMm), yMm: Number(wall.start.yMm) };
+    const end = { xMm: Number(wall.end.xMm), yMm: Number(wall.end.yMm) };
+    if (Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm) < 100) return null;
+    const prior = baseWalls.get(String(wall.id));
+    return { ...(prior ?? {}), id: String(wall.id), sourceStart: { x: start.xMm, y: start.yMm }, sourceEnd: { x: end.xMm, y: end.yMm }, worldStart: start, worldEnd: end, lengthMm: Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm), heightMm: Number(prior?.heightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm), thicknessMm: Number(prior?.thicknessMm ?? 152.4), adjacentSpaces: Array.isArray(prior?.adjacentSpaces) ? prior.adjacentSpaces : [], verification: prior?.verification ?? 'unverified' };
+  });
+  if (nextWalls.some((wall: any) => !wall)) return response.status(422).json({ success: false, code: 'INVALID_WALL_GEOMETRY', message: 'Walls must have unique IDs, two endpoints, and be at least 100 mm long.' });
+  const wallIds = new Set(nextWalls.map((wall: any) => wall.id));
+  const nextOpenings = geometry.openings.map((opening: any) => {
+    const widthMm = Number(opening?.widthMm ?? 900);
+    if (!uuid.test(String(opening?.id)) || !wallIds.has(String(opening?.wallId)) || !Number.isFinite(widthMm) || widthMm <= 0) return null;
+    const shared = { id: String(opening.id), wallId: String(opening.wallId), offsetMm: Math.max(0, Number(opening.offsetAlongWallMm ?? opening.offsetMm ?? 0)), widthMm, verification: 'unverified' as const };
+    return opening.kind === 'window'
+      ? { ...shared, sillMm: Math.max(0, Number(opening.sillMm ?? 900)), headMm: Math.max(1, Number(opening.headMm ?? 2100)), type: 'sliding' }
+      : { ...shared, heightMm: Math.max(1, Number(opening.heightMm ?? 2100)), type: 'hinged' };
+  });
+  if (nextOpenings.some((opening: any) => !opening)) return response.status(422).json({ success: false, code: 'INVALID_OPENING_GEOMETRY', message: 'Every door or window must be attached to a saved wall and have a positive width.' });
+  const nextModel = CanonicalPlanModelSchema.safeParse({
+    ...base.data,
+    state: 'approved',
+    ceilingHeightMm: Number(geometry.ceilingHeightMm ?? base.data.ceilingHeightMm),
+    spaces: nextSpaces,
+    walls: nextWalls,
+    openings: nextOpenings,
+    columns: (geometry.columns ?? base.data.columns).map((column: any) => ({ id: String(column.id), center: column.center ?? column.position, sizeMm: column.sizeMm ? { width: Number(column.sizeMm.width ?? column.sizeMm), depth: Number(column.sizeMm.depth ?? column.sizeMm) } : undefined, verification: 'unverified' })),
+    beams: (geometry.beams ?? base.data.beams).map((beam: any) => ({ id: String(beam.id), start: beam.start, end: beam.end, heightMm: Number(beam.heightMm ?? base.data.ceilingHeightMm), widthMm: Number(beam.widthMm ?? 152.4), verification: 'unverified' })),
+    servicePoints: (geometry.services ?? base.data.servicePoints).map((service: any) => ({ id: String(service.id), kind: service.kind, position: service.position, verification: 'unverified' })),
+    annotations: geometry.annotations ?? base.data.annotations,
+    approval: { ...(base.data.approval ?? {}), priorVersionId: active.data.id, changeReason: 'Spaces geometry revision' },
+  });
+  if (!nextModel.success) return response.status(422).json({ success: false, code: 'GEOMETRY_VERSION_INVALID', message: 'The edited geometry could not satisfy the canonical plan contract.', fieldErrors: nextModel.error.flatten() });
+  const priorSpaces = await client.from('spaces').select('space_id,requirements_json,settings_json,status,verification_status').eq('project_id', projectId).eq('floor_plan_version_id', active.data.id);
+  if (priorSpaces.error) return response.status(500).json({ success: false, code: 'SPACE_SETTINGS_READ_FAILED', message: priorSpaces.error.message });
+  const approved = await client.rpc('approve_plan_v1', { requested_project_id: projectId, requested_source_asset_id: active.data.source_asset_id, requested_model: nextModel.data });
+  if (approved.error) return response.status(422).json({ success: false, code: 'GEOMETRY_VERSION_APPROVAL_FAILED', message: approved.error.message });
+  const committed = approved.data as Record<string, unknown>;
+  const nextVersionId = String(committed.floorPlanVersionId ?? '');
+  const priorByRoomId = new Map((priorSpaces.data ?? []).filter((space: any) => space.space_id).map((space: any) => [String(space.space_id), space]));
+  const carried = await Promise.all(geometry.rooms.map((room: any) => {
+    const prior = priorByRoomId.get(String(room.id));
+    const requirements = {
+      ...(prior?.requirements_json ?? {}),
+      requiredFurniture: Array.isArray(room.requiredFurniture) ? room.requiredFurniture : (prior?.requirements_json?.requiredFurniture ?? []),
+      budgetInr: room.budgetInr ?? prior?.requirements_json?.budgetInr ?? null,
+      designPriority: room.designPriority ?? prior?.requirements_json?.designPriority ?? 'balanced',
+      applianceNeeds: Array.isArray(room.applianceNeeds) ? room.applianceNeeds : (prior?.requirements_json?.applianceNeeds ?? []),
+      constraints: Array.isArray(room.constraints) ? room.constraints : (prior?.requirements_json?.constraints ?? []),
+    };
+    const settings = {
+      ...(prior?.settings_json ?? {}),
+      floorFinish: room.floorFinish ?? prior?.settings_json?.floorFinish ?? '',
+      falseCeiling: room.falseCeiling ?? prior?.settings_json?.falseCeiling ?? '',
+      styleDirection: room.styleDirection ?? prior?.settings_json?.styleDirection ?? '',
+      paletteDirection: room.paletteDirection ?? prior?.settings_json?.paletteDirection ?? '',
+      retainedElements: Array.isArray(room.retainedElements) ? room.retainedElements : (prior?.settings_json?.retainedElements ?? []),
+      wallRoles: room.wallRoles ?? prior?.settings_json?.wallRoles ?? {},
+      preferredCamera: room.preferredCamera ?? prior?.settings_json?.preferredCamera ?? '',
+    };
+    return client.from('spaces').update({
+      name: String(room.name ?? 'Space'), room_type: String(room.roomType ?? 'other'),
+      ceiling_height_mm: Number(room.ceilingHeightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm),
+      area_sqm: Number(room.areaSqm ?? 0), requirements_json: requirements, settings_json: settings,
+      status: requirements.requiredFurniture.length ? 'configured' : 'pending', updated_at: new Date().toISOString(),
+    }).eq('project_id', projectId).eq('floor_plan_version_id', nextVersionId).eq('space_id', String(room.id));
+  }));
+  const carryFailure = carried.find((result) => result.error);
+  if (carryFailure?.error) return response.status(500).json({ success: false, code: 'SPACE_SETTINGS_CARRY_FAILED', message: carryFailure.error.message });
+  return response.status(201).json({ success: true, ...committed });
+});
+
 app.get('/api/projects/:projectId/module-instances', requireProjectUser, async (request, response) => {
   const client = getRequestSupabaseClient(request);
   const query = client.from('module_instances').select('*').eq('project_id', request.params.projectId).order('created_at', { ascending: true });
