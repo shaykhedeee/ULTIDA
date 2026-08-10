@@ -442,17 +442,44 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       const raster = normalized.bytes;
       const analysisMimeType = normalized.mimeType;
       const briefRes = await client.from('project_briefs').select('brief').eq('project_id', job.project_id).maybeSingle();
-      const [analysis, cvTrace, ocr] = await Promise.all([
-        analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief, analysisGuides: Array.isArray(input.analysisGuides) ? input.analysisGuides : [] }),
+      const [analysisAttempt, cvTrace, ocr] = await Promise.all([
+        analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief, analysisGuides: Array.isArray(input.analysisGuides) ? input.analysisGuides : [] })
+          .then((analysis) => ({ analysis, error: null as Error | null }))
+          .catch((error) => ({ analysis: null, error: error instanceof Error ? error : new Error('Plan vision analysis failed.') })),
         runCvTrace(raster, analysisMimeType).catch(() => null),
         runPlanOcr(raster),
       ]);
-      if (!analysis) throw new Error('No configured floor-plan analysis provider is available.');
+      let analysis: any = analysisAttempt.analysis;
+      const tracedWalls = cvTrace?.result?.walls?.filter((wall) => Number(wall.lengthPx) >= 20) ?? [];
+      // Vision providers are semantic readers, not the geometry authority. If
+      // they both reject a dense drawing but the deterministic tracer found a
+      // usable structural set, retain that real evidence as a *review-only*
+      // draft. It deliberately requires calibration and room subdivision;
+      // nothing is silently declared site-verified.
+      if (!analysis && cvTrace?.result?.sourceImageSize && tracedWalls.length >= 4) {
+        const proposals = supplementSparseVisionProposals([], cvTrace.result as CvTraceResult);
+        const confidences = proposals.map((proposal) => Number(proposal.confidence ?? 0));
+        analysis = {
+          provider: 'intake-parser',
+          proposals,
+          intakeResult: { status: 'review_required', reason: 'Vision providers did not return reviewable structured geometry; deterministic wall trace was retained for designer review.' },
+          analysisVersion: 'floor-plan-cv-review-fallback.v1',
+          source: { fileName: input.fileName, mimeType: analysisMimeType, checksumSha256: createHash('sha256').update(raster).digest('hex'), coordinateSpace: { width: 1000, height: 1000, units: 'source_relative' } },
+          ocrEvidence: [],
+          calibration: { status: 'required', trustedDimensionMm: null },
+          topologyIssues: [{ code: 'VISION_REVIEW_REQUIRED', severity: 'warning', message: 'AI vision did not return a complete semantic model. Review the traced walls, subdivide rooms, and calibrate one visible dimension.' }, { code: 'CALIBRATION_REQUIRED', severity: 'critical', message: 'Set one trusted visible dimension before approving measured geometry.' }],
+          providerRuns: [{ provider: 'intake-parser', model: 'wall_tracer.py', status: 'succeeded', latencyMs: 0, error: analysisAttempt.error?.message }],
+          reviewStatus: 'needs_review',
+          confidenceSummary: { minimum: confidences.length ? Math.min(...confidences) : 0, average: confidences.length ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length : 0, lowConfidenceCount: confidences.filter((value) => value < 0.7).length },
+          verifier: null,
+        };
+      }
+      if (!analysis) throw analysisAttempt.error ?? new Error('No configured floor-plan analysis provider is available.');
 
       // Deterministic CV geometry pass — runs alongside the vision pass and is
       // reconciled into a single candidate per ARCHITECTURE.md invariant #4.
       let reconciled = null;
-      let cvStatus = 'skipped';
+      let cvStatus = analysis.provider === 'intake-parser' ? 'cv_review_fallback' : 'skipped';
       if (cvTrace && cvTrace.result && (cvTrace.result as unknown as CvTraceResult).walls) {
         try {
           const enrichedProposals = supplementSparseVisionProposals(
@@ -488,7 +515,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       };
       const outputHash = createHash('sha256').update(JSON.stringify(output)).digest('hex');
       const analysisUuid = crypto.randomUUID();
-      const primaryRun = (Array.isArray(analysis.providerRuns) ? analysis.providerRuns : []).find((run) => run.status === 'succeeded') ?? analysis.providerRuns?.[0];
+      const primaryRun = (Array.isArray(analysis.providerRuns) ? analysis.providerRuns : []).find((run: { status?: string }) => run.status === 'succeeded') ?? analysis.providerRuns?.[0];
       const persistedAnalysis = await client.from('plan_analyses').insert({
         organization_id: job.organization_id,
         project_id: job.project_id,
@@ -523,7 +550,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       const persistedOutput = { ...output, analysisUuid };
       const providerRuns = Array.isArray(analysis.providerRuns) ? analysis.providerRuns : [];
       if (providerRuns.length) {
-        const auditRows = providerRuns.map((run) => ({
+        const auditRows = providerRuns.map((run: { provider?: string; model?: string; status?: string; latencyMs?: number }) => ({
           organization_id: job.organization_id,
           project_id: job.project_id,
           job_id: job.id,

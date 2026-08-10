@@ -712,12 +712,20 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         const stored = await supabase.storage.from(initiation.bucket ?? 'project-assets').uploadToSignedUrl(initiation.storagePath, initiation.token, planFile, { contentType: initiation.mimeType ?? mimeType });
       if (stored.error) return setPlanStatus(`Upload failed: ${stored.error.message}`);
       setPlanStatus('Verifying upload and registering analysis...');
+        // Signed uploads can take long enough for a cached JWT to expire.
+        // Refresh immediately before server-side verification/job creation.
+        accessToken = await getValidToken();
+        if (!accessToken) return setPlanStatus('The file uploaded, but your session expired before analysis could be registered. Sign in again and retry analysis.');
+        const completionHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
         const completed = await fetch(`${apiBase}/projects/${projectId}/floor-plans/complete`, {
-        method: 'POST', headers: authHeaders,
+        method: 'POST', headers: completionHeaders,
         body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size, analysisGuides })
       });
       const completion = await completed.json().catch(() => null);
-      if (!completed.ok || !completion?.asset?.id) return setPlanStatus(completion?.message ?? 'The uploaded floor plan could not be registered.');
+       if (!completed.ok || !completion?.asset?.id) {
+         const prefix = completion?.code ? `[${completion.code}] ` : `HTTP ${completed.status}: `;
+         return setPlanStatus(`${prefix}${completion?.message ?? 'The uploaded floor plan could not be registered.'}`);
+       }
       uploadedAssetId = completion.asset.id;
       setSourceAssetId(uploadedAssetId);
       if (!completion.jobId) return setPlanStatus('The plan was stored, but no durable analysis job was created.');
@@ -725,9 +733,11 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       analysisAutoRetryRef.current = null;
       setAnalysisRetryAvailable(false);
       setPlanAnalysed(false);
-      setPlanStatus(completion.dispatch?.dispatched === false
-        ? 'Plan analysis is queued. Cloudflare worker dispatch is not configured yet.'
-        : 'Plan analysis is queued with the real vision provider.');
+       setPlanStatus(completion.status === 'failed'
+         ? `Floor plan uploaded, but analysis failed: ${completion.error?.message ?? 'Open the retry action to run it again.'}`
+         : completion.dispatch?.dispatched === false
+         ? 'Plan analysis is queued. Cloudflare worker dispatch is not configured yet.'
+         : 'Plan analysis is queued with the real vision provider.');
         return;
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Network request failed.';

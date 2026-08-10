@@ -870,8 +870,17 @@ app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, as
     if (!dispatch.dispatched) {
       await processPlanAnalysisJob(process.env, job.jobId);
       const recovered = await getPlanAnalysisJob(process.env, projectId, job.jobId);
-      return response.status(recovered.status === 'succeeded' ? 200 : recovered.status === 'failed' ? 502 : 202)
-        .json({ success: recovered.status === 'succeeded', ...recovered, dispatch, fallback: 'api-worker' });
+      // The storage record is valid even if the local direct-analysis fallback
+      // reaches a terminal provider error. Preserve the asset/job contract so
+      // the browser reports the real analysis state rather than claiming that
+      // the upload itself could not be registered.
+      return response.status(recovered.status === 'failed' ? 202 : 200).json({
+        success: true,
+        asset: { id: asset.data.id, storagePath, name: fileName, mimeType: normalizedMimeType },
+        ...recovered,
+        dispatch,
+        fallback: 'api-worker',
+      });
     }
     return response.status(200).json({
       success: true,

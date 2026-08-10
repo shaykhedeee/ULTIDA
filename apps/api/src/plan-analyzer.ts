@@ -279,11 +279,18 @@ async function analyzeGemini(environment: Environment, input: Input) {
   // A dense drawing can still hit a model's output limit. Retry once with a
   // deliberately smaller structural pass instead of forwarding incomplete
   // JSON to the next provider and leaving the designer with no review model.
-  const entityCaps = [48, 24];
+  const attempts = [
+    // `thinkingConfig` is not accepted by every Gemini vision model and was
+    // causing valid uploads to fail before the model could inspect the plan.
+    // Keep the first request structured, then retry with the portable Gemini
+    // request shape when an account is pinned to an older compatible model.
+    { entityCap: 48, generationConfig: { temperature: 0, maxOutputTokens: 8192, responseMimeType: 'application/json' } },
+    { entityCap: 24, generationConfig: { temperature: 0, maxOutputTokens: 4096 } },
+  ];
   let lastError: Error | null = null;
-  for (const entityCap of entityCaps) {
+  for (const { entityCap, generationConfig } of attempts) {
     try {
-      const response = await fetchWithProviderTimeout(environment, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig: { temperature: 0, maxOutputTokens: 16384, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }, contents: [{ parts: [{ text: `${prompt}\nReturn no more than ${entityCap} highest-confidence structural entities. Prioritize enclosed rooms, their enclosing walls, doors/windows, and legible dimensions. Source file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: base64 } }] }] }) });
+      const response = await fetchWithProviderTimeout(environment, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig, contents: [{ parts: [{ text: `${prompt}\nReturn no more than ${entityCap} highest-confidence structural entities. Prioritize enclosed rooms, their enclosing walls, doors/windows, and legible dimensions. Source file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: base64 } }] }] }) });
       const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; error?: { message?: string } };
       if (!response.ok) throw new Error(payload.error?.message || `Gemini plan analyzer failed (${response.status}).`);
       const content = payload.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text;
