@@ -194,7 +194,13 @@ test('plan analyzer falls back only after the primary provider fails', async () 
     }, { dataUrl: 'data:image/png;base64,aW1hZ2U=', fileName: 'plan.png', mimeType: 'image/png' });
     assert.equal(result.provider, 'cloudflare');
     assert.deepEqual(result.providerRuns.map((run) => [run.provider, run.status]), [['gemini', 'failed'], ['cloudflare', 'succeeded']]);
-    assert.equal(calls.length, 2);
+    // Gemini receives one compact structural retry before a different provider
+    // is allowed to take over; this prevents a long valid drawing from failing
+    // solely because its first JSON response was truncated.
+    assert.equal(calls.length, 3);
+    assert.match(calls[0], /generativelanguage\.googleapis\.com/);
+    assert.match(calls[1], /generativelanguage\.googleapis\.com/);
+    assert.match(calls[2], /api\.cloudflare\.com/);
   } finally {
     globalThis.fetch = originalFetch;
   }

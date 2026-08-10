@@ -78,7 +78,7 @@ SELF CHECK
 5. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
 6. Do not split a straight wall into redundant collinear fragments and never repeat the same wall candidate. Prefer fewer, well-evidenced candidates over guessed completeness.
 7. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
-8. Start with every clearly enclosed room zone and its enclosing walls. Then add internal partitions, doors/windows, legible dimensions and only clearly drawn existing symbols. Do not sacrifice a whole room merely to describe a minor fixture or furniture symbol. For a multi-room plan, returning one wall or one room is incomplete evidence, not a valid result. Return at most 72 proposals.
+8. Start with every clearly enclosed room zone and its enclosing walls. Then add internal partitions, doors/windows, legible dimensions and only clearly drawn existing symbols. Do not sacrifice a whole room merely to describe a minor fixture or furniture symbol. For a multi-room plan, returning one wall or one room is incomplete evidence, not a valid result. Return at most 48 proposals.
 9. A wall must contain exactly numeric x1,y1,x2,y2. A room must contain exactly numeric x,y,width,height. Do not use numbered keys, arrays, prose, units, or nested objects inside geometry.
 10. Output one JSON object only, with no markdown and no explanatory text:
 {"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"}]}`;
@@ -104,7 +104,7 @@ const CLOUDFLARE_PLAN_RESPONSE_FORMAT = {
     properties: {
       proposals: {
         type: 'array',
-            maxItems: 72,
+            maxItems: 48,
         items: {
           type: 'object',
           additionalProperties: false,
@@ -265,15 +265,28 @@ async function analyzeGemini(environment: Environment, input: Input) {
   const prompt = buildPlanPrompt(input.brief, input.analysisGuides);
   const base64 = input.dataUrl.split(',', 2)[1];
   if (!base64) throw new Error('The normalized plan image is missing its base64 payload.');
-  // Dense measured drawings require enough output space for rooms, walls,
-  // openings and dimensions. 4096 was truncating valid JSON on larger plans,
-  // which made the fallback look like an unreliable vision provider.
-  const response = await fetchWithProviderTimeout(environment, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig: { temperature: 0, maxOutputTokens: 8192, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }, contents: [{ parts: [{ text: `${prompt}\nSource file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: base64 } }] }] }) });
-  const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; error?: { message?: string } };
-  if (!response.ok) throw new Error(payload.error?.message || `Gemini plan analyzer failed (${response.status}).`);
-  const content = payload.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text;
-  if (!content) throw new Error('Gemini plan analyzer returned no proposal content.');
-  return { model, proposals: assertFloorPlanCoverage(parseProposals(content, 'ocr')) };
+  // Dense measured drawings need enough output space for rooms, walls,
+  // openings and dimensions. Keep the entity cap deliberate: a complete,
+  // parseable review set is safer than a 72-item JSON document truncated in
+  // the middle of an entity. OCR/CV add independent evidence afterwards.
+  // A dense drawing can still hit a model's output limit. Retry once with a
+  // deliberately smaller structural pass instead of forwarding incomplete
+  // JSON to the next provider and leaving the designer with no review model.
+  const entityCaps = [48, 24];
+  let lastError: Error | null = null;
+  for (const entityCap of entityCaps) {
+    try {
+      const response = await fetchWithProviderTimeout(environment, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig: { temperature: 0, maxOutputTokens: 16384, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }, contents: [{ parts: [{ text: `${prompt}\nReturn no more than ${entityCap} highest-confidence structural entities. Prioritize enclosed rooms, their enclosing walls, doors/windows, and legible dimensions. Source file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: base64 } }] }] }) });
+      const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; error?: { message?: string } };
+      if (!response.ok) throw new Error(payload.error?.message || `Gemini plan analyzer failed (${response.status}).`);
+      const content = payload.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text;
+      if (!content) throw new Error('Gemini plan analyzer returned no proposal content.');
+      return { model, proposals: assertFloorPlanCoverage(parseProposals(content, 'ocr')) };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Gemini plan analyzer failed.');
+    }
+  }
+  throw lastError ?? new Error('Gemini plan analyzer failed.');
 }
 
 async function analyzeCloudflare(environment: Environment, input: Input) {

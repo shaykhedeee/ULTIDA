@@ -40,6 +40,18 @@ import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord 
 const app = express();
 const port = Number(process.env.PORT || 8800);
 const gateway = createProviderGateway(process.env);
+
+/**
+ * Brief writes occur only after requireProjectUser has verified both the
+ * caller's session and membership for this exact project. Use the server-side
+ * client for that already-authorized persistence so an old brief row with a
+ * stale organisation_id cannot make a legitimate upsert fail its historical
+ * RLS USING predicate. The request client remains the safe fallback for
+ * development environments without a server key.
+ */
+function getAuthorizedProjectPersistenceClient(request: express.Request) {
+  return getServerSupabaseClient() ?? getRequestSupabaseClient(request);
+}
 type AuraAuditRow = {
   id: string;
   project_id: string;
@@ -1170,7 +1182,7 @@ app.put('/api/projects/:projectId/plan-draft', requireProjectUser, async (reques
 });
 
 app.get('/api/projects/:projectId/brief', requireProjectUser, async (request, response) => {
-  const { data, error } = await getRequestSupabaseClient(request)
+  const { data, error } = await getAuthorizedProjectPersistenceClient(request)
     .from('project_briefs')
     .select('*')
     .eq('project_id', request.params.projectId)
@@ -1180,7 +1192,7 @@ app.get('/api/projects/:projectId/brief', requireProjectUser, async (request, re
 });
 
 app.get('/api/projects/:projectId/design-preferences', requireProjectUser, async (request, response) => {
-  const brief = await getRequestSupabaseClient(request)
+  const brief = await getAuthorizedProjectPersistenceClient(request)
     .from('project_briefs')
     .select('style_preferences,custom_style_ref,updated_at')
     .eq('project_id', request.params.projectId)
@@ -1197,7 +1209,7 @@ app.put('/api/projects/:projectId/design-preferences', requireProjectUser, async
   if (!stylePresetId) return response.status(400).json({ success: false, code: 'STYLE_PRESET_REQUIRED', message: 'Select a catalog style preset before saving the moodboard.' });
   const preset = getCatalogVault().presets.find((item) => item.id === stylePresetId);
   if (!preset) return response.status(422).json({ success: false, code: 'STYLE_PRESET_NOT_FOUND', message: 'The selected style preset is not in the ULTIDA catalog vault.' });
-  const client = getRequestSupabaseClient(request);
+  const client = getAuthorizedProjectPersistenceClient(request);
   const project = await client.from('projects').select('organization_id').eq('id', projectId).single();
   if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
   const update = await client.from('project_briefs').update({
@@ -1251,7 +1263,7 @@ const writeProjectBrief = async (request: express.Request, response: express.Res
     updated_by: userId,
     updated_at: new Date().toISOString()
   };
-  const client = getRequestSupabaseClient(request);
+  const client = getAuthorizedProjectPersistenceClient(request);
   const { error } = await client.from('project_briefs').upsert(briefPayload, { onConflict: 'project_id' });
   if (error) return response.status(500).json({ success: false, code: 'BRIEF_SAVE_FAILED', message: error.message });
   const projectUpdate = await client.from('projects').update({ client_name: document.clientName, name: document.projectName, workflow_stage: complete ? 'plan' : 'brief', current_step: complete ? 'plan' : 'brief', updated_at: new Date().toISOString() }).eq('id', projectId);
