@@ -79,6 +79,7 @@ export function compileStoredModuleForScene(
   const compiler = COMPILER_REGISTRY[category];
   const configuration = typeof config.configuration === 'object' && config.configuration ? config.configuration as Record<string, unknown> : {};
   const drawerCount = typeof configuration.drawerCount === 'number' ? configuration.drawerCount : undefined;
+  const shutterCount = typeof configuration.shutterCount === 'number' ? configuration.shutterCount : undefined;
   const lighting = configuration.lighting === 'shelf-led' || configuration.lighting === 'vertical-led' ? 'profile_led' : 'none';
   const shutterStyle = typeof configuration.shutterStyle === 'string' ? configuration.shutterStyle : undefined;
   const handleStyle = typeof configuration.handleStyle === 'string' ? configuration.handleStyle : undefined;
@@ -93,11 +94,13 @@ export function compileStoredModuleForScene(
       totalDepthMm: depthMm,
       totalHeightMm: heightMm,
       drawerCount,
+      shutterCount,
       lighting,
       shutterStyle,
       handleStyle,
       includeLoft,
       glassProfile,
+      profileGlassOption: glassProfile,
     },
     wall: { id: wall.id, widthMm: wallLengthMm(wall), heightMm: Number(wall.heightMm ?? 0), depthMm },
   });

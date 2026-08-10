@@ -11,11 +11,30 @@ type Stage = 'Design' | 'Visualize' | 'Document';
 type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration };
 type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; description?: string; manufacturingRules?: string[] };
 type DesignPreset = { id: string; name: string; family: string; roomTypes: string[]; referenceStyle: string[]; renderRules: string[]; productionRules: string[] };
-type ModuleConfiguration = { shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; includeLoft: boolean; glassProfile: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
+type ModuleConfiguration = { shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; shutterCount?: number; includeLoft: boolean; glassProfile: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
 type Provider = { id: string; configured: boolean; operations: string[] };
 type StoredRender = { id: string; scene_version_id: string; status: string; stale?: boolean; signedUrl: string | null; created_at: string; provenance?: { provider?: string; model?: string; promptVersion?: string; reviewStatus?: string } };
 type Props = { stage: Stage; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: () => Promise<void> };
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+
+function roundToModuleIncrement(valueMm: number, incrementMm = 50) {
+  return Math.round(valueMm / incrementMm) * incrementMm;
+}
+
+function fitModuleToMeasuredWall(item: CatalogItem, wallLengthMm: number) {
+  const adaptiveFamily = item.family === 'tv-unit' || item.family === 'crockery';
+  if (!adaptiveFamily || !Number.isFinite(wallLengthMm) || wallLengthMm <= 0) {
+    return { widthMm: item.widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: false };
+  }
+  const minWidthMm = item.family === 'tv-unit' ? 1200 : 900;
+  const safeWallWidthMm = roundToModuleIncrement(Math.max(0, wallLengthMm - 200));
+  if (safeWallWidthMm < minWidthMm) return null;
+  const isWallComposition = /wall|full|asymmetric|profile|crockery|display|bar|panel/i.test(`${item.name} ${item.tags.join(' ')}`);
+  const targetWidthMm = isWallComposition ? safeWallWidthMm : Math.min(item.widthMm, safeWallWidthMm);
+  const maxWidthMm = item.family === 'tv-unit' ? 4200 : 3600;
+  const widthMm = Math.min(maxWidthMm, Math.max(minWidthMm, targetWidthMm));
+  return { widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: widthMm !== item.widthMm };
+}
 
 export function DesignFlowWorkspace({ stage, projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
   const navigate = useNavigate();
@@ -216,25 +235,27 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     const wallLengthMm = anchorWall.end
       ? Math.hypot(anchorWall.end.xMm - anchorWall.start.xMm, anchorWall.end.yMm - anchorWall.start.yMm)
       : 0;
-    const offsetMm = Math.max(0, Math.round((wallLengthMm - item.widthMm) / 2));
-    if (wallLengthMm > 0 && item.widthMm > wallLengthMm) {
-      setPlacementNotice(`${item.name} is ${item.widthMm} mm wide but the selected wall is only ${Math.round(wallLengthMm)} mm.`);
+    const fitted = fitModuleToMeasuredWall(item, wallLengthMm);
+    if (!fitted) {
+      setPlacementNotice(`${item.name} needs at least ${item.family === 'tv-unit' ? 1200 : 900} mm of clear wall after end fillers; choose a wider wall or a smaller module family.`);
       return;
     }
+    const offsetMm = Math.max(0, Math.round((wallLengthMm - fitted.widthMm) / 2));
     setPlacementNotice('Checking room compatibility and circulation...');
     try {
       const response = await fetch(`${apiBase}/catalog/validate-placement`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ moduleId: item.id, roomType: room, clearanceMm: room === 'living' ? 800 : 1200 }) });
       const result = await response.json();
       if (!response.ok || !result.valid) { setPlacementNotice(result.issues?.join(' ') ?? 'This module cannot be placed here.'); return; }
-      const moduleResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ spaceId, templateId: item.id, category: item.family, label: item.name, config: { family: item.family, widthMm: item.widthMm, depthMm: item.depthMm, heightMm: item.heightMm, tags: item.tags, manufacturingRules: item.manufacturingRules ?? [], configuration: moduleConfiguration }, position: { wallId, offsetMm } }) });
+      const adaptiveShutterCount = ['tv-unit', 'crockery'].includes(item.family) ? Math.max(2, Math.round(fitted.widthMm / 450)) : undefined;
+      const moduleResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ spaceId, templateId: item.id, category: item.family, label: item.name, config: { family: item.family, widthMm: fitted.widthMm, depthMm: fitted.depthMm, heightMm: fitted.heightMm, templateWidthMm: item.widthMm, tags: item.tags, manufacturingRules: item.manufacturingRules ?? [], configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount, source: fitted.adapted ? 'wall-fit' : 'catalog' } }, position: { wallId, offsetMm } }) });
       const modulePayload = await moduleResponse.json();
       if (!moduleResponse.ok || !modulePayload.module) { setPlacementNotice(modulePayload.message ?? 'Module anchor could not be saved.'); return; }
       const saved = modulePayload.module;
       const resolved = saved.position_json ?? {};
-      const next = { id: saved.id, roomId: spaceId, family: item.family, label: item.name, widthMm: item.widthMm, depthMm: item.depthMm, heightMm: item.heightMm, wallId: resolved.wallId, offsetMm: resolved.offsetMm, xMm: resolved.xMm, yMm: resolved.yMm, rotationDeg: resolved.rotationDeg, configuration: moduleConfiguration };
+      const next = { id: saved.id, roomId: spaceId, family: item.family, label: item.name, widthMm: fitted.widthMm, depthMm: fitted.depthMm, heightMm: fitted.heightMm, wallId: resolved.wallId, offsetMm: resolved.offsetMm, xMm: resolved.xMm, yMm: resolved.yMm, rotationDeg: resolved.rotationDeg, configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount } };
       setDraftModules((current) => current.some((module) => module.id === next.id) ? current : [...current, next]);
       setSelectedModuleId(next.id);
-      setPlacementNotice(`${item.name} was saved in the selected room at ${Math.round(offsetMm)} mm along the verified wall. Select it to assign materials or make a targeted render revision.`);
+      setPlacementNotice(`${item.name} was saved at ${Math.round(offsetMm)} mm along the verified wall${fitted.adapted ? ` and fitted to ${fitted.widthMm} mm of usable wall` : ''}. Select it to assign materials or make a targeted render revision.`);
     } catch { setPlacementNotice('Placement validator unavailable. The module was not added.'); }
   }
 

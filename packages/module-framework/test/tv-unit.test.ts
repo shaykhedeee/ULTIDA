@@ -128,6 +128,28 @@ test('lighting placement compiles under-carcass LED lighting channel', () => {
   assert.strictEqual(led.size.widthMm, 1800);
 });
 
+test('full-height TV wall compiles a feature field, low storage and glass display as distinct parts', () => {
+  const result = compileTvUnit({
+    templateVersionId: 'tpl-tv-wall-v1',
+    instanceId: 'tv-full-wall-1',
+    parameters: {
+      totalWidthMm: 3000,
+      totalDepthMm: 450,
+      totalHeightMm: 2400,
+      profileGlassOption: true,
+      lighting: 'profile_led',
+      shutterCount: 5,
+    },
+    wall: { widthMm: 3200, heightMm: 0, depthMm: 150 },
+  });
+
+  assert.equal(result.valid, true);
+  assert.ok(result.parts.some((part) => part.name === 'TV Feature Back Panel'));
+  assert.ok(result.parts.some((part) => part.name === 'TV Service and Cable Recess'));
+  assert.ok(result.parts.some((part) => part.name === 'Profile Glass Display Shutter'));
+  assert.ok(result.parts.some((part) => part.meta.semanticType === 'lighting_channel'));
+});
+
 test('deterministic part output produces identical results for identical parameters', () => {
   const input = {
     templateVersionId: 'tpl-tv-v1',
