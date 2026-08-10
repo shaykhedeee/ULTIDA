@@ -277,7 +277,12 @@ export function PlanReviewWorkspace({
 
   // Selected element
   const selectedElement = elements.find((e) => e.id === selectedId) ?? null;
-  const approvalElements = elements.filter((element) => element.status === 'accepted');
+  // Initial Design is a provisional handoff: AI candidates may still be
+  // labelled needs_review, provided they are not explicitly rejected. Final
+  // Production remains strict and only uses designer-accepted entities.
+  const approvalElements = geometryMode === 'initial_design'
+    ? elements.filter((element) => element.status !== 'rejected')
+    : elements.filter((element) => element.status === 'accepted');
   const openingsReady = approvalElements.filter((element) => element.kind === 'door' || element.kind === 'window').every((element) => {
     if (!element.wallId || !(element.widthMm && element.widthMm > 0) || !(element.heightMm && element.heightMm > 0)) return false;
     return element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0));
