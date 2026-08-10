@@ -263,9 +263,14 @@ async function analyzeGemini(environment: Environment, input: Input) {
   const model = environment.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
   const apiKey = geminiVisionKey(environment);
   const prompt = buildPlanPrompt(input.brief, input.analysisGuides);
-  const response = await fetchWithProviderTimeout(environment, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }, contents: [{ parts: [{ text: `${prompt}\nSource file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: input.dataUrl.split(',')[1] } }] }] }) });
-  if (!response.ok) throw new Error(`Gemini plan analyzer failed (${response.status}).`);
-  const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  const base64 = input.dataUrl.split(',', 2)[1];
+  if (!base64) throw new Error('The normalized plan image is missing its base64 payload.');
+  // Dense measured drawings require enough output space for rooms, walls,
+  // openings and dimensions. 4096 was truncating valid JSON on larger plans,
+  // which made the fallback look like an unreliable vision provider.
+  const response = await fetchWithProviderTimeout(environment, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig: { temperature: 0, maxOutputTokens: 8192, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }, contents: [{ parts: [{ text: `${prompt}\nSource file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: base64 } }] }] }) });
+  const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; error?: { message?: string } };
+  if (!response.ok) throw new Error(payload.error?.message || `Gemini plan analyzer failed (${response.status}).`);
   const content = payload.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text;
   if (!content) throw new Error('Gemini plan analyzer returned no proposal content.');
   return { model, proposals: assertFloorPlanCoverage(parseProposals(content, 'ocr')) };
