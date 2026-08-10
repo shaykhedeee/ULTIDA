@@ -1612,6 +1612,17 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
       areaSqm: r.areaSqm,
       ceilingHeightMm: saved?.ceiling_height_mm ?? r.ceilingHeightMm,
       requiredFurniture: Array.isArray(saved?.requirements_json?.requiredFurniture) ? saved.requirements_json.requiredFurniture : [],
+      budgetInr: saved?.requirements_json?.budgetInr ?? null,
+      designPriority: saved?.requirements_json?.designPriority ?? 'balanced',
+      applianceNeeds: Array.isArray(saved?.requirements_json?.applianceNeeds) ? saved.requirements_json.applianceNeeds : [],
+      constraints: Array.isArray(saved?.requirements_json?.constraints) ? saved.requirements_json.constraints : [],
+      floorFinish: saved?.settings_json?.floorFinish ?? '',
+      falseCeiling: saved?.settings_json?.falseCeiling ?? '',
+      styleDirection: saved?.settings_json?.styleDirection ?? '',
+      paletteDirection: saved?.settings_json?.paletteDirection ?? '',
+      retainedElements: Array.isArray(saved?.settings_json?.retainedElements) ? saved.settings_json.retainedElements : [],
+      wallRoles: saved?.settings_json?.wallRoles ?? {},
+      preferredCamera: saved?.settings_json?.preferredCamera ?? '',
       verificationStatus: saved?.verification_status ?? 'unverified',
     };
   });
@@ -1648,7 +1659,7 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
 });
 
 app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (request, response) => {
-  const { name, roomType, ceilingHeightMm, requiredFurniture, floorFinish, falseCeiling, budgetInr, designPriority, applianceNeeds, constraints } = request.body ?? {};
+  const { name, roomType, ceilingHeightMm, requiredFurniture, floorFinish, falseCeiling, budgetInr, designPriority, applianceNeeds, constraints, styleDirection, paletteDirection, retainedElements, wallRoles, preferredCamera } = request.body ?? {};
   const fieldErrors: Record<string, string> = {};
   if (!String(name ?? '').trim()) fieldErrors.name = 'Room name is required.';
   if (!String(roomType ?? '').trim()) fieldErrors.roomType = 'Room type is required.';
@@ -1661,7 +1672,14 @@ app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (r
   const updated = await client.from('spaces').update({
     name: String(name).trim(), room_type: roomType, ceiling_height_mm: ceilingHeightMm,
     requirements_json: { ...(current.data.requirements_json ?? {}), requiredFurniture, budgetInr: budgetInr ?? null, designPriority: designPriority ?? 'balanced', applianceNeeds: applianceNeeds ?? [], constraints: constraints ?? [] },
-    settings_json: { ...(current.data.settings_json ?? {}), floorFinish: floorFinish ?? '', falseCeiling: falseCeiling ?? '' },
+    settings_json: {
+      ...(current.data.settings_json ?? {}),
+      floorFinish: floorFinish ?? '', falseCeiling: falseCeiling ?? '',
+      styleDirection: styleDirection ?? '', paletteDirection: paletteDirection ?? '',
+      retainedElements: Array.isArray(retainedElements) ? retainedElements : [],
+      wallRoles: wallRoles && typeof wallRoles === 'object' && !Array.isArray(wallRoles) ? wallRoles : {},
+      preferredCamera: preferredCamera ?? '',
+    },
     status: 'configured', updated_at: new Date().toISOString()
   }).eq('id', request.params.spaceId).eq('project_id', request.params.projectId).select('*').single();
   if (updated.error) return response.status(500).json({ success: false, code: 'SPACE_SAVE_FAILED', message: updated.error.message });

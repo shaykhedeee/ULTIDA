@@ -29,6 +29,17 @@ interface PlanRoom {
   areaSqm: number;
   ceilingHeightMm?: number;
   requiredFurniture: string[];
+  budgetInr?: number | null;
+  designPriority?: string;
+  applianceNeeds?: string[];
+  constraints?: string[];
+  floorFinish?: string;
+  falseCeiling?: string;
+  styleDirection?: string;
+  paletteDirection?: string;
+  retainedElements?: string[];
+  wallRoles?: Record<string, string>;
+  preferredCamera?: string;
   verificationStatus?: string;
   included?: boolean;
 }
@@ -90,6 +101,7 @@ export function SpacesWorkspace() {
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
+  const [spacePanel, setSpacePanel] = useState<'geometry' | 'brief' | 'scene'>('geometry');
   const [layers, setLayers] = useState({ walls: true, openings: true, columns: true, beams: true, services: true, annotations: true, rooms: true });
   const [tool, setTool] = useState<string>('select');
   const [measureFrom, setMeasureFrom] = useState<Pt | null>(null);
@@ -120,7 +132,7 @@ export function SpacesWorkspace() {
       const payload = await response.json().catch(() => null);
       if (!live) return;
       if (!response.ok) { setLoadState(response.status === 409 ? 'blocked' : 'error'); setSaveState(payload?.message ?? 'Approved plan could not be loaded.'); return; }
-      const roomsP: PlanRoom[] = (payload.rooms ?? []).map((r: any) => ({ id: r.id, spaceRecordId: r.spaceRecordId, name: r.name, roomType: r.roomType ?? 'other', polygon: r.polygon ?? [], areaSqm: r.areaSqm ?? polyArea(r.polygon ?? []), ceilingHeightMm: r.ceilingHeightMm, requiredFurniture: Array.isArray(r.requiredFurniture) ? r.requiredFurniture : [], verificationStatus: r.verificationStatus, included: true }));
+      const roomsP: PlanRoom[] = (payload.rooms ?? []).map((r: any) => ({ id: r.id, spaceRecordId: r.spaceRecordId, name: r.name, roomType: r.roomType ?? 'other', polygon: r.polygon ?? [], areaSqm: r.areaSqm ?? polyArea(r.polygon ?? []), ceilingHeightMm: r.ceilingHeightMm, requiredFurniture: Array.isArray(r.requiredFurniture) ? r.requiredFurniture : [], budgetInr: r.budgetInr ?? null, designPriority: r.designPriority ?? 'balanced', applianceNeeds: Array.isArray(r.applianceNeeds) ? r.applianceNeeds : [], constraints: Array.isArray(r.constraints) ? r.constraints : [], floorFinish: r.floorFinish ?? '', falseCeiling: r.falseCeiling ?? '', styleDirection: r.styleDirection ?? '', paletteDirection: r.paletteDirection ?? '', retainedElements: Array.isArray(r.retainedElements) ? r.retainedElements : [], wallRoles: r.wallRoles ?? {}, preferredCamera: r.preferredCamera ?? '', verificationStatus: r.verificationStatus, included: true }));
       if (!live) return;
       setPlan({ ceilingHeightMm: payload.ceilingHeightMm, walls: payload.walls, rooms: payload.rooms, openings: payload.openings, services: payload.services, obstacles: payload.columns } as any);
       setRooms(roomsP); setWalls(payload.walls ?? []); setOpenings(payload.openings ?? []);
@@ -250,6 +262,8 @@ export function SpacesWorkspace() {
   function includeRoom(id: string, inc: boolean) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, included: inc } : r)); }
   function setRoomCeiling(id: string, h: number) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, ceilingHeightMm: h } : r)); }
   function setRoomType(id: string, t: string) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, roomType: t, requiredFurniture: [] } : r)); }
+  function patchRoom(id: string, patch: Partial<PlanRoom>) { setRooms(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r)); }
+  function splitList(value: string) { return value.split(',').map(item => item.trim()).filter(Boolean); }
   function toggleFurniture(id: string, furnitureId: string) {
     snapshot();
     setRooms(rs => rs.map(r => r.id === id ? {
@@ -338,7 +352,7 @@ export function SpacesWorkspace() {
     }
     const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture })
+      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '' })
     });
     const p = await res.json().catch(() => null);
     setSaveState(res.ok ? 'Room saved.' : (p?.message ?? 'Save failed.'));
@@ -483,6 +497,12 @@ export function SpacesWorkspace() {
             <div className="region-title"><Edit3 size={14} /> Properties</div>
             {sel ? (
               <div className="props-body">
+                <div className="space-panel-tabs" role="tablist" aria-label="Room configuration">
+                  <button type="button" className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>Geometry</button>
+                  <button type="button" className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>Design brief</button>
+                  <button type="button" className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>Scene setup</button>
+                </div>
+                {spacePanel === 'geometry' && <>
                 <label>Room name</label><input value={sel.room.name} onChange={(e) => setRooms(rs => rs.map(r => r.id === sel.room.id ? { ...r, name: e.target.value } : r))} />
                 <label>Type</label>
                 <select value={sel.room.roomType} onChange={(e) => setRoomType(sel.room.id, e.target.value)}>{Object.entries(ROOM_TYPES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
@@ -509,6 +529,27 @@ export function SpacesWorkspace() {
                     ? <div className="detected-item-list">{detectedExistingItems.map((item, index) => <span key={`${item}-${index}`}>{item}</span>)}</div>
                     : <p>No existing fixtures or furniture symbols were confidently detected in this room.</p>}
                 </div>
+                </>}
+                {spacePanel === 'brief' && <>
+                  <p className="panel-help">Define the work this room needs. Layout uses these saved choices together with the real room geometry.</p>
+                  <label>Required modular furniture</label>
+                  <div className="furniture-options" role="group" aria-label="Required modular furniture">
+                    {furnitureOptionsFor(sel.room.roomType).map((option) => <label key={option.id} className="furniture-option"><input type="checkbox" checked={sel.room.requiredFurniture.includes(option.id)} onChange={() => toggleFurniture(sel.room.id, option.id)} />{option.label}</label>)}
+                  </div>
+                  <label>Layout priority</label><select value={sel.room.designPriority ?? 'balanced'} onChange={(e) => patchRoom(sel.room.id, { designPriority: e.target.value })}><option value="storage">Maximum storage</option><option value="balanced">Balanced</option><option value="circulation">Maximum circulation</option></select>
+                  <label>Style direction</label><input placeholder="e.g. warm minimal" value={sel.room.styleDirection ?? ''} onChange={(e) => patchRoom(sel.room.id, { styleDirection: e.target.value })} />
+                  <label>Palette / finish direction</label><input placeholder="e.g. beige + off-white" value={sel.room.paletteDirection ?? ''} onChange={(e) => patchRoom(sel.room.id, { paletteDirection: e.target.value })} />
+                  <label>Existing items to retain</label><input placeholder="AC, loose bed, window seat" value={(sel.room.retainedElements ?? []).join(', ')} onChange={(e) => patchRoom(sel.room.id, { retainedElements: splitList(e.target.value) })} />
+                  <label>Constraints / client notes</label><input placeholder="900 mm clear passage" value={(sel.room.constraints ?? []).join(', ')} onChange={(e) => patchRoom(sel.room.id, { constraints: splitList(e.target.value) })} />
+                </>}
+                {spacePanel === 'scene' && <>
+                  <p className="panel-help">Select a wall on the canvas, then assign its purpose. This establishes the design context; module dimensions are set later in Design.</p>
+                  <label>Selected wall role</label><select disabled={!selectedWall} value={selectedWall ? (sel.room.wallRoles?.[selectedWall] ?? '') : ''} onChange={(e) => selectedWall && patchRoom(sel.room.id, { wallRoles: { ...(sel.room.wallRoles ?? {}), [selectedWall]: e.target.value } })}><option value="">Select a role</option><option value="tv_wall">TV wall</option><option value="wardrobe_wall">Wardrobe wall</option><option value="kitchen_working_wall">Kitchen working wall</option><option value="crockery_wall">Crockery wall</option><option value="bed_headboard_wall">Bed headboard wall</option><option value="restricted_wall">Restricted wall</option></select>
+                  {!selectedWall && <p className="panel-help">Choose a wall in the canvas to enable this control.</p>}
+                  <label>Preferred camera</label><select value={sel.room.preferredCamera ?? ''} onChange={(e) => patchRoom(sel.room.id, { preferredCamera: e.target.value })}><option value="">Let the scene choose</option><option value="entry_to_feature">Entry to feature wall</option><option value="feature_to_entry">Feature wall to entry</option><option value="corner_wide">Wide corner view</option><option value="elevation">Straight elevation</option></select>
+                  <label>Floor finish</label><input placeholder="e.g. 600 × 1200 matte tile" value={sel.room.floorFinish ?? ''} onChange={(e) => patchRoom(sel.room.id, { floorFinish: e.target.value })} />
+                  <label>Ceiling intent</label><input placeholder="e.g. plain ceiling with warm cove" value={sel.room.falseCeiling ?? ''} onChange={(e) => patchRoom(sel.room.id, { falseCeiling: e.target.value })} />
+                </>}
                 {sel.room.spaceRecordId
                   ? <Button variant="outline" onClick={() => persistRoom(sel.room)}><Save size={13} /> Save room</Button>
                   : <Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}><Pencil size={13} /> Review geometry in Plan</Button>}

@@ -190,6 +190,10 @@
 .layer-row:hover { background: rgba(0,0,0,.03); }
 .props-region { grid-area: props; }
 .props-body { display: flex; flex-direction: column; gap: 8px; }
+.space-panel-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; background: #f3efe7; border-radius: 8px; }
+.space-panel-tabs button { border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 10px; font-weight: 800; padding: 6px 4px; cursor: pointer; }
+.space-panel-tabs button.active { background: var(--surface); color: var(--text-secondary); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.panel-help { margin: 0; font-size: 11px; line-height: 1.45; color: var(--text-muted); }
 .props-body label { font-size: 11px; font-weight: 700; color: var(--text-secondary); }
 .props-body input, .props-body select { padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; }
 .furniture-options { display: flex; flex-wrap: wrap; gap: 6px; }
