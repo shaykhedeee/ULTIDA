@@ -301,7 +301,11 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     textContent: input.dataUrl.startsWith('data:text') ? Buffer.from(input.dataUrl.split(',')[1], 'base64').toString('utf-8') : undefined
   });
 
-  const configured = [environment.OPENAI_API_KEY ? 'openai' : null, geminiVisionKey(environment) ? 'gemini' : null, environment.CLOUDFLARE_ACCOUNT_ID && environment.CLOUDFLARE_AI_TOKEN && (environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL) ? 'cloudflare' : null].filter(Boolean) as Array<'openai' | 'gemini' | 'cloudflare'>;
+  // Credentials are sufficient to enable the Cloudflare route: the adapter
+  // has a tested vision-model default and can fall through its model list.
+  // Requiring a model variable here incorrectly disabled the provider and
+  // prevented Gemini/OpenAI fallback from being selected predictably.
+  const configured = [environment.OPENAI_API_KEY ? 'openai' : null, geminiVisionKey(environment) ? 'gemini' : null, environment.CLOUDFLARE_ACCOUNT_ID && environment.CLOUDFLARE_AI_TOKEN ? 'cloudflare' : null].filter(Boolean) as Array<'openai' | 'gemini' | 'cloudflare'>;
 
   if (!configured.length) {
     const error = new Error('A real AI vision provider is required for floor-plan analysis.');
