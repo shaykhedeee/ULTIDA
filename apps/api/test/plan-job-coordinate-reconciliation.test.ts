@@ -13,3 +13,14 @@ test('maps normalized vision coordinates into the CV source pixel space', () => 
   assert.equal(vision.dimensionTextFindings[0]?.parsedMm, 4200);
   assert.deepEqual(vision.dimensionTextFindings[0]?.approxPositionPx, { x: 240, y: 240 });
 });
+
+test('does not preserve a legacy sparse result as a reviewable floor plan', () => {
+  assert.equal(__test__.hasReviewablePlanCoverage({ proposals: [
+    { kind: 'wall' },
+  ] }), false);
+  assert.equal(__test__.hasReviewablePlanCoverage({ proposals: [
+    { kind: 'room' },
+    { kind: 'wall' }, { kind: 'wall' }, { kind: 'wall' }, { kind: 'wall' },
+    { kind: 'opening' },
+  ] }), true);
+});

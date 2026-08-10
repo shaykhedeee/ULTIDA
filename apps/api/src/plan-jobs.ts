@@ -16,6 +16,20 @@ const execFileAsync = promisify(execFile);
 type Environment = Record<string, string | undefined>;
 type PlanJobRequest = { projectId: string; sourceAssetId: string; fileName: string; mimeType: string; analysisGuides?: AnalysisGuideRegion[]; idempotencyKey?: string };
 
+/** A job used to be marked successful after a syntactically valid but sparse
+ * vision response. Do not pin the designer to that legacy output: it contains
+ * no usable room model and has never been approved. */
+function hasReviewablePlanCoverage(output: unknown) {
+  const value = output as { proposals?: Array<{ kind?: string }> } | null;
+  const proposals = Array.isArray(value?.proposals) ? value.proposals : [];
+  const count = (kind: string) => proposals.filter((proposal) => proposal?.kind === kind).length;
+  const rooms = count('room');
+  const walls = count('wall');
+  const openings = count('opening');
+  const dimensions = count('dimension');
+  return rooms >= 1 && walls >= 4 && rooms + walls + openings + dimensions >= 6;
+}
+
 // Browser filenames and supplied MIME types are not trustworthy enough for a
 // vision request. A WebP uploaded with a `.png` suffix made Workers AI decode
 // the bytes as PNG and fail before it could analyse the plan. Use file magic as
@@ -295,7 +309,8 @@ export async function createPlanAnalysisJob(environment: Environment, request: P
     // Successful and active jobs remain fully idempotent.
     const attempts = Number(existing.data.attempts ?? 0);
     const maxAttempts = Number(existing.data.max_attempts ?? 3);
-    if (existing.data.status === 'failed' && attempts < maxAttempts) {
+    const needsQualityRetry = existing.data.status === 'succeeded' && !hasReviewablePlanCoverage(existing.data.output);
+    if ((existing.data.status === 'failed' || needsQualityRetry) && attempts < maxAttempts) {
       const queuedAt = new Date().toISOString();
       const retryRequestId = crypto.randomUUID();
       const retried = await client.from('jobs')
@@ -316,11 +331,11 @@ export async function createPlanAnalysisJob(environment: Environment, request: P
           updated_at: queuedAt,
         })
         .eq('id', existing.data.id)
-        .eq('status', 'failed')
+        .eq('status', existing.data.status)
         .select('id,request_id,attempts,max_attempts')
         .maybeSingle();
       if (retried.error) return { status: 'failed' as const, reason: `The previous analysis could not be retried: ${retried.error.message}` };
-      if (retried.data) return { status: 'queued' as const, jobId: retried.data.id, requestId: retried.data.request_id, attempts: retried.data.attempts, maxAttempts: retried.data.max_attempts, retry: true };
+      if (retried.data) return { status: 'queued' as const, jobId: retried.data.id, requestId: retried.data.request_id, attempts: retried.data.attempts, maxAttempts: retried.data.max_attempts, retry: true, qualityRetry: needsQualityRetry };
     }
     return { status: existing.data.status as 'queued' | 'running' | 'succeeded' | 'failed', jobId: existing.data.id, requestId: existing.data.request_id, attempts: existing.data.attempts, maxAttempts: existing.data.max_attempts, output: existing.data.output, error: existing.data.error };
   }
@@ -579,4 +594,4 @@ export async function processPlanAnalysisJob(environment: Environment, jobId: st
 
 // Narrow test seam for coordinate reconciliation. Runtime callers use only
 // the durable job functions above.
-export const __test__ = { visionProposalsToSemantic };
+export const __test__ = { visionProposalsToSemantic, hasReviewablePlanCoverage };

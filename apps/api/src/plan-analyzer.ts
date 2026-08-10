@@ -190,6 +190,13 @@ function assertFloorPlanCoverage(proposals: PlanProposal[]) {
   if (rooms === 0 && walls < 4) {
     throw new Error(`Vision response is too sparse for a floor plan (${rooms} rooms, ${walls} walls).`);
   }
+  // A small set of wall strokes without a room, opening, or measurement is
+  // commonly a title block, furniture outline, or one exterior edge—not a
+  // reviewable floor-plan model. Let the next configured provider inspect the
+  // source instead of accepting it and later manufacturing a generic room.
+  if (rooms === 0 && (openings + dimensions < 2 || walls < 8)) {
+    throw new Error(`Vision response is missing room-level coverage (${rooms} rooms, ${walls} walls, ${openings} openings, ${dimensions} dimensions).`);
+  }
   if (rooms + walls + openings + dimensions < 4) {
     throw new Error(`Vision response has insufficient structural coverage (${rooms} rooms, ${walls} walls, ${openings} openings, ${dimensions} dimensions).`);
   }
@@ -367,7 +374,11 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     }
   };
   const requestedPrimary = environment.PLAN_ANALYZER_PRIMARY;
-  const defaultOrder: Array<'openai' | 'cloudflare' | 'gemini'> = ['openai', 'cloudflare', 'gemini'];
+  // Gemini is the primary structured-document reader for ULTIDA when it is
+  // configured. Cloudflare remains the independent vision fallback and owns
+  // the image-editing/render route; its low-cost vision models should not win
+  // the floor-plan result merely because a preference variable was omitted.
+  const defaultOrder: Array<'openai' | 'gemini' | 'cloudflare'> = ['openai', 'gemini', 'cloudflare'];
   const order = [
     ...(requestedPrimary && configured.includes(requestedPrimary as 'openai' | 'gemini' | 'cloudflare')
       ? [requestedPrimary as 'openai' | 'gemini' | 'cloudflare']
