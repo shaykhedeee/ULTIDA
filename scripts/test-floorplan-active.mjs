@@ -12,10 +12,16 @@ for (const line of envText.split('\n')) {
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+const email = process.env.ULTIDA_TEST_EMAIL;
+const password = process.env.ULTIDA_TEST_PASSWORD;
+if (!url || !key || !email || !password) {
+  console.error('Set SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, ULTIDA_TEST_EMAIL and ULTIDA_TEST_PASSWORD in a local untracked environment file before running this diagnostic.');
+  process.exit(1);
+}
 const sb = createClient(url, key);
 const PROJECT = '11111111-1111-1111-1111-111111111111';
 
-const { data, error } = await sb.auth.signInWithPassword({ email: 'zebbroka@gmail.com', password: '12345678' });
+const { data, error } = await sb.auth.signInWithPassword({ email, password });
 if (error) { console.error('AUTH FAIL', error.message); process.exit(1); }
 const token = data.session.access_token;
 const base = 'http://127.0.0.1:8800/api';
