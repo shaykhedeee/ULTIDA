@@ -400,10 +400,12 @@ export function SpacesWorkspace() {
             <button className="icon-btn" onClick={redo} title="Redo"><Redo2 size={15} /></button>
           </div>
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
+          <button className="btn-secondary" disabled={!selectedRoom} onClick={() => selectedRoom && navigate(`/projects/${projectId}/design?spaceId=${encodeURIComponent(selectedRoom)}`)} title="Open the selected room in the 2D furniture placement workspace">Place furniture in 2D</button>
           <button className="btn-primary" disabled={openingLayouts} onClick={() => void openLayoutStudio()}>{openingLayouts ? 'Validating spaces…' : 'Open Layout Studio →'}</button>
         </div>
       </div>
       {saveState && <p role="status" className="save-state">{saveState}</p>}
+      <div className="spaces-flow-note" role="note"><strong>Recommended order:</strong> run AI analysis first to detect rooms, walls, doors, windows, and dimensions; then use this workspace to correct boundaries, set room requirements, place furniture in 2D, and continue to layout and 3D.</div>
 
       {loadState === 'loading' && <div className="spaces-empty"><Layers size={22} /><strong>Loading approved plan spaces...</strong></div>}
       {loadState === 'blocked' && <div className="spaces-empty"><AlertTriangle size={22} /><strong>Floor Plan approval required</strong><p>{saveState || 'Approve an Initial Design plan to derive editable rooms.'}</p><Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}>Open Floor Plan Intelligence</Button></div>}

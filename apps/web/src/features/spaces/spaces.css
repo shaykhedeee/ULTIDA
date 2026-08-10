@@ -6,6 +6,17 @@
   max-width: 1400px;
 }
 
+.spaces-flow-note {
+  margin: 12px 0 16px;
+  padding: 11px 14px;
+  border: 1px solid #e5d8c9;
+  border-radius: 9px;
+  background: #fffaf2;
+  color: #6f5a49;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .spaces-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));

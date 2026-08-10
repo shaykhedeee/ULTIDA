@@ -1,5 +1,6 @@
 import { Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Send, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 import MaterialSwapPanel from './MaterialSwapPanel';
@@ -17,6 +18,8 @@ type Props = { stage: Stage; projectId: string | null; planApproved: boolean; br
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
 
 export function DesignFlowWorkspace({ stage, projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
+  const [searchParams] = useSearchParams();
+  const requestedSpaceId = searchParams.get('spaceId');
   const [room, setRoom] = useState('kitchen');
   const [spaces, setSpaces] = useState<Array<{ id: string; name: string; roomType: string }>>([]);
   const [walls, setWalls] = useState<Array<{ id: string; start?: { xMm: number; yMm: number }; end?: { xMm: number; yMm: number } }>>([]);
@@ -109,14 +112,14 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
         const nextWalls = Array.isArray(planPayload.walls) ? planPayload.walls : [];
         setSpaces(nextSpaces);
         setWalls(nextWalls);
-        setSpaceId((current) => current ?? nextSpaces[0]?.id ?? null);
+        setSpaceId((current) => (requestedSpaceId && nextSpaces.some((space: any) => space.id === requestedSpaceId) ? requestedSpaceId : current ?? nextSpaces[0]?.id ?? null));
         setWallId((current) => current ?? nextWalls[0]?.id ?? null);
         if (nextSpaces[0]?.room_type) setRoom(nextSpaces[0].room_type);
       } catch {
         setSpaces([]); setWalls([]); setSpaceId(null); setWallId(null);
       }
     })();
-  }, [projectId, planApproved]);
+  }, [projectId, planApproved, requestedSpaceId]);
 
   useEffect(() => {
     if (!planApproved) {
