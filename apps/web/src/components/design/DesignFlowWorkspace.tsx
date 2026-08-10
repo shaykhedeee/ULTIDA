@@ -1,4 +1,4 @@
-import { Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Send, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
+import { ArrowRight, Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Send, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
@@ -276,23 +276,26 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     }
   }
 
-  async function compileMoodboard() {
+  async function compileMoodboard(materialSelection?: any[]) {
     if (!projectId || !draftModules.length) { setPlacementNotice('Place at least one persisted module before compiling a scene.'); return; }
-    if (!selectedLaminateObj.id && !selectedHardwareObj.id) { setPlacementNotice('Save a real material-library selection before compiling a scene.'); return; }
+    const sceneMaterials = materialSelection ?? [selectedLaminateObj, selectedHardwareObj].filter((item) => item.id);
+    if (!sceneMaterials.length) { setPlacementNotice('Save a real material-library selection before compiling a scene.'); return; }
     setPlacementNotice('Compiling the reviewed moodboard into scene.v1...');
     try {
-      const nextSceneId = await onSceneCreated(crypto.randomUUID(), draftModules, [selectedLaminateObj, selectedHardwareObj].filter((item) => item.id));
+      const nextSceneId = await onSceneCreated(crypto.randomUUID(), draftModules, sceneMaterials);
       if (nextSceneId) setCompiledSceneId(nextSceneId);
       setPlacementNotice('Scene compiled from persisted room anchors, module dimensions, and library materials.');
+      return nextSceneId;
     } catch {
       setPlacementNotice('Scene compilation failed. The moodboard remains saved for correction.');
+      return undefined;
     }
   }
 
   async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string, sceneVersionOverride?: string) {
-    const renderSceneVersionId = sceneVersionOverride ?? sceneVersionId;
+    const renderSceneVersionId = sceneVersionOverride ?? compiledSceneId ?? sceneVersionId;
     if (!renderSceneVersionId) { setVisualState('Create and save a scene first.'); return; }
-    if (!sceneApproved && operation !== 'material-swap') { setVisualState('Approve the scene before generating a scene-linked render.'); return; }
+    if (!sceneApproved) { setVisualState('Approve the source scene before generating a scene-linked render or laminate revision.'); return; }
     if (!projectId) { setVisualState('Select a project before generating a render.'); return; }
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
@@ -469,8 +472,13 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                         setVisualState('Select the exact module before creating a laminate revision.');
                         return;
                       }
+                      const previewLaminate = catalogLaminates.find((item) => item.id === materialId);
+                      if (!previewLaminate) {
+                        setVisualState('The selected material is no longer available in the organization library. No revision was created.');
+                        return;
+                      }
                       setVisualState('Compiling the saved module material into a new scene version...');
-                      const compiledSceneVersionId = await onSceneCreated(crypto.randomUUID(), draftModules, [selectedLaminateObj, selectedHardwareObj].filter((item) => item.id));
+                      const compiledSceneVersionId = await compileMoodboard([previewLaminate, selectedHardwareObj].filter((item) => item.id));
                       await createVisual('material-swap', laminate, compiledSceneVersionId ?? undefined);
                     }}
                     onConfirmAiProposal={() => setVisualState('AI material proposals require an approved scene revision before rendering.')}
@@ -547,6 +555,10 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
             </CardContent>
           </Card>
         </div>
+        <div className="workflow-next-action">
+          <div><small>NEXT STEP</small><strong>Turn the reviewed scene into verified drawings and a cutlist.</strong><span>Available after a scene-linked render has been reviewed.</span></div>
+          <Button onClick={() => navigate(`/projects/${projectId}/drawings`)} disabled={!projectId || !sceneApproved}><ArrowRight size={16} /> Continue to Drawings</Button>
+        </div>
       </section>
     );
   }
@@ -610,6 +622,10 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
             </div>
           </CardContent>
         </Card>
+        <div className="workflow-next-action">
+          <div><small>NEXT STEP</small><strong>Review the scene-linked estimate when the production package is ready.</strong><span>Quotes stay tied to the exact approved scene version.</span></div>
+          <Button onClick={() => navigate(`/projects/${projectId}/estimate`)} disabled={!projectId || !sceneApproved}><ArrowRight size={16} /> Continue to Estimate</Button>
+        </div>
       </section>
     );
   }
@@ -815,7 +831,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
               <Button onClick={saveMoodboard} style={{ marginTop: '0.5rem' }}>
                 <Check size={16} style={{ marginRight: '0.5rem' }} /> Save Moodboard
               </Button>
-              <Button onClick={compileMoodboard} variant="outline">
+              <Button onClick={() => void compileMoodboard()} variant="outline">
                 <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Compile {draftModules.length} reviewed module{draftModules.length === 1 ? '' : 's'} to scene.v1
               </Button>
               <Button disabled={!compiledSceneId || !projectId} onClick={() => navigate(`/projects/${projectId}/3d`)} variant="outline">
@@ -869,6 +885,10 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
             </div>
           </CardContent>
         </Card>
+      </div>
+      <div className="workflow-next-action">
+        <div><small>NEXT STEP</small><strong>{compiledSceneId ? 'Inspect the compiled room before requesting a render.' : 'Compile the placed modules into one canonical scene.'}</strong><span>{compiledSceneId ? 'The same scene supplies 3D, renders, drawings, cutlists and estimates.' : 'Place a module, save its material assignment, then compile the scene.'}</span></div>
+        <Button onClick={() => navigate(`/projects/${projectId}/${compiledSceneId ? '3d' : 'materials'}`)} disabled={!projectId || !compiledSceneId}><ArrowRight size={16} /> {compiledSceneId ? 'Continue to 3D Scene' : 'Scene required'}</Button>
       </div>
     </section>
   );
