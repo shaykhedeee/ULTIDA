@@ -36,6 +36,7 @@ export function DeliveryWorkspace({ briefSaved, planApproved, sceneVersionId, mo
   const [statusMsg, setStatusMsg] = useState('');
 
   const [hasApprovedQuote, setHasApprovedQuote] = useState(false);
+  const [approvedStages, setApprovedStages] = useState<string[]>([]);
 
   useEffect(() => {
     if (!supabase || !projectId) return;
@@ -60,6 +61,13 @@ export function DeliveryWorkspace({ briefSaved, planApproved, sceneVersionId, mo
           setHasApprovedQuote(true);
         }
       });
+    supabase.auth.getSession().then(async ({ data: session }) => {
+      if (!session.session) return;
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/operations`, { headers: { authorization: `Bearer ${session.session.access_token}` } });
+      if (!response.ok) return;
+      const payload = await response.json();
+      setApprovedStages((payload.reviews ?? []).filter((review: any) => review.status === 'approved').map((review: any) => review.stage));
+    });
   }, [projectId]);
 
   async function handleSave() {
@@ -143,7 +151,13 @@ export function DeliveryWorkspace({ briefSaved, planApproved, sceneVersionId, mo
                   <input 
                     type="checkbox" 
                     checked={delivery.productionReleased} 
-                    onChange={(e) => setDelivery({ ...delivery, productionReleased: e.target.checked })} 
+                  onChange={(e) => {
+                    if (e.target.checked && !(briefSaved && planApproved && sceneVersionId && moduleCount && hasApprovedQuote && ['plan', 'scene', 'cutlist', 'quote'].every((stage) => approvedStages.includes(stage)))) {
+                      setStatusMsg('Production release is locked until plan, scene, cutlist, and quote approvals are recorded.');
+                      return;
+                    }
+                    setDelivery({ ...delivery, productionReleased: e.target.checked });
+                  }}
                   />
                   <strong>Production Released (Approve drawings, DXF, cutlist, quote)</strong>
                 </label>

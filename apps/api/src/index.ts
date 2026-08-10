@@ -1002,6 +1002,49 @@ app.post('/api/studio/calendar', requireStudioUser, async (request, response) =>
   return response.status(201).json({ success: true, event: result.data });
 });
 
+// Team administration is organization-scoped. Invitations are created here
+// rather than directly from the browser so role checks and duplicate handling
+// cannot be bypassed by a client-side caller.
+app.get('/api/studio/team', requireStudioUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const client = getRequestSupabaseClient(request);
+  const [members, invitations] = await Promise.all([
+    client.from('organization_members').select('user_id,role,created_at').eq('organization_id', authReq.ultidaUser!.organizationId).order('created_at', { ascending: true }),
+    client.from('organization_invitations').select('id,email,role,status,invited_by,created_at').eq('organization_id', authReq.ultidaUser!.organizationId).order('created_at', { ascending: false }),
+  ]);
+  if (members.error || invitations.error) return response.status(500).json({ success: false, code: 'TEAM_READ_FAILED', message: members.error?.message ?? invitations.error?.message });
+  return response.json({ success: true, members: members.data ?? [], invitations: invitations.data ?? [] });
+});
+
+app.post('/api/studio/team/invitations', requireStudioUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const body = request.body ?? {};
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const role = typeof body.role === 'string' ? body.role : 'designer';
+  if (!/^\S+@\S+\.\S+$/.test(email) || !['admin', 'designer', 'production', 'viewer'].includes(role)) return response.status(400).json({ success: false, code: 'INVALID_INVITATION', message: 'Provide a valid email and supported role.' });
+  const client = getRequestSupabaseClient(request);
+  const membership = await client.from('organization_members').select('role').eq('organization_id', authReq.ultidaUser!.organizationId).eq('user_id', authReq.ultidaUser!.id).maybeSingle();
+  if (membership.error || !['owner', 'admin'].includes(membership.data?.role ?? '')) return response.status(403).json({ success: false, code: 'TEAM_ADMIN_REQUIRED', message: 'Only studio owners and admins can invite collaborators.' });
+  const existing = await client.from('organization_invitations').select('id').eq('organization_id', authReq.ultidaUser!.organizationId).eq('email', email).eq('status', 'pending').maybeSingle();
+  if (existing.data) return response.status(409).json({ success: false, code: 'INVITATION_EXISTS', message: 'A pending invitation already exists for this email.' });
+  const result = await client.from('organization_invitations').insert({ organization_id: authReq.ultidaUser!.organizationId, email, role, invited_by: authReq.ultidaUser!.id }).select('id,email,role,status,created_at').single();
+  if (result.error) return response.status(500).json({ success: false, code: 'INVITATION_WRITE_FAILED', message: result.error.message });
+  return response.status(201).json({ success: true, invitation: result.data, delivery: 'recorded' });
+});
+
+app.patch('/api/studio/team/invitations/:invitationId', requireStudioUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const status = request.body?.status;
+  if (!['pending', 'revoked'].includes(status)) return response.status(400).json({ success: false, code: 'INVALID_INVITATION_STATUS', message: 'Only pending or revoked are valid invitation states.' });
+  const client = getRequestSupabaseClient(request);
+  const membership = await client.from('organization_members').select('role').eq('organization_id', authReq.ultidaUser!.organizationId).eq('user_id', authReq.ultidaUser!.id).maybeSingle();
+  if (membership.error || !['owner', 'admin'].includes(membership.data?.role ?? '')) return response.status(403).json({ success: false, code: 'TEAM_ADMIN_REQUIRED', message: 'Only studio owners and admins can change invitations.' });
+  const result = await client.from('organization_invitations').update({ status }).eq('id', request.params.invitationId).eq('organization_id', authReq.ultidaUser!.organizationId).select('id,email,role,status,created_at').maybeSingle();
+  if (result.error) return response.status(500).json({ success: false, code: 'INVITATION_UPDATE_FAILED', message: result.error.message });
+  if (!result.data) return response.status(404).json({ success: false, code: 'INVITATION_NOT_FOUND', message: 'Invitation not found in this studio.' });
+  return response.json({ success: true, invitation: result.data });
+});
+
 app.get('/api/studio/invoices', requireStudioUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const result = await getRequestSupabaseClient(request).from('studio_invoices').select('id,project_id,quote_id,invoice_number,client_name,currency,items,subtotal,tax,total,status,due_date,created_at').eq('organization_id', authReq.ultidaUser!.organizationId).order('created_at', { ascending: false }).limit(200);
