@@ -29,6 +29,13 @@ test('plan prompt keeps detected furniture symbols review-only', () => {
   assert.match(prompt, /never turn them into modular furniture/i);
 });
 
+test('plan prompt treats designer room guides as advisory coverage checks', () => {
+  const prompt = buildPlanPrompt(undefined, [{ id: 'guide-1', label: 'Kitchen', x: 120, y: 220, width: 310, height: 260 }]);
+  assert.match(prompt, /DESIGNER GUIDE REGIONS/);
+  assert.match(prompt, /Guide 1 \(Kitchen\): x=120, y=220, width=310, height=260/);
+  assert.match(prompt, /not geometry authority/i);
+});
+
 // Build a minimal (provider-shaped) raw output and normalize it.
 function rawSample(overrides: Record<string, unknown> = {}) {
   return normalizeVisionOutput(

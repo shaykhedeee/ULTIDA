@@ -14,7 +14,7 @@ type DesignPreset = { id: string; name: string; family: string; roomTypes: strin
 type ModuleConfiguration = { shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; includeLoft: boolean; glassProfile: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
 type Provider = { id: string; configured: boolean; operations: string[] };
 type StoredRender = { id: string; scene_version_id: string; status: string; stale?: boolean; signedUrl: string | null; created_at: string; provenance?: { provider?: string; model?: string; promptVersion?: string; reviewStatus?: string } };
-type Props = { stage: Stage; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<void>; onSceneApproved: () => Promise<void> };
+type Props = { stage: Stage; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: () => Promise<void> };
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
 
 export function DesignFlowWorkspace({ stage, projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
@@ -30,6 +30,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const [familyFilter, setFamilyFilter] = useState('all');
   const [moduleConfiguration, setModuleConfiguration] = useState<ModuleConfiguration>({ shutterStyle: 'swing', drawerCount: 0, includeLoft: false, glassProfile: false, handleStyle: 'long-profile', lighting: 'none' });
   const [draftModules, setDraftModules] = useState<Module[]>([]);
+  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
   const [designMode, setDesignMode] = useState<'layout' | 'moodboard'>('layout');
   const [visualState, setVisualState] = useState('No visual proposal requested');
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -57,6 +58,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const selectedThemeObj = stylePresets.find((preset) => preset.id === activeTheme) ?? stylePresets[0];
   const selectedLaminateObj = catalogLaminates.find((l) => l.id === activeLaminate) ?? catalogLaminates[0] ?? { id: '', name: 'No laminate selected', code: '', hex: '#d6c7b8', unitCost: 0 };
   const selectedHardwareObj = catalogHardwares.find((h) => h.id === activeHardware) ?? catalogHardwares[0] ?? { id: '', name: 'No hardware selected', code: '', unitCost: 0 };
+  const selectedModule = draftModules.find((module) => module.id === selectedModuleId) ?? draftModules[0] ?? null;
   
   const compiledStylePrompt = `${selectedThemeObj ? [...selectedThemeObj.referenceStyle, ...selectedThemeObj.renderRules].join('. ') : 'Approved project style'} with ${selectedLaminateObj.name} and ${selectedHardwareObj.name}`;
   const [style, setStyle] = useState(compiledStylePrompt);
@@ -197,6 +199,10 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     return () => window.clearInterval(timer);
   }, [activeVisualJobId, projectId]);
 
+  useEffect(() => {
+    setSelectedModuleId((current) => current && draftModules.some((module) => module.id === current) ? current : draftModules[0]?.id ?? null);
+  }, [draftModules]);
+
   async function addModule(item: CatalogItem) {
     if (!briefComplete) { setPlacementNotice('Complete and save the client brief before creating a scene.'); return; }
     if (!planApproved) { setPlacementNotice('Approve the reviewed floor plan before creating a scene.'); return; }
@@ -223,7 +229,8 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
       const resolved = saved.position_json ?? {};
       const next = { id: saved.id, roomId: spaceId, family: item.family, label: item.name, widthMm: item.widthMm, depthMm: item.depthMm, heightMm: item.heightMm, wallId: resolved.wallId, offsetMm: resolved.offsetMm, xMm: resolved.xMm, yMm: resolved.yMm, rotationDeg: resolved.rotationDeg, configuration: moduleConfiguration };
       setDraftModules((current) => current.some((module) => module.id === next.id) ? current : [...current, next]);
-      setPlacementNotice(`${item.name} was saved as a moodboard proposal at ${Math.round(offsetMm)} mm along the selected wall. Compile the reviewed moodboard when ready.`);
+      setSelectedModuleId(next.id);
+      setPlacementNotice(`${item.name} was saved in the selected room at ${Math.round(offsetMm)} mm along the verified wall. Select it to assign materials or make a targeted render revision.`);
     } catch { setPlacementNotice('Placement validator unavailable. The module was not added.'); }
   }
 
@@ -237,14 +244,17 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     setPlacementNotice('Saving versioned material assignments...');
     try {
       const headers = await authenticatedHeaders();
-      const selectedModule = draftModules[0] ?? null;
+      if (!selectedModule) {
+        setPlacementNotice('Place and select one module before assigning materials.');
+        return;
+      }
       const assignments = [
-        selectedLaminateObj.id ? { materialId: selectedLaminateObj.id, semanticSlot: 'shutter', targetId: selectedModule?.id ?? projectId } : null,
-        selectedHardwareObj.id ? { materialId: selectedHardwareObj.id, semanticSlot: 'hardware', targetId: selectedModule?.id ?? projectId } : null,
+        selectedLaminateObj.id ? { materialId: selectedLaminateObj.id, semanticSlot: 'shutter', targetId: selectedModule.id } : null,
+        selectedHardwareObj.id ? { materialId: selectedHardwareObj.id, semanticSlot: 'hardware', targetId: selectedModule.id } : null,
       ].filter(Boolean) as Array<{ materialId: string; semanticSlot: 'shutter' | 'hardware'; targetId: string }>;
       const results = await Promise.all(assignments.map((assignment) => fetch(`${apiBase}/projects/${projectId}/material-assignments`, {
         method: 'POST', headers,
-        body: JSON.stringify({ ...assignment, targetKind: selectedModule ? 'module' : 'semantic_slot', moduleInstanceId: selectedModule?.id ?? null, status: 'draft' }),
+        body: JSON.stringify({ ...assignment, targetKind: 'module', moduleInstanceId: selectedModule.id, status: 'draft' }),
       }).then(async (response) => ({ response, payload: await response.json() }))));
       const failed = results.find(({ response, payload }) => !response.ok || !payload.success);
       if (failed) { setPlacementNotice(failed.payload.message ?? 'A material assignment could not be saved.'); return; }
@@ -256,7 +266,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
         const preferencePayload = await preference.json();
         if (!preference.ok || !preferencePayload.success) { setPlacementNotice(preferencePayload.message ?? 'Project style preference could not be saved.'); return; }
       }
-      setPlacementNotice(`Moodboard saved with ${assignments.length} versioned library assignment${assignments.length === 1 ? '' : 's'}.`);
+      setPlacementNotice(`${selectedModule.label} now has ${assignments.length} versioned material assignment${assignments.length === 1 ? '' : 's'}.`);
     } catch {
       setPlacementNotice('Material assignment service unavailable. No moodboard changes were applied.');
     }
@@ -274,16 +284,18 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     }
   }
 
-  async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string) {
-    if (!sceneVersionId) { setVisualState('Create and save a scene first.'); return; }
-    if (!sceneApproved) { setVisualState('Approve the scene before generating a scene-linked render.'); return; }
+  async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string, sceneVersionOverride?: string) {
+    const renderSceneVersionId = sceneVersionOverride ?? sceneVersionId;
+    if (!renderSceneVersionId) { setVisualState('Create and save a scene first.'); return; }
+    if (!sceneApproved && operation !== 'material-swap') { setVisualState('Approve the scene before generating a scene-linked render.'); return; }
     if (!projectId) { setVisualState('Select a project before generating a render.'); return; }
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
       const renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
-      const renderRoomId = spaceId ?? draftModules[0]?.roomId ?? null;
+      const renderRoomId = selectedModule?.roomId ?? spaceId ?? null;
       if (!renderRoomId) { setVisualBusy(false); setVisualState('Select a persisted room before generating a render.'); return; }
-      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId, idempotencyKey: `${sceneVersionId}:${renderRoomId}:${operation}:${renderStyle}:${quality}:${Date.now()}`, options: { roomId: renderRoomId, style: renderStyle, quality, operation } }) });
+      if (operation === 'material-swap' && !selectedModule) { setVisualBusy(false); setVisualState('Select the exact module whose material should change before creating a revision.'); return; }
+      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId: renderSceneVersionId, idempotencyKey: `${renderSceneVersionId}:${renderRoomId}:${selectedModule?.id ?? 'room'}:${operation}:${renderStyle}:${quality}:${Date.now()}`, options: { roomId: renderRoomId, targetModuleId: selectedModule?.id ?? null, style: renderStyle, quality, operation } }) });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
         setVisualBusy(false);
@@ -439,8 +451,8 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                 <div className="visual-tool-section" style={{ borderTop: '1px solid #e8ded2', paddingTop: '10px', marginTop: '4px' }}>
                   <MaterialSwapPanel
                     projectId={projectId}
-                    entityId={draftModules[0]?.id ?? `room:${room}`}
-                    moduleInstanceId={draftModules[0]?.id ?? null}
+                    entityId={selectedModule?.id ?? ''}
+                    moduleInstanceId={selectedModule?.id ?? null}
                     currentLaminate={selectedLaminateObj.name}
                     onConfirmCatalogSwap={({ laminate }) => {
                       setStyle((current) => `${current}; selected persisted material: ${laminate}`);
@@ -448,14 +460,20 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                     }}
                     onPreviewCatalogSwap={async ({ materialId, laminate }) => {
                       setActiveLaminate(materialId);
-                      await createVisual('material-swap', laminate);
+                      if (!selectedModule) {
+                        setVisualState('Select the exact module before creating a laminate revision.');
+                        return;
+                      }
+                      setVisualState('Compiling the saved module material into a new scene version...');
+                      const compiledSceneVersionId = await onSceneCreated(crypto.randomUUID(), draftModules, [selectedLaminateObj, selectedHardwareObj].filter((item) => item.id));
+                      await createVisual('material-swap', laminate, compiledSceneVersionId ?? undefined);
                     }}
                     onConfirmAiProposal={() => setVisualState('AI material proposals require an approved scene revision before rendering.')}
                   />
                 </div>
 
                 <div className="visual-tool-section" style={{ borderTop: '1px solid #e8ded2', paddingTop: '10px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text)', display: 'block', marginBottom: '8px' }}>🛋️ OBJECT CHANGER</span>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text)', display: 'block', marginBottom: '8px' }}>HARDWARE OPTIONS</span>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                     {catalogHardwares.map((hw) => (
                       <button
@@ -811,10 +829,10 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
             <div className="scene-canvas">
               <div className="scene-room-label">{room.toUpperCase()}</div>
               {draftModules.map((item, index) => (
-                <div className={`scene-module module-${item.family}`} key={item.id} style={{ left: `${12 + (index % 4) * 22}%`, top: `${20 + Math.floor(index / 4) * 24}%` }}>
+                <button type="button" aria-pressed={item.id === selectedModule?.id} onClick={() => setSelectedModuleId(item.id)} className={`scene-module module-${item.family}${item.id === selectedModule?.id ? ' scene-module-selected' : ''}`} key={item.id} style={{ left: `${12 + (index % 4) * 22}%`, top: `${20 + Math.floor(index / 4) * 24}%` }}>
                   <Check size={13} />
                   {item.label}
-                </div>
+                </button>
               ))}
             </div>
             
@@ -832,10 +850,10 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
             <div className="module-list">
               {draftModules.length ? (
                 draftModules.map((item) => (
-                  <div key={item.id}>
+                  <button type="button" key={item.id} className={item.id === selectedModule?.id ? 'module-list-selected' : ''} aria-pressed={item.id === selectedModule?.id} onClick={() => setSelectedModuleId(item.id)}>
                     <span>{item.label}</span>
-                    <small>{item.widthMm} mm</small>
-                  </div>
+                    <small>{item.widthMm} mm · {item.id === selectedModule?.id ? 'selected' : 'select'}</small>
+                  </button>
                 ))
               ) : (
                 <p>Add a module to begin the scene.</p>

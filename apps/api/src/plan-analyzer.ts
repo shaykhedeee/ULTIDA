@@ -3,7 +3,8 @@ import { PROMPT_VERSIONS } from '@ultida/agent-core';
 import { PlanProposalSchema, parsePlanIntake, type PlanProposal, type PlanIntakeResult } from '@ultida/plan-core';
 
 type Environment = Record<string, string | undefined>;
-type Input = { dataUrl: string; fileName: string; mimeType: string; brief?: Record<string, unknown> };
+export type AnalysisGuideRegion = { id?: string; label?: string; x: number; y: number; width: number; height: number };
+type Input = { dataUrl: string; fileName: string; mimeType: string; brief?: Record<string, unknown>; analysisGuides?: AnalysisGuideRegion[] };
 type ProviderRun = { provider: 'openai' | 'gemini' | 'cloudflare' | 'intake-parser'; model: string; status: 'succeeded' | 'failed'; latencyMs: number; error?: string };
 
 function providerTimeoutMs(environment: Environment) {
@@ -57,7 +58,7 @@ export function compileBriefContext(brief?: Record<string, unknown>): string {
   return `\n\nPROJECT BRIEF\nOnly use the following as bias, not as source geometry:\n- ${clauses.join('\n- ')}`;
 }
 
-export function buildPlanPrompt(brief?: Record<string, unknown>) {
+export function buildPlanPrompt(brief?: Record<string, unknown>, analysisGuides: AnalysisGuideRegion[] = []) {
   const base = `You are the extraction stage of a professional interior floor-plan review system. Read the supplied source without redesigning it.
 
 Extract only visible evidence: walls, room zones, doors/windows/passages, room labels, written dimensions, and existing plan symbols. A fixture proposal may represent a fixed fixture (toilet, sink, bathtub, shower, stove, refrigerator) or a clearly drawn existing furniture symbol (bed, sofa, dining table, wardrobe, desk). Label it exactly as visible evidence, for example "Existing bed symbol". These are review-only context; never turn them into modular furniture, manufacturing geometry, or inferred dimensions. Never invent a dimension, wall, opening or fixture. Preserve uncertainty.
@@ -83,7 +84,10 @@ SELF CHECK
 {"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"}]}`;
 
   const briefContext = compileBriefContext(brief);
-  return `${base}${briefContext}`;
+  const guideContext = analysisGuides.length
+    ? `\n\nDESIGNER GUIDE REGIONS\nThese source-grid rectangles are a coverage checklist, not geometry authority. Inspect every guide for its enclosing walls, openings, visible dimensions and room label. Correct or reject a guide if the drawing disagrees; never copy a guide as a measured room.\n${analysisGuides.slice(0, 24).map((guide, index) => `- Guide ${index + 1}${guide.label ? ` (${guide.label})` : ''}: x=${Math.round(guide.x)}, y=${Math.round(guide.y)}, width=${Math.round(guide.width)}, height=${Math.round(guide.height)}.`).join('\n')}`
+    : '';
+  return `${base}${briefContext}${guideContext}`;
 }
 
 const prompt = buildPlanPrompt();
@@ -246,7 +250,7 @@ function topologyIssues(proposals: PlanProposal[]) {
 async function analyzeOpenAi(environment: Environment, input: Input) {
   if (input.mimeType === 'application/pdf') throw new Error('OpenAI PDF rasterization is not configured; Gemini handles PDF analysis in this deployment.');
   const model = environment.OPENAI_VISION_MODEL || 'gpt-4o-mini';
-  const prompt = buildPlanPrompt(input.brief);
+  const prompt = buildPlanPrompt(input.brief, input.analysisGuides);
   const response = await fetchWithProviderTimeout(environment, 'https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${environment.OPENAI_API_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_schema', json_schema: { name: 'floor_plan_analysis_v1', strict: true, schema: { type: 'object', additionalProperties: false, required: ['proposals'], properties: { proposals: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'object', additionalProperties: false, required: ['kind', 'confidence', 'geometry', 'note'], properties: { kind: { type: 'string', enum: ['wall', 'opening', 'room', 'dimension', 'fixture'] }, confidence: { type: 'number', minimum: 0, maximum: 1 }, geometry: { type: 'object', additionalProperties: { type: 'number' } }, note: { type: 'string', maxLength: 160 } } } } } } } }, messages: [{ role: 'system', content: prompt }, { role: 'user', content: [{ type: 'text', text: `Source file ${input.fileName}. Extract visible plan evidence and run the self-check.` }, { type: 'image_url', image_url: { url: input.dataUrl, detail: 'high' } }] }] }) });
   if (!response.ok) throw new Error(`OpenAI plan analyzer failed (${response.status}).`);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
@@ -258,7 +262,7 @@ async function analyzeOpenAi(environment: Environment, input: Input) {
 async function analyzeGemini(environment: Environment, input: Input) {
   const model = environment.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
   const apiKey = geminiVisionKey(environment);
-  const prompt = buildPlanPrompt(input.brief);
+  const prompt = buildPlanPrompt(input.brief, input.analysisGuides);
   const response = await fetchWithProviderTimeout(environment, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }, contents: [{ parts: [{ text: `${prompt}\nSource file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: input.dataUrl.split(',')[1] } }] }] }) });
   if (!response.ok) throw new Error(`Gemini plan analyzer failed (${response.status}).`);
   const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
@@ -271,7 +275,7 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
   const accountId = environment.CLOUDFLARE_ACCOUNT_ID;
   const token = environment.CLOUDFLARE_AI_TOKEN;
   if (!accountId || !token) throw new Error('Cloudflare Workers AI credentials are not configured.');
-  const prompt = buildPlanPrompt(input.brief);
+  const prompt = buildPlanPrompt(input.brief, input.analysisGuides);
   const candidateModels = Array.from(new Set([
     // Llama Vision follows the compact JSON evidence contract more reliably
     // than Moondream for dense technical drawings. An explicitly configured

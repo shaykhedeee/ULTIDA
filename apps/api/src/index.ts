@@ -436,7 +436,13 @@ app.get('/api/projects/:projectId/plan-analysis/draft', requireProjectUser, asyn
 app.put('/api/projects/:projectId/plan-analysis/draft', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const body = request.body ?? {};
-  const { analysisUuid, elements, issues, scale, ceilingHeightMm, status } = body;
+  const legacyDraft = body.draft && typeof body.draft === 'object' ? body.draft : {};
+  const analysisUuid = body.analysisUuid ?? body.analysisId;
+  const elements = body.elements ?? legacyDraft.elements;
+  const issues = body.issues ?? legacyDraft.issues;
+  const scale = body.scale ?? legacyDraft.scale;
+  const ceilingHeightMm = body.ceilingHeightMm ?? legacyDraft.ceilingHeightMm;
+  const status = body.status ?? legacyDraft.status;
   if (typeof analysisUuid !== 'string') return response.status(400).json({ success: false, code: 'MISSING_ANALYSIS_UUID', message: 'analysisUuid is required.' });
   const client = getRequestSupabaseClient(request);
   const { error } = await client
@@ -697,6 +703,16 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
   const sceneVersionId = typeof request.body?.sceneVersionId === 'string' ? request.body.sceneVersionId : '';
   const options = typeof request.body?.options === 'object' && request.body.options ? request.body.options as Record<string, unknown> : {};
   if (!sceneVersionId) return response.status(400).json({ success: false, code: 'SCENE_REQUIRED', message: 'sceneVersionId is required.' });
+  const operation = ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'].includes(String(options.operation)) ? String(options.operation) : 'generate';
+  const targetModuleId = typeof options.targetModuleId === 'string' ? options.targetModuleId : '';
+  if (operation === 'material-swap') {
+    if (!targetModuleId) return response.status(400).json({ success: false, code: 'RENDER_TARGET_REQUIRED', message: 'Select the exact module before requesting a material revision.' });
+    const scene = await getRequestSupabaseClient(request).from('scene_versions').select('scene,status').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
+    if (scene.error) return response.status(500).json({ success: false, code: 'SCENE_READ_FAILED', message: scene.error.message });
+    if (!scene.data || !['draft', 'approved'].includes(String(scene.data.status))) return response.status(409).json({ success: false, code: 'SCENE_REVISION_REQUIRED', message: 'Compile the saved material assignment into a valid scene revision before requesting a preview.' });
+    const sceneModules = Array.isArray((scene.data.scene as any)?.modules) ? (scene.data.scene as any).modules : [];
+    if (!sceneModules.some((module: any) => module?.id === targetModuleId)) return response.status(422).json({ success: false, code: 'RENDER_TARGET_NOT_IN_SCENE', message: 'The selected module is not part of this approved scene version.' });
+  }
   const parsed = VisualProposalRequestSchema.safeParse({
     projectId,
     sceneVersionId,
@@ -705,11 +721,11 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
     sourceAssets: [`scene:${sceneVersionId}`],
     referenceAssets: [],
     masks: [],
-    operation: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'].includes(String(options.operation)) ? options.operation : 'generate',
+    operation,
     style: typeof options.style === 'string' ? options.style : 'Warm contemporary Indian',
     quality: options.quality === 'draft' || options.quality === 'final' ? options.quality : 'review',
     camera: { view: 'wide-corner', lensMm: 24, eyeHeightMm: 1500 },
-    structuredPrompt: 'Compiled server-side from the approved ULTIDA scene.',
+    structuredPrompt: operation === 'material-swap' ? `Compiled server-side from the approved ULTIDA scene. Change material only on module ${targetModuleId}; preserve all geometry, openings, camera, ceiling, and every other module.` : 'Compiled server-side from the approved ULTIDA scene.',
     providerPreference: ['cloudflare', 'openai-dall-e-3', 'openai-gpt-image-1', 'comfyui']
   });
   if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_RENDER_REQUEST', message: 'Select a persisted room before requesting a scene render.', issues: parsed.error.issues });
@@ -791,7 +807,7 @@ app.post('/api/projects/:projectId/floor-plans/initiate', requireProjectUser, as
 app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const projectId = String(request.params.projectId);
-  const { assetId, storagePath, fileName, mimeType, fileSize } = request.body ?? {};
+  const { assetId, storagePath, fileName, mimeType, fileSize, analysisGuides } = request.body ?? {};
   if (!assetId || !storagePath || !fileName) {
     return response.status(400).json({ success: false, code: 'INVALID_COMPLETE_PAYLOAD', message: 'assetId, storagePath, and fileName are required.' });
   }
@@ -827,7 +843,13 @@ app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, as
     };
     const asset = await client.from('project_assets').insert(assetPayload).select('id').single();
     if (asset.error) return response.status(500).json({ success: false, code: 'ASSET_RECORD_FAILED', message: asset.error.message });
-    const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId: asset.data.id, fileName, mimeType: normalizedMimeType, idempotencyKey: `plan:${projectId}:${asset.data.id}` }, userId);
+    const sanitizedGuides = Array.isArray(analysisGuides) ? analysisGuides.slice(0, 24).flatMap((guide: any) => {
+      const x = Number(guide?.x); const y = Number(guide?.y); const width = Number(guide?.width); const height = Number(guide?.height);
+      return [x, y, width, height].every(Number.isFinite) && width >= 12 && height >= 12
+        ? [{ id: typeof guide.id === 'string' ? guide.id : undefined, label: typeof guide.label === 'string' ? guide.label.slice(0, 80) : undefined, x, y, width, height }]
+        : [];
+    }) : [];
+    const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId: asset.data.id, fileName, mimeType: normalizedMimeType, analysisGuides: sanitizedGuides, idempotencyKey: `plan:${projectId}:${asset.data.id}` }, userId);
     if (job.status === 'failed' || job.status === 'unavailable' || job.status === 'not_found') return response.status(503).json({ success: false, code: 'PLAN_JOB_CREATE_FAILED', message: 'The file was stored, but analysis could not be queued.', detail: job });
     const dispatch = await dispatchPlanAnalysisJob(process.env, job.jobId);
     if (!dispatch.dispatched) {
@@ -1289,12 +1311,14 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
 
   let resolvedLayoutId = typeof layoutId === 'string' ? layoutId : null;
   if (resolvedLayoutId) {
-    const layout = await client.from('layouts').select('id').eq('id', resolvedLayoutId).eq('project_id', request.params.projectId).eq('space_id', spaceId).maybeSingle();
+    const layout = await client.from('layouts').select('id,status').eq('id', resolvedLayoutId).eq('project_id', request.params.projectId).eq('space_id', spaceId).maybeSingle();
     if (layout.error || !layout.data) return response.status(404).json({ success: false, code: 'LAYOUT_NOT_FOUND', message: 'The selected layout does not belong to this room.' });
+    if (layout.data.status !== 'approved') return response.status(409).json({ success: false, code: 'APPROVED_LAYOUT_REQUIRED', message: 'Approve this room layout before placing production-aware modules.' });
   } else {
-    const createdLayout = await client.from('layouts').insert({ organization_id: space.data.organization_id, project_id: request.params.projectId, space_id: spaceId, layout_shape: 'anchored-module', label: 'Module placement', candidate_json: { source: 'spaces-studio', wallId: position.wallId }, status: 'candidate', created_by: authReq.ultidaUser!.id }).select('id').single();
-    if (createdLayout.error || !createdLayout.data) return response.status(500).json({ success: false, code: 'LAYOUT_CREATE_FAILED', message: createdLayout.error?.message ?? 'Could not create the room layout.' });
-    resolvedLayoutId = createdLayout.data.id;
+    const layout = await client.from('layouts').select('id').eq('project_id', request.params.projectId).eq('space_id', spaceId).eq('status', 'approved').order('approved_at', { ascending: false }).limit(1).maybeSingle();
+    if (layout.error) return response.status(500).json({ success: false, code: 'LAYOUT_LOOKUP_FAILED', message: layout.error.message });
+    if (!layout.data) return response.status(409).json({ success: false, code: 'APPROVED_LAYOUT_REQUIRED', message: 'Generate and approve a layout for this room before placing modules.' });
+    resolvedLayoutId = layout.data.id;
   }
   const row = {
     organization_id: space.data.organization_id,
@@ -1490,12 +1514,26 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
   if ((materialRows.data ?? []).length !== materialIds.length) return response.status(422).json({ success: false, code: 'MATERIAL_ASSIGNMENT_NOT_IN_LIBRARY', message: 'A persisted material assignment no longer resolves to this organization library.' });
   const materials = (materialRows.data ?? []).map((material: any) => ({ id: material.id, name: material.name, code: material.code, unitCost: material.unit_cost ?? undefined, finish: material.finish ?? undefined }));
   const materialBySlot = new Map<string, string>();
-  for (const assignment of latestBySlot.values()) materialBySlot.set(String(assignment.semantic_slot), String(assignment.material_id));
+  const materialByModuleAndSlot = new Map<string, string>();
+  for (const assignment of latestBySlot.values()) {
+    const materialId = String(assignment.material_id);
+    const semanticSlot = String(assignment.semantic_slot);
+    materialBySlot.set(semanticSlot, materialId);
+    const moduleId = String(assignment.module_instance_id ?? (assignment.target_kind === 'module' ? assignment.target_id : ''));
+    if (moduleId) materialByModuleAndSlot.set(`${moduleId}:${semanticSlot}`, materialId);
+  }
   const defaultModuleMaterial = materialBySlot.get('shutter') ?? materialBySlot.get('carcass') ?? materials[0]?.id;
-  const resolvedSceneModules = sceneModules.map((module) => ({ ...module, materialId: module.materialId ?? defaultModuleMaterial }));
+  const resolvedSceneModules = sceneModules.map((module) => ({
+    ...module,
+    materialId: module.materialId ?? materialByModuleAndSlot.get(`${module.id}:shutter`) ?? materialByModuleAndSlot.get(`${module.id}:carcass`) ?? defaultModuleMaterial,
+  }));
   const resolvedModuleParts = moduleParts.map((part) => ({
     ...part,
-    materialId: materialBySlot.get(String(part.semanticType ?? '')) ?? defaultModuleMaterial ?? part.materialId,
+    materialId: materialByModuleAndSlot.get(`${part.moduleId}:${String(part.semanticType ?? '')}`)
+      ?? materialByModuleAndSlot.get(`${part.moduleId}:shutter`)
+      ?? materialBySlot.get(String(part.semanticType ?? ''))
+      ?? defaultModuleMaterial
+      ?? part.materialId,
   }));
   let scene;
   try {
@@ -1708,11 +1746,12 @@ app.get(['/api/projects/:projectId/status', '/api/projects/:projectId/workflow-s
   const { projectId } = request.params;
   const userId = authReq.ultidaUser?.id;
   const client = getRequestSupabaseClient(request);
-  const [briefRes, floorRes, spaceRes, layoutRes, sceneRes, renderRes, drawingRes, presentationRes] = await Promise.all([
+  const [briefRes, floorRes, spaceRes, layoutRes, moduleRes, sceneRes, renderRes, drawingRes, presentationRes] = await Promise.all([
     client.from('project_briefs').select('id,is_complete').eq('project_id', projectId).maybeSingle(),
     client.from('floor_plan_versions').select('id,approved_at,active_version').eq('project_id', projectId).eq('active_version', true).maybeSingle(),
     client.from('spaces').select('id,status,verification_status,ceiling_height_mm,requirements_json').eq('project_id', projectId),
     client.from('layouts').select('id,status').eq('project_id', projectId).eq('status', 'approved'),
+    client.from('module_instances').select('id,status').eq('project_id', projectId).eq('status', 'validated'),
     client.from('scene_versions').select('id').eq('project_id', projectId).eq('status', 'approved').maybeSingle(),
     client.from('jobs').select('id,status').eq('project_id', projectId).eq('kind', 'visual_proposal').order('created_at', { ascending: false }).limit(1).maybeSingle(),
     client.from('jobs').select('id').eq('project_id', projectId).eq('kind', 'drawings').order('created_at', { ascending: false }).limit(1).maybeSingle(),
@@ -1723,9 +1762,9 @@ app.get(['/api/projects/:projectId/status', '/api/projects/:projectId/workflow-s
   const planComplete = !!floorRes.data?.approved_at;
   const spacesList = spaceRes.data ?? [];
   const spacesComplete = spacesList.length > 0 && spacesList.every((s: any) => s.status === 'configured' && s.verification_status === 'verified' && Boolean(s.ceiling_height_mm) && Array.isArray(s.requirements_json?.requiredFurniture) && s.requirements_json.requiredFurniture.length > 0);
-  const layoutsComplete = (layoutRes.data ?? []).length > 0;
+  const layoutsComplete = (layoutRes.data ?? []).some((layout: any) => layout.status === 'approved');
   const sceneComplete = !!sceneRes.data;
-  const modulesComplete = layoutsComplete;
+  const modulesComplete = (moduleRes.data ?? []).some((module: any) => module.status === 'validated');
   const materialsComplete = sceneComplete;
   const rendersComplete = !!renderRes.data && renderRes.data.status === 'succeeded';
   const drawingsComplete = !!drawingRes.data;

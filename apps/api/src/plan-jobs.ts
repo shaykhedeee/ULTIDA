@@ -6,13 +6,13 @@ import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
-import { analyzePlanWithProvider } from './plan-analyzer.js';
+import { analyzePlanWithProvider, type AnalysisGuideRegion } from './plan-analyzer.js';
 import { reconcilePlan, type CvTraceResult, type VisionSemanticResult } from './plan/reconcile_plan.js';
 import { resolveWallTracerPath } from './wall-tracer.js';
 
 const execFileAsync = promisify(execFile);
 type Environment = Record<string, string | undefined>;
-type PlanJobRequest = { projectId: string; sourceAssetId: string; fileName: string; mimeType: string; idempotencyKey?: string };
+type PlanJobRequest = { projectId: string; sourceAssetId: string; fileName: string; mimeType: string; analysisGuides?: AnalysisGuideRegion[]; idempotencyKey?: string };
 
 // Browser filenames and supplied MIME types are not trustworthy enough for a
 // vision request. A WebP uploaded with a `.png` suffix made Workers AI decode
@@ -254,7 +254,7 @@ export async function createPlanAnalysisJob(environment: Environment, request: P
     kind: 'plan-analysis',
     status: 'queued',
     idempotency_key: idempotencyKey,
-    input: { sourceAssetId: request.sourceAssetId, fileName: request.fileName, mimeType: request.mimeType, storagePath: asset.data.storage_path },
+    input: { sourceAssetId: request.sourceAssetId, fileName: request.fileName, mimeType: request.mimeType, storagePath: asset.data.storage_path, analysisGuides: Array.isArray(request.analysisGuides) ? request.analysisGuides.slice(0, 24) : [] },
     output: {}, request_id: requestId, queued_at: queuedAt,
     created_by: actorId
   }).select('id').single();
@@ -332,7 +332,7 @@ export async function dispatchPlanAnalysisJob(environment: Environment, jobId: s
 async function processClaimedPlanAnalysisJobs(environment: Environment, client: NonNullable<ReturnType<typeof serverClient>>, jobs: Array<Record<string, any>>) {
   for (const job of jobs) {
     try {
-      const input = job.input as { sourceAssetId?: string; storagePath?: string; mimeType?: string; fileName?: string };
+      const input = job.input as { sourceAssetId?: string; storagePath?: string; mimeType?: string; fileName?: string; analysisGuides?: AnalysisGuideRegion[] };
       if (!input.storagePath || !input.mimeType || !input.fileName) throw new Error('Plan analysis job has incomplete source metadata.');
       const downloaded = await client.storage.from('project-assets').download(input.storagePath);
       if (downloaded.error || !downloaded.data) throw new Error(downloaded.error?.message ?? 'The uploaded plan asset could not be downloaded.');
@@ -344,7 +344,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       const raster = normalized.bytes;
       const analysisMimeType = normalized.mimeType;
       const briefRes = await client.from('project_briefs').select('brief').eq('project_id', job.project_id).maybeSingle();
-      const analysis = await analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief });
+      const analysis = await analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief, analysisGuides: Array.isArray(input.analysisGuides) ? input.analysisGuides : [] });
       if (!analysis) throw new Error('No configured floor-plan analysis provider is available.');
 
       // Deterministic CV geometry pass — runs alongside the vision pass and is
@@ -398,7 +398,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         source_mime_type: input.mimeType,
         input_sha256: analysis.source?.checksumSha256 ?? createHash('sha256').update(original).digest('hex'),
         preview_sha256: createHash('sha256').update(raster).digest('hex'),
-        request_payload: { brief: briefRes.data?.brief ?? null },
+        request_payload: { brief: briefRes.data?.brief ?? null, analysisGuides: input.analysisGuides ?? [] },
         deterministic: { cvStatus, cvCandidate: cvTrace?.result ?? null, reconciled },
         response_validated: analysis,
         latency_ms: Math.max(0, Number(primaryRun?.latencyMs ?? 0)),

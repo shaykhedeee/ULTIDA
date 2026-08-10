@@ -305,6 +305,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [planStatus, setPlanStatus] = useState('No plan uploaded');
   const [planAnalysed, setPlanAnalysed] = useState(false);
   const [planProposals, setPlanProposals] = useState<any[]>([]);
+  const [analysisGuides, setAnalysisGuides] = useState<Array<{ id: string; label: string; x: number; y: number; width: number; height: number }>>([]);
   const [planAnalysisIssues, setPlanAnalysisIssues] = useState<Array<{ code: string; severity: 'warning' | 'critical'; entityId?: string; message: string }>>([]);
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
   const [analysisRetryAvailable, setAnalysisRetryAvailable] = useState(false);
@@ -472,7 +473,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         setPlanProposals(d.elements);
         setPlanAnalysisIssues(Array.isArray(d.issues) ? d.issues.map((i: any) => ({ code: i.id, severity: 'warning', message: i.question })) : []);
         setPlanAnalysed(true);
-        if (d.analysisId) setAnalysisJobId(d.analysisId);
+        if (d.analysisId ?? d.analysis_uuid) setAnalysisJobId(d.analysisId ?? d.analysis_uuid);
       }
     })();
     return () => { cancelled = true; };
@@ -646,6 +647,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     setPlanAnalysed(false);
     setAnalysisJobId(null);
     setPlanProposals([]);
+    setAnalysisGuides([]);
     setPlanAnalysisIssues([]);
     setPlanStatus(`Attached ${file.name}. Run analysis to process.`);
     const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
@@ -710,7 +712,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       setPlanStatus('Verifying upload and registering analysis...');
         const completed = await fetch(`${apiBase}/projects/${projectId}/floor-plans/complete`, {
         method: 'POST', headers: authHeaders,
-        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size })
+        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size, analysisGuides })
       });
       const completion = await completed.json().catch(() => null);
       if (!completed.ok || !completion?.asset?.id) return setPlanStatus(completion?.message ?? 'The uploaded floor plan could not be registered.');
@@ -1026,6 +1028,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       setSceneMaterials(Array.isArray(payload.materials) ? payload.materials : materials);
       setSceneApproved(false);
       setPlanStatus('Measured scene compiled from the active plan.v1.');
+      return payload.sceneVersion.id as string;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Scene compiler is unavailable.';
       setPlanStatus(message);
@@ -1162,6 +1165,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             onApprove={approvePlan}
             onDownloadDxf={downloadPlanDxf}
             onSaveDraft={(snapshot) => void savePlanDraft(snapshot)}
+            onAnalysisGuidesChange={setAnalysisGuides}
           />
         } />
         <Route path="spaces" element={<SpacesWorkspace />} />

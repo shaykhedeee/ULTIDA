@@ -70,6 +70,8 @@ export type PlanElement = {
   thicknessMm?: number;
   sillMm?: number;
   headMm?: number;
+  /** A pre-analysis designer outline used only as vision coverage guidance. */
+  isAnalysisGuide?: boolean;
 };
 
 export type IssueItem = {
@@ -130,6 +132,7 @@ type Props = {
   onApprove: (canonicalModel: unknown) => void;
   onDownloadDxf?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null; geometryMode: GeometryMode }) => void;
   onSaveDraft?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null; geometryMode: GeometryMode }) => void;
+  onAnalysisGuidesChange?: (guides: Array<{ id: string; label: string; x: number; y: number; width: number; height: number }>) => void;
 };
 
 // ─── Default Detection Data ───────────────────────────────────────
@@ -165,6 +168,7 @@ export function PlanReviewWorkspace({
   onApprove,
   onDownloadDxf,
   onSaveDraft,
+  onAnalysisGuidesChange,
 }: Props) {
   // State
   const [layers, setLayers] = useState(INITIAL_LAYERS);
@@ -204,6 +208,16 @@ export function PlanReviewWorkspace({
   }, [analysed, initialSnapshot]);
 
   useEffect(() => {
+    if (analysed || !onAnalysisGuidesChange) return;
+    onAnalysisGuidesChange(elements.flatMap((element) => {
+      if (element.kind !== 'room' || !element.isAnalysisGuide) return [];
+      const { x, y, width, height } = element.geometry;
+      if (![x, y, width, height].every((value) => typeof value === 'number')) return [];
+      return [{ id: element.id, label: element.label, x: x!, y: y!, width: width!, height: height! }];
+    }));
+  }, [analysed, elements, onAnalysisGuidesChange]);
+
+  useEffect(() => {
     if (!onSaveDraft || !elements.length) return;
     const timer = window.setTimeout(() => onSaveDraft({ elements, issues, scale, ceilingHeightMm, geometryMode }), 700);
     return () => window.clearTimeout(timer);
@@ -225,6 +239,7 @@ export function PlanReviewWorkspace({
     setAnalysisQualityNotice(nonMeasurableIssues.length
       ? `${nonMeasurableIssues.length} non-measurable wall candidate${nonMeasurableIssues.length === 1 ? ' was' : 's were'} excluded from the editable model. No source segment was available to calibrate; trace one manually only if it is visible in the source plan.`
       : '');
+    const guideRegions = elements.filter((element) => element.isAnalysisGuide);
     const mapped = proposals.filter((proposal) => !zeroLengthCandidateIds.has(proposal.id)).map((proposal, index) => {
       const geometry = proposal.geometry ?? {};
       const proposalKind = proposal.kind === 'opening'
@@ -256,7 +271,7 @@ export function PlanReviewWorkspace({
       headMm: typeof geometry.headMm === 'number' ? geometry.headMm : undefined,
     };
     });
-    setElements(mapped);
+    setElements([...guideRegions, ...mapped]);
     setIssues(analysisIssues.filter((issue) => !nonMeasurableIssues.includes(issue)).map((issue, index) => ({
       id: `${issue.code}-${issue.entityId ?? index}`,
       elementId: issue.entityId,
@@ -281,8 +296,8 @@ export function PlanReviewWorkspace({
   // labelled needs_review, provided they are not explicitly rejected. Final
   // Production remains strict and only uses designer-accepted entities.
   const approvalElements = geometryMode === 'initial_design'
-    ? elements.filter((element) => element.status !== 'rejected')
-    : elements.filter((element) => element.status === 'accepted');
+    ? elements.filter((element) => !element.isAnalysisGuide && element.status !== 'rejected')
+    : elements.filter((element) => !element.isAnalysisGuide && element.status === 'accepted');
   const openingsReady = approvalElements.filter((element) => element.kind === 'door' || element.kind === 'window').every((element) => {
     if (!element.wallId || !(element.widthMm && element.widthMm > 0) || !(element.heightMm && element.heightMm > 0)) return false;
     return element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0));
@@ -460,7 +475,9 @@ export function PlanReviewWorkspace({
         id: crypto.randomUUID(), kind: 'room', label: `Room ${roomNumber}`, confidence: 1, status: 'accepted', color: 'rgba(197,156,45,0.18)',
         geometry: { x: left, y: top, width, height, polygon },
         areaSqm: scale ? Math.round(width * height * scale.mmPerPixel ** 2 / 10_000) / 100 : undefined,
-        note: 'Manually defined room boundary', heightMm: ceilingHeightMm ?? 2700,
+        note: analysed ? 'Manually defined room boundary' : 'Designer guide region for AI coverage only',
+        isAnalysisGuide: !analysed,
+        heightMm: ceilingHeightMm ?? 2700,
       };
       commitElements((current) => [...current, room]);
       setSelectedId(room.id);
