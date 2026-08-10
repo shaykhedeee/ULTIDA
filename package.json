@@ -14,7 +14,7 @@
     "build:apps": "npm run build --workspace=@ultida/api --workspace=@ultida/cloudflare-ai-worker --workspace=@ultida/web --workspace=@ultida/worker",
     "build:cloudflare-worker": "npm run build --workspace=@ultida/cloudflare-ai-worker",
     "deploy:cloudflare-worker": "wrangler deploy --config apps/cloudflare-ai-worker/wrangler.toml",
-    "check": "npm run build:packages && npm run check --workspace=@ultida/api --workspace=@ultida/cloudflare-ai-worker --workspace=@ultida/web --workspace=@ultida/worker --workspace=@ultida/aura-tools",
+    "check": "node scripts/check.mjs",
     "test": "npm run build:packages && npm run test:api && npm run test:aura",
     "test:api": "npm run test --workspace=@ultida/api",
     "test:aura": "npm run test --workspace=@ultida/aura-tools",
