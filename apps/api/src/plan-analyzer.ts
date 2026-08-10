@@ -77,7 +77,7 @@ SELF CHECK
 5. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
 6. Do not split a straight wall into redundant collinear fragments and never repeat the same wall candidate. Prefer fewer, well-evidenced candidates over guessed completeness.
 7. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
-8. Return at most 36 proposals. First cover all room boundary walls and room zones, then openings, legible dimensions and only clearly drawn existing symbols. Do not sacrifice a whole room merely to describe a minor fixture or furniture symbol.
+8. Start with every clearly enclosed room zone and its enclosing walls. Then add internal partitions, doors/windows, legible dimensions and only clearly drawn existing symbols. Do not sacrifice a whole room merely to describe a minor fixture or furniture symbol. For a multi-room plan, returning one wall or one room is incomplete evidence, not a valid result. Return at most 72 proposals.
 9. A wall must contain exactly numeric x1,y1,x2,y2. A room must contain exactly numeric x,y,width,height. Do not use numbered keys, arrays, prose, units, or nested objects inside geometry.
 10. Output one JSON object only, with no markdown and no explanatory text:
 {"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"}]}`;
@@ -100,7 +100,7 @@ const CLOUDFLARE_PLAN_RESPONSE_FORMAT = {
     properties: {
       proposals: {
         type: 'array',
-        maxItems: 36,
+            maxItems: 72,
         items: {
           type: 'object',
           additionalProperties: false,
@@ -175,6 +175,23 @@ function validatePlanEvidence(proposals: PlanProposal[]) {
   return deduplicated;
 }
 
+/** A syntactically-valid one-wall response is not a usable floor-plan result.
+ * Reject it and try the next configured real vision provider. Deterministic
+ * CV reconciliation and designer review still govern final geometry. */
+function assertFloorPlanCoverage(proposals: PlanProposal[]) {
+  const rooms = proposals.filter((proposal) => proposal.kind === 'room').length;
+  const walls = proposals.filter((proposal) => proposal.kind === 'wall').length;
+  const openings = proposals.filter((proposal) => proposal.kind === 'opening').length;
+  const dimensions = proposals.filter((proposal) => proposal.kind === 'dimension').length;
+  if (rooms === 0 && walls < 4) {
+    throw new Error(`Vision response is too sparse for a floor plan (${rooms} rooms, ${walls} walls).`);
+  }
+  if (rooms + walls + openings + dimensions < 4) {
+    throw new Error(`Vision response has insufficient structural coverage (${rooms} rooms, ${walls} walls, ${openings} openings, ${dimensions} dimensions).`);
+  }
+  return proposals;
+}
+
 function extractJsonObject(raw: string): unknown {
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
   try { return JSON.parse(cleaned); } catch { /* Some vision providers add a short lead-in. */ }
@@ -235,7 +252,7 @@ async function analyzeOpenAi(environment: Environment, input: Input) {
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;
   if (!content) throw new Error('OpenAI plan analyzer returned no proposal content.');
-  return { model, proposals: parseProposals(content, 'detector') };
+  return { model, proposals: assertFloorPlanCoverage(parseProposals(content, 'detector')) };
 }
 
 async function analyzeGemini(environment: Environment, input: Input) {
@@ -247,7 +264,7 @@ async function analyzeGemini(environment: Environment, input: Input) {
   const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   const content = payload.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text;
   if (!content) throw new Error('Gemini plan analyzer returned no proposal content.');
-  return { model, proposals: parseProposals(content, 'ocr') };
+  return { model, proposals: assertFloorPlanCoverage(parseProposals(content, 'ocr')) };
 }
 
 async function analyzeCloudflare(environment: Environment, input: Input) {
@@ -282,7 +299,7 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
       const payload = await response.json() as { success?: boolean; result?: { response?: string; text?: string; answer?: string; result?: { answer?: string; response?: string; text?: string } }; errors?: Array<{ message?: string }> };
       const content = payload.result?.response || payload.result?.text || payload.result?.answer || payload.result?.result?.answer || payload.result?.result?.response || payload.result?.result?.text;
       if (response.ok && payload.success && content) {
-        return { model, proposals: parseProposals(content, 'detector') };
+        return { model, proposals: assertFloorPlanCoverage(parseProposals(content, 'detector')) };
       }
       lastError = new Error(payload.errors?.map((e) => e.message).join(', ') || `Cloudflare ${model} returned HTTP ${response.status}`);
     } catch (err) {
