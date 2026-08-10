@@ -2,6 +2,21 @@ name = "ultida-ai-worker"
 main = "src/index.ts"
 compatibility_date = "2026-07-23"
 
+[placement]
+mode = "smart"
+
+[observability]
+enabled = true
+
+  [observability.logs]
+  enabled = true
+  invocation_logs = true
+  head_sampling_rate = 1
+
+  [observability.traces]
+  enabled = true
+  head_sampling_rate = 1
+
 [vars]
 API_BASE = "https://ultida.vercel.app/api"
 
