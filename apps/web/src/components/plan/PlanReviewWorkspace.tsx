@@ -307,7 +307,7 @@ export function PlanReviewWorkspace({
   const initialDesignReady = analysed && approvalElements.some((element) => element.kind === 'wall' || element.kind === 'room') && Boolean(scale) && Number(ceilingHeightMm) > 0;
   const finalProductionReady = initialDesignReady && openingsReady && wallsReady && issues.length === 0 && !elements.some((element) => element.status === 'needs_review' || element.status === 'proposed');
   const approvalReady = geometryMode === 'initial_design' ? initialDesignReady : finalProductionReady;
-  const analysisInFlight = /uploading|queued|processing|preparing|reconnecting|re-dispatch/i.test(status);
+  const analysisInFlight = /uploading|queued|processing|analysing|preparing|reconnecting|re-dispatch/i.test(status);
   const layerCount = (key: LayerKey) => {
     const kinds: Partial<Record<LayerKey, PlanElement['kind'][]>> = {
       walls: ['wall'], rooms: ['room'], doors: ['door'], windows: ['window'], fixtures: ['fixture'], columns: ['column'],

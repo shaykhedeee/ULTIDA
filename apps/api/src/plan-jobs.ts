@@ -6,9 +6,11 @@ import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
+import { createWorker, type Worker } from 'tesseract.js';
 import { analyzePlanWithProvider, type AnalysisGuideRegion } from './plan-analyzer.js';
 import { reconcilePlan, type CvTraceResult, type VisionSemanticResult } from './plan/reconcile_plan.js';
 import { resolveWallTracerPath } from './wall-tracer.js';
+import { extractOcrMeasurements } from './plan-analysis-service.js';
 
 const execFileAsync = promisify(execFile);
 type Environment = Record<string, string | undefined>;
@@ -34,7 +36,6 @@ function detectRasterMimeType(bytes: Uint8Array): string | null {
  * whole job on a missing CV dependency — per ARCHITECTURE.md invariant #5).
  */
 async function runCvTrace(raster: Uint8Array, mimeType: string): Promise<{ result: CvTraceResult; stderr: string } | null> {
-  const python = process.env.CV_PYTHON_PATH || 'python3';
   const scriptPath = resolveWallTracerPath();
   if (!scriptPath) return { result: null as unknown as CvTraceResult, stderr: 'wall_tracer.py not found' };
   const dir = await mkdtemp(join(tmpdir(), 'ultida-cv-'));
@@ -43,13 +44,46 @@ async function runCvTrace(raster: Uint8Array, mimeType: string): Promise<{ resul
   const outPath = join(dir, 'trace.json');
   try {
     await writeFile(inPath, raster);
-    await execFileAsync(python, [scriptPath, inPath, outPath], { timeout: 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
+    const candidates = Array.from(new Set([
+      process.env.CV_PYTHON_PATH,
+      process.platform === 'win32' ? 'python' : 'python3',
+      process.platform === 'win32' ? 'python3' : 'python',
+    ].filter(Boolean) as string[]));
+    let lastError: unknown = null;
+    for (const python of candidates) {
+      try {
+        await execFileAsync(python, [scriptPath, inPath, outPath], { timeout: 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (lastError) throw lastError;
     const raw = await readFile(outPath, 'utf8');
     return { result: JSON.parse(raw) as CvTraceResult, stderr: '' };
   } catch (error) {
     return { result: null as unknown as CvTraceResult, stderr: error instanceof Error ? error.message : String(error) };
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** OCR is retained as review evidence and runs concurrently with vision/CV. */
+async function runPlanOcr(raster: Uint8Array): Promise<{ text: string; measurements: ReturnType<typeof extractOcrMeasurements>; status: 'completed' | 'unavailable' }> {
+  let worker: Worker | null = null;
+  try {
+    worker = await createWorker('eng');
+    const recognition = await Promise.race([
+      worker.recognize(Buffer.from(raster)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('OCR timeout')), 35_000)),
+    ]);
+    const text = recognition.data.text.trim();
+    return { text, measurements: extractOcrMeasurements(text), status: 'completed' };
+  } catch {
+    return { text: '', measurements: [], status: 'unavailable' };
+  } finally {
+    if (worker) await worker.terminate().catch(() => {});
   }
 }
 
@@ -136,6 +170,19 @@ function supplementSparseVisionProposals(
   cv: CvTraceResult,
 ) {
   const supplemented = [...proposals];
+  const source = cv.sourceImageSize;
+  const tolerancePx = Math.max(12, Math.round(Math.min(source.widthPx, source.heightPx) * 0.012));
+  const matchesExistingWall = (candidate: { x1: number; y1: number; x2: number; y2: number }) => supplemented.some((proposal) => {
+    if (proposal.kind !== 'wall') return false;
+    const geometry = proposal.geometry as Record<string, unknown>;
+    const x1 = (Number(geometry.x1) / 1000) * source.widthPx;
+    const y1 = (Number(geometry.y1) / 1000) * source.heightPx;
+    const x2 = (Number(geometry.x2) / 1000) * source.widthPx;
+    const y2 = (Number(geometry.y2) / 1000) * source.heightPx;
+    const direct = Math.max(Math.hypot(x1 - candidate.x1, y1 - candidate.y1), Math.hypot(x2 - candidate.x2, y2 - candidate.y2));
+    const reversed = Math.max(Math.hypot(x1 - candidate.x2, y1 - candidate.y2), Math.hypot(x2 - candidate.x1, y2 - candidate.y1));
+    return Math.min(direct, reversed) <= tolerancePx;
+  });
   const hasRoom = supplemented.some((p) => p.kind === 'room');
   const walls = cv.walls.filter((w) => Number(w.lengthPx) >= 20);
   if (!hasRoom && walls.length >= 2) {
@@ -167,11 +214,12 @@ function supplementSparseVisionProposals(
       });
     }
   }
-  const hasWall = supplemented.some((p) => p.kind === 'wall');
-  if (!hasWall) {
-    for (const wall of walls) {
-      supplemented.push({ kind: 'wall', confidence: Number(wall.confidence ?? 0.55), geometry: { x1: Math.round((wall.x1 / cv.sourceImageSize.widthPx) * 1000), y1: Math.round((wall.y1 / cv.sourceImageSize.heightPx) * 1000), x2: Math.round((wall.x2 / cv.sourceImageSize.widthPx) * 1000), y2: Math.round((wall.y2 / cv.sourceImageSize.heightPx) * 1000) }, note: 'Deterministic wall trace; confirm against source.' });
-    }
+  // One vision wall is not an adequate representation of a multi-room plan.
+  // Keep semantic candidates, then add each traced wall that is not already
+  // represented as a labelled, low-confidence review candidate.
+  for (const wall of walls) {
+    if (matchesExistingWall(wall)) continue;
+    supplemented.push({ kind: 'wall', confidence: Number(wall.confidence ?? 0.55), geometry: { x1: Math.round((wall.x1 / source.widthPx) * 1000), y1: Math.round((wall.y1 / source.heightPx) * 1000), x2: Math.round((wall.x2 / source.widthPx) * 1000), y2: Math.round((wall.y2 / source.heightPx) * 1000) }, note: 'Deterministic wall trace; confirm against source.' });
   }
   return supplemented;
 }
@@ -344,12 +392,15 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       const raster = normalized.bytes;
       const analysisMimeType = normalized.mimeType;
       const briefRes = await client.from('project_briefs').select('brief').eq('project_id', job.project_id).maybeSingle();
-      const analysis = await analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief, analysisGuides: Array.isArray(input.analysisGuides) ? input.analysisGuides : [] });
+      const [analysis, cvTrace, ocr] = await Promise.all([
+        analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief, analysisGuides: Array.isArray(input.analysisGuides) ? input.analysisGuides : [] }),
+        runCvTrace(raster, analysisMimeType).catch(() => null),
+        runPlanOcr(raster),
+      ]);
       if (!analysis) throw new Error('No configured floor-plan analysis provider is available.');
 
       // Deterministic CV geometry pass — runs alongside the vision pass and is
       // reconciled into a single candidate per ARCHITECTURE.md invariant #4.
-      const cvTrace = await runCvTrace(raster, analysisMimeType).catch(() => null);
       let reconciled = null;
       let cvStatus = 'skipped';
       if (cvTrace && cvTrace.result && (cvTrace.result as unknown as CvTraceResult).walls) {
@@ -380,6 +431,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         sourceMimeType: input.mimeType,
         analysisMimeType,
         normalizedSource: { widthPx: normalized.widthPx, heightPx: normalized.heightPx, maxDimensionPx: 2400 },
+        ocrEvidence: { status: ocr.status, text: ocr.text, measurements: ocr.measurements },
         cvCandidate: cvTrace?.result ?? null,
         reconciled,
         cvStatus,
@@ -399,7 +451,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         input_sha256: analysis.source?.checksumSha256 ?? createHash('sha256').update(original).digest('hex'),
         preview_sha256: createHash('sha256').update(raster).digest('hex'),
         request_payload: { brief: briefRes.data?.brief ?? null, analysisGuides: input.analysisGuides ?? [] },
-        deterministic: { cvStatus, cvCandidate: cvTrace?.result ?? null, reconciled },
+        deterministic: { cvStatus, cvCandidate: cvTrace?.result ?? null, reconciled, ocrEvidence: { status: ocr.status, text: ocr.text, measurements: ocr.measurements } },
         response_validated: analysis,
         latency_ms: Math.max(0, Number(primaryRun?.latencyMs ?? 0)),
         usage: null,

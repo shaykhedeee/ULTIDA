@@ -850,7 +850,10 @@ app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, as
         : [];
     }) : [];
     const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId: asset.data.id, fileName, mimeType: normalizedMimeType, analysisGuides: sanitizedGuides, idempotencyKey: `plan:${projectId}:${asset.data.id}` }, userId);
-    if (job.status === 'failed' || job.status === 'unavailable' || job.status === 'not_found') return response.status(503).json({ success: false, code: 'PLAN_JOB_CREATE_FAILED', message: 'The file was stored, but analysis could not be queued.', detail: job });
+    if (job.status === 'failed' || job.status === 'unavailable' || job.status === 'not_found') {
+      const reason = 'reason' in job && typeof job.reason === 'string' ? job.reason : 'The file was stored, but analysis could not be queued.';
+      return response.status(503).json({ success: false, code: 'PLAN_JOB_CREATE_FAILED', message: reason, detail: job });
+    }
     const dispatch = await dispatchPlanAnalysisJob(process.env, job.jobId);
     if (!dispatch.dispatched) {
       await processPlanAnalysisJob(process.env, job.jobId);
