@@ -288,7 +288,42 @@ export async function createPlanAnalysisJob(environment: Environment, request: P
   if (!client) return { status: 'unavailable' as const, code: 'PLAN_JOB_PERSISTENCE_UNAVAILABLE', reason: 'A server-only Supabase secret key is required for durable plan analysis.' };
   const idempotencyKey = request.idempotencyKey || `plan:${request.projectId}:${request.sourceAssetId}`;
   const existing = await client.from('jobs').select('id,status,output,error,request_id,attempts,max_attempts,queued_at,processing_at,completed_at,failed_at,last_error_code').eq('idempotency_key', idempotencyKey).maybeSingle();
-  if (existing.data) return { status: existing.data.status as 'queued' | 'running' | 'succeeded' | 'failed', jobId: existing.data.id, requestId: existing.data.request_id, attempts: existing.data.attempts, maxAttempts: existing.data.max_attempts, output: existing.data.output, error: existing.data.error };
+  if (existing.data) {
+    // A user may correct their brief, guides, or provider configuration after a
+    // terminal analysis failure. Preserve the same durable job/source lineage,
+    // but allow a deliberately requested retry up to its configured limit.
+    // Successful and active jobs remain fully idempotent.
+    const attempts = Number(existing.data.attempts ?? 0);
+    const maxAttempts = Number(existing.data.max_attempts ?? 3);
+    if (existing.data.status === 'failed' && attempts < maxAttempts) {
+      const queuedAt = new Date().toISOString();
+      const retryRequestId = crypto.randomUUID();
+      const retried = await client.from('jobs')
+        .update({
+          status: 'queued',
+          error: null,
+          output: {},
+          request_id: retryRequestId,
+          attempts: attempts + 1,
+          queued_at: queuedAt,
+          processing_at: null,
+          completed_at: null,
+          failed_at: null,
+          last_error_code: null,
+          locked_at: null,
+          locked_by: null,
+          available_at: queuedAt,
+          updated_at: queuedAt,
+        })
+        .eq('id', existing.data.id)
+        .eq('status', 'failed')
+        .select('id,request_id,attempts,max_attempts')
+        .maybeSingle();
+      if (retried.error) return { status: 'failed' as const, reason: `The previous analysis could not be retried: ${retried.error.message}` };
+      if (retried.data) return { status: 'queued' as const, jobId: retried.data.id, requestId: retried.data.request_id, attempts: retried.data.attempts, maxAttempts: retried.data.max_attempts, retry: true };
+    }
+    return { status: existing.data.status as 'queued' | 'running' | 'succeeded' | 'failed', jobId: existing.data.id, requestId: existing.data.request_id, attempts: existing.data.attempts, maxAttempts: existing.data.max_attempts, output: existing.data.output, error: existing.data.error };
+  }
   const [project, asset] = await Promise.all([
     client.from('projects').select('organization_id').eq('id', request.projectId).single(),
     client.from('project_assets').select('id,storage_path,mime_type').eq('id', request.sourceAssetId).eq('project_id', request.projectId).single()
