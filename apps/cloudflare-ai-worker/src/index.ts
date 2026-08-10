@@ -53,11 +53,15 @@ async function processOne(env: Env, jobId?: string) {
 export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
-    if (url.pathname === '/health') {
+    // Keep the Worker root human-readable. Cloudflare's dashboard and a
+    // browser visit commonly probe `/`; returning a 404 there made a healthy
+    // queue consumer look broken even though `/health` was green.
+    if (url.pathname === '/' || url.pathname === '/health') {
       const suppliedSecret = request.headers.get('x-ultida-worker-secret');
       return Response.json({
         success: true,
         service: 'ultida-ai-worker',
+        message: 'ULTIDA AI worker is online. Use /health for readiness and POST /dispatch for authenticated jobs.',
         queueConsumer: true,
         // This is intentionally only a boolean. It lets the API prove that the
         // two deployments share a secret without returning any secret material.

@@ -124,6 +124,58 @@ function visionProposalsToSemantic(
   return { walls, rooms, openings, dimensionTextFindings };
 }
 
+/**
+ * Vision models are useful for labels but can omit geometry on dense plans.
+ * Promote deterministic CV evidence into review-only proposals when that
+ * happens, so a sparse model response cannot produce a misleading "0 rooms"
+ * review. These are explicitly marked as derived assumptions and remain
+ * editable/unapproved until the designer confirms the boundaries.
+ */
+function supplementSparseVisionProposals(
+  proposals: Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string }>,
+  cv: CvTraceResult,
+) {
+  const supplemented = [...proposals];
+  const hasRoom = supplemented.some((p) => p.kind === 'room');
+  const walls = cv.walls.filter((w) => Number(w.lengthPx) >= 20);
+  if (!hasRoom && walls.length >= 2) {
+    const xs = walls.flatMap((w) => [w.x1, w.x2]);
+    const ys = walls.flatMap((w) => [w.y1, w.y2]);
+    const width = cv.sourceImageSize.widthPx;
+    const height = cv.sourceImageSize.heightPx;
+    const x = Math.max(0, Math.min(...xs));
+    const y = Math.max(0, Math.min(...ys));
+    const x2 = Math.min(width, Math.max(...xs));
+    const y2 = Math.min(height, Math.max(...ys));
+    if (x2 - x >= 40 && y2 - y >= 40) {
+      supplemented.push({
+        kind: 'room',
+        confidence: 0.42,
+        geometry: { x: Math.round((x / width) * 1000), y: Math.round((y / height) * 1000), width: Math.round(((x2 - x) / width) * 1000), height: Math.round(((y2 - y) / height) * 1000) },
+        note: 'Derived plan envelope from traced walls; subdivide rooms during review.',
+      });
+    }
+  }
+  const hasOpening = supplemented.some((p) => p.kind === 'opening');
+  if (!hasOpening) {
+    for (const opening of (cv as CvTraceResult & { openings?: Array<{ approxCenterPx: { x: number; y: number }; approxWidthPx: number; confidence?: number }> }).openings ?? []) {
+      supplemented.push({
+        kind: 'opening',
+        confidence: Number(opening.confidence ?? 0.45),
+        geometry: { x: Math.round((opening.approxCenterPx.x / cv.sourceImageSize.widthPx) * 1000), y: Math.round((opening.approxCenterPx.y / cv.sourceImageSize.heightPx) * 1000), width: Math.round((opening.approxWidthPx / cv.sourceImageSize.widthPx) * 1000), kind: 0 },
+        note: 'Derived from a collinear wall gap; classify as door or window during review.',
+      });
+    }
+  }
+  const hasWall = supplemented.some((p) => p.kind === 'wall');
+  if (!hasWall) {
+    for (const wall of walls) {
+      supplemented.push({ kind: 'wall', confidence: Number(wall.confidence ?? 0.55), geometry: { x1: Math.round((wall.x1 / cv.sourceImageSize.widthPx) * 1000), y1: Math.round((wall.y1 / cv.sourceImageSize.heightPx) * 1000), x2: Math.round((wall.x2 / cv.sourceImageSize.widthPx) * 1000), y2: Math.round((wall.y2 / cv.sourceImageSize.heightPx) * 1000) }, note: 'Deterministic wall trace; confirm against source.' });
+    }
+  }
+  return supplemented;
+}
+
 function serverClient(environment: Environment) {
   const url = environment.SUPABASE_URL;
   const secret = environment.SUPABASE_SECRET_KEY || environment.SUPABASE_SERVICE_ROLE_KEY;
@@ -302,8 +354,15 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       let cvStatus = 'skipped';
       if (cvTrace && cvTrace.result && (cvTrace.result as unknown as CvTraceResult).walls) {
         try {
-          const vision = visionProposalsToSemantic(
+          const enrichedProposals = supplementSparseVisionProposals(
             analysis.proposals as Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string }>,
+            cvTrace.result as unknown as CvTraceResult,
+          );
+          // Keep the enriched proposals as the editable review source. The
+          // original provider response remains available in provenance/output.
+          analysis.proposals = enrichedProposals as typeof analysis.proposals;
+          const vision = visionProposalsToSemantic(
+            enrichedProposals,
             cvTrace.result.sourceImageSize,
           );
           reconciled = reconcilePlan(cvTrace.result as unknown as CvTraceResult, vision);
