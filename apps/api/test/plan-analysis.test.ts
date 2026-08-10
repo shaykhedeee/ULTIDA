@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyFile, reconcileToElements, UNSUPPORTED_FORMATS, type PlanElementDraft } from '../src/plan-analysis-service.js';
+import { classifyFile, extractOcrMeasurements, reconcileToElements, UNSUPPORTED_FORMATS, type PlanElementDraft } from '../src/plan-analysis-service.js';
 import { PlanVisionOutputSchema, normalizeVisionOutput } from '@ultida/agent-core';
 import { buildPlanPrompt, parseProposals } from '../src/plan-analyzer.js';
 
@@ -120,6 +120,15 @@ test('reconcileToElements notes OCR presence when dimension lacks value', () => 
   const dim = elements.find((e) => e.kind === 'dimension')!;
   assert.ok(!('valueMm' in dim.geometry) || dim.geometry.valueMm === undefined);
   assert.ok((dim.note ?? '').includes('OCR'));
+});
+
+test('OCR evidence converts one unambiguous imperial dimension to canonical millimetres', () => {
+  assert.deepEqual(extractOcrMeasurements(`Living width 12' 6\"`), [{ originalText: `12' 6\"`, valueMm: 3810, source: 'ocr' }]);
+  const ai = rawSample({ dimensionCandidates: [{ id: 'dim1', confidence: 0.8, x1: 100, y1: 350, x2: 400, y2: 350 }] });
+  const { elements } = reconcileToElements(ai, null, `Visible dimension 12' 6\"`);
+  const dimension = elements.find((element) => element.kind === 'dimension')!;
+  assert.equal(dimension.geometry.valueMm, 3810);
+  assert.match(dimension.note ?? '', /OCR evidence: 12' 6\" = 3810 mm/);
 });
 
 test('reconcileToElements turns a warning into a review issue', () => {

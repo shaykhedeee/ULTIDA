@@ -22,6 +22,7 @@ import { ModularUnitPlanner } from './features/tools/ModularUnitPlanner';
 import { StudioOperations } from './features/tools/StudioOperations';
 import { AuraChat } from './features/tools/AuraChat';
 import { RenderLauncher } from './features/tools/RenderLauncher';
+import { MeasurementConverter } from './features/tools/MeasurementConverter';
 
 // Existing feature components — preserved
 import { BriefWorkspace, type ClientBrief, emptyBrief } from './components/brief/BriefWorkspace';
@@ -1291,6 +1292,7 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
         <Route path="tools/invoices" element={<StudioOperations initialTab="invoices" />} />
         <Route path="tools/aura" element={<AuraChat />} />
         <Route path="tools/render" element={<RenderLauncher />} />
+        <Route path="tools/measurements" element={<MeasurementConverter />} />
         <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={null} />} />
         <Route path="templates" element={<Navigate to="/library" replace />} />
         <Route path="modules" element={<Navigate to="/library" replace />} />

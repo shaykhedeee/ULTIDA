@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { createWorker, type Worker } from 'tesseract.js';
 import { getVisionProvider, type PlanVisionOutput } from '@ultida/agent-core';
+import { parseFeetInchesToMm } from '@ultida/plan-core';
 import { resolveWallTracerPath } from './wall-tracer.js';
 
 const execFileAsync = promisify(execFile);
@@ -84,6 +85,7 @@ export type AnalysisResult = {
     lineWallCount: number;
     openingCount: number;
     ocrText: string;
+    measurements: Array<{ originalText: string; valueMm: number; source: 'ocr' }>;
   };
   responseValidated: PlanVisionOutput;
   previewDataUrl: string;
@@ -98,6 +100,40 @@ function sha256(buffer: Buffer): string {
 function normalizeToGrid(value: number, max: number): number {
   if (max <= 0) return 0;
   return Math.max(0, Math.min(1000, Math.round((value / max) * 1000)));
+}
+
+/**
+ * OCR has no reliable source coordinates in this runtime. We therefore only
+ * promote a recognised OCR value into geometry when there is exactly one
+ * unambiguous printed measurement and one missing dimension candidate. All
+ * other recognised values remain labelled evidence for the designer to map.
+ */
+export function extractOcrMeasurements(ocrText: string): Array<{ originalText: string; valueMm: number; source: 'ocr' }> {
+  const seen = new Set<string>();
+  const findings: Array<{ originalText: string; valueMm: number; source: 'ocr' }> = [];
+  const add = (originalText: string, valueMm: number | null) => {
+    if (!Number.isFinite(valueMm) || !valueMm || valueMm <= 0) return;
+    const key = `${originalText.toLowerCase()}:${Math.round(valueMm)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    findings.push({ originalText: originalText.trim(), valueMm: Math.round(valueMm), source: 'ocr' });
+  };
+
+  // Imperial must be handled first so the numeric component is never mistaken
+  // for a millimetre value. 5' 8\" is exactly 1727.2 mm, stored as 1727 mm.
+  const imperial = /\b\d+(?:\.\d+)?\s*(?:'|ft)\s*(?:[-\s]*\d+(?:\.\d+)?\s*(?:\"|in)?)?/gi;
+  for (const match of ocrText.matchAll(imperial)) {
+    const text = match[0].trim();
+    if (/[']|\bft\b/i.test(text)) add(text, parseFeetInchesToMm(text));
+  }
+  const metric = /\b\d+(?:\.\d+)?\s*(?:mm|cm|m)\b/gi;
+  for (const match of ocrText.matchAll(metric)) {
+    const text = match[0].trim();
+    const value = Number.parseFloat(text);
+    const unit = text.match(/(mm|cm|m)\b/i)?.[1].toLowerCase();
+    add(text, unit === 'm' ? value * 1000 : unit === 'cm' ? value * 10 : value);
+  }
+  return findings;
 }
 
 /**
@@ -196,6 +232,8 @@ export function reconcileToElements(
   const issues: PlanIssueDraft[] = [];
   const num = (v: number | string | undefined): number => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : 0);
   const str = (v: string | undefined, fallback: string): string => (typeof v === 'string' && v.length ? v : fallback);
+  const ocrMeasurements = extractOcrMeasurements(ocrText);
+  const missingDimensionCount = ai.dimensionCandidates.filter((dimension) => num(dimension.valueMm) === 0).length;
 
   // Deterministic CV walls normalized to 0-1000
   const cvWalls = (cv?.walls ?? []).map((w) => ({
@@ -256,16 +294,27 @@ export function reconcileToElements(
   }
 
   for (const dim of ai.dimensionCandidates) {
-    const hasOcrNumber = /\d/.test(ocrText);
+    const declaredMm = num(dim.valueMm);
+    // Metric OCR without a spatial bounding box may belong to a different
+    // dimension. The provider already returns metric values directly, so only
+    // a single explicit imperial OCR value is eligible for deterministic
+    // normalization here.
+    const promotedOcrMeasurement = declaredMm === 0 && missingDimensionCount === 1 && ocrMeasurements.length === 1 && /(?:'|\bft\b)/i.test(ocrMeasurements[0].originalText)
+      ? ocrMeasurements[0]
+      : null;
     elements.push({
       id: str(dim.id, `dim${elements.length}`),
       kind: 'dimension',
       label: `Dimension ${dim.id ?? elements.length}`,
       confidence: num(dim.confidence),
       status: 'needs_review',
-      geometry: { x1: num(dim.x1), y1: num(dim.y1), x2: num(dim.x2), y2: num(dim.y2), ...(num(dim.valueMm) !== 0 ? { valueMm: num(dim.valueMm) } : {}) },
-      source: dim.source,
-      note: !dim.valueMm && hasOcrNumber ? `OCR nearby may contain this value: "${ocrText.slice(0, 40)}"` : dim.notes,
+      geometry: { x1: num(dim.x1), y1: num(dim.y1), x2: num(dim.x2), y2: num(dim.y2), ...(declaredMm !== 0 ? { valueMm: declaredMm } : promotedOcrMeasurement ? { valueMm: promotedOcrMeasurement.valueMm } : {}) },
+      source: promotedOcrMeasurement ? 'ocr' : dim.source,
+      note: promotedOcrMeasurement
+        ? `OCR evidence: ${promotedOcrMeasurement.originalText} = ${promotedOcrMeasurement.valueMm} mm.`
+        : declaredMm === 0 && ocrMeasurements.length
+          ? `OCR evidence available: ${ocrMeasurements.map((measurement) => `${measurement.originalText} = ${measurement.valueMm} mm`).join('; ')}. Map it to this dimension before verification.`
+          : dim.notes,
     });
   }
 
@@ -397,6 +446,7 @@ export async function analyzePlanFile(input: {
       lineWallCount: cvResult?.walls.length ?? 0,
       openingCount: cvResult?.openings.length ?? 0,
       ocrText,
+      measurements: extractOcrMeasurements(ocrText),
     },
     responseValidated: visionResult.output,
     previewDataUrl: `data:image/png;base64,${rasterPng.toString('base64')}`,
