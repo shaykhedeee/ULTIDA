@@ -185,7 +185,7 @@ export function PlanReviewWorkspace({
   // Calibration state
   const [calibrating, setCalibrating] = useState(false);
   const [calibPoints, setCalibPoints] = useState<Point[]>([]);
-  const [knownMmInput, setKnownMmInput] = useState('');
+  const [knownMmInput, setKnownMmInput] = useState('1000');
   const [scale, setScale] = useState<ScaleCalibration | null>(null);
   const [ceilingHeightMm, setCeilingHeightMm] = useState<number | null>(2700);
   const [geometryMode, setGeometryMode] = useState<GeometryMode>('initial_design');
@@ -341,12 +341,18 @@ export function PlanReviewWorkspace({
   };
 
   const canvasPoint = (event: React.MouseEvent<SVGSVGElement | SVGGElement>) => {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    return {
-      x: Math.round(((event.clientX - rect.left) / rect.width) * 1000),
-      y: Math.round(((event.clientY - rect.top) / rect.height) * 850),
-    };
+    const svg = svgRef.current;
+    if (!svg) return null;
+    // Use the SVG's inverse screen transform so calibration remains accurate
+    // while the canvas is zoomed or panned (boundingClientRect alone includes
+    // the CSS transform and produced shifted points).
+    const ctm = svg.getScreenCTM();
+    if (ctm) {
+      const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(ctm.inverse());
+      return { x: Math.round(point.x), y: Math.round(point.y) };
+    }
+    const rect = svg.getBoundingClientRect();
+    return { x: Math.round(((event.clientX - rect.left) / rect.width) * 1000), y: Math.round(((event.clientY - rect.top) / rect.height) * 850) };
   };
 
   const translateElement = (id: string, delta: Point) => {

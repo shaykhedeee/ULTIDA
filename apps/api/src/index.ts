@@ -1672,9 +1672,13 @@ app.post('/api/projects/:projectId/spaces/approve', requireProjectUser, async (r
   const client = getRequestSupabaseClient(request);
   const project = await client.from('projects').select('active_floor_plan_version_id').eq('id', request.params.projectId).single();
   if (project.error || !project.data?.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'An active approved floor plan is required.' });
+  const planVersion = await client.from('floor_plan_versions').select('canonical_model').eq('id', project.data.active_floor_plan_version_id).single();
+  if (planVersion.error) return response.status(500).json({ success: false, code: 'PLAN_VERSION_READ_FAILED', message: planVersion.error.message });
+  const geometryMode = String((planVersion.data?.canonical_model as any)?.geometryMode ?? 'final_production');
+  const initialDesign = geometryMode === 'initial_design';
   const spaces = await client.from('spaces').select('id,status,verification_status,ceiling_height_mm,requirements_json').eq('project_id', request.params.projectId).eq('floor_plan_version_id', project.data.active_floor_plan_version_id);
   if (spaces.error) return response.status(500).json({ success: false, code: 'SPACES_READ_FAILED', message: spaces.error.message });
-  const notReady = (spaces.data ?? []).filter((space: any) => space.status !== 'configured' || space.verification_status !== 'verified' || !space.ceiling_height_mm || !Array.isArray(space.requirements_json?.requiredFurniture) || !space.requirements_json.requiredFurniture.length);
+  const notReady = (spaces.data ?? []).filter((space: any) => space.status !== 'configured' || (!initialDesign && space.verification_status !== 'verified') || !space.ceiling_height_mm || !Array.isArray(space.requirements_json?.requiredFurniture) || !space.requirements_json.requiredFurniture.length);
   if (!(spaces.data ?? []).length || notReady.length) return response.status(422).json({ success: false, code: 'SPACES_NOT_READY', message: 'Every room must have verified geometry, a ceiling height, and saved requirements.', spaceIds: notReady.map((space: any) => space.id) });
   const updated = await client.from('projects').update({ workflow_stage: 'layouts', current_step: 'layouts', updated_at: new Date().toISOString() }).eq('id', request.params.projectId);
   if (updated.error) return response.status(500).json({ success: false, code: 'SPACES_APPROVAL_FAILED', message: updated.error.message });
