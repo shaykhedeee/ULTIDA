@@ -234,13 +234,14 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     setPlacementNotice('Saving versioned material assignments...');
     try {
       const headers = await authenticatedHeaders();
+      const selectedModule = draftModules[0] ?? null;
       const assignments = [
-        selectedLaminateObj.id ? { materialId: selectedLaminateObj.id, semanticSlot: 'shutter', targetId: projectId } : null,
-        selectedHardwareObj.id ? { materialId: selectedHardwareObj.id, semanticSlot: 'hardware', targetId: projectId } : null,
+        selectedLaminateObj.id ? { materialId: selectedLaminateObj.id, semanticSlot: 'shutter', targetId: selectedModule?.id ?? projectId } : null,
+        selectedHardwareObj.id ? { materialId: selectedHardwareObj.id, semanticSlot: 'hardware', targetId: selectedModule?.id ?? projectId } : null,
       ].filter(Boolean) as Array<{ materialId: string; semanticSlot: 'shutter' | 'hardware'; targetId: string }>;
       const results = await Promise.all(assignments.map((assignment) => fetch(`${apiBase}/projects/${projectId}/material-assignments`, {
         method: 'POST', headers,
-        body: JSON.stringify({ ...assignment, targetKind: 'semantic_slot', moduleInstanceId: null, status: 'draft' }),
+        body: JSON.stringify({ ...assignment, targetKind: selectedModule ? 'module' : 'semantic_slot', moduleInstanceId: selectedModule?.id ?? null, status: 'draft' }),
       }).then(async (response) => ({ response, payload: await response.json() }))));
       const failed = results.find(({ response, payload }) => !response.ok || !payload.success);
       if (failed) { setPlacementNotice(failed.payload.message ?? 'A material assignment could not be saved.'); return; }
@@ -277,7 +278,9 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
       const renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
-      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId, idempotencyKey: `${sceneVersionId}:${room}:${operation}:${renderStyle}:${quality}:${Date.now()}`, options: { roomId: room, style: renderStyle, quality, operation } }) });
+      const renderRoomId = spaceId ?? draftModules[0]?.roomId ?? null;
+      if (!renderRoomId) { setVisualBusy(false); setVisualState('Select a persisted room before generating a render.'); return; }
+      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId, idempotencyKey: `${sceneVersionId}:${renderRoomId}:${operation}:${renderStyle}:${quality}:${Date.now()}`, options: { roomId: renderRoomId, style: renderStyle, quality, operation } }) });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
         setVisualBusy(false);

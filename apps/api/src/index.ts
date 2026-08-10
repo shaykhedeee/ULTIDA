@@ -689,7 +689,7 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
     projectId,
     sceneVersionId,
     idempotencyKey: typeof request.body?.idempotencyKey === 'string' ? request.body.idempotencyKey : `${sceneVersionId}:render:${Date.now()}`,
-    roomId: typeof options.roomId === 'string' ? options.roomId : 'primary-room',
+    roomId: typeof options.roomId === 'string' ? options.roomId : '',
     sourceAssets: [`scene:${sceneVersionId}`],
     referenceAssets: [],
     masks: [],
@@ -700,7 +700,7 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
     structuredPrompt: 'Compiled server-side from the approved ULTIDA scene.',
     providerPreference: ['cloudflare', 'openai-dall-e-3', 'openai-gpt-image-1', 'comfyui']
   });
-  if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_RENDER_REQUEST', issues: parsed.error.issues });
+  if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_RENDER_REQUEST', message: 'Select a persisted room before requesting a scene render.', issues: parsed.error.issues });
   const result = await createVisualJob(process.env, gateway, parsed.data, authReq.ultidaUser?.id, getRequestSupabaseClient(request));
   const success = result.status === 'succeeded' || result.status === 'queued';
   return response.status(success ? 201 : 422).json({ success, result });

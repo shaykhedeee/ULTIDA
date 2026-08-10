@@ -319,17 +319,23 @@ export function SpacesWorkspace() {
 
   async function persistRoom(room: PlanRoom) {
     if (!supabase || !projectId) return;
-    if (!room.spaceRecordId) {
-      setSaveState('This is a new geometry draft. Review it in Floor Plan before configuring its requirements.');
-      return;
-    }
-    if (!room.requiredFurniture.length) {
+    if (room.spaceRecordId && !room.requiredFurniture.length) {
       setSaveState('Choose at least one required modular category before saving this room.');
       return;
     }
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) { setSaveState('Session expired.'); return; }
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const geometry = { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm, floorPlanVersionId };
+    const draftRes = await fetch(`${apiBase}/projects/${projectId}/plan-draft`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ draft: { source: 'spaces-studio', updatedAt: new Date().toISOString(), geometry } }),
+    });
+    if (!draftRes.ok) { const p = await draftRes.json().catch(() => null); setSaveState(p?.message ?? 'Geometry draft could not be saved.'); return; }
+    if (!room.spaceRecordId) {
+      setSaveState('Geometry draft saved. Review it in Floor Plan to create a derived room version before layout generation.');
+      return;
+    }
     const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
       body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture })
