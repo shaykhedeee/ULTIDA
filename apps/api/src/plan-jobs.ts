@@ -187,13 +187,15 @@ export async function createPlanAnalysisJob(environment: Environment, request: P
   const client = serverClient(environment);
   if (!client) return { status: 'unavailable' as const, code: 'PLAN_JOB_PERSISTENCE_UNAVAILABLE', reason: 'A server-only Supabase secret key is required for durable plan analysis.' };
   const idempotencyKey = request.idempotencyKey || `plan:${request.projectId}:${request.sourceAssetId}`;
-  const existing = await client.from('jobs').select('id,status,output,error').eq('idempotency_key', idempotencyKey).maybeSingle();
-  if (existing.data) return { status: existing.data.status as 'queued' | 'running' | 'succeeded' | 'failed', jobId: existing.data.id, output: existing.data.output, error: existing.data.error };
+  const existing = await client.from('jobs').select('id,status,output,error,request_id,attempts,max_attempts,queued_at,processing_at,completed_at,failed_at,last_error_code').eq('idempotency_key', idempotencyKey).maybeSingle();
+  if (existing.data) return { status: existing.data.status as 'queued' | 'running' | 'succeeded' | 'failed', jobId: existing.data.id, requestId: existing.data.request_id, attempts: existing.data.attempts, maxAttempts: existing.data.max_attempts, output: existing.data.output, error: existing.data.error };
   const [project, asset] = await Promise.all([
     client.from('projects').select('organization_id').eq('id', request.projectId).single(),
     client.from('project_assets').select('id,storage_path,mime_type').eq('id', request.sourceAssetId).eq('project_id', request.projectId).single()
   ]);
   if (project.error || asset.error || !project.data || !asset.data) return { status: 'not_found' as const, reason: 'The project or its uploaded floor-plan asset was not found.' };
+  const requestId = crypto.randomUUID();
+  const queuedAt = new Date().toISOString();
   const inserted = await client.from('jobs').insert({
     organization_id: project.data.organization_id,
     project_id: request.projectId,
@@ -201,17 +203,17 @@ export async function createPlanAnalysisJob(environment: Environment, request: P
     status: 'queued',
     idempotency_key: idempotencyKey,
     input: { sourceAssetId: request.sourceAssetId, fileName: request.fileName, mimeType: request.mimeType, storagePath: asset.data.storage_path },
-    output: {},
+    output: {}, request_id: requestId, queued_at: queuedAt,
     created_by: actorId
   }).select('id').single();
   if (inserted.error || !inserted.data) return { status: 'failed' as const, reason: inserted.error?.message ?? 'The plan analysis job could not be created.' };
-  return { status: 'queued' as const, jobId: inserted.data.id };
+  return { status: 'queued' as const, jobId: inserted.data.id, requestId, attempts: 0, maxAttempts: 3 };
 }
 
 export async function getPlanAnalysisJob(environment: Environment, projectId: string, jobId: string) {
   const client = serverClient(environment);
   if (!client) return { status: 'unavailable' as const };
-  const job = await client.from('jobs').select('id,status,output,error,created_at,updated_at').eq('id', jobId).eq('project_id', projectId).eq('kind', 'plan-analysis').maybeSingle();
+  const job = await client.from('jobs').select('id,status,output,error,request_id,attempts,max_attempts,created_at,updated_at,queued_at,processing_at,completed_at,failed_at,last_error_code').eq('id', jobId).eq('project_id', projectId).eq('kind', 'plan-analysis').maybeSingle();
   if (job.error || !job.data) return { status: 'not_found' as const };
   let redispatched = false;
   const lastActivityMs = new Date(job.data.updated_at ?? job.data.created_at).getTime();
@@ -220,14 +222,14 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
   // re-dispatch the exact same idempotent source job.
   if (job.data.status === 'running' && Number.isFinite(lastActivityMs) && Date.now() - lastActivityMs > 150_000) {
     const reset = await client.from('jobs')
-      .update({ status: 'queued', locked_at: null, locked_by: null, updated_at: new Date().toISOString() })
+      .update({ status: 'queued', locked_at: null, locked_by: null, queued_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', job.data.id)
       .eq('status', 'running');
     if (!reset.error) {
       const dispatch = await dispatchPlanAnalysisJob(environment, job.data.id).catch(() => ({ dispatched: false as const }));
       return {
-        status: 'queued' as const, jobId: job.data.id, analysis: job.data.output, error: job.data.error,
-        createdAt: job.data.created_at, updatedAt: new Date().toISOString(), redispatched: dispatch.dispatched,
+        status: 'queued' as const, jobId: job.data.id, requestId: job.data.request_id, attempts: job.data.attempts, maxAttempts: job.data.max_attempts, analysis: job.data.output, error: job.data.error,
+        createdAt: job.data.created_at, updatedAt: new Date().toISOString(), queuedAt: new Date().toISOString(), redispatched: dispatch.dispatched,
         recovery: dispatch.dispatched ? 'Recovered a stalled worker claim and re-dispatched the analysis.' : 'Analysis worker recovery could not be dispatched.'
       };
     }
@@ -245,7 +247,7 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
       }
     }
   }
-  return { status: job.data.status, jobId: job.data.id, analysis: job.data.output, error: job.data.error, createdAt: job.data.created_at, updatedAt: job.data.updated_at, redispatched };
+  return { status: job.data.status, jobId: job.data.id, requestId: job.data.request_id, attempts: job.data.attempts, maxAttempts: job.data.max_attempts, analysis: job.data.output, error: job.data.error, createdAt: job.data.created_at, updatedAt: job.data.updated_at, queuedAt: job.data.queued_at, processingAt: job.data.processing_at, completedAt: job.data.completed_at, failedAt: job.data.failed_at, redispatched };
 }
 
 export async function dispatchPlanAnalysisJob(environment: Environment, jobId: string) {
@@ -366,10 +368,12 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         const audit = await client.from('ai_runs').insert(auditRows);
         if (audit.error) throw new Error(`AI provenance could not be stored: ${audit.error.message}`);
       }
-      await client.from('jobs').update({ status: 'succeeded', output: persistedOutput, error: null, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
+      const completedAt = new Date().toISOString();
+      await client.from('jobs').update({ status: 'succeeded', output: persistedOutput, error: null, completed_at: completedAt, last_error_code: null, locked_at: null, locked_by: null, updated_at: completedAt }).eq('id', job.id);
     } catch (error) {
       const typedError = error as Error & { code?: string };
-      await client.from('jobs').update({ status: 'failed', error: { code: typedError.code ?? 'PLAN_ANALYSIS_FAILED', message: error instanceof Error ? error.message : 'Plan analysis failed.' }, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
+      const failedAt = new Date().toISOString();
+      await client.from('jobs').update({ status: 'failed', failed_at: failedAt, last_error_code: typedError.code ?? 'PLAN_ANALYSIS_FAILED', error: { code: typedError.code ?? 'PLAN_ANALYSIS_FAILED', message: error instanceof Error ? error.message : 'Plan analysis failed.' }, locked_at: null, locked_by: null, updated_at: failedAt }).eq('id', job.id);
     }
   }
 }
@@ -403,7 +407,7 @@ export async function processPlanAnalysisJob(environment: Environment, jobId: st
   const now = new Date().toISOString();
   const claimed = await client
     .from('jobs')
-    .update({ status: 'running', locked_at: now, locked_by: workerId, updated_at: now })
+    .update({ status: 'running', processing_at: now, locked_at: now, locked_by: workerId, updated_at: now })
     .eq('id', jobId)
     .eq('kind', 'plan-analysis')
     .eq('status', 'queued')

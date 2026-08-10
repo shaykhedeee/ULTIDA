@@ -394,11 +394,12 @@ app.post('/api/plan/analyze/:jobId/retry', requireProjectUser, async (request, r
     .maybeSingle();
   if (error || !job) return response.status(404).json({ success: false, code: 'PLAN_JOB_NOT_FOUND', message: 'This floor-plan analysis job was not found.' });
   if (job.status === 'succeeded') return response.status(409).json({ success: false, code: 'PLAN_JOB_ALREADY_COMPLETE', message: 'This floor-plan analysis has already completed.' });
-  const reset = await client.from('jobs').update({ status: 'queued', error: null, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
+  const queuedAt = new Date().toISOString();
+  const reset = await client.from('jobs').update({ status: 'queued', queued_at: queuedAt, processing_at: null, failed_at: null, error: null, last_error_code: null, locked_at: null, locked_by: null, updated_at: queuedAt }).eq('id', job.id);
   if (reset.error) return response.status(502).json({ success: false, code: 'PLAN_JOB_RETRY_FAILED', message: reset.error.message });
   const dispatch = await dispatchPlanAnalysisJob(process.env, job.id);
   if (!dispatch.dispatched) return response.status(503).json({ success: false, code: 'PLAN_JOB_DISPATCH_UNAVAILABLE', message: dispatch.reason ?? 'The AI worker could not be reached. Please try again shortly.' });
-  return response.status(202).json({ success: true, jobId: job.id, status: 'queued', dispatch });
+  return response.status(202).json({ success: true, jobId: job.id, requestId: job.id, status: 'queued', queuedAt, dispatch });
 });
 
 // ─── Real plan-analysis pipeline (provider + deterministic CV/OCR + reconciliation) ───

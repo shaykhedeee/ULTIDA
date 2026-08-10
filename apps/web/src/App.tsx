@@ -580,8 +580,10 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           setPlanStatus(payload.error?.message ?? 'Provider analysis failed. No geometry was generated.');
           setAnalysisJobId(null);
         } else {
-          const queuedForMs = payload.createdAt ? Date.now() - new Date(payload.createdAt).getTime() : 0;
-          if ((payload.status === 'queued' && queuedForMs > 45_000) || (payload.status === 'running' && queuedForMs > 150_000)) {
+          const transitionAt = payload.status === 'running' ? payload.processingAt : payload.queuedAt;
+          const stateAgeMs = transitionAt ? Date.now() - new Date(transitionAt).getTime() : 0;
+          const exhausted = Number.isFinite(Number(payload.attempts)) && Number.isFinite(Number(payload.maxAttempts)) && Number(payload.attempts) >= Number(payload.maxAttempts);
+          if (exhausted || (payload.status === 'queued' && stateAgeMs > 45_000) || (payload.status === 'running' && stateAgeMs > 150_000)) {
             if (analysisAutoRetryRef.current !== analysisJobId) {
               analysisAutoRetryRef.current = analysisJobId;
               setPlanStatus('Reconnecting the analysis worker…');
@@ -592,7 +594,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             setPlanStatus('The analysis worker did not return a result. Use Retry analysis to re-dispatch this exact source file.');
             return;
           }
-          setPlanStatus(payload.recovery ?? `Analysis ${payload.status ?? 'processing'}...`);
+          const labels: Record<string, string> = { queued: 'queued', running: 'analysing', processing: 'analysing', review_required: 'ready for review' };
+          setPlanStatus(payload.recovery ?? `Analysis ${labels[payload.status] ?? 'processing'}…`);
         }
       } catch {
         if (!stopped) setPlanStatus('Analysis status could not be refreshed. Retrying...');
