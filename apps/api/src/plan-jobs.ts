@@ -227,6 +227,7 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
       .eq('status', 'running');
     if (!reset.error) {
       const dispatch = await dispatchPlanAnalysisJob(environment, job.data.id).catch(() => ({ dispatched: false as const }));
+      if (!dispatch.dispatched) await processPlanAnalysisJob(environment, job.data.id);
       return {
         status: 'queued' as const, jobId: job.data.id, requestId: job.data.request_id, attempts: job.data.attempts, maxAttempts: job.data.max_attempts, analysis: job.data.output, error: job.data.error,
         createdAt: job.data.created_at, updatedAt: new Date().toISOString(), queuedAt: new Date().toISOString(), redispatched: dispatch.dispatched,
@@ -244,6 +245,17 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
       if (dispatch.dispatched) {
         redispatched = true;
         await client.from('jobs').update({ updated_at: new Date().toISOString() }).eq('id', job.data.id).eq('status', 'queued');
+      }
+      // A successful HTTP dispatch is not proof that the queue consumer is
+      // alive. After a short grace period, process the exact job directly so
+      // the review screen cannot remain queued forever when a consumer is
+      // paused or misconfigured.
+      if (Date.now() - lastActivityMs > 45_000) {
+        await processPlanAnalysisJob(environment, job.data.id);
+        const refreshed = await client.from('jobs').select('id,status,output,error,request_id,attempts,max_attempts,created_at,updated_at,queued_at,processing_at,completed_at,failed_at,last_error_code').eq('id', job.data.id).single();
+        if (refreshed.data) {
+          return { status: refreshed.data.status, jobId: refreshed.data.id, requestId: refreshed.data.request_id, attempts: refreshed.data.attempts, maxAttempts: refreshed.data.max_attempts, analysis: refreshed.data.output, error: refreshed.data.error, createdAt: refreshed.data.created_at, updatedAt: refreshed.data.updated_at, queuedAt: refreshed.data.queued_at, processingAt: refreshed.data.processing_at, completedAt: refreshed.data.completed_at, failedAt: refreshed.data.failed_at, redispatched };
+        }
       }
     }
   }
