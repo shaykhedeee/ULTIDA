@@ -133,13 +133,26 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
         ]);
         const spacePayload = await spaceResponse.json();
         const planPayload = await planResponse.json();
-        const nextSpaces = Array.isArray(spacePayload.spaces) ? spacePayload.spaces : [];
+        // `/spaces` returns database rows (`room_type`), while this workspace
+        // uses the UI contract (`roomType`). Normalize at this boundary so
+        // catalogue filtering, wall placement, and rendering share one room.
+        const nextSpaces = Array.isArray(spacePayload.spaces)
+          ? spacePayload.spaces.map((space: any) => ({
+              ...space,
+              id: String(space.id),
+              name: String(space.name ?? space.room_type ?? space.id),
+              roomType: String(space.roomType ?? space.room_type ?? 'other'),
+            }))
+          : [];
         const nextWalls = Array.isArray(planPayload.walls) ? planPayload.walls : [];
         setSpaces(nextSpaces);
         setWalls(nextWalls);
-        setSpaceId((current) => (requestedSpaceId && nextSpaces.some((space: any) => space.id === requestedSpaceId) ? requestedSpaceId : current ?? nextSpaces[0]?.id ?? null));
+        const nextSpace = requestedSpaceId && nextSpaces.some((space: any) => space.id === requestedSpaceId)
+          ? nextSpaces.find((space: any) => space.id === requestedSpaceId)
+          : nextSpaces.find((space: any) => space.id === spaceId) ?? nextSpaces[0];
+        setSpaceId(nextSpace?.id ?? null);
         setWallId((current) => current ?? nextWalls[0]?.id ?? null);
-        if (nextSpaces[0]?.room_type) setRoom(nextSpaces[0].room_type);
+        if (nextSpace?.roomType) setRoom(nextSpace.roomType);
       } catch {
         setSpaces([]); setWalls([]); setSpaceId(null); setWallId(null);
       }
