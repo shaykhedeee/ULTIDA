@@ -1110,21 +1110,25 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     */
   }
 
-  async function approveScene() {
-    if (!sceneVersionId || !projectId) return;
+  async function approveScene(targetSceneVersionId?: string): Promise<boolean> {
+    const sceneToApprove = targetSceneVersionId ?? sceneVersionId;
+    if (!sceneToApprove || !projectId) return false;
     const accessToken = await getValidToken();
-    if (!accessToken) { setPlanStatus('Sign in again before approving a scene.'); return; }
+    if (!accessToken) { setPlanStatus('Sign in again before approving a scene.'); return false; }
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     try {
-      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/approve`, {
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneToApprove}/approve`, {
         method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success) { setPlanStatus(payload?.message ?? 'Scene approval failed.'); return; }
+      if (!response.ok || !payload?.success) { setPlanStatus(payload?.message ?? 'Scene approval failed.'); return false; }
+      setSceneVersionId(sceneToApprove);
       setSceneApproved(true);
       setPlanStatus(`Scene v${payload.sceneVersion?.version_number ?? sceneVersionNumber} approved and ready for rendering.`);
+      return true;
     } catch {
       setPlanStatus('Scene approval service is unavailable. The draft remains unchanged.');
+      return false;
     }
   }
 
@@ -1237,7 +1241,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             onSceneApproved={approveScene}
           />
         } />
-        <Route path="production" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
+        <Route path="production" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} />} />
         <Route path="drawings" element={
           <DesignFlowWorkspace
             stage="Document"

@@ -206,11 +206,31 @@ export function createProviderGateway(environment: Environment) {
         body = JSON.stringify({ prompt, steps: model.includes('schnell') ? 8 : 4, seed: Math.floor(Math.random() * 2147483647) });
       }
       const response = await fetch(endpoint, { method: 'POST', headers, body });
+      const contentType = response.headers.get('content-type')?.split(';')[0] ?? '';
 
-      const payload = (await response.json()) as { success?: boolean; result?: { image?: string }; errors?: Array<{ message?: string }> };
+      // Workers AI normally returns the model result in its JSON envelope, but
+      // some gateway/compatibility paths return the encoded image as the HTTP
+      // response itself. Accept both shapes so a valid image can never be
+      // mistaken for a JSON parse error and leave the UI polling forever.
+      if (response.ok && contentType.startsWith('image/')) {
+        const bytes = Buffer.from(await response.arrayBuffer());
+        if (bytes.byteLength >= 1024) {
+          return {
+            status: 'succeeded',
+            synthetic: false,
+            provider: 'cloudflare',
+            model,
+            image: { encoding: 'base64', data: bytes.toString('base64'), mimeType: contentType },
+            sourceSceneVersionId: request.sceneVersionId,
+            operation: request.operation,
+            attemptedProviders
+          };
+        }
+      }
 
-      if (!response.ok || !payload.success || !payload.result?.image) {
-        const errorMsg = payload.errors?.map((e) => e.message).join(', ') || `Cloudflare returned HTTP ${response.status}`;
+      const payload = await response.json().catch(() => null) as { success?: boolean; result?: { image?: string }; errors?: Array<{ message?: string }> } | null;
+      if (!response.ok || !payload?.success || !payload.result?.image) {
+        const errorMsg = payload?.errors?.map((e) => e.message).join(', ') || `Cloudflare returned HTTP ${response.status}${contentType ? ` (${contentType})` : ''}`;
         return { status: 'failed', code: 'CLOUDFLARE_EXECUTION_FAILED', message: errorMsg, retryable: isRetryableStatus(response.status), sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
       }
 

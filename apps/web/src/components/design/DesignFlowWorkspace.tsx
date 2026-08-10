@@ -14,7 +14,7 @@ type DesignPreset = { id: string; name: string; family: string; roomTypes: strin
 type ModuleConfiguration = { shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; shutterCount?: number; includeLoft: boolean; glassProfile: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
 type Provider = { id: string; configured: boolean; operations: string[] };
 type StoredRender = { id: string; scene_version_id: string; status: string; stale?: boolean; signedUrl: string | null; created_at: string; provenance?: { provider?: string; model?: string; promptVersion?: string; reviewStatus?: string } };
-type Props = { stage: Stage; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: () => Promise<void> };
+type Props = { stage: Stage; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
 
 function roundToModuleIncrement(valueMm: number, incrementMm = 50) {
@@ -321,7 +321,10 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
       const renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
-      const renderRoomId = selectedModule?.roomId ?? spaceId ?? null;
+      // A normal room render follows the room selected in Visual Studio. A
+      // material swap is intentionally narrower and follows the selected
+      // module, because its source mask is bound to that module in scene.v1.
+      const renderRoomId = operation === 'material-swap' ? selectedModule?.roomId ?? null : spaceId ?? null;
       if (!renderRoomId) { setVisualBusy(false); setVisualState('Select a persisted room before generating a render.'); return; }
       if (operation === 'material-swap' && !selectedModule) { setVisualBusy(false); setVisualState('Select the exact module whose material should change before creating a revision.'); return; }
       const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId: renderSceneVersionId, idempotencyKey: `${renderSceneVersionId}:${renderRoomId}:${selectedModule?.id ?? 'room'}:${operation}:${renderStyle}:${quality}:${Date.now()}`, options: { roomId: renderRoomId, targetModuleId: selectedModule?.id ?? null, style: renderStyle, quality, operation } }) });
@@ -469,13 +472,26 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
               </div>
               <div className="visual-controls visual-controls-stack">
                 <label>
-                  Space
-                  <select value={room} onChange={(event) => setRoom(event.target.value)}>
-                    <option value="kitchen">Kitchen</option>
-                    <option value="living">Living room</option>
-                    <option value="bedroom">Bedroom</option>
+                  Scene room
+                  <select
+                    value={spaceId ?? ''}
+                    onChange={(event) => {
+                      const nextId = event.target.value;
+                      const next = spaces.find((space) => space.id === nextId);
+                      setSpaceId(nextId || null);
+                      if (next?.roomType) setRoom(next.roomType);
+                    }}
+                    disabled={!spaces.length}
+                  >
+                    {!spaces.length && <option value="">No persisted room available</option>}
+                    {spaces.map((space) => <option key={space.id} value={space.id}>{space.name} · {space.roomType}</option>)}
                   </select>
                 </label>
+                <p className="visual-selection-note">
+                  {selectedModule
+                    ? `Selected module: ${selectedModule.label}. Material previews remain locked to this module and its room.`
+                    : 'Select and place a module before requesting a targeted laminate preview.'}
+                </p>
 
                 <div className="visual-tool-section" style={{ borderTop: '1px solid #e8ded2', paddingTop: '10px', marginTop: '4px' }}>
                   <MaterialSwapPanel
@@ -500,7 +516,14 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                       }
                       setVisualState('Compiling the saved module material into a new scene version...');
                       const compiledSceneVersionId = await compileMoodboard([previewLaminate, selectedHardwareObj].filter((item) => item.id));
-                      await createVisual('material-swap', laminate, compiledSceneVersionId ?? undefined);
+                      if (!compiledSceneVersionId) return;
+                      setVisualState('Validating and approving the material revision before rendering...');
+                      const revisionApproved = await onSceneApproved(compiledSceneVersionId);
+                      if (!revisionApproved) {
+                        setVisualState('The material revision was saved as a draft but could not be approved. Review its scene validation before rendering.');
+                        return;
+                      }
+                      await createVisual('material-swap', laminate, compiledSceneVersionId);
                     }}
                     onConfirmAiProposal={() => setVisualState('AI material proposals require an approved scene revision before rendering.')}
                   />
@@ -618,7 +641,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
               <Badge>CSV</Badge>
             </div>
             <div className="drawing-actions">
-              <Button onClick={onSceneApproved} disabled={!sceneVersionId || sceneApproved}>
+              <Button onClick={() => { void onSceneApproved(); }} disabled={!sceneVersionId || sceneApproved}>
                 {' '}
                 <Check size={16} /> {sceneApproved ? 'Scene approved' : 'Approve scene for production'}
               </Button>
