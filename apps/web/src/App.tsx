@@ -807,6 +807,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       return;
     }
     setReviewSnapshot(snapshot);
+    setPlanStatus('Saving the reviewed plan model…');
     let serverVersionId = approvedPlanVersionId;
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     try {
@@ -818,16 +819,18 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         method: 'POST', headers,
         body: JSON.stringify({ projectId, sourceAssetId, canonicalModel, approvedBy: null, floorPlanVersionId: approvedPlanVersionId ?? undefined })
       });
-      const payload = await response.json();
+      const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.success) throw new Error(payload?.message ?? 'Plan approval failed.');
       serverVersionId = payload.floorPlanVersionId;
     } catch (error) {
-      setPlanStatus(error instanceof Error ? error.message : 'Plan approval failed.');
-      return;
+      const message = error instanceof Error ? error.message : 'Plan approval failed.';
+      setPlanStatus(message);
+      throw new Error(message);
     }
     if (!serverVersionId) {
-      setPlanStatus('Plan approval requires an authenticated Supabase project.');
-      return;
+      const message = 'Plan approval requires an authenticated Supabase project.';
+      setPlanStatus(message);
+      throw new Error(message);
     }
     setApprovedPlanVersionId(serverVersionId);
     setPlanApproved(true);

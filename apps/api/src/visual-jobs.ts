@@ -4,6 +4,7 @@ import { compileRenderBrief } from '@ultida/agent-core';
 import type { VisualProposalRequest } from '@ultida/contracts';
 import { renderScenePerspectiveArtifacts, type BaseRenderArtifacts } from '@ultida/render-pipeline';
 import { SceneV1Schema } from '@ultida/scene-core';
+import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord } from './reference-retrieval.js';
 
 type Gateway = {
   createVisualProposal(request: VisualProposalRequest): Promise<any>;
@@ -193,6 +194,35 @@ async function jobContext(client: SupabaseClient, request: VisualProposalRequest
   return { project: project.data, scene };
 }
 
+async function renderReferenceGuidance(
+  client: SupabaseClient,
+  organizationId: string,
+  scene: import('@ultida/scene-core').SceneV1,
+  roomId: string,
+  style: string,
+) {
+  const room = scene.rooms.find((candidate) => candidate.id === roomId || candidate.type === roomId);
+  const roomModules = scene.modules.filter((module) => module.roomId === roomId || module.roomId === room?.id);
+  const moduleFamily = roomModules.length === 1 ? roomModules[0].family : undefined;
+  const result = await client.from('reference_vault_entries')
+    .select('id,title,source_path,room,module_family,style,material_tags,viewpoint,review_state,metadata')
+    .eq('organization_id', organizationId)
+    .eq('review_state', 'approved')
+    .limit(180);
+  if (result.error) return { prompt: '', ids: [] as string[] };
+  const references = retrieveReferences((result.data ?? []) as ReferenceVaultRecord[], {
+    text: `${style} ${room?.name ?? ''} ${roomModules.map((module) => module.family).join(' ')}`,
+    room: room?.type,
+    moduleFamily,
+    limit: 6,
+  });
+  const context = compileReferenceContext(references);
+  return {
+    prompt: references.length ? `\nStudio reference guidance (visual only; never override scene geometry):\n${context.summary}\n${context.rules.join(' ')}` : '',
+    ids: references.map((reference) => reference.id),
+  };
+}
+
 export async function createVisualJob(environment: Record<string, string | undefined>, gateway: Gateway, request: VisualProposalRequest, actorId?: string, clientOverride?: SupabaseClient) {
   const client = serverClient(environment, clientOverride);
   const jobId = crypto.randomUUID();
@@ -218,8 +248,10 @@ export async function createVisualJob(environment: Record<string, string | undef
   try {
     const context = preflight ?? await jobContext(client, request);
     const brief = compileRenderBrief({ scene: context.scene, sceneVersionId: request.sceneVersionId, roomId: request.roomId, style: request.style, quality: request.quality, camera: request.camera });
-    const normalizedRequest: VisualProposalRequest = { ...request, roomId: brief.roomId, structuredPrompt: brief.positivePrompt, negativePrompt: brief.negativePrompt, promptVersion: brief.version };
-    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, style: brief.style, quality: brief.quality, camera: request.camera, references: request.referenceAssets, structuredPrompt: brief.positivePrompt, negativePrompt: brief.negativePrompt, promptVersion: brief.version });
+    const referenceGuidance = await renderReferenceGuidance(client, context.project.organization_id, context.scene, brief.roomId, brief.style);
+    const structuredPrompt = `${brief.positivePrompt}${referenceGuidance.prompt}`;
+    const normalizedRequest: VisualProposalRequest = { ...request, roomId: brief.roomId, structuredPrompt, negativePrompt: brief.negativePrompt, promptVersion: brief.version };
+    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, style: brief.style, quality: brief.quality, camera: request.camera, references: referenceGuidance.ids, structuredPrompt, negativePrompt: brief.negativePrompt, promptVersion: brief.version });
     const idempotencyKey = request.idempotencyKey ?? `render:${inputFingerprint}`;
     
     const job = await client.from('jobs').insert({ organization_id: context.project.organization_id, project_id: request.projectId, kind: 'visual_proposal', status: 'queued', idempotency_key: idempotencyKey, input: { ...normalizedRequest, renderBrief: brief }, output: { reviewStatus: 'pending' }, attempts: 1, created_by: actorId ?? null }).select('id').single();
@@ -258,8 +290,8 @@ export async function createVisualJob(environment: Record<string, string | undef
     await client.from('jobs').update({
       status: 'running',
       started_at: new Date().toISOString(),
-      input: { ...providerRequest, renderBrief: brief, technicalArtifacts },
-      output: { reviewStatus: 'pending', technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint },
+      input: { ...providerRequest, renderBrief: brief, technicalArtifacts, referenceIds: referenceGuidance.ids },
+      output: { reviewStatus: 'pending', technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, referenceIds: referenceGuidance.ids },
     }).eq('id', job.data.id);
     const result = await gateway.createVisualProposal(providerRequest);
 

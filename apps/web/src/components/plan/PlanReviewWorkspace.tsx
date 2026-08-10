@@ -129,7 +129,7 @@ type Props = {
   onAnalyze?: () => void;
   onRetryAnalysis?: () => void;
   analysisRetryAvailable?: boolean;
-  onApprove: (canonicalModel: unknown) => void;
+  onApprove: (canonicalModel: unknown) => Promise<void> | void;
   onDownloadDxf?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null; geometryMode: GeometryMode }) => void;
   onSaveDraft?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null; geometryMode: GeometryMode }) => void;
   onAnalysisGuidesChange?: (guides: Array<{ id: string; label: string; x: number; y: number; width: number; height: number }>) => void;
@@ -178,6 +178,7 @@ export function PlanReviewWorkspace({
   const [issues, setIssues] = useState<IssueItem[]>([]);
   const [analysisQualityNotice, setAnalysisQualityNotice] = useState('');
   const [activeTool, setActiveTool] = useState<CanvasTool>('select');
+  const [continuationHint, setContinuationHint] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ id: string; point: Point; snapshot: PlanElement[] } | null>(null);
   const [resizing, setResizing] = useState<{ id: string; opposite: Point; snapshot: PlanElement[] } | null>(null);
@@ -569,7 +570,7 @@ export function PlanReviewWorkspace({
   };
 
   // Final Plan Approval
-  const handleApprovePlan = () => {
+  const handleApprovePlan = async () => {
     if (!approvalReady || !sourceAssetId) return;
     const mmPerPixel = scale!.mmPerPixel;
     const isInitialDesign = geometryMode === 'initial_design';
@@ -591,6 +592,12 @@ export function PlanReviewWorkspace({
       const areaMm2 = Math.abs(worldPolygon.slice(0, -1).reduce((sum, point, index) => { const next = worldPolygon[index + 1]; return sum + point.xMm * next.yMm - next.xMm * point.yMm; }, 0) / 2);
       return [{ id: room.id, sourcePolygon, worldPolygon, roomType: 'other', roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm!, wallRefs: [], openingRefs: [], confidence: room.confidence, verification: isInitialDesign ? 'assumed' : 'verified' }];
     });
+    if (!spaces.length) {
+      setActiveTool('add_room');
+      setToolStart(null);
+      setContinuationHint('Draw one room rectangle on the plan, then press Create Initial Model & Continue again. It will be saved as an explicitly labelled provisional room for Initial Design.');
+      return;
+    }
     const canonicalModel = {
       schemaVersion: 'plan.v1',
       source: { schemaVersion: 'plan.v1', sourceAssetId, sourceType: 'raster_image', sourceWidth: 1000, sourceHeight: 850, sourceRotation: 0, coordinateSystem: 'millimetres', scaleResolution: isInitialDesign ? 'initial_design_calibration' : 'two_point_calibration', mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservations: [] },
@@ -620,7 +627,12 @@ export function PlanReviewWorkspace({
       validation: { isValid: wallModels.length > 0 && spaces.length > 0, blockingIssueCount: 0, issues: [] },
       approval: { approvedAt: new Date().toISOString() },
     };
-    onApprove(canonicalModel);
+    setContinuationHint('Saving the reviewed plan model…');
+    try {
+      await onApprove(canonicalModel);
+    } catch (error) {
+      setContinuationHint(error instanceof Error ? error.message : 'The reviewed plan could not be saved. Correct the highlighted geometry and try again.');
+    }
   };
 
   return (
@@ -702,6 +714,7 @@ export function PlanReviewWorkspace({
         {geometryMode === 'initial_design' && <p className="geometry-mode-note">Initial design mode needs one trusted scale calibration, but allows unresolved findings and incomplete openings. It applies editable defaults: external walls 254 mm, internal walls 152.4 mm, ceiling 2700 mm. Outputs are proposals until site verification.</p>}
         {geometryMode === 'final_production' && <p className="geometry-mode-note production">Final production mode requires every finding to be resolved, openings dimensioned, walls assigned thickness/height, and a trusted calibration.</p>}
         {!approvalReady && analysed && <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>Calibrate one visible dimension and complete the required geometry fields to continue.</p>}
+        {continuationHint && <p role="status" style={{ fontSize: 12, color: 'var(--brown-mid)', fontWeight: 700, margin: '6px 0 0' }}>{continuationHint}</p>}
       </div>
 
       {/* 3-PANEL GRID LAYOUT */}
