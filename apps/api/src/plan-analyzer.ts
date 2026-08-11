@@ -131,10 +131,13 @@ const GEOMETRY_KEYS: Record<PlanProposal['kind'], readonly string[]> = {
   fixture: ['x', 'y', 'width', 'depth'],
 };
 
+const PLAN_ENTITY_KINDS = new Set<PlanProposal['kind']>(['wall', 'room', 'opening', 'dimension', 'fixture']);
+
 function normalizeGeometry(kind: PlanProposal['kind'], geometry: Record<string, unknown>) {
   const normalized: Record<string, number> = {};
+  const allowedKeys = GEOMETRY_KEYS[kind] ?? [];
   for (const [key, raw] of Object.entries(geometry)) {
-    if (!GEOMETRY_KEYS[kind].includes(key)) continue;
+    if (!allowedKeys.includes(key)) continue;
     const value = Number(raw);
     if (!Number.isFinite(value)) continue;
     normalized[key] = key === 'valueMm' ? Math.max(0, value) : key === 'kind' ? Math.max(0, Math.min(1, Math.round(value))) : clampCoordinate(value);
@@ -232,9 +235,16 @@ function extractJsonObject(raw: string): unknown {
 
 export function parseProposals(raw: string, source: 'ocr' | 'detector'): PlanProposal[] {
   const parsed = extractJsonObject(raw) as { proposals?: unknown[] };
-  const proposals = (parsed.proposals ?? []).map((item, index) => {
-    const value = item as { kind?: PlanProposal['kind']; confidence?: unknown; geometry?: Record<string, unknown>; note?: unknown };
-    return { id: crypto.randomUUID(), kind: value.kind, confidence: Math.max(0, Math.min(1, Number(value.confidence ?? 0))), source, status: 'needs_review' as const, geometry: normalizeGeometry(value.kind ?? 'wall', value.geometry ?? {}), note: typeof value.note === 'string' ? value.note : `Provider proposal ${index + 1} requires review.` };
+  const proposals = (Array.isArray(parsed.proposals) ? parsed.proposals : []).flatMap((item, index) => {
+    if (!item || typeof item !== 'object') return [];
+    const value = item as { kind?: unknown; confidence?: unknown; geometry?: unknown; note?: unknown };
+    // Providers occasionally emit a prose label or a new experimental entity
+    // kind. Never index geometry rules with untrusted provider data.
+    if (typeof value.kind !== 'string' || !PLAN_ENTITY_KINDS.has(value.kind as PlanProposal['kind'])) return [];
+    const geometry = value.geometry && typeof value.geometry === 'object' && !Array.isArray(value.geometry)
+      ? value.geometry as Record<string, unknown>
+      : {};
+    return [{ id: crypto.randomUUID(), kind: value.kind as PlanProposal['kind'], confidence: Math.max(0, Math.min(1, Number(value.confidence ?? 0))), source, status: 'needs_review' as const, geometry: normalizeGeometry(value.kind as PlanProposal['kind'], geometry), note: typeof value.note === 'string' ? value.note : `Provider proposal ${index + 1} requires review.` }];
   });
   const result = PlanProposalSchema.array().safeParse(proposals);
   if (!result.success) throw new Error('Plan analyzer returned an invalid proposal shape.');
@@ -267,7 +277,7 @@ async function analyzeOpenAi(environment: Environment, input: Input) {
 }
 
 async function analyzeGemini(environment: Environment, input: Input) {
-  const model = environment.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
+  const model = environment.GEMINI_VISION_MODEL || 'gemini-3.6-flash';
   const apiKey = geminiVisionKey(environment);
   const prompt = buildPlanPrompt(input.brief, input.analysisGuides);
   const base64 = input.dataUrl.split(',', 2)[1];
@@ -313,6 +323,7 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
     // than Moondream for dense technical drawings. An explicitly configured
     // plan model still takes priority; Moondream remains a genuine fallback.
     environment.CLOUDFLARE_PLAN_MODEL,
+    '@cf/meta/llama-4-scout-17b-16e-instruct',
     '@cf/meta/llama-3.2-11b-vision-instruct',
     environment.CLOUDFLARE_VISION_MODEL,
     '@cf/moondream/moondream3.1-9B-A2B',
@@ -376,7 +387,7 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
       runs.push({ provider, model: result.model, status: 'succeeded', latencyMs: Date.now() - started });
       return { provider, ...result };
     } catch (error) {
-      runs.push({ provider, model: provider === 'openai' ? environment.OPENAI_VISION_MODEL || 'gpt-4o-mini' : provider === 'gemini' ? environment.GEMINI_VISION_MODEL || 'gemini-2.5-flash' : environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL || '@cf/meta/llama-3.2-11b-vision-instruct', status: 'failed', latencyMs: Date.now() - started, error: error instanceof Error ? error.message : 'Provider failed.' });
+      runs.push({ provider, model: provider === 'openai' ? environment.OPENAI_VISION_MODEL || 'gpt-4o-mini' : provider === 'gemini' ? environment.GEMINI_VISION_MODEL || 'gemini-3.6-flash' : environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL || '@cf/meta/llama-4-scout-17b-16e-instruct', status: 'failed', latencyMs: Date.now() - started, error: error instanceof Error ? error.message : 'Provider failed.' });
       return null;
     }
   };
@@ -385,7 +396,7 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
   // configured. Cloudflare remains the independent vision fallback and owns
   // the image-editing/render route; its low-cost vision models should not win
   // the floor-plan result merely because a preference variable was omitted.
-  const defaultOrder: Array<'openai' | 'gemini' | 'cloudflare'> = ['openai', 'gemini', 'cloudflare'];
+  const defaultOrder: Array<'openai' | 'gemini' | 'cloudflare'> = ['gemini', 'cloudflare', 'openai'];
   const order = [
     ...(requestedPrimary && configured.includes(requestedPrimary as 'openai' | 'gemini' | 'cloudflare')
       ? [requestedPrimary as 'openai' | 'gemini' | 'cloudflare']

@@ -370,7 +370,11 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
   // A serverless request can be interrupted after it claims the job but before
   // it writes a terminal result. Recover only a genuinely idle claim and
   // re-dispatch the exact same idempotent source job.
-  if (job.data.status === 'running' && Number.isFinite(lastActivityMs) && Date.now() - lastActivityMs > 150_000) {
+  // Provider + OCR + deterministic CV can legitimately take several minutes
+  // on a cold serverless invocation. Recover only after a lease has been idle
+  // beyond the complete bounded analysis window; otherwise polling could
+  // launch a duplicate provider request while the original is still working.
+  if (job.data.status === 'running' && Number.isFinite(lastActivityMs) && Date.now() - lastActivityMs > 300_000) {
     const reset = await client.from('jobs')
       .update({ status: 'queued', locked_at: null, locked_by: null, queued_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', job.data.id)

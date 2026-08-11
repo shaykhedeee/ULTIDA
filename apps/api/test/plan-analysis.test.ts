@@ -162,3 +162,17 @@ test('provider proposals retain only distinct, drawable structural evidence', ()
   assert.equal(proposals.find((proposal) => proposal.kind === 'dimension')?.geometry.unexpected, undefined);
   assert.equal(proposals.length, 3);
 });
+
+test('provider proposals ignore unknown entity kinds without throwing includes errors', () => {
+  const response = JSON.stringify({
+    proposals: [
+      { kind: 'text_label', confidence: 0.9, geometry: { x: 10, y: 10 }, note: 'Living room' },
+      { kind: null, confidence: 0.9, geometry: { x1: 10, y1: 10, x2: 20, y2: 20 } },
+      { kind: 'wall', confidence: 0.9, geometry: { x1: 100, y1: 100, x2: 900, y2: 100 }, note: 'External wall' },
+      { kind: 'room', confidence: 0.8, geometry: { x: 110, y: 120, width: 700, height: 500 }, note: 'Living room' },
+    ],
+  });
+  const proposals = parseProposals(response, 'detector');
+  assert.equal(proposals.length, 2);
+  assert.deepEqual(proposals.map((proposal) => proposal.kind), ['wall', 'room']);
+});
