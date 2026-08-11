@@ -49,9 +49,40 @@ function detectRasterMimeType(bytes: Uint8Array): string | null {
  * available so the vision-only analysis can still proceed (never block the
  * whole job on a missing CV dependency — per ARCHITECTURE.md invariant #5).
  */
-async function runCvTrace(raster: Uint8Array, mimeType: string): Promise<{ result: CvTraceResult; stderr: string } | null> {
+async function runRemoteCvTrace(environment: Environment, raster: Uint8Array): Promise<{ result: CvTraceResult; stderr: string } | null> {
+  const configuredEndpoint = environment.PLAN_CV_SERVICE_URL?.trim();
+  const vercelOrigin = environment.VERCEL_URL ? `https://${environment.VERCEL_URL.replace(/^https?:\/\//, '')}` : '';
+  const endpoint = configuredEndpoint || (vercelOrigin ? `${vercelOrigin}/internal/cv/plan` : '');
+  const secret = environment.ULTIDA_WORKER_SHARED_SECRET || environment.WORKER_DISPATCH_SECRET;
+  if (!endpoint || !secret) return null;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-ultida-worker-secret': secret,
+      },
+      body: JSON.stringify({ imageBase64: Buffer.from(raster).toString('base64') }),
+      signal: AbortSignal.timeout(75_000),
+    });
+    const payload = await response.json() as { success?: boolean; result?: CvTraceResult; code?: string };
+    if (response.ok && payload.success && payload.result?.schema === 'PlanAnalysisResultV1.wallCandidates') {
+      return { result: payload.result, stderr: '' };
+    }
+    return { result: null as unknown as CvTraceResult, stderr: `Remote CV unavailable: ${payload.code || response.status}` };
+  } catch (error) {
+    return { result: null as unknown as CvTraceResult, stderr: `Remote CV unavailable: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+async function runCvTrace(environment: Environment, raster: Uint8Array, mimeType: string): Promise<{ result: CvTraceResult; stderr: string } | null> {
+  // Production uses the authenticated Python function when configured. Local
+  // development still runs the identical source file directly, so both paths
+  // produce the same candidate contract.
+  const remote = await runRemoteCvTrace(environment, raster);
+  if (remote?.result) return remote;
   const scriptPath = resolveWallTracerPath();
-  if (!scriptPath) return { result: null as unknown as CvTraceResult, stderr: 'wall_tracer.py not found' };
+  if (!scriptPath) return remote ?? { result: null as unknown as CvTraceResult, stderr: 'wall_tracer.py not found' };
   const dir = await mkdtemp(join(tmpdir(), 'ultida-cv-'));
   const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : mimeType === 'image/gif' ? 'gif' : 'jpg';
   const inPath = join(dir, `plan.${extension}`);
@@ -433,6 +464,25 @@ export async function dispatchPlanAnalysisJob(environment: Environment, jobId: s
 
 async function processClaimedPlanAnalysisJobs(environment: Environment, client: NonNullable<ReturnType<typeof serverClient>>, jobs: Array<Record<string, any>>) {
   for (const job of jobs) {
+    // Keep a lightweight durable heartbeat while slow vision/OCR calls are in
+    // flight. The polling route can now distinguish real work from an orphaned
+    // serverless claim and will not launch a competing analysis job.
+    const heartbeat = setInterval(() => {
+      const timestamp = new Date().toISOString();
+      void (async () => {
+        try {
+          await client.from('jobs')
+            .update({ locked_at: timestamp, updated_at: timestamp })
+            .eq('id', job.id)
+            .eq('kind', 'plan-analysis')
+            .eq('status', 'running')
+            .eq('locked_by', job.locked_by ?? environment.ULTIDA_WORKER_ID ?? 'api-plan-worker');
+        } catch {
+          // A final state write still owns the visible error; a transient
+          // heartbeat failure must not terminate the in-flight analysis.
+        }
+      })();
+    }, 25_000);
     try {
       const input = job.input as { sourceAssetId?: string; storagePath?: string; mimeType?: string; fileName?: string; analysisGuides?: AnalysisGuideRegion[] };
       if (!input.storagePath || !input.mimeType || !input.fileName) throw new Error('Plan analysis job has incomplete source metadata.');
@@ -450,7 +500,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief, analysisGuides: Array.isArray(input.analysisGuides) ? input.analysisGuides : [] })
           .then((analysis) => ({ analysis, error: null as Error | null }))
           .catch((error) => ({ analysis: null, error: error instanceof Error ? error : new Error('Plan vision analysis failed.') })),
-        runCvTrace(raster, analysisMimeType).catch(() => null),
+        runCvTrace(environment, raster, analysisMimeType).catch(() => null),
         runPlanOcr(raster),
       ]);
       let analysis: any = analysisAttempt.analysis;
@@ -578,6 +628,8 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       const typedError = error as Error & { code?: string };
       const failedAt = new Date().toISOString();
       await client.from('jobs').update({ status: 'failed', failed_at: failedAt, last_error_code: typedError.code ?? 'PLAN_ANALYSIS_FAILED', error: { code: typedError.code ?? 'PLAN_ANALYSIS_FAILED', message: error instanceof Error ? error.message : 'Plan analysis failed.' }, locked_at: null, locked_by: null, updated_at: failedAt }).eq('id', job.id);
+    } finally {
+      clearInterval(heartbeat);
     }
   }
 }

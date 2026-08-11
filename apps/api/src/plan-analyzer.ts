@@ -333,19 +333,55 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
     if (model.includes('8b-instruct') && !model.includes('vision')) continue;
     try {
       const isMoondream = model.includes('moondream');
+      const isLlama4 = model.includes('llama-4-');
       const requestBody = isMoondream
         ? { task: 'query', image: input.dataUrl, question: `${prompt}\nSource file: ${input.fileName}. Return the required JSON only.`, reasoning: false, stream: false, temperature: 0, max_tokens: 4096 }
+        : isLlama4
+          ? {
+              model,
+              messages: [{
+                role: 'user',
+                // Llama 4 receives vision input only through OpenAI-compatible
+                // content parts. The legacy /ai/run `image` field is silently
+                // treated as text-only by this model.
+                content: [
+                  { type: 'text', text: `${prompt}\nSource file: ${input.fileName}. Return the required JSON only.` },
+                  { type: 'image_url', image_url: { url: input.dataUrl } },
+                ],
+              }],
+              response_format: { type: 'json_object' },
+              temperature: 0,
+              max_tokens: 6144,
+            }
         : {
             messages: [{ role: 'system', content: prompt }, { role: 'user', content: `Extract the visible floor-plan evidence from ${input.fileName}. Return the required JSON only.` }],
             image: input.dataUrl,
             response_format: CLOUDFLARE_PLAN_RESPONSE_FORMAT,
             temperature: 0,
-        max_tokens: 6144,
+            max_tokens: 6144,
           };
-      const response = await fetchWithProviderTimeout(environment, `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
-      const payload = await response.json() as { success?: boolean; result?: { response?: string; text?: string; answer?: string; result?: { answer?: string; response?: string; text?: string } }; errors?: Array<{ message?: string }> };
-      const content = payload.result?.response || payload.result?.text || payload.result?.answer || payload.result?.result?.answer || payload.result?.result?.response || payload.result?.result?.text;
-      if (response.ok && payload.success && content) {
+      const endpoint = isLlama4
+        ? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`
+        : `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
+      const response = await fetchWithProviderTimeout(environment, endpoint, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
+      const payload = await response.json() as {
+        success?: boolean;
+        result?: {
+          response?: string;
+          text?: string;
+          answer?: string;
+          choices?: Array<{ message?: { content?: string } }>;
+          result?: { answer?: string; response?: string; text?: string };
+        };
+        choices?: Array<{ message?: { content?: string } }>;
+        errors?: Array<{ message?: string }>;
+      };
+      const content = payload.result?.response || payload.result?.text || payload.result?.answer || payload.result?.choices?.[0]?.message?.content || payload.result?.result?.answer || payload.result?.result?.response || payload.result?.result?.text || payload.choices?.[0]?.message?.content;
+      // The OpenAI-compatible Cloudflare endpoint returns `choices` without
+      // the legacy `{ success: true }` envelope. Treat an explicitly false
+      // value as failure, but never discard a valid vision response solely
+      // because that legacy field is absent.
+      if (response.ok && payload.success !== false && content) {
         return { model, proposals: assertFloorPlanCoverage(parseProposals(content, 'detector')) };
       }
       lastError = new Error(payload.errors?.map((e) => e.message).join(', ') || `Cloudflare ${model} returned HTTP ${response.status}`);
@@ -392,11 +428,10 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     }
   };
   const requestedPrimary = environment.PLAN_ANALYZER_PRIMARY;
-  // Gemini is the primary structured-document reader for ULTIDA when it is
-  // configured. Cloudflare remains the independent vision fallback and owns
-  // the image-editing/render route; its low-cost vision models should not win
-  // the floor-plan result merely because a preference variable was omitted.
-  const defaultOrder: Array<'openai' | 'gemini' | 'cloudflare'> = ['gemini', 'cloudflare', 'openai'];
+  // Cloudflare is the single billed primary path for ULTIDA. Gemini remains a
+  // configured optional fallback for accounts that choose it, while OpenAI is
+  // deliberately last because a 429 must never delay a working Cloudflare run.
+  const defaultOrder: Array<'openai' | 'gemini' | 'cloudflare'> = ['cloudflare', 'gemini', 'openai'];
   const order = [
     ...(requestedPrimary && configured.includes(requestedPrimary as 'openai' | 'gemini' | 'cloudflare')
       ? [requestedPrimary as 'openai' | 'gemini' | 'cloudflare']

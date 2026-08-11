@@ -22,7 +22,7 @@ VITE_API_BASE=/api
 
 If Vercel shows only `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, the browser may initialize Supabase but the API will still report Supabase as not ready. The API requires the server-side `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` variables in the same Production and Preview scopes.
 
-`CLOUDFLARE_AI_TOKEN`, `OPENROUTER_API_KEY`, Supabase secret keys, and any `stk_...` credential are server-only values. Do not put them in `VITE_*` variables and do not commit them.
+`CLOUDFLARE_AI_TOKEN`, `OPENROUTER_API_KEY`, Supabase secret keys, `PLAN_CV_SERVICE_URL`, and any `stk_...` credential are server-only values. Do not put them in `VITE_*` variables and do not commit them.
 
 ## Integration rule
 

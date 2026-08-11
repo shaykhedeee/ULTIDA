@@ -332,10 +332,15 @@ def detect_openings(walls, min_gap_px=15, max_gap_px=140):
     return openings
 
 
-def trace_walls(image_path: str) -> dict:
-    img = cv2.imread(image_path)
+def trace_image(img: np.ndarray) -> dict:
+    """Trace a decoded OpenCV image.
+
+    Keeping the actual algorithm independent of a filesystem path lets the
+    authenticated serverless CV endpoint use the exact same implementation as
+    local development. There is deliberately no browser-side approximation.
+    """
     if img is None:
-        raise FileNotFoundError(f"Could not read image: {image_path}")
+        raise ValueError("Could not decode the supplied plan image")
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     h, w = gray.shape
 
@@ -371,6 +376,18 @@ def trace_walls(image_path: str) -> dict:
             'window; that classification needs the vision-LLM semantic pass.'
         ),
     }
+
+
+def trace_walls(image_path: str) -> dict:
+    img = cv2.imread(image_path)
+    if img is None:
+        raise FileNotFoundError(f"Could not read image: {image_path}")
+    return trace_image(img)
+
+
+def trace_walls_bytes(raw: bytes) -> dict:
+    img = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+    return trace_image(img)
 
 
 def _json_default(o):

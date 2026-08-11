@@ -7,12 +7,19 @@
   "functions": {
     "api/[...path].ts": {
       "includeFiles": "{apps/api/dist/**,packages/**/dist/**,node_modules/@ultida/**}"
+    },
+    "api/plan_cv.py": {
+      "includeFiles": "apps/api/cv/wall_tracer.py"
     }
   },
   "rewrites": [
     {
+      "source": "/internal/cv/plan",
+      "destination": "/api/plan_cv.py"
+    },
+    {
       "source": "/api/:ultidaPath*",
-      "destination": "/api/[...path]?__ultida_path=:ultidaPath*"
+      "destination": "/api/[...path]?__ultida_path=:ultidaPath"
     },
     {
       "source": "/((?!api(?:/|$)).*)",
