@@ -113,13 +113,14 @@ export function createProviderGateway(environment: Environment) {
   const getProviders = (): ProviderCapabilityStatus[] => {
     const env = environment;
     const cloudflareModel = env.CLOUDFLARE_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-4b';
+    const cloudflareFinalModel = env.CLOUDFLARE_FINAL_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-9b';
     const cloudflareOperations: VisualProposalRequest['operation'][] = cloudflareModel.includes('flux-2')
       ? ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance']
       : ['generate'];
     return [
       { id: 'free-image-worker', name: 'Cloudflare free image worker', configured: Boolean(env.FREE_IMAGE_WORKER_URL && env.FREE_IMAGE_WORKER_API_KEY), operations: ['generate'], details: `${env.FREE_IMAGE_WORKER_MODEL ?? '@cf/black-forest-labs/flux-1-schnell'} text-to-image only; not geometry-preserving.` },
       { id: 'gemini-nano-banana-2', name: 'Gemini image generation', configured: Boolean(geminiImageKey(env)), operations: ['generate'], details: 'The current adapter is text-to-image only.' },
-      { id: 'cloudflare', name: 'Cloudflare Workers AI', configured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN), operations: cloudflareOperations, details: `${cloudflareModel} (${cloudflareModel.includes('flux-2') ? 'generation and image editing' : 'text-to-image only'})` },
+      { id: 'cloudflare', name: 'Cloudflare Workers AI', configured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN), operations: cloudflareOperations, details: `Draft/review: ${cloudflareModel}; final: ${cloudflareFinalModel} (generation and image editing)` },
       { id: 'openai-dall-e-3', name: 'OpenAI DALL-E 3', configured: Boolean(env.OPENAI_API_KEY), operations: ['generate'], details: 'DALL-E 3 does not support image editing.' },
       { id: 'openai-gpt-image-1', name: 'OpenAI GPT Image 1', configured: Boolean(env.OPENAI_API_KEY && env.OPENAI_IMAGE_MODEL === 'gpt-image-1'), operations: ['generate'], details: 'Image editing remains unavailable until the edits endpoint is connected.' },
       { id: 'localai', name: 'LocalAI self-hosted image generation', configured: Boolean(localAiBaseUrl(env) && env.LOCALAI_IMAGE_MODEL), operations: ['generate'], details: 'Optional private, OpenAI-compatible endpoint. It is used only for new renders; geometry-locked revisions stay on ComfyUI or Cloudflare.' },
@@ -167,7 +168,9 @@ export function createProviderGateway(environment: Environment) {
   async function executeCloudflare(request: VisualProposalRequest, attemptedProviders: string[]): Promise<ProviderResult> {
     const accountId = environment.CLOUDFLARE_ACCOUNT_ID;
     const token = environment.CLOUDFLARE_AI_TOKEN;
-    const model = environment.CLOUDFLARE_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-4b';
+    const model = request.quality === 'final'
+      ? environment.CLOUDFLARE_FINAL_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-9b'
+      : environment.CLOUDFLARE_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-4b';
 
     if (!accountId || !token) {
       return { status: 'failed', code: 'CLOUDFLARE_NOT_CONFIGURED', message: 'Cloudflare Workers AI is not configured.', retryable: false, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
