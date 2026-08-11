@@ -722,11 +722,16 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size, analysisGuides })
       });
       const completion = await completed.json().catch(() => null);
-       if (!completed.ok || !completion?.asset?.id) {
+       // A 202 is an accepted durable-job response. Older/local API processes
+       // can omit the echoed asset object, but the signed-upload initiation
+       // already supplied its immutable asset id. Do not strand the designer
+       // after a successful 202 just because that optional echo is absent.
+       const registeredAssetId = completion?.asset?.id ?? (completed.status === 202 && completion?.jobId ? initiation.assetId : null);
+       if (!completed.ok || !registeredAssetId) {
          const prefix = completion?.code ? `[${completion.code}] ` : `HTTP ${completed.status}: `;
          return setPlanStatus(`${prefix}${completion?.message ?? 'The uploaded floor plan could not be registered.'}`);
        }
-      uploadedAssetId = completion.asset.id;
+       uploadedAssetId = registeredAssetId;
       setSourceAssetId(uploadedAssetId);
       if (!completion.jobId) return setPlanStatus('The plan was stored, but no durable analysis job was created.');
       setAnalysisJobId(completion.jobId);
