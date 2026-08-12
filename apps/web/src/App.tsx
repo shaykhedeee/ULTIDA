@@ -311,7 +311,6 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [planAnalysisIssues, setPlanAnalysisIssues] = useState<Array<{ code: string; severity: 'warning' | 'critical'; entityId?: string; message: string }>>([]);
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
   const [analysisRetryAvailable, setAnalysisRetryAvailable] = useState(false);
-  const analysisAutoRetryRef = useRef<string | null>(null);
   const [analysisRefreshNonce, setAnalysisRefreshNonce] = useState(0);
   const [planApproved, setPlanApproved] = useState(false);
   const [sourceAssetId, setSourceAssetId] = useState<string | null>(null);
@@ -589,14 +588,11 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           const stateAgeMs = activityAt ? Date.now() - new Date(activityAt).getTime() : 0;
           const exhausted = Number.isFinite(Number(payload.attempts)) && Number.isFinite(Number(payload.maxAttempts)) && Number(payload.attempts) >= Number(payload.maxAttempts);
           if (exhausted || (payload.status === 'queued' && stateAgeMs > 45_000) || (payload.status === 'running' && stateAgeMs > 150_000)) {
-            if (analysisAutoRetryRef.current !== analysisJobId) {
-              analysisAutoRetryRef.current = analysisJobId;
-              setPlanStatus('Reconnecting the analysis worker…');
-              void retryPlanAnalysis();
-              return;
-            }
+            // The queue processor exclusively owns retries. Re-dispatching
+            // from a polling browser caused concurrent duplicate analysis jobs
+            // and made a slow provider path look permanently stuck.
             setAnalysisRetryAvailable(true);
-            setPlanStatus('The analysis worker did not return a result. Use Retry analysis to re-dispatch this exact source file.');
+            setPlanStatus('The analysis worker has not reported progress. It will reach a safe terminal state; you can then use Retry analysis for this exact source file.');
             return;
           }
           const labels: Record<string, string> = { queued: 'queued', running: 'analysing', processing: 'analysing', review_required: 'ready for review' };
@@ -761,7 +757,6 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       }
       if (!completion.jobId) return setPlanStatus('The plan was stored, but no durable analysis job was created.');
       setAnalysisJobId(completion.jobId);
-      analysisAutoRetryRef.current = null;
       setAnalysisRetryAvailable(false);
       setPlanAnalysed(false);
        setPlanStatus(completion.status === 'failed'
