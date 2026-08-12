@@ -940,6 +940,44 @@ export function calculateEdgeBandingSummary(parts: CutlistPart[]): EdgeBandingSu
   }));
 }
 
+function escapeProductionXml(value: unknown) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** Printable, scene-linked panel labels. The instance ID is the stable QR/barcode payload. */
+export function generateProductionLabelsSvg(snapshot: ProductionSnapshotV1) {
+  const labelWidth = 360;
+  const labelHeight = 190;
+  const columns = 3;
+  const rows = Math.max(1, Math.ceil(snapshot.parts.length / columns));
+  const width = labelWidth * columns;
+  const height = labelHeight * rows;
+  const labels = snapshot.parts.map((part, index) => {
+    const x = (index % columns) * labelWidth;
+    const y = Math.floor(index / columns) * labelHeight;
+    const edge = part.edgeSchedule?.tapeType ?? 'none';
+    return `<g transform="translate(${x} ${y})"><rect x="8" y="8" width="344" height="174" rx="8" fill="#fff" stroke="#171717"/><text x="22" y="35" font-size="14" font-weight="700">${escapeProductionXml(part.partName)}</text><text x="22" y="58" font-size="11">${escapeProductionXml(part.partInstanceId)}</text><text x="22" y="82" font-size="13" font-weight="600">${part.lengthMm} x ${part.widthMm} x ${part.thicknessMm} mm</text><text x="22" y="105" font-size="11">Material: ${escapeProductionXml(part.materialCode)}</text><text x="22" y="126" font-size="11">Edge: ${escapeProductionXml(edge)} | Grain: ${escapeProductionXml(part.grainDirection)}</text><text x="22" y="147" font-size="11">Module: ${escapeProductionXml(part.moduleId)} | Room: ${escapeProductionXml(part.roomId ?? '-')}</text><text x="22" y="168" font-size="9">Scene ${escapeProductionXml(snapshot.sceneVersion)} | scan ID: ${escapeProductionXml(part.partInstanceId)}</text></g>`;
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#f4f1ea"/><g font-family="Arial, sans-serif" fill="#171717">${labels}</g></svg>`;
+}
+
+/** Reproducible cut diagrams using the same deterministic nesting result as the cutlist. */
+export function generateProductionNestingSvg(snapshot: ProductionSnapshotV1) {
+  const { sheets } = nestPanels2D(snapshot.parts, snapshot.fabricationRules.sheetWidthMm, snapshot.fabricationRules.sheetHeightMm, snapshot.fabricationRules.kerfMm, snapshot.fabricationRules.trimMm);
+  const pageWidth = 1000;
+  const sheetDrawWidth = 920;
+  const scale = sheetDrawWidth / snapshot.fabricationRules.sheetWidthMm;
+  const sheetDrawHeight = snapshot.fabricationRules.sheetHeightMm * scale;
+  const sectionHeight = sheetDrawHeight + 100;
+  const pageHeight = Math.max(180, sheets.length * sectionHeight + 40);
+  const sections = sheets.map((sheet, index) => {
+    const y = 30 + index * sectionHeight;
+    const panels = sheet.placedPanels.map((panel) => `<g><rect x="${40 + panel.xMm * scale}" y="${y + 42 + panel.yMm * scale}" width="${panel.widthMm * scale}" height="${panel.lengthMm * scale}" fill="#d8c3a5" stroke="#34271f"/><text x="${44 + panel.xMm * scale}" y="${y + 58 + panel.yMm * scale}" font-size="9">${escapeProductionXml(panel.partInstanceId)}</text><text x="${44 + panel.xMm * scale}" y="${y + 70 + panel.yMm * scale}" font-size="8">${panel.widthMm}x${panel.lengthMm}${panel.rotated ? ' R' : ''}</text></g>`).join('');
+    return `<g><text x="40" y="${y + 18}" font-size="15" font-weight="700">${escapeProductionXml(sheet.sheetId)}</text><text x="760" y="${y + 18}" font-size="12">${escapeProductionXml(sheet.materialCode)} ${sheet.thicknessMm} mm | ${sheet.utilizationPercentage}% used</text><rect x="40" y="${y + 42}" width="${sheetDrawWidth}" height="${sheetDrawHeight}" fill="#fff" stroke="#111" stroke-width="2"/>${panels}</g>`;
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${pageWidth}" height="${pageHeight}" viewBox="0 0 ${pageWidth} ${pageHeight}"><rect width="100%" height="100%" fill="#f4f1ea"/><g font-family="Arial, sans-serif" fill="#171717">${sections || '<text x="40" y="80">No nestable sheet parts were found.</text>'}</g></svg>`;
+}
+
 export function generateFullProductionCutlist(scene: SceneV1) {
   const parts: CutlistPart[] = [];
   const hardware: HardwareItem[] = [];

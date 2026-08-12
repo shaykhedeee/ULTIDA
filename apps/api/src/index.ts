@@ -29,7 +29,7 @@ import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { AURA_TOOLS, listAuraTools, planAuraMessage, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
-import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateSketchUpRubyScript, nestPanels2D } from '@ultida/drawing-core';
+import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateSketchUpRubyScript, nestPanels2D } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
 import { compileSceneV1, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
@@ -550,6 +550,39 @@ app.get('/api/projects/:projectId/scenes/:sceneVersionId/production-snapshot', r
     return response.json({ success: true, cutlist: buildCutlist(scene), source: { projectId, sceneVersionId, sceneStatus: result.data.status } });
   } catch (err: any) {
     return response.status(422).json({ success: false, code: 'PRODUCTION_SNAPSHOT_FAILED', message: err?.message ?? 'The approved scene could not produce an authoritative manufacturing snapshot.' });
+  }
+});
+
+async function readApprovedProductionScene(request: express.Request) {
+  const projectId = String(request.params.projectId);
+  const sceneVersionId = String(request.params.sceneVersionId);
+  const client = getRequestSupabaseClient(request);
+  const result = await client.from('scene_versions').select('id,status,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
+  if (result.error) throw Object.assign(new Error(result.error.message), { status: 500, code: 'SCENE_VERSION_READ_FAILED' });
+  if (!result.data) throw Object.assign(new Error('That scene version does not belong to this project.'), { status: 404, code: 'SCENE_VERSION_NOT_FOUND' });
+  if (!['approved', 'locked'].includes(String(result.data.status))) throw Object.assign(new Error('Approve this exact scene before creating manufacturing outputs.'), { status: 409, code: 'SCENE_NOT_PRODUCTION_READY' });
+  return buildProductionSnapshot(migrateScene(result.data.scene));
+}
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/labels.svg', requireProjectUser, async (request, response) => {
+  try {
+    const snapshot = await readApprovedProductionScene(request);
+    response.setHeader('content-type', 'image/svg+xml; charset=utf-8');
+    response.setHeader('content-disposition', `attachment; filename="ultida-${request.params.sceneVersionId}-panel-labels.svg"`);
+    return response.send(generateProductionLabelsSvg(snapshot));
+  } catch (err: any) {
+    return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_LABELS_FAILED', message: err?.message });
+  }
+});
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/nesting.svg', requireProjectUser, async (request, response) => {
+  try {
+    const snapshot = await readApprovedProductionScene(request);
+    response.setHeader('content-type', 'image/svg+xml; charset=utf-8');
+    response.setHeader('content-disposition', `attachment; filename="ultida-${request.params.sceneVersionId}-nesting.svg"`);
+    return response.send(generateProductionNestingSvg(snapshot));
+  } catch (err: any) {
+    return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_NESTING_FAILED', message: err?.message });
   }
 });
 

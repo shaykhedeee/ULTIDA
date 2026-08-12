@@ -91,6 +91,30 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
     }
   }
 
+  async function downloadApprovedProductionAsset(asset: 'labels.svg' | 'nesting.svg', filename: string) {
+    setExportState('Preparing authoritative production asset...');
+    try {
+      if (!sceneVersionId) throw new Error('Approve a scene first.');
+      if (!supabase) throw new Error('Supabase is not configured for this build.');
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error('Sign in again to export production assets.');
+      const apiBase = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+      const response = await fetch(`${apiBase}/api/projects/${projectId}/scenes/${sceneVersionId}/production/${asset}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error(await response.text());
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      setExportState('File exported from the saved approved scene.');
+    } catch (error) {
+      setExportState(error instanceof Error ? error.message : 'Production asset export failed.');
+    }
+  }
+
   useEffect(() => {
     if (!projectId || !sceneVersionId || !sceneApproved) { setParts([]); return; }
     void (async () => {
@@ -274,7 +298,8 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
               <Card><CardHeader>Cutlist CSV</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/production/cutlist.csv', `ultida-${sceneVersionId}-cutlist.csv`)}>Export CSV</Button></CardContent></Card>
               <Card><CardHeader>Operation Sheet</CardHeader><CardContent><span className="inspector-empty">Unavailable until verified CNC operations are stored.</span></CardContent></Card>
               <Card><CardHeader>Tooling Assumptions</CardHeader><CardContent><span className="inspector-empty">Unavailable until verified CNC tooling data is stored.</span></CardContent></Card>
-              <Card><CardHeader>Nesting Sheet</CardHeader><CardContent><span className="inspector-empty">Unavailable until board and grain data are reviewed.</span></CardContent></Card>
+              <Card><CardHeader>Panel Labels</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved || !cutlist?.parts.length} onClick={() => void downloadApprovedProductionAsset('labels.svg', `ultida-${sceneVersionId}-panel-labels.svg`)}>Export labels</Button></CardContent></Card>
+              <Card><CardHeader>Nesting Sheet</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved || !cutlist?.nesting.length} onClick={() => void downloadApprovedProductionAsset('nesting.svg', `ultida-${sceneVersionId}-nesting.svg`)}>Export nesting</Button></CardContent></Card>
             </div>
           </div>
         )}
