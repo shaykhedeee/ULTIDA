@@ -8,8 +8,20 @@ type Input = { dataUrl: string; fileName: string; mimeType: string; brief?: Reco
 type ProviderRun = { provider: 'openai' | 'gemini' | 'cloudflare' | 'intake-parser'; model: string; status: 'succeeded' | 'failed'; latencyMs: number; error?: string };
 
 function providerTimeoutMs(environment: Environment) {
-  const parsed = Number(environment.PLAN_ANALYZER_TIMEOUT_MS ?? 60_000);
-  return Number.isFinite(parsed) ? Math.max(5_000, Math.min(parsed, 120_000)) : 60_000;
+  // A failed provider must not hold the durable job for a full minute before
+  // the next real provider can try. Dense plans normally complete in seconds;
+  // callers may opt into a longer ceiling for unusual source files.
+  const parsed = Number(environment.PLAN_ANALYZER_TIMEOUT_MS ?? 30_000);
+  return Number.isFinite(parsed) ? Math.max(5_000, Math.min(parsed, 60_000)) : 30_000;
+}
+
+function providerOutputTokenBudget(environment: Environment) {
+  // Floor-plan review needs concise structured evidence, not an essay. A
+  // smaller default makes Llama's response materially faster while retaining
+  // room, wall, opening and dimension proposals; a studio can raise it for
+  // exceptionally dense sheets without a code change.
+  const parsed = Number(environment.PLAN_ANALYZER_MAX_TOKENS ?? 3_200);
+  return Number.isFinite(parsed) ? Math.max(1_024, Math.min(parsed, 8_192)) : 3_200;
 }
 
 function fetchWithProviderTimeout(environment: Environment, input: RequestInfo | URL, init: RequestInit) {
@@ -318,6 +330,7 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
   const token = environment.CLOUDFLARE_AI_TOKEN;
   if (!accountId || !token) throw new Error('Cloudflare Workers AI credentials are not configured.');
   const prompt = buildPlanPrompt(input.brief, input.analysisGuides);
+  const maxTokens = providerOutputTokenBudget(environment);
   const candidateModels = Array.from(new Set([
     // Llama Vision follows the compact JSON evidence contract more reliably
     // than Moondream for dense technical drawings. An explicitly configured
@@ -335,7 +348,7 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
       const isMoondream = model.includes('moondream');
       const isLlama4 = model.includes('llama-4-');
       const requestBody = isMoondream
-        ? { task: 'query', image: input.dataUrl, question: `${prompt}\nSource file: ${input.fileName}. Return the required JSON only.`, reasoning: false, stream: false, temperature: 0, max_tokens: 4096 }
+        ? { task: 'query', image: input.dataUrl, question: `${prompt}\nSource file: ${input.fileName}. Return the required JSON only.`, reasoning: false, stream: false, temperature: 0, max_tokens: maxTokens }
         : isLlama4
           ? {
               model,
@@ -351,14 +364,14 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
               }],
               response_format: { type: 'json_object' },
               temperature: 0,
-              max_tokens: 6144,
+              max_tokens: maxTokens,
             }
         : {
             messages: [{ role: 'system', content: prompt }, { role: 'user', content: `Extract the visible floor-plan evidence from ${input.fileName}. Return the required JSON only.` }],
             image: input.dataUrl,
             response_format: CLOUDFLARE_PLAN_RESPONSE_FORMAT,
             temperature: 0,
-            max_tokens: 6144,
+            max_tokens: maxTokens,
           };
       const endpoint = isLlama4
         ? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`

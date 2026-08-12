@@ -63,7 +63,10 @@ async function runRemoteCvTrace(environment: Environment, raster: Uint8Array): P
         'x-ultida-worker-secret': secret,
       },
       body: JSON.stringify({ imageBase64: Buffer.from(raster).toString('base64') }),
-      signal: AbortSignal.timeout(75_000),
+      // CV is corroborating evidence. Do not keep the complete review model
+      // hostage to a cold Python function; the vision result can still move
+      // to explicit designer review when this bounded pass is unavailable.
+      signal: AbortSignal.timeout(boundedTimeout(environment.PLAN_CV_TIMEOUT_MS, 12_000, 5_000, 30_000)),
     });
     const payload = await response.json() as { success?: boolean; result?: CvTraceResult; code?: string };
     if (response.ok && payload.success && payload.result?.schema === 'PlanAnalysisResultV1.wallCandidates') {
@@ -81,6 +84,11 @@ async function runCvTrace(environment: Environment, raster: Uint8Array, mimeType
   // produce the same candidate contract.
   const remote = await runRemoteCvTrace(environment, raster);
   if (remote?.result) return remote;
+  // A deployed Node function cannot reliably spawn the Python/OpenCV runtime.
+  // Once the authenticated Vercel Python function has timed out or returned an
+  // explicit error, retain that truthful evidence and let vision continue
+  // rather than adding a second, doomed local process delay.
+  if (remote && environment.VERCEL_URL) return remote;
   const scriptPath = resolveWallTracerPath();
   if (!scriptPath) return remote ?? { result: null as unknown as CvTraceResult, stderr: 'wall_tracer.py not found' };
   const dir = await mkdtemp(join(tmpdir(), 'ultida-cv-'));
@@ -114,21 +122,47 @@ async function runCvTrace(environment: Environment, raster: Uint8Array, mimeType
   }
 }
 
-/** OCR is retained as review evidence and runs concurrently with vision/CV. */
-async function runPlanOcr(raster: Uint8Array): Promise<{ text: string; measurements: ReturnType<typeof extractOcrMeasurements>; status: 'completed' | 'unavailable' }> {
+function boundedTimeout(value: string | undefined, fallback: number, minimum: number, maximum: number) {
+  const parsed = Number(value ?? fallback);
+  return Number.isFinite(parsed) ? Math.max(minimum, Math.min(parsed, maximum)) : fallback;
+}
+
+function delay(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+/** OCR is supporting review evidence. It gets a deliberately short budget so
+ * a slow language-data boot never makes a completed vision result look stuck. */
+async function runPlanOcr(environment: Environment, raster: Uint8Array): Promise<{ text: string; measurements: ReturnType<typeof extractOcrMeasurements>; status: 'completed' | 'unavailable' }> {
   let worker: Worker | null = null;
+  let timedOut = false;
+  const timeoutMs = boundedTimeout(environment.PLAN_OCR_TIMEOUT_MS, 8_000, 3_000, 20_000);
+  const workerPromise = createWorker('eng').then((created) => {
+    worker = created;
+    if (timedOut) {
+      void created.terminate().catch(() => {});
+      throw new Error('OCR timeout');
+    }
+    return created;
+  });
   try {
-    worker = await createWorker('eng');
     const recognition = await Promise.race([
-      worker.recognize(Buffer.from(raster)),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('OCR timeout')), 35_000)),
+      workerPromise.then((created) => created.recognize(Buffer.from(raster))),
+      delay(timeoutMs).then(() => { timedOut = true; throw new Error('OCR timeout'); }),
     ]);
     const text = recognition.data.text.trim();
     return { text, measurements: extractOcrMeasurements(text), status: 'completed' };
   } catch {
     return { text: '', measurements: [], status: 'unavailable' };
   } finally {
-    if (worker) await worker.terminate().catch(() => {});
+    const activeWorker = worker as Worker | null;
+    if (activeWorker) {
+      // Tesseract termination can itself block after a timeout. Give cleanup a
+      // short grace window, then release the durable job to its next stage.
+      await Promise.race([activeWorker.terminate().catch(() => {}), delay(500)]);
+    } else {
+      void workerPromise.then((created) => created.terminate()).catch(() => {});
+    }
   }
 }
 
@@ -277,20 +311,22 @@ function serverClient(environment: Environment) {
 
 function dataUrl(mimeType: string, bytes: Uint8Array) { return `data:${mimeType};base64,${Buffer.from(bytes).toString('base64')}`; }
 
-async function normalizeRasterForVision(bytes: Uint8Array, mimeType: string) {
+async function normalizeRasterForVision(environment: Environment, bytes: Uint8Array, mimeType: string) {
   try {
     // Workers AI receives one self-consistent, upright PNG irrespective of a
     // browser filename, EXIF rotation, transparency, or camera encoding. The
-    // 2400px cap retains small dimension text while preventing one oversized
-    // construction PDF/photo from consuming an unbounded vision request.
+    // A configurable cap keeps network payload and model pre-processing fast.
+    // 2000px preserves normal printed plan labels, while studios handling very
+    // dense drawings can use PLAN_ANALYSIS_MAX_DIMENSION_PX=2400.
+    const maxDimensionPx = boundedTimeout(environment.PLAN_ANALYSIS_MAX_DIMENSION_PX, 2_000, 1_200, 2_600);
     const source = sharp(Buffer.from(bytes), { animated: false, failOn: 'none' }).rotate().flatten({ background: '#ffffff' });
     const png = await source
-      .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
-      .png({ compressionLevel: 9 })
+      .resize({ width: maxDimensionPx, height: maxDimensionPx, fit: 'inside', withoutEnlargement: true })
+      .png({ compressionLevel: 6 })
       .toBuffer();
     const metadata = await sharp(png).metadata();
     if (!metadata.width || !metadata.height) throw new Error('the decoded source has no usable dimensions');
-    return { bytes: new Uint8Array(png), mimeType: 'image/png' as const, widthPx: metadata.width, heightPx: metadata.height };
+    return { bytes: new Uint8Array(png), mimeType: 'image/png' as const, widthPx: metadata.width, heightPx: metadata.height, maxDimensionPx };
   } catch (error) {
     throw new Error(`The uploaded image could not be normalized for vision: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -464,6 +500,14 @@ export async function dispatchPlanAnalysisJob(environment: Environment, jobId: s
 
 async function processClaimedPlanAnalysisJobs(environment: Environment, client: NonNullable<ReturnType<typeof serverClient>>, jobs: Array<Record<string, any>>) {
   for (const job of jobs) {
+    const updateProgress = async (stage: 'preparing' | 'analysing' | 'reconciling' | 'saving', message: string) => {
+      const now = new Date().toISOString();
+      await client.from('jobs')
+        .update({ output: { progress: { stage, message, updatedAt: now } }, updated_at: now })
+        .eq('id', job.id)
+        .eq('kind', 'plan-analysis')
+        .eq('status', 'running');
+    };
     // Keep a lightweight durable heartbeat while slow vision/OCR calls are in
     // flight. The polling route can now distinguish real work from an orphaned
     // serverless claim and will not launch a competing analysis job.
@@ -484,6 +528,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       })();
     }, 25_000);
     try {
+      await updateProgress('preparing', 'Preparing the uploaded source…');
       const input = job.input as { sourceAssetId?: string; storagePath?: string; mimeType?: string; fileName?: string; analysisGuides?: AnalysisGuideRegion[] };
       if (!input.storagePath || !input.mimeType || !input.fileName) throw new Error('Plan analysis job has incomplete source metadata.');
       const downloaded = await client.storage.from('project-assets').download(input.storagePath);
@@ -492,26 +537,37 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       const detectedMimeType = input.mimeType === 'application/pdf' ? null : detectRasterMimeType(original);
       const sourceRasterMimeType = detectedMimeType ?? input.mimeType;
       const rawRaster = input.mimeType === 'application/pdf' ? await rasterizePdf(original) : original;
-      const normalized = await normalizeRasterForVision(rawRaster, input.mimeType === 'application/pdf' ? 'image/png' : sourceRasterMimeType);
+      const normalized = await normalizeRasterForVision(environment, rawRaster, input.mimeType === 'application/pdf' ? 'image/png' : sourceRasterMimeType);
       const raster = normalized.bytes;
       const analysisMimeType = normalized.mimeType;
       const briefRes = await client.from('project_briefs').select('brief').eq('project_id', job.project_id).maybeSingle();
+      await updateProgress('analysing', 'Reading rooms, walls and openings…');
+      const stageStartedAt = Date.now();
+      const timed = async <T>(name: string, task: Promise<T>) => {
+        const startedAt = Date.now();
+        const value = await task;
+        return { name, value, elapsedMs: Date.now() - startedAt };
+      };
       const [analysisAttempt, cvTrace, ocr] = await Promise.all([
-        analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief, analysisGuides: Array.isArray(input.analysisGuides) ? input.analysisGuides : [] })
+        timed('vision', analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief, analysisGuides: Array.isArray(input.analysisGuides) ? input.analysisGuides : [] })
           .then((analysis) => ({ analysis, error: null as Error | null }))
-          .catch((error) => ({ analysis: null, error: error instanceof Error ? error : new Error('Plan vision analysis failed.') })),
-        runCvTrace(environment, raster, analysisMimeType).catch(() => null),
-        runPlanOcr(raster),
+          .catch((error) => ({ analysis: null, error: error instanceof Error ? error : new Error('Plan vision analysis failed.') }))),
+        timed('cv', runCvTrace(environment, raster, analysisMimeType).catch(() => null)),
+        timed('ocr', runPlanOcr(environment, raster)),
       ]);
-      let analysis: any = analysisAttempt.analysis;
-      const tracedWalls = cvTrace?.result?.walls?.filter((wall) => Number(wall.lengthPx) >= 20) ?? [];
+      await updateProgress('reconciling', 'Reconciling AI, drawing evidence and dimensions…');
+      const analysisTiming = analysisAttempt.elapsedMs;
+      const cvTiming = cvTrace.elapsedMs;
+      const ocrTiming = ocr.elapsedMs;
+      let analysis: any = analysisAttempt.value.analysis;
+      const tracedWalls = cvTrace.value?.result?.walls?.filter((wall) => Number(wall.lengthPx) >= 20) ?? [];
       // Vision providers are semantic readers, not the geometry authority. If
       // they both reject a dense drawing but the deterministic tracer found a
       // usable structural set, retain that real evidence as a *review-only*
       // draft. It deliberately requires calibration and room subdivision;
       // nothing is silently declared site-verified.
-      if (!analysis && cvTrace?.result?.sourceImageSize && tracedWalls.length >= 4) {
-        const proposals = supplementSparseVisionProposals([], cvTrace.result as CvTraceResult);
+      if (!analysis && cvTrace.value?.result?.sourceImageSize && tracedWalls.length >= 4) {
+        const proposals = supplementSparseVisionProposals([], cvTrace.value.result as CvTraceResult);
         const confidences = proposals.map((proposal) => Number(proposal.confidence ?? 0));
         analysis = {
           provider: 'intake-parser',
@@ -522,50 +578,52 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
           ocrEvidence: [],
           calibration: { status: 'required', trustedDimensionMm: null },
           topologyIssues: [{ code: 'VISION_REVIEW_REQUIRED', severity: 'warning', message: 'AI vision did not return a complete semantic model. Review the traced walls, subdivide rooms, and calibrate one visible dimension.' }, { code: 'CALIBRATION_REQUIRED', severity: 'critical', message: 'Set one trusted visible dimension before approving measured geometry.' }],
-          providerRuns: [{ provider: 'intake-parser', model: 'wall_tracer.py', status: 'succeeded', latencyMs: 0, error: analysisAttempt.error?.message }],
+          providerRuns: [{ provider: 'intake-parser', model: 'wall_tracer.py', status: 'succeeded', latencyMs: 0, error: analysisAttempt.value.error?.message }],
           reviewStatus: 'needs_review',
           confidenceSummary: { minimum: confidences.length ? Math.min(...confidences) : 0, average: confidences.length ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length : 0, lowConfidenceCount: confidences.filter((value) => value < 0.7).length },
           verifier: null,
         };
       }
-      if (!analysis) throw analysisAttempt.error ?? new Error('No configured floor-plan analysis provider is available.');
+      if (!analysis) throw analysisAttempt.value.error ?? new Error('No configured floor-plan analysis provider is available.');
 
       // Deterministic CV geometry pass — runs alongside the vision pass and is
       // reconciled into a single candidate per ARCHITECTURE.md invariant #4.
       let reconciled = null;
       let cvStatus = analysis.provider === 'intake-parser' ? 'cv_review_fallback' : 'skipped';
-      if (cvTrace && cvTrace.result && (cvTrace.result as unknown as CvTraceResult).walls) {
+      if (cvTrace.value && cvTrace.value.result && (cvTrace.value.result as unknown as CvTraceResult).walls) {
         try {
           const enrichedProposals = supplementSparseVisionProposals(
             analysis.proposals as Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string }>,
-            cvTrace.result as unknown as CvTraceResult,
+            cvTrace.value.result as unknown as CvTraceResult,
           );
           // Keep the enriched proposals as the editable review source. The
           // original provider response remains available in provenance/output.
           analysis.proposals = enrichedProposals as typeof analysis.proposals;
           const vision = visionProposalsToSemantic(
             enrichedProposals,
-            cvTrace.result.sourceImageSize,
+            cvTrace.value.result.sourceImageSize,
           );
-          reconciled = reconcilePlan(cvTrace.result as unknown as CvTraceResult, vision);
+          reconciled = reconcilePlan(cvTrace.value.result as unknown as CvTraceResult, vision);
           cvStatus = 'reconciled';
         } catch (reconcileError) {
           cvStatus = `reconcile_failed: ${reconcileError instanceof Error ? reconcileError.message : String(reconcileError)}`;
         }
-      } else if (cvTrace && cvTrace.stderr) {
-        cvStatus = `cv_unavailable: ${cvTrace.stderr.slice(0, 160)}`;
+      } else if (cvTrace.value && cvTrace.value.stderr) {
+        cvStatus = `cv_unavailable: ${cvTrace.value.stderr.slice(0, 160)}`;
       }
 
+      await updateProgress('saving', 'Saving the review model…');
       const output = {
         ...analysis,
         sourceAssetId: input.sourceAssetId,
         sourceMimeType: input.mimeType,
         analysisMimeType,
-        normalizedSource: { widthPx: normalized.widthPx, heightPx: normalized.heightPx, maxDimensionPx: 2400 },
-        ocrEvidence: { status: ocr.status, text: ocr.text, measurements: ocr.measurements },
-        cvCandidate: cvTrace?.result ?? null,
+        normalizedSource: { widthPx: normalized.widthPx, heightPx: normalized.heightPx, maxDimensionPx: normalized.maxDimensionPx },
+        ocrEvidence: { status: ocr.value.status, text: ocr.value.text, measurements: ocr.value.measurements },
+        cvCandidate: cvTrace.value?.result ?? null,
         reconciled,
         cvStatus,
+        timing: { totalMs: Date.now() - stageStartedAt, visionMs: analysisTiming, cvMs: cvTiming, ocrMs: ocrTiming },
       };
       const outputHash = createHash('sha256').update(JSON.stringify(output)).digest('hex');
       const analysisUuid = crypto.randomUUID();
@@ -582,7 +640,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         input_sha256: analysis.source?.checksumSha256 ?? createHash('sha256').update(original).digest('hex'),
         preview_sha256: createHash('sha256').update(raster).digest('hex'),
         request_payload: { brief: briefRes.data?.brief ?? null, analysisGuides: input.analysisGuides ?? [] },
-        deterministic: { cvStatus, cvCandidate: cvTrace?.result ?? null, reconciled, ocrEvidence: { status: ocr.status, text: ocr.text, measurements: ocr.measurements } },
+        deterministic: { cvStatus, cvCandidate: cvTrace.value?.result ?? null, reconciled, ocrEvidence: { status: ocr.value.status, text: ocr.value.text, measurements: ocr.value.measurements } },
         response_validated: analysis,
         latency_ms: Math.max(0, Number(primaryRun?.latencyMs ?? 0)),
         usage: null,

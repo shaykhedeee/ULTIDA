@@ -583,8 +583,10 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           setPlanStatus(payload.error?.message ?? 'Provider analysis failed. No geometry was generated.');
           setAnalysisJobId(null);
         } else {
-          const transitionAt = payload.status === 'running' ? payload.processingAt : payload.queuedAt;
-          const stateAgeMs = transitionAt ? Date.now() - new Date(transitionAt).getTime() : 0;
+          // `updatedAt` is a server-owned heartbeat. Use it so a live job is
+          // never retried simply because the original claim is old.
+          const activityAt = payload.updatedAt ?? (payload.status === 'running' ? payload.processingAt : payload.queuedAt);
+          const stateAgeMs = activityAt ? Date.now() - new Date(activityAt).getTime() : 0;
           const exhausted = Number.isFinite(Number(payload.attempts)) && Number.isFinite(Number(payload.maxAttempts)) && Number(payload.attempts) >= Number(payload.maxAttempts);
           if (exhausted || (payload.status === 'queued' && stateAgeMs > 45_000) || (payload.status === 'running' && stateAgeMs > 150_000)) {
             if (analysisAutoRetryRef.current !== analysisJobId) {
@@ -598,7 +600,15 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             return;
           }
           const labels: Record<string, string> = { queued: 'queued', running: 'analysing', processing: 'analysing', review_required: 'ready for review' };
-          setPlanStatus(payload.recovery ?? `Analysis ${labels[payload.status] ?? 'processing'}…`);
+          const progressStage = typeof payload.analysis?.progress?.stage === 'string' ? payload.analysis.progress.stage : '';
+          const progressMessage = typeof payload.analysis?.progress?.message === 'string' ? payload.analysis.progress.message : '';
+          const progressLabels: Record<string, string> = {
+            preparing: 'Preparing the source…',
+            analysing: 'Reading rooms, walls and openings…',
+            reconciling: 'Reconciling drawing evidence…',
+            saving: 'Saving the review model…',
+          };
+          setPlanStatus(payload.recovery ?? (progressMessage || progressLabels[progressStage] || `Analysis ${labels[payload.status] ?? 'processing'}…`));
         }
       } catch {
         if (!stopped) setPlanStatus('Analysis status could not be refreshed. Retrying...');
