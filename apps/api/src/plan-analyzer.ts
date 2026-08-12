@@ -441,10 +441,10 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     }
   };
   const requestedPrimary = environment.PLAN_ANALYZER_PRIMARY;
-  // Cloudflare is the single billed primary path for ULTIDA. Gemini remains a
-  // configured optional fallback for accounts that choose it, while OpenAI is
-  // deliberately last because a 429 must never delay a working Cloudflare run.
-  const defaultOrder: Array<'openai' | 'gemini' | 'cloudflare'> = ['cloudflare', 'gemini', 'openai'];
+  // Cloudflare is the only automatic hosted path. Gemini runs only when an
+  // administrator deliberately selects it as primary; OpenAI is never an
+  // automatic fallback, so quota failures cannot lengthen every analysis.
+  const defaultOrder: Array<'openai' | 'gemini' | 'cloudflare'> = ['cloudflare'];
   const order = [
     ...(requestedPrimary && configured.includes(requestedPrimary as 'openai' | 'gemini' | 'cloudflare')
       ? [requestedPrimary as 'openai' | 'gemini' | 'cloudflare']

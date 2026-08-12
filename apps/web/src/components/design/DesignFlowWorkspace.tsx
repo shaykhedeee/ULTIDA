@@ -10,6 +10,7 @@ import { ModulePreview } from '../library/ModulePreview';
 type Stage = 'Design' | 'Visualize' | 'Document';
 type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration };
 type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; description?: string; manufacturingRules?: string[] };
+type PreparedModulePlan = { schema: 'ultida.module-plan.v1'; templateId: string; family: string; name: string; dimensionsMm: { width: number; depth: number; height: number }; wallWidthMm: number; clearanceMm: number };
 type DesignPreset = { id: string; name: string; family: string; roomTypes: string[]; referenceStyle: string[]; renderRules: string[]; productionRules: string[] };
 type ModuleConfiguration = { shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; shutterCount?: number; includeLoft: boolean; glassProfile: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
 type Provider = { id: string; configured: boolean; operations: string[] };
@@ -40,6 +41,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedSpaceId = searchParams.get('spaceId');
+  const pendingModuleRequested = searchParams.get('pendingModule') === '1';
   const [room, setRoom] = useState('kitchen');
   const [spaces, setSpaces] = useState<Array<{ id: string; name: string; roomType: string }>>([]);
   const [walls, setWalls] = useState<Array<{ id: string; start?: { xMm: number; yMm: number }; end?: { xMm: number; yMm: number } }>>([]);
@@ -180,6 +182,30 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   }, [room, planApproved]);
 
   useEffect(() => {
+    if (!pendingModuleRequested || !planApproved || !catalogItems.length) return;
+    let prepared: PreparedModulePlan | null = null;
+    try {
+      const raw = window.localStorage.getItem('ultida.pendingModulePlan.v1');
+      prepared = raw ? JSON.parse(raw) as PreparedModulePlan : null;
+    } catch {
+      window.localStorage.removeItem('ultida.pendingModulePlan.v1');
+    }
+    if (!prepared || prepared.schema !== 'ultida.module-plan.v1') {
+      setPlacementNotice('The prepared module was not found. Choose a catalogue module to continue.');
+      return;
+    }
+    const item = catalogItems.find((candidate) => candidate.id === prepared?.templateId);
+    if (!item) {
+      setPlacementNotice(`${prepared.name} is not compatible with the selected room. Choose a matching room or template.`);
+      return;
+    }
+    setFamilyFilter(item.family);
+    setCatalogQuery(item.name);
+    setModuleConfiguration((current) => ({ ...current, shutterCount: ['tv-unit', 'crockery'].includes(item.family) ? Math.max(2, Math.round(prepared!.dimensionsMm.width / 450)) : current.shutterCount }));
+    setPlacementNotice(`${prepared.name} is prepared at ${prepared.dimensionsMm.width} × ${prepared.dimensionsMm.depth} × ${prepared.dimensionsMm.height} mm. Select a verified wall, then place it to persist the module.`);
+  }, [pendingModuleRequested, planApproved, catalogItems]);
+
+  useEffect(() => {
     if (!planApproved) {
       setStylePresets([]);
       return;
@@ -239,7 +265,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     setSelectedModuleId((current) => current && draftModules.some((module) => module.id === current) ? current : draftModules[0]?.id ?? null);
   }, [draftModules]);
 
-  async function addModule(item: CatalogItem) {
+  async function addModule(item: CatalogItem, preparedDimensions?: PreparedModulePlan['dimensionsMm']) {
     if (!briefComplete) { setPlacementNotice('Complete and save the client brief before creating a scene.'); return; }
     if (!planApproved) { setPlacementNotice('Approve the reviewed floor plan before creating a scene.'); return; }
     if (!spaceId || !wallId) { setPlacementNotice('Select a verified room and wall before placing a module.'); return; }
@@ -248,7 +274,8 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     const wallLengthMm = anchorWall.end
       ? Math.hypot(anchorWall.end.xMm - anchorWall.start.xMm, anchorWall.end.yMm - anchorWall.start.yMm)
       : 0;
-    const fitted = fitModuleToMeasuredWall(item, wallLengthMm);
+    const requestedItem = preparedDimensions ? { ...item, widthMm: preparedDimensions.width, depthMm: preparedDimensions.depth, heightMm: preparedDimensions.height } : item;
+    const fitted = fitModuleToMeasuredWall(requestedItem, wallLengthMm);
     if (!fitted) {
       setPlacementNotice(`${item.name} needs at least ${item.family === 'tv-unit' ? 1200 : 900} mm of clear wall after end fillers; choose a wider wall or a smaller module family.`);
       return;
@@ -267,6 +294,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
       const resolved = saved.position_json ?? {};
       const next = { id: saved.id, roomId: spaceId, family: item.family, label: item.name, widthMm: fitted.widthMm, depthMm: fitted.depthMm, heightMm: fitted.heightMm, wallId: resolved.wallId, offsetMm: resolved.offsetMm, xMm: resolved.xMm, yMm: resolved.yMm, rotationDeg: resolved.rotationDeg, configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount } };
       setDraftModules((current) => current.some((module) => module.id === next.id) ? current : [...current, next]);
+      if (pendingModuleRequested) window.localStorage.removeItem('ultida.pendingModulePlan.v1');
       setSelectedModuleId(next.id);
       setPlacementNotice(`${item.name} was saved at ${Math.round(offsetMm)} mm along the verified wall${fitted.adapted ? ` and fitted to ${fitted.widthMm} mm of usable wall` : ''}. Select it to assign materials or make a targeted render revision.`);
     } catch { setPlacementNotice('Placement validator unavailable. The module was not added.'); }
@@ -789,7 +817,11 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                   const search = catalogQuery.trim().toLowerCase();
                   return !search || [item.name, item.family, item.description, ...item.tags].filter(Boolean).join(' ').toLowerCase().includes(search);
                 }).map((item) => (
-                  <button className="catalog-item" key={item.id} onClick={() => addModule(item)} disabled={!briefComplete || !planApproved}>
+                  <button className="catalog-item" key={item.id} onClick={() => {
+                    let prepared: PreparedModulePlan | null = null;
+                    try { const raw = window.localStorage.getItem('ultida.pendingModulePlan.v1'); prepared = raw ? JSON.parse(raw) as PreparedModulePlan : null; } catch { /* ignored: normal catalogue placement continues */ }
+                    void addModule(item, prepared?.templateId === item.id ? prepared.dimensionsMm : undefined);
+                  }} disabled={!briefComplete || !planApproved}>
                     <ModulePreview module={item} compact />
                     <span>
                       <strong>{item.name}</strong>

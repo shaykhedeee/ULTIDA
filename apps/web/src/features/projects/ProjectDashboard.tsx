@@ -4,7 +4,7 @@ import {
   Building2, Clock, AlertCircle, Sparkles, CheckCircle2, ArrowUpRight
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import './projects.css';
 
@@ -347,6 +347,8 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
   const [statusFilter, setStatusFilter] = useState('all');
   const [showNew, setShowNew] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const placingPreparedModule = searchParams.get('placeModule') === '1';
 
   const load = useCallback(async () => {
     if (!supabase) { setError('Supabase is not configured.'); setLoading(false); return; }
@@ -397,7 +399,7 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
   });
 
   function openProject(project: Project) {
-    navigate(`/projects/${project.id}/brief`);
+    navigate(placingPreparedModule ? `/projects/${project.id}/design?pendingModule=1` : `/projects/${project.id}/brief`);
   }
 
   return (

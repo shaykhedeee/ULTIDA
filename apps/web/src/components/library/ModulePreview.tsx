@@ -35,6 +35,9 @@ function Cabinet({ module, colours }: { module: ModulePreviewData; colours: { fr
   if (module.family === 'crockery') {
     const wide = module.widthMm >= 1800;
     const fullHeight = module.heightMm >= 2300;
+    const tags = `${module.name} ${(module.tags ?? []).join(' ')}`.toLowerCase();
+    const fluted = /fluted|slatted|ribbed/.test(tags);
+    const barNiche = /bar|sideboard|buffet/.test(tags);
     return <>
       <rect x="22" y={fullHeight ? 19 : 30} width="112" height={fullHeight ? 100 : 87} rx="3" fill={colours.front} />
       <polygon points={`${134},${fullHeight ? 19 : 30} 146,${fullHeight ? 8 : 19} 146,${fullHeight ? 108 : 117} 134,${fullHeight ? 119 : 117}`} fill={colours.side} />
@@ -49,6 +52,8 @@ function Cabinet({ module, colours }: { module: ModulePreviewData; colours: { fr
       <rect x="22" y="94" width="112" height="24" rx="2" fill={colours.front} />
       <line x1="59" y1="94" x2="59" y2="118" stroke={colours.accent} strokeOpacity=".45" />
       <line x1="96" y1="94" x2="96" y2="118" stroke={colours.accent} strokeOpacity=".45" />
+      {fluted && Array.from({ length: 8 }).map((_, index) => <line key={index} x1={27 + index * 13} y1="97" x2={27 + index * 13} y2="115" stroke={colours.accent} strokeOpacity=".35" strokeWidth="1.2" />)}
+      {barNiche && <rect x="99" y="98" width="25" height="14" rx="1" fill="#4e3830" opacity=".7" />}
       <rect x="20" y="118" width="116" height="4" rx="1" fill={colours.accent} opacity=".72" />
     </>;
   }
@@ -88,6 +93,10 @@ function LivingPreview({ module, colours }: { module: ModulePreviewData; colours
   const displayTower = /profile|display|crockery|asymmetric|full-wall/i.test(module.name);
   const fullWall = /full-wall|asymmetric|crockery/i.test(module.name);
   const floating = /floating/i.test(module.name);
+  const tags = `${module.name} ${(module.tags ?? []).join(' ')}`.toLowerCase();
+  const fluted = /fluted|slatted|ribbed/.test(tags);
+  const partition = /partition|divider/.test(tags);
+  const studySurface = /study|desk|workstation/.test(tags);
   return <>
     <rect x="20" y={fullWall ? 17 : 25} width="118" height={fullWall ? 95 : 81} rx="3" fill={colours.top} />
     {fullWall && <rect x="23" y="20" width="112" height="16" rx="1" fill={colours.front} opacity=".85" />}
@@ -95,11 +104,14 @@ function LivingPreview({ module, colours }: { module: ModulePreviewData; colours
     <rect x={displayTower ? 37 : 42} y={fullWall ? 46 : 43} width={displayTower ? 42 : tvWide ? 49 : 37} height="26" rx="1" fill="#6f8887" />
     {displayTower && <><rect x="94" y={fullWall ? 39 : 31} width="29" height="52" rx="2" fill="#6e939b" opacity=".68" stroke={colours.accent} /><line x1="108.5" y1={fullWall ? 41 : 33} x2="108.5" y2="88" stroke="#f3faf8" /><line x1="96" y1="61" x2="121" y2="61" stroke="#f3faf8" /></>}
     {fullWall && <rect x="23" y="40" width="8" height="51" fill={colours.front} opacity=".88" />}
+    {fluted && Array.from({ length: 9 }).map((_, index) => <line key={index} x1={25 + index * 8} y1={fullWall ? 40 : 30} x2={25 + index * 8} y2={fullWall ? 90 : 84} stroke={colours.accent} strokeOpacity=".28" />)}
+    {partition && <><rect x="24" y="37" width="9" height="54" fill={colours.accent} opacity=".6" />{Array.from({ length: 4 }).map((_, index) => <line key={index} x1={25 + index * 2.2} y1="39" x2={25 + index * 2.2} y2="88" stroke="#f7f3eb" strokeOpacity=".55" strokeWidth=".8" />)}</>}
     <rect x="20" y={floating ? 97 : 91} width="118" height="24" rx="2" fill={colours.front} />
     <polygon points={`138,${floating ? 97 : 91} 149,${floating ? 86 : 80} 149,${floating ? 104 : 104} 138,115`} fill={colours.side} />
     <line x1="59" y1={floating ? 97 : 91} x2="59" y2="115" stroke={colours.accent} strokeOpacity=".45" />
     <line x1="98" y1={floating ? 97 : 91} x2="98" y2="115" stroke={colours.accent} strokeOpacity=".45" />
     {floating && <path d="M27 119 H132" stroke="#d8a94b" strokeWidth="2" strokeLinecap="round" opacity=".8" />}
+    {studySurface && <><rect x="91" y="75" width="37" height="5" rx="1" fill={colours.top} /><line x1="96" y1="80" x2="96" y2="91" stroke={colours.side} strokeWidth="2" /><line x1="123" y1="80" x2="123" y2="91" stroke={colours.side} strokeWidth="2" /></>}
   </>;
 }
 
