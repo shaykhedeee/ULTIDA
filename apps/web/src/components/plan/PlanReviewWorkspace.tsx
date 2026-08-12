@@ -214,7 +214,15 @@ export function PlanReviewWorkspace({
       if (element.kind !== 'room' || !element.isAnalysisGuide) return [];
       const { x, y, width, height } = element.geometry;
       if (![x, y, width, height].every((value) => typeof value === 'number')) return [];
-      return [{ id: element.id, label: element.label, x: x!, y: y!, width: width!, height: height! }];
+      // Guides are drawn in the visible canvas frame (80,80,840,670), while
+      // provider prompts use a 1000 x 850 source grid. Send source-relative
+      // regions so an optional pre-analysis room outline genuinely improves
+      // crop coverage instead of being shifted by the canvas margins.
+      const sourceX = Math.max(0, Math.min(1000, ((x! - 80) / 840) * 1000));
+      const sourceY = Math.max(0, Math.min(850, ((y! - 80) / 670) * 850));
+      const sourceRight = Math.max(sourceX, Math.min(1000, (((x! + width! - 80) / 840) * 1000)));
+      const sourceBottom = Math.max(sourceY, Math.min(850, (((y! + height! - 80) / 670) * 850)));
+      return [{ id: element.id, label: element.label, x: sourceX, y: sourceY, width: sourceRight - sourceX, height: sourceBottom - sourceY }];
     }));
   }, [analysed, elements, onAnalysisGuidesChange]);
 

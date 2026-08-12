@@ -1175,7 +1175,10 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             status={planStatus}
             onSave={saveBrief}
             onFile={selectPlan}
-            onAnalyze={analysePlan}
+            // Guided + Auto starts by showing the source immediately. The
+            // designer can calibrate and add optional room coverage guides
+            // before explicitly starting the durable AI enrichment job.
+            onAnalyze={() => navigate(`/projects/${projectId}/plan`)}
           />
         } />
         <Route path="plan" element={

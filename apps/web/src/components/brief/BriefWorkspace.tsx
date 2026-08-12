@@ -151,7 +151,7 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
           <small>ATTACHMENT</small>
           <FileUp size={24}/>
           <h2>Attach Floor Plan</h2>
-          <p>Attach the source now. Analysis starts only when you explicitly request it.</p>
+          <p>Attach the source, then open Guided Plan to calibrate or outline rough rooms before analysis.</p>
           <div 
             onClick={() => fileInputRef.current?.click()} 
             className="dropzone" 
@@ -171,7 +171,7 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
           {status && <p className="inline-message" role="status" style={{ fontSize: '12px', margin: '8px 0' }}>{status}</p>}
           {onAnalyze && fileName && (
             <Button variant="outline" className="full" onClick={onAnalyze} style={{ marginTop: '8px' }}>
-              Run Plan Intake & Analyze
+              Open Guided Plan
             </Button>
           )}
         </Card>
