@@ -453,8 +453,6 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
   if (!client) return { status: 'unavailable' as const };
   const job = await client.from('jobs').select('id,status,output,error,request_id,attempts,max_attempts,created_at,updated_at,queued_at,processing_at,completed_at,failed_at,last_error_code,lease_token,lease_expires_at,deadline_at,progress_stage').eq('id', jobId).eq('project_id', projectId).eq('kind', 'plan-analysis').maybeSingle();
   if (job.error || !job.data) return { status: 'not_found' as const };
-  let redispatched = false;
-  const lastActivityMs = new Date(job.data.updated_at ?? job.data.created_at).getTime();
   const leaseExpiryMs = new Date(job.data.lease_expires_at ?? '').getTime();
   const deadlineMs = new Date(job.data.deadline_at ?? '').getTime();
   // A serverless request can be interrupted after it claims the job but before
@@ -501,31 +499,11 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
       };
     }
   }
-  if (job.data.status === 'queued') {
-    // The browser keeps polling while the review is open. Use that authenticated
-    // request as a safe self-healing trigger rather than leaving a missed queue
-    // handoff stuck forever. Updating updated_at limits this to one dispatch per
-    // ten seconds while a worker is unavailable; targeted claiming is idempotent.
-    if (Number.isFinite(lastActivityMs) && Date.now() - lastActivityMs > 10_000) {
-      const dispatch = await dispatchPlanAnalysisJob(environment, job.data.id).catch(() => ({ dispatched: false as const }));
-      if (dispatch.dispatched) {
-        redispatched = true;
-        await client.from('jobs').update({ updated_at: new Date().toISOString() }).eq('id', job.data.id).eq('status', 'queued');
-      }
-      // A successful HTTP dispatch is not proof that the queue consumer is
-      // alive. After a short grace period, process the exact job directly so
-      // the review screen cannot remain queued forever when a consumer is
-      // paused or misconfigured.
-      if (Date.now() - lastActivityMs > 45_000) {
-        await processPlanAnalysisJob(environment, job.data.id);
-        const refreshed = await client.from('jobs').select('id,status,output,error,request_id,attempts,max_attempts,created_at,updated_at,queued_at,processing_at,completed_at,failed_at,last_error_code,lease_expires_at,deadline_at,progress_stage').eq('id', job.data.id).single();
-        if (refreshed.data) {
-          return { status: refreshed.data.status, jobId: refreshed.data.id, requestId: refreshed.data.request_id, attempts: refreshed.data.attempts, maxAttempts: refreshed.data.max_attempts, analysis: refreshed.data.output, error: refreshed.data.error, createdAt: refreshed.data.created_at, updatedAt: refreshed.data.updated_at, queuedAt: refreshed.data.queued_at, processingAt: refreshed.data.processing_at, completedAt: refreshed.data.completed_at, failedAt: refreshed.data.failed_at, redispatched };
-        }
-      }
-    }
-  }
-  return { status: job.data.status, jobId: job.data.id, requestId: job.data.request_id, attempts: job.data.attempts, maxAttempts: job.data.max_attempts, analysis: job.data.output, error: job.data.error, createdAt: job.data.created_at, updatedAt: job.data.updated_at, queuedAt: job.data.queued_at, processingAt: job.data.processing_at, completedAt: job.data.completed_at, failedAt: job.data.failed_at, leaseExpiresAt: job.data.lease_expires_at, deadlineAt: job.data.deadline_at, progressStage: job.data.progress_stage, redispatched };
+  // Polling is intentionally read-only. Queue delivery, retries and recovery
+  // are owned by the Worker so a browser refresh or a second browser tab can
+  // never race a provider call. The explicit retry route is the only user
+  // initiated re-dispatch path.
+  return { status: job.data.status, jobId: job.data.id, requestId: job.data.request_id, attempts: job.data.attempts, maxAttempts: job.data.max_attempts, analysis: job.data.output, error: job.data.error, createdAt: job.data.created_at, updatedAt: job.data.updated_at, queuedAt: job.data.queued_at, processingAt: job.data.processing_at, completedAt: job.data.completed_at, failedAt: job.data.failed_at, leaseExpiresAt: job.data.lease_expires_at, deadlineAt: job.data.deadline_at, progressStage: job.data.progress_stage };
 }
 
 export async function dispatchPlanAnalysisJob(environment: Environment, jobId: string) {
