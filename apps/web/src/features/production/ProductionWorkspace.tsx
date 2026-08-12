@@ -5,11 +5,11 @@ import { supabase } from '../../lib/supabase';
 import './production-workspace.css';
 
 type TabId = 'parts' | 'edges' | 'hardware' | 'operations' | 'nesting' | 'cnc' | 'exports' | 'release';
-type Part = { id: string; moduleId: string; moduleFamily: string; roomId: string; partName: string; lengthMm: number; widthMm: number; thicknessMm: number; quantity: number; grain: 'horizontal' | 'vertical' | 'none'; edgeBanding: string; machiningNotes: string; materialId: string; materialCode: string; materialName: string; status: 'approved' | 'pending' | 'warning' };
-type EdgeSchedule = { l1Mm: number; l2Mm: number; w1Mm: number; w2Mm: number; tapeType: string; totalMeters: number };
+type Part = { id: string; partInstanceId: string; moduleId: string; family: string; roomId: string; semanticType: string; partName: string; lengthMm: number; widthMm: number; thicknessMm: number; quantity: number; grainDirection: 'horizontal' | 'vertical' | 'none'; edging: string; edgeSchedule?: { l1Mm: number; l2Mm: number; w1Mm: number; w2Mm: number; tapeType: string }; materialCode: string; status: 'approved' | 'review_required' };
 type HardwareItem = { name: string; category: 'hinge' | 'slide' | 'fastener' | 'handle' | 'accessory'; quantity: number; unit: string };
 type Operation = { id: string; partId: string; type: 'drill' | 'groove' | 'rebate' | 'pocket' | 'cutout'; face: string; positionMm: string; depthMm: number; diameterMm: number | null; toleranceMm: number; tool: string };
 type NestingSheet = { sheetId: string; materialCode: string; thicknessMm: number; sheetWidthMm: number; sheetHeightMm: number; placedPanels: { partId: string; xMm: number; yMm: number; widthMm: number; lengthMm: number; rotated: boolean }[]; usedAreaSqm: number; utilizationPercentage: number };
+type ProductionCutlist = { parts: Part[]; hardware: HardwareItem[]; warnings: string[]; nesting: NestingSheet[]; edgeBanding: Array<{ tapeType: string; thicknessMm: number; totalMeters: number }>; status: 'review_required' | 'approved'; fabricationRules: { version: string; sheetWidthMm: number; sheetHeightMm: number; kerfMm: number; trimMm: number } };
 type CncAsset = { id: string; name: string; sourceSceneId: string; modulePartId: string; svgUrl: string; dxfUrl: string; dimensionsMm: { width: number; height: number }; material: string; layer: 'CUT' | 'ENGRAVE' | 'POCKET' | 'DRILL' | 'REFERENCE'; validationStatus: 'pending' | 'passed' | 'failed'; preflightIssues: string[] };
 
 interface ProductionWorkspaceProps {
@@ -39,7 +39,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
   const [rightCollapsed, setRightCollapsed] = useState(false);
   // Production outputs may only come from compiler-emitted PartV1 records. Module boxes are not manufacturing parts.
   const [parts, setParts] = useState<Part[]>([]);
-  const nestingRun: { sheets: NestingSheet[] } = { sheets: [] };
+  const [cutlist, setCutlist] = useState<ProductionCutlist | null>(null);
   const [cncAssets, setCncAssets] = useState<CncAsset[]>([]);
   const [preflightResult, setPreflightResult] = useState<{ status: 'idle' | 'running' | 'passed' | 'failed'; issues: string[] } | null>(null);
   const [exportState, setExportState] = useState('Choose an approved scene export.');
@@ -97,11 +97,12 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
       const token = (await supabase?.auth.getSession())?.data.session?.access_token;
       if (!token) return;
       const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production-snapshot`, { headers: { Authorization: `Bearer ${token}` } });
       const payload = await response.json().catch(() => null);
-      const scene = payload?.sceneVersion?.status === 'approved' ? payload.sceneVersion.scene : null;
-      const exactParts = Array.isArray(scene?.moduleParts) ? scene.moduleParts : [];
-      setParts(exactParts.map((part: any) => ({ id: String(part.id), moduleId: String(part.moduleId ?? ''), moduleFamily: String(part.semanticType ?? 'module-part'), roomId: String(part.roomId ?? ''), partName: String(part.name ?? part.semanticType ?? 'Part'), lengthMm: Math.round(Number(part.widthMm)), widthMm: Math.round(Number(part.depthMm)), thicknessMm: Math.round(Number(part.heightMm)), quantity: 1, grain: 'none', edgeBanding: 'review_required', machiningNotes: 'Derived from scene.v1; review operations before release.', materialId: String(part.materialId ?? ''), materialCode: String(part.materialId ?? 'unassigned'), materialName: 'Scene material', status: 'pending' })));
+      const authoritative = response.ok && payload?.success ? payload.cutlist as ProductionCutlist : null;
+      setCutlist(authoritative);
+      setParts(authoritative?.parts ?? []);
+      setExportState(authoritative ? 'Production snapshot loaded from the approved scene.' : (payload?.message ?? 'The approved scene could not produce a manufacturing snapshot.'));
     })();
   }, [projectId, sceneVersionId, sceneApproved]);
 
@@ -167,10 +168,10 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
                 <tbody>
                   {parts.map((part) => (
                     <tr key={part.id}>
-                      <td>{part.id}</td><td>{part.moduleFamily}</td><td>{part.materialCode}</td>
+                      <td>{part.partInstanceId}</td><td>{part.family}</td><td>{part.materialCode}</td>
                       <td>{part.lengthMm}</td><td>{part.widthMm}</td><td>{part.thicknessMm}</td><td>{part.quantity}</td>
-                      <td>{part.grain}</td><td>{part.edgeBanding}</td>
-                      <td><Badge variant={part.status === 'approved' ? 'success' : part.status === 'warning' ? 'warning' : 'muted'}>{part.status}</Badge></td>
+                      <td>{part.grainDirection}</td><td>{part.edgeSchedule?.tapeType ?? 'none'}</td>
+                      <td><Badge variant={part.status === 'approved' ? 'success' : 'warning'}>{part.status}</Badge></td>
                     </tr>
                   ))}
                   {!parts.length && <tr><td colSpan={10}>No authoritative PartV1 data exists for this scene. Production release is blocked until exact module parts are compiled.</td></tr>}
@@ -184,11 +185,8 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
               <table className="production-table">
                 <thead><tr><th>Part ID</th><th>Side</th><th>Length (mm)</th><th>Tape Type</th><th>Thickness (mm)</th></tr></thead>
                 <tbody>
-                  {parts.flatMap((part) => {
-                    const perim = 2 * (part.lengthMm + part.widthMm);
-                    return part.edgeBanding !== 'none' ? [{ partId: part.id, side: 'All 4 edges', lengthMm: perim, tapeType: part.edgeBanding, thicknessMm: 0.8 }] : [];
-                  }).map((edge, i) => (
-                    <tr key={i}><td>{edge.partId}</td><td>{edge.side}</td><td>{Math.round(edge.lengthMm)}</td><td>{edge.tapeType}</td><td>{edge.thicknessMm}</td></tr>
+                  {(cutlist?.edgeBanding ?? []).map((edge) => (
+                    <tr key={edge.tapeType}><td>All applicable parts</td><td>Compiler edge schedule</td><td>{Math.round(edge.totalMeters * 1000)}</td><td>{edge.tapeType}</td><td>{edge.thicknessMm}</td></tr>
                   ))}
                 </tbody>
               </table>
@@ -200,13 +198,10 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
               <table className="production-table">
                 <thead><tr><th>Name</th><th>Category</th><th>Quantity</th><th>Unit</th><th>Part Reference</th></tr></thead>
                 <tbody>
-                  {parts.flatMap((part) => [
-                    { name: `Hinge ${part.moduleFamily}`, category: 'hinge' as const, quantity: 2, unit: 'each', partRef: part.id },
-                    { name: `Slide ${part.moduleFamily}`, category: 'slide' as const, quantity: 1, unit: 'pair', partRef: part.id },
-                    { name: `Handle ${part.moduleFamily}`, category: 'handle' as const, quantity: 1, unit: 'each', partRef: part.id },
-                  ]).map((hw, i) => (
-                    <tr key={i}><td>{hw.name}</td><td>{hw.category}</td><td>{hw.quantity}</td><td>{hw.unit}</td><td>{hw.partRef}</td></tr>
+                  {(cutlist?.hardware ?? []).map((hw, i) => (
+                    <tr key={`${hw.name}-${i}`}><td>{hw.name}</td><td>{hw.category}</td><td>{hw.quantity}</td><td>{hw.unit}</td><td>scene.v1 component</td></tr>
                   ))}
+                  {!cutlist?.hardware.length && <tr><td colSpan={5}>No verified hardware schedule exists. ULTIDA will not invent hinges, slides, or handles.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -217,12 +212,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
               <table className="production-table">
                 <thead><tr><th>Operation</th><th>Part</th><th>Type</th><th>Face</th><th>Position</th><th>Depth (mm)</th><th>Tool</th><th>Tolerance (mm)</th></tr></thead>
                 <tbody>
-                  {parts.flatMap((part) => [
-                    { id: `op-${part.id}-drill`, partId: part.id, type: 'drill' as const, face: 'Front', positionMm: '5mm from edge', depthMm: 5, diameterMm: null, toleranceMm: 0.5, tool: '5mm brad point' },
-                    { id: `op-${part.id}-groove`, partId: part.id, type: 'groove' as const, face: 'Back', positionMm: '10mm inset', depthMm: 4, diameterMm: null, toleranceMm: 0.2, tool: '4mm straight' },
-                  ]).map((op, i) => (
-                    <tr key={i}><td>{op.id}</td><td>{op.partId}</td><td>{op.type}</td><td>{op.face}</td><td>{op.positionMm}</td><td>{op.depthMm}</td><td>{op.tool}</td><td>&plusmn;{op.toleranceMm}</td></tr>
-                  ))}
+                  <tr><td colSpan={8}>Machining operations remain blocked until explicit holes, grooves, rebates, faces, tooling, and tolerances are stored against part IDs.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -230,7 +220,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
           {activeTab === 'nesting' && (
             <div className="production-nesting">
               <h4>Nesting Sheets</h4>
-              {nestingRun.sheets.map((sheet) => (
+              {(cutlist?.nesting ?? []).map((sheet) => (
                 <Card key={sheet.sheetId} className="nesting-card">
                   <CardHeader><span>{sheet.sheetId}</span><Badge variant="info">{sheet.materialCode} / {sheet.thicknessMm}mm</Badge></CardHeader>
                   <CardContent>
@@ -240,7 +230,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
                   </CardContent>
                 </Card>
               ))}
-              {!nestingRun.sheets.length && <p className="inspector-empty">Nesting is unavailable until the approved scene produces exact parts with board, grain, and edge-band data.</p>}
+              {!cutlist?.nesting.length && <p className="inspector-empty">Nesting is unavailable until the approved scene produces exact parts with board, grain, and edge-band data.</p>}
             </div>
           )}
           {activeTab === 'cnc' && (

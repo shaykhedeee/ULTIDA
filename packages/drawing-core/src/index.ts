@@ -605,7 +605,10 @@ export type EdgeSchedule = {
 
 export type CutlistPart = {
   id: string;
+  /** Unique physical panel identity. Quantity rows are expanded before nesting. */
+  partInstanceId?: string;
   moduleId: string;
+  roomId?: string;
   family: string;
   partName: string;
   lengthMm: number;
@@ -617,9 +620,105 @@ export type CutlistPart = {
   materialCode: string;
   quantity: number;
   status: string;
+  sourceSceneVersion?: string;
+  semanticType?: string;
+  sourcePartId?: string;
   sheetId?: string;
   placedPos?: { xMm: number; yMm: number; rotated: boolean };
 };
+
+export type FabricationRulesV1 = {
+  schema: 'fabrication.rules.v1';
+  version: string;
+  carcassThicknessMm: 16 | 18;
+  shutterThicknessMm: 16 | 18;
+  backPanelThicknessMm: number;
+  visibleEdgeBandMm: number;
+  internalEdgeBandMm: number;
+  sheetWidthMm: number;
+  sheetHeightMm: number;
+  kerfMm: number;
+  trimMm: number;
+};
+
+export const DEFAULT_FABRICATION_RULES_V1: FabricationRulesV1 = {
+  schema: 'fabrication.rules.v1', version: 'india-modular-v1',
+  carcassThicknessMm: 18, shutterThicknessMm: 18, backPanelThicknessMm: 6,
+  visibleEdgeBandMm: 2, internalEdgeBandMm: 0.8,
+  sheetWidthMm: 2440, sheetHeightMm: 1220, kerfMm: 3, trimMm: 10,
+};
+
+export type ProductionPartInstanceV1 = CutlistPart & {
+  partInstanceId: string;
+  quantity: 1;
+  sourcePartId: string;
+  roomId: string;
+  semanticType: string;
+};
+
+export type ProductionSnapshotV1 = {
+  schema: 'production.snapshot.v1';
+  projectId: string;
+  sceneVersion: string;
+  fabricationRules: FabricationRulesV1;
+  status: 'review_required' | 'approved';
+  parts: ProductionPartInstanceV1[];
+  hardware: HardwareItem[];
+  warnings: string[];
+};
+
+const SHEET_SEMANTICS = new Set(['carcass', 'shutter', 'shelf', 'filler', 'back', 'back_panel', 'panel', 'glass']);
+
+function productionDimensions(part: SceneV1['moduleParts'][number]) {
+  const dimensions = [part.widthMm, part.depthMm, part.heightMm].sort((a, b) => a - b);
+  return { thicknessMm: dimensions[0], widthMm: dimensions[1], lengthMm: dimensions[2] };
+}
+
+function edgePolicy(semanticType: string, lengthMm: number, widthMm: number, rules: FabricationRulesV1): Pick<CutlistPart, 'edging' | 'edgeSchedule'> {
+  if (semanticType === 'back' || semanticType === 'back_panel' || semanticType === 'glass') return { edging: 'none' };
+  if (semanticType === 'shutter' || semanticType === 'panel' || semanticType === 'filler') {
+    return { edging: 'all_sides', edgeSchedule: { l1Mm: lengthMm, l2Mm: lengthMm, w1Mm: widthMm, w2Mm: widthMm, tapeType: `${rules.visibleEdgeBandMm}mm PVC` } };
+  }
+  return { edging: 'front_only', edgeSchedule: { l1Mm: lengthMm, l2Mm: 0, w1Mm: 0, w2Mm: 0, tapeType: `${rules.internalEdgeBandMm}mm PVC` } };
+}
+
+/** Build the sole manufacturing snapshot from exact scene.v1 component geometry. */
+export function buildProductionSnapshot(scene: SceneV1, rules: FabricationRulesV1 = DEFAULT_FABRICATION_RULES_V1): ProductionSnapshotV1 {
+  if (!['approved', 'locked'].includes(scene.metadata.status)) throw new Error('SCENE_NOT_PRODUCTION_READY');
+  if (!scene.moduleParts.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
+  const moduleFamily = new Map(scene.modules.map((module) => [module.id, module.family]));
+  const warnings: string[] = [];
+  const hardware: HardwareItem[] = [];
+  const parts: ProductionPartInstanceV1[] = [];
+  for (const part of scene.moduleParts) {
+    const semanticType = String(part.semanticType || 'component');
+    if (semanticType === 'hardware') {
+      hardware.push({ name: part.name, category: /hinge/i.test(part.name) ? 'hinge' : /slide|runner/i.test(part.name) ? 'slide' : /handle/i.test(part.name) ? 'handle' : 'accessory', quantity: 1, unit: 'each' });
+      continue;
+    }
+    if (!SHEET_SEMANTICS.has(semanticType)) {
+      warnings.push(`${part.name} (${semanticType}) is a non-sheet component and requires a separate purchasing or operation schedule.`);
+      continue;
+    }
+    const dimensions = productionDimensions(part);
+    if (dimensions.thicknessMm > 50) {
+      warnings.push(`${part.name} is not panel-like (${dimensions.thicknessMm} mm minimum dimension) and was withheld from sheet nesting.`);
+      continue;
+    }
+    const materialCode = part.materialId ?? 'material-unassigned';
+    const edge = edgePolicy(semanticType, dimensions.lengthMm, dimensions.widthMm, rules);
+    parts.push({
+      id: part.id, partInstanceId: part.id, sourcePartId: part.id,
+      moduleId: part.moduleId, roomId: part.roomId,
+      family: moduleFamily.get(part.moduleId) ?? 'module-part', semanticType,
+      partName: part.name, ...dimensions, ...edge,
+      grainDirection: semanticType === 'shutter' || semanticType === 'back_panel' || semanticType === 'panel' ? 'vertical' : semanticType === 'glass' ? 'none' : 'horizontal',
+      materialCode, quantity: 1, status: 'review_required', sourceSceneVersion: scene.metadata.designVersion,
+    });
+  }
+  if (!parts.length) throw new Error('NO_SHEET_PARTS_AVAILABLE');
+  return { schema: 'production.snapshot.v1', projectId: scene.projectId, sceneVersion: scene.metadata.designVersion, fabricationRules: rules, status: 'review_required', parts, hardware, warnings };
+}
 
 export type HardwareItem = {
   name: string;
@@ -630,6 +729,7 @@ export type HardwareItem = {
 
 export type PlacedPanel = {
   partId: string;
+  partInstanceId: string;
   partName: string;
   moduleId: string;
   xMm: number;
@@ -671,7 +771,8 @@ export function nestPanels2D(
   parts: CutlistPart[],
   sheetWidthMm = 2440,
   sheetHeightMm = 1220,
-  kerfMm = 3
+  kerfMm = 3,
+  trimMm = 10,
 ): { sheets: NestingSheet[]; updatedParts: CutlistPart[] } {
   const updatedParts = parts.map((p) => ({ ...p }));
   const sheets: NestingSheet[] = [];
@@ -679,16 +780,18 @@ export function nestPanels2D(
   // Group parts by material code & thickness
   const groups = new Map<string, CutlistPart[]>();
   for (const part of updatedParts) {
-    const key = `${part.materialCode || '18mm-plywood'}_${part.thicknessMm}`;
+    const key = `${part.materialCode || '18mm-plywood'}::${part.thicknessMm}`;
     if (!groups.has(key)) groups.set(key, []);
     const list = groups.get(key)!;
     for (let q = 0; q < part.quantity; q++) {
-      list.push(part);
+      list.push({ ...part, partInstanceId: part.quantity > 1 ? `${part.id}#${q + 1}` : (part.partInstanceId ?? part.id), quantity: 1 });
     }
   }
 
   for (const [key, groupParts] of groups.entries()) {
-    const [materialCode, thickStr] = key.split('_');
+    const separator = key.lastIndexOf('::');
+    const materialCode = key.slice(0, separator);
+    const thickStr = key.slice(separator + 2);
     const thicknessMm = Number(thickStr) || 18;
 
     // Sort parts descending by area for efficient packing
@@ -698,7 +801,7 @@ export function nestPanels2D(
     while (unplaced.length > 0) {
       sheetCount++;
       const sheetId = `sheet-${materialCode}-${thicknessMm}mm-#${sheetCount}`;
-      const freeRects = [{ x: 0, y: 0, w: sheetWidthMm, h: sheetHeightMm }];
+      const freeRects = [{ x: trimMm, y: trimMm, w: sheetWidthMm - trimMm * 2, h: sheetHeightMm - trimMm * 2 }];
       const placedPanels: PlacedPanel[] = [];
       let usedAreaSqMm = 0;
 
@@ -747,6 +850,7 @@ export function nestPanels2D(
 
           const placement: PlacedPanel = {
             partId: part.id,
+            partInstanceId: part.partInstanceId ?? part.id,
             partName: part.partName,
             moduleId: part.moduleId,
             xMm: target.x,
@@ -788,6 +892,10 @@ export function nestPanels2D(
         usedAreaSqm: Math.round((usedAreaSqMm / 1_000_000) * 100) / 100,
         utilizationPercentage: utilization,
       });
+      if (!placedPanels.length) {
+        const blocked = unplaced[0];
+        throw new Error(`PANEL_EXCEEDS_USABLE_SHEET:${blocked.partInstanceId ?? blocked.id}:${blocked.lengthMm}x${blocked.widthMm}`);
+      }
     }
   }
 
@@ -816,7 +924,8 @@ export function calculateEdgeBandingSummary(parts: CutlistPart[]): EdgeBandingSu
 
     const totalMm = (l1 + l2 + w1 + w2) * count;
     const tapeType = part.edgeSchedule?.tapeType || (part.edging === 'all_sides' ? '2.0mm PVC' : '0.8mm PVC');
-    const thick = tapeType.includes('2.0mm') ? 2 : 0.8;
+    const parsedThickness = Number.parseFloat(tapeType);
+    const thick = Number.isFinite(parsedThickness) ? parsedThickness : 0.8;
 
     if (!summaryMap.has(tapeType)) {
       summaryMap.set(tapeType, { thicknessMm: thick, totalMm: 0 });

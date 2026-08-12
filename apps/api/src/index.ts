@@ -29,7 +29,7 @@ import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { AURA_TOOLS, listAuraTools, planAuraMessage, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
-import { buildDrawingProjection, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateSketchUpRubyScript } from '@ultida/drawing-core';
+import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateSketchUpRubyScript, nestPanels2D } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
 import { compileSceneV1, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
@@ -106,52 +106,19 @@ function dxfLine(x1: number, y1: number, x2: number, y2: number, layer: string) 
 }
 
 export function buildCutlist(scene: ReturnType<typeof migrateScene>) {
-  const exactParts = Array.isArray((scene as any).moduleParts) ? (scene as any).moduleParts : [];
-  if (!exactParts.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
-
-  // Smart grouping keeps orientation-independent parts together without rounding
-  // approved millimetre geometry into a different fabrication size. A 5 mm grid
-  // silently changed an approved 18 mm panel into 20 mm; retain sub-millimetre
-  // source precision and let the explicit tolerance gate handle near-matches.
-  const grid = (mm: number) => Math.round(mm * 10) / 10;
-  const rows = new Map<string, { length: number; width: number; thickness: number; material: string; quantity: number; parts: string[]; ids: string[] }>();
-
-  for (const part of exactParts) {
-    const length = grid(Number(part.widthMm));
-    const width = grid(Number(part.depthMm));
-    const thickness = grid(Number(part.heightMm));
-    const material = String(part.materialId ?? 'unified');
-    const [normL, normW] = length >= width ? [length, width] : [width, length];
-    const key = `${normL}x${normW}x${thickness}@${material}`;
-    const row = rows.get(key);
-    const name = String(part.name ?? part.semanticType ?? 'part');
-    if (row) {
-      row.quantity += 1;
-      row.parts.push(name);
-      row.ids.push(String(part.id));
-    } else {
-      rows.set(key, { length: normL, width: normW, thickness, material, quantity: 1, parts: [name], ids: [String(part.id)] });
-    }
-  }
-
-  const parts = [...rows.values()]
-    .sort((a, b) => b.length - a.length || b.width - a.width || b.thickness - a.thickness)
-    .map((row) => ({
-      id: row.ids[0], moduleId: row.ids[0], roomId: String(exactParts[0]?.roomId ?? 'unknown'),
-      family: String(exactParts[0]?.semanticType ?? 'module-part'),
-      partType: row.parts.join(', '), lengthMm: row.length, widthMm: row.width,
-      thicknessMm: row.thickness,
-      // Edge-banding is a production decision and must come from an explicit
-      // module-part policy; never infer it from rectangle dimensions.
-      edgeBandMm: 0,
-      hardware: [], status: 'review_required', quantity: row.quantity,
-    }));
-
-  // `partCount` is the number of authoritative physical parts. `parts` is the
-  // dimension-normalized schedule and may consolidate identical rows through
-  // `quantity`; conflating the two made a seven-part scene report only four
-  // physical parts in the production gate.
-  return { partCount: exactParts.length, parts, assumptions: { carcassThicknessMm: 18, backThicknessMm: 6, edgeBandPolicy: 'perimeter', status: 'review_required' } };
+  const snapshot = buildProductionSnapshot(scene);
+  const nested = nestPanels2D(snapshot.parts, snapshot.fabricationRules.sheetWidthMm, snapshot.fabricationRules.sheetHeightMm, snapshot.fabricationRules.kerfMm, snapshot.fabricationRules.trimMm);
+  return {
+    schema: snapshot.schema,
+    partCount: snapshot.parts.length,
+    parts: snapshot.parts,
+    hardware: snapshot.hardware,
+    warnings: snapshot.warnings,
+    edgeBanding: calculateEdgeBandingSummary(snapshot.parts),
+    nesting: nested.sheets,
+    fabricationRules: snapshot.fabricationRules,
+    status: snapshot.status,
+  };
 }
 
 // Kept as a compatibility export for older API tests and integrations. The
@@ -570,6 +537,22 @@ app.post('/api/production/cutlist', (request, response) => {
   }
 });
 
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production-snapshot', requireProjectUser, async (request, response) => {
+  try {
+    const projectId = String(request.params.projectId);
+    const sceneVersionId = String(request.params.sceneVersionId);
+    const client = getRequestSupabaseClient(request);
+    const result = await client.from('scene_versions').select('id,status,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
+    if (result.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: result.error.message });
+    if (!result.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND', message: 'That scene version does not belong to this project.' });
+    if (!['approved', 'locked'].includes(String(result.data.status))) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before creating manufacturing outputs.' });
+    const scene = migrateScene(result.data.scene);
+    return response.json({ success: true, cutlist: buildCutlist(scene), source: { projectId, sceneVersionId, sceneStatus: result.data.status } });
+  } catch (err: any) {
+    return response.status(422).json({ success: false, code: 'PRODUCTION_SNAPSHOT_FAILED', message: err?.message ?? 'The approved scene could not produce an authoritative manufacturing snapshot.' });
+  }
+});
+
 app.post('/api/production/boq', (request, response) => {
   try {
     const { projectId, sceneVersionId, scene, customRates } = request.body ?? {};
@@ -624,8 +607,9 @@ app.post('/api/production/cutlist.csv', (request, response) => {
     if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY' });
     const cutlist = buildCutlist(normalized);
     response.setHeader('content-type', 'text/csv');
-    const rows = cutlist.parts.map((part: { id: string; moduleId: string; family: string; roomId: string; partType: string; lengthMm: number; widthMm: number; thicknessMm: number; edgeBandMm: number; hardware: string[] }) => [part.id, part.moduleId, part.family, part.roomId, part.partType, part.lengthMm, part.widthMm, part.thicknessMm, part.edgeBandMm, part.hardware.join('|')].join(','));
-    return response.status(200).send(['part_id,module_id,family,room_id,part_type,length_mm,width_mm,thickness_mm,edge_band_mm,hardware', ...rows, ''].join('\n'));
+    const quote = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = cutlist.parts.map((part) => [part.partInstanceId, part.sourcePartId, part.moduleId, part.family, part.roomId, part.semanticType, part.partName, part.lengthMm, part.widthMm, part.thicknessMm, part.materialCode, part.grainDirection, part.edgeSchedule?.tapeType ?? 'none', part.status].map(quote).join(','));
+    return response.status(200).send(['part_instance_id,source_part_id,module_id,family,room_id,semantic_type,part_name,length_mm,width_mm,thickness_mm,material_code,grain_direction,edge_band,status', ...rows, ''].join('\n'));
   } catch (err: any) {
     return response.status(500).json({ success: false, code: 'CUTLIST_FAILED', message: err?.message });
   }
