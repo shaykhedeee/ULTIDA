@@ -16,6 +16,14 @@ const execFileAsync = promisify(execFile);
 type Environment = Record<string, string | undefined>;
 type PlanJobRequest = { projectId: string; sourceAssetId: string; fileName: string; mimeType: string; analysisGuides?: AnalysisGuideRegion[]; idempotencyKey?: string };
 
+function deployedApiBase(environment: Environment) {
+  const explicit = environment.ULTIDA_API_BASE_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+  const deployment = environment.VERCEL_URL?.trim();
+  if (deployment) return `https://${deployment.replace(/^https?:\/\//, '').replace(/\/$/, '')}/api`;
+  return null;
+}
+
 /** A job used to be marked successful after a syntactically valid but sparse
  * vision response. Do not pin the designer to that legacy output: it contains
  * no usable room model and has never been approved. */
@@ -129,6 +137,14 @@ function boundedTimeout(value: string | undefined, fallback: number, minimum: nu
 
 function delay(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function planLeaseWindowMs(environment: Environment) {
+  return boundedTimeout(environment.PLAN_JOB_LEASE_MS, 90_000, 30_000, 240_000);
+}
+
+function planDeadlineMs(environment: Environment) {
+  return boundedTimeout(environment.PLAN_JOB_DEADLINE_MS, 120_000, 60_000, 300_000);
 }
 
 /** OCR is supporting review evidence. It gets a deliberately short budget so
@@ -430,10 +446,12 @@ export async function createPlanAnalysisJob(environment: Environment, request: P
 export async function getPlanAnalysisJob(environment: Environment, projectId: string, jobId: string) {
   const client = serverClient(environment);
   if (!client) return { status: 'unavailable' as const };
-  const job = await client.from('jobs').select('id,status,output,error,request_id,attempts,max_attempts,created_at,updated_at,queued_at,processing_at,completed_at,failed_at,last_error_code').eq('id', jobId).eq('project_id', projectId).eq('kind', 'plan-analysis').maybeSingle();
+  const job = await client.from('jobs').select('id,status,output,error,request_id,attempts,max_attempts,created_at,updated_at,queued_at,processing_at,completed_at,failed_at,last_error_code,lease_token,lease_expires_at,deadline_at,progress_stage').eq('id', jobId).eq('project_id', projectId).eq('kind', 'plan-analysis').maybeSingle();
   if (job.error || !job.data) return { status: 'not_found' as const };
   let redispatched = false;
   const lastActivityMs = new Date(job.data.updated_at ?? job.data.created_at).getTime();
+  const leaseExpiryMs = new Date(job.data.lease_expires_at ?? '').getTime();
+  const deadlineMs = new Date(job.data.deadline_at ?? '').getTime();
   // A serverless request can be interrupted after it claims the job but before
   // it writes a terminal result. Recover only a genuinely idle claim and
   // re-dispatch the exact same idempotent source job.
@@ -441,12 +459,34 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
   // on a cold serverless invocation. Recover only after a lease has been idle
   // beyond the complete bounded analysis window; otherwise polling could
   // launch a duplicate provider request while the original is still working.
-  if (job.data.status === 'running' && Number.isFinite(lastActivityMs) && Date.now() - lastActivityMs > 300_000) {
+  if (job.data.status === 'running' && ((Number.isFinite(deadlineMs) && Date.now() > deadlineMs) || (Number.isFinite(leaseExpiryMs) && Date.now() > leaseExpiryMs))) {
+    const timedOut = new Date().toISOString();
     const reset = await client.from('jobs')
-      .update({ status: 'queued', locked_at: null, locked_by: null, queued_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({
+        status: Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3) ? 'failed' : 'queued',
+        error: Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3) ? { code: 'PLAN_JOB_TIMED_OUT', message: 'The analysis lease expired before a terminal result was saved.' } : null,
+        last_error_code: Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3) ? 'PLAN_JOB_TIMED_OUT' : null,
+        failed_at: Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3) ? timedOut : null,
+        queued_at: timedOut,
+        available_at: timedOut,
+        progress_stage: Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3) ? 'failed' : 'queued',
+        locked_at: null,
+        locked_by: null,
+        lease_token: null,
+        lease_expires_at: null,
+        updated_at: timedOut
+      })
       .eq('id', job.data.id)
-      .eq('status', 'running');
+      .eq('status', 'running')
+      .eq('lease_token', job.data.lease_token ?? '');
     if (!reset.error) {
+      if (Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3)) {
+        return {
+          status: 'failed' as const, jobId: job.data.id, requestId: job.data.request_id, attempts: job.data.attempts, maxAttempts: job.data.max_attempts,
+          error: { code: 'PLAN_JOB_TIMED_OUT', message: 'Analysis stopped after its final permitted attempt. Retry it from the review screen after checking the source.' },
+          createdAt: job.data.created_at, updatedAt: timedOut, failedAt: timedOut,
+        };
+      }
       const dispatch = await dispatchPlanAnalysisJob(environment, job.data.id).catch(() => ({ dispatched: false as const }));
       if (!dispatch.dispatched) await processPlanAnalysisJob(environment, job.data.id);
       return {
@@ -473,14 +513,14 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
       // paused or misconfigured.
       if (Date.now() - lastActivityMs > 45_000) {
         await processPlanAnalysisJob(environment, job.data.id);
-        const refreshed = await client.from('jobs').select('id,status,output,error,request_id,attempts,max_attempts,created_at,updated_at,queued_at,processing_at,completed_at,failed_at,last_error_code').eq('id', job.data.id).single();
+        const refreshed = await client.from('jobs').select('id,status,output,error,request_id,attempts,max_attempts,created_at,updated_at,queued_at,processing_at,completed_at,failed_at,last_error_code,lease_expires_at,deadline_at,progress_stage').eq('id', job.data.id).single();
         if (refreshed.data) {
           return { status: refreshed.data.status, jobId: refreshed.data.id, requestId: refreshed.data.request_id, attempts: refreshed.data.attempts, maxAttempts: refreshed.data.max_attempts, analysis: refreshed.data.output, error: refreshed.data.error, createdAt: refreshed.data.created_at, updatedAt: refreshed.data.updated_at, queuedAt: refreshed.data.queued_at, processingAt: refreshed.data.processing_at, completedAt: refreshed.data.completed_at, failedAt: refreshed.data.failed_at, redispatched };
         }
       }
     }
   }
-  return { status: job.data.status, jobId: job.data.id, requestId: job.data.request_id, attempts: job.data.attempts, maxAttempts: job.data.max_attempts, analysis: job.data.output, error: job.data.error, createdAt: job.data.created_at, updatedAt: job.data.updated_at, queuedAt: job.data.queued_at, processingAt: job.data.processing_at, completedAt: job.data.completed_at, failedAt: job.data.failed_at, redispatched };
+  return { status: job.data.status, jobId: job.data.id, requestId: job.data.request_id, attempts: job.data.attempts, maxAttempts: job.data.max_attempts, analysis: job.data.output, error: job.data.error, createdAt: job.data.created_at, updatedAt: job.data.updated_at, queuedAt: job.data.queued_at, processingAt: job.data.processing_at, completedAt: job.data.completed_at, failedAt: job.data.failed_at, leaseExpiresAt: job.data.lease_expires_at, deadlineAt: job.data.deadline_at, progressStage: job.data.progress_stage, redispatched };
 }
 
 export async function dispatchPlanAnalysisJob(environment: Environment, jobId: string) {
@@ -489,10 +529,14 @@ export async function dispatchPlanAnalysisJob(environment: Environment, jobId: s
   if (!workerUrl || !sharedSecret) {
     return { dispatched: false as const, reason: 'Cloudflare Worker dispatch is not configured.' };
   }
+  const callbackBase = deployedApiBase(environment);
+  if (!callbackBase) {
+    return { dispatched: false as const, reason: 'The deployment API origin is unavailable for this plan-analysis job.' };
+  }
   const response = await fetch(`${workerUrl.replace(/\/$/, '')}/dispatch`, {
     method: 'POST',
     headers: { 'x-ultida-worker-secret': sharedSecret, 'content-type': 'application/json' },
-    body: JSON.stringify({ jobId, kind: 'plan-analysis' })
+    body: JSON.stringify({ jobId, kind: 'plan-analysis', callbackBase })
   });
   if (!response.ok) return { dispatched: false as const, reason: `Cloudflare Worker returned HTTP ${response.status}.` };
   return { dispatched: true as const };
@@ -500,13 +544,15 @@ export async function dispatchPlanAnalysisJob(environment: Environment, jobId: s
 
 async function processClaimedPlanAnalysisJobs(environment: Environment, client: NonNullable<ReturnType<typeof serverClient>>, jobs: Array<Record<string, any>>) {
   for (const job of jobs) {
+    const leaseToken = String(job.lease_token ?? '');
     const updateProgress = async (stage: 'preparing' | 'analysing' | 'reconciling' | 'saving', message: string) => {
       const now = new Date().toISOString();
       await client.from('jobs')
-        .update({ output: { progress: { stage, message, updatedAt: now } }, updated_at: now })
+        .update({ output: { progress: { stage, message, updatedAt: now } }, progress_stage: stage, locked_at: now, lease_expires_at: new Date(Date.now() + planLeaseWindowMs(environment)).toISOString(), updated_at: now })
         .eq('id', job.id)
         .eq('kind', 'plan-analysis')
-        .eq('status', 'running');
+        .eq('status', 'running')
+        .eq('lease_token', leaseToken);
     };
     // Keep a lightweight durable heartbeat while slow vision/OCR calls are in
     // flight. The polling route can now distinguish real work from an orphaned
@@ -516,11 +562,12 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       void (async () => {
         try {
           await client.from('jobs')
-            .update({ locked_at: timestamp, updated_at: timestamp })
+            .update({ locked_at: timestamp, lease_expires_at: new Date(Date.now() + planLeaseWindowMs(environment)).toISOString(), updated_at: timestamp })
             .eq('id', job.id)
             .eq('kind', 'plan-analysis')
             .eq('status', 'running')
-            .eq('locked_by', job.locked_by ?? environment.ULTIDA_WORKER_ID ?? 'api-plan-worker');
+            .eq('locked_by', job.locked_by ?? environment.ULTIDA_WORKER_ID ?? 'api-plan-worker')
+            .eq('lease_token', leaseToken);
         } catch {
           // A final state write still owns the visible error; a transient
           // heartbeat failure must not terminate the in-flight analysis.
@@ -681,11 +728,11 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         if (audit.error) throw new Error(`AI provenance could not be stored: ${audit.error.message}`);
       }
       const completedAt = new Date().toISOString();
-      await client.from('jobs').update({ status: 'succeeded', output: persistedOutput, error: null, completed_at: completedAt, last_error_code: null, locked_at: null, locked_by: null, updated_at: completedAt }).eq('id', job.id);
+      await client.from('jobs').update({ status: 'succeeded', output: persistedOutput, error: null, completed_at: completedAt, last_error_code: null, progress_stage: 'completed', locked_at: null, locked_by: null, lease_token: null, lease_expires_at: null, updated_at: completedAt }).eq('id', job.id).eq('lease_token', leaseToken);
     } catch (error) {
       const typedError = error as Error & { code?: string };
       const failedAt = new Date().toISOString();
-      await client.from('jobs').update({ status: 'failed', failed_at: failedAt, last_error_code: typedError.code ?? 'PLAN_ANALYSIS_FAILED', error: { code: typedError.code ?? 'PLAN_ANALYSIS_FAILED', message: error instanceof Error ? error.message : 'Plan analysis failed.' }, locked_at: null, locked_by: null, updated_at: failedAt }).eq('id', job.id);
+      await client.from('jobs').update({ status: 'failed', failed_at: failedAt, last_error_code: typedError.code ?? 'PLAN_ANALYSIS_FAILED', error: { code: typedError.code ?? 'PLAN_ANALYSIS_FAILED', message: error instanceof Error ? error.message : 'Plan analysis failed.' }, progress_stage: 'failed', locked_at: null, locked_by: null, lease_token: null, lease_expires_at: null, updated_at: failedAt }).eq('id', job.id).eq('lease_token', leaseToken);
     } finally {
       clearInterval(heartbeat);
     }
@@ -719,9 +766,24 @@ export async function processPlanAnalysisJob(environment: Environment, jobId: st
   if (!client) return;
   const workerId = environment.ULTIDA_WORKER_ID || 'api-plan-worker';
   const now = new Date().toISOString();
+  const leaseToken = crypto.randomUUID();
+  const queued = await client.from('jobs').select('*').eq('id', jobId).eq('kind', 'plan-analysis').eq('status', 'queued').lte('available_at', now).maybeSingle();
+  if (queued.error) throw new Error(`Targeted plan job lookup failed: ${queued.error.message}`);
+  if (!queued.data) return;
   const claimed = await client
     .from('jobs')
-    .update({ status: 'running', processing_at: now, locked_at: now, locked_by: workerId, updated_at: now })
+    .update({
+      status: 'running',
+      processing_at: now,
+      locked_at: now,
+      locked_by: workerId,
+      lease_token: leaseToken,
+      lease_expires_at: new Date(Date.now() + planLeaseWindowMs(environment)).toISOString(),
+      deadline_at: new Date(Date.now() + planDeadlineMs(environment)).toISOString(),
+      progress_stage: 'preparing',
+      attempts: Math.min(Number(queued.data.attempts ?? 0) + 1, Number(queued.data.max_attempts ?? 3)),
+      updated_at: now
+    })
     .eq('id', jobId)
     .eq('kind', 'plan-analysis')
     .eq('status', 'queued')
