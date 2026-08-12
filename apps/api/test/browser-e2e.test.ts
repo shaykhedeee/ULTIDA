@@ -18,7 +18,7 @@ async function withServer<T>(callback: (baseUrl: string) => Promise<T>) {
   }
 }
 
-test('Browser headless verification of api documentation & status endpoints', async () => {
+test('Browser headless verification of api documentation & status endpoints', async (t) => {
   await withServer(async (baseUrl) => {
     const path = await import('node:path');
     const fs = await import('node:fs');
@@ -34,6 +34,10 @@ test('Browser headless verification of api documentation & status endpoints', as
       path.join(userProfile, '.cache', 'puppeteer', 'chrome', 'win64-146.0.7680.153', 'chrome-win64', 'chrome')
     ];
     const execPath = process.env.PUPPETEER_EXECUTABLE_PATH || possiblePaths.find(p => fs.existsSync(p));
+    if (!execPath) {
+      t.skip('No supported Chrome or Edge executable is installed for this optional browser check.');
+      return;
+    }
     
     const browser = await puppeteer.launch({
       headless: true,

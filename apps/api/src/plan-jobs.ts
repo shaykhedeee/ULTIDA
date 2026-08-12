@@ -769,29 +769,29 @@ export async function processPlanAnalysisJob(environment: Environment, jobId: st
   if (queued.error) throw new Error(`Targeted plan job lookup failed: ${queued.error.message}`);
   if (!queued.data) return;
   if (!isOwnedByCurrentDeployment(environment, queued.data.input)) return;
-  const claimed = await client
-    .from('jobs')
-    .update({
-      status: 'running',
-      processing_at: now,
-      locked_at: now,
-      locked_by: workerId,
-      lease_token: leaseToken,
-      lease_expires_at: new Date(Date.now() + planLeaseWindowMs(environment)).toISOString(),
-      deadline_at: new Date(Date.now() + planDeadlineMs(environment)).toISOString(),
-      progress_stage: 'preparing',
-      attempts: Math.min(Number(queued.data.attempts ?? 0) + 1, Number(queued.data.max_attempts ?? 3)),
-      updated_at: now
-    })
-    .eq('id', jobId)
-    .eq('kind', 'plan-analysis')
-    .eq('status', 'queued')
-    .lte('available_at', now)
-    .select('*')
-    .maybeSingle();
-  if (claimed.error) throw new Error(`Targeted plan job claim failed: ${claimed.error.message}`);
-  if (!claimed.data) return;
-  await processClaimedPlanAnalysisJobs(environment, client, [claimed.data as Record<string, any>]);
+  // Claim through the single atomic SQL authority. A manual select/update
+  // sequence can race a queue delivery or the scheduled recovery sweep.
+  const claim = await client.rpc('claim_plan_analysis_job', {
+    requested_job_id: jobId,
+    worker_id: workerId,
+  });
+  if (claim.error) throw new Error(`Targeted plan job claim failed: ${claim.error.message}`);
+  const claimedJob = (claim.data ?? [])[0];
+  if (!claimedJob) return;
+  const claimedAt = new Date().toISOString();
+  const leased = await client.from('jobs').update({
+    processing_at: claimedAt,
+    locked_at: claimedAt,
+    locked_by: workerId,
+    lease_token: leaseToken,
+    lease_expires_at: new Date(Date.now() + planLeaseWindowMs(environment)).toISOString(),
+    deadline_at: new Date(Date.now() + planDeadlineMs(environment)).toISOString(),
+    progress_stage: 'preparing',
+    updated_at: claimedAt,
+  }).eq('id', jobId).eq('kind', 'plan-analysis').eq('status', 'running').eq('locked_by', workerId).select('*').maybeSingle();
+  if (leased.error) throw new Error(`Plan job lease initialization failed: ${leased.error.message}`);
+  if (!leased.data) return;
+  await processClaimedPlanAnalysisJobs(environment, client, [leased.data as Record<string, any>]);
 }
 
 // Narrow test seam for coordinate reconciliation. Runtime callers use only
