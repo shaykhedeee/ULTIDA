@@ -819,7 +819,7 @@ app.post('/api/projects/:projectId/floor-plans/initiate', requireProjectUser, as
 app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const projectId = String(request.params.projectId);
-  const { assetId, storagePath, fileName, mimeType, fileSize, analysisGuides } = request.body ?? {};
+  const { assetId, storagePath, fileName, mimeType, fileSize, analysisGuides, startAnalysis = true } = request.body ?? {};
   if (!assetId || !storagePath || !fileName) {
     return response.status(400).json({ success: false, code: 'INVALID_COMPLETE_PAYLOAD', message: 'assetId, storagePath, and fileName are required.' });
   }
@@ -855,6 +855,17 @@ app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, as
     };
     const asset = await client.from('project_assets').insert(assetPayload).select('id').single();
     if (asset.error) return response.status(500).json({ success: false, code: 'ASSET_RECORD_FAILED', message: asset.error.message });
+    // Guided Plan Tracer is a first-class recovery path, not a fake AI result.
+    // It preserves the immutable source asset and lets the designer produce
+    // explicitly provisional geometry when a provider is unavailable.
+    if (startAnalysis === false) {
+      return response.status(200).json({
+        success: true,
+        asset: { id: asset.data.id, storagePath, name: fileName, mimeType: normalizedMimeType },
+        status: 'manual_review',
+        message: 'Floor plan stored for guided review. Calibrate and trace visible geometry; manual entities remain provisional until site verification.',
+      });
+    }
     const sanitizedGuides = Array.isArray(analysisGuides) ? analysisGuides.slice(0, 24).flatMap((guide: any) => {
       const x = Number(guide?.x); const y = Number(guide?.y); const width = Number(guide?.width); const height = Number(guide?.height);
       return [x, y, width, height].every(Number.isFinite) && width >= 12 && height >= 12

@@ -127,6 +127,7 @@ type Props = {
   layoutConfig?: any;
   onFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAnalyze?: () => void;
+  onStartManualReview?: () => void;
   onRetryAnalysis?: () => void;
   analysisRetryAvailable?: boolean;
   onApprove: (canonicalModel: unknown) => Promise<void> | void;
@@ -163,6 +164,7 @@ export function PlanReviewWorkspace({
   initialSnapshot,
   onFile,
   onAnalyze,
+  onStartManualReview,
   onRetryAnalysis,
   analysisRetryAvailable = false,
   onApprove,
@@ -280,7 +282,13 @@ export function PlanReviewWorkspace({
       headMm: typeof geometry.headMm === 'number' ? geometry.headMm : undefined,
     };
     });
-    setElements([...guideRegions, ...mapped]);
+    // Guided-only review has no provider proposals. Promote the designer's
+    // pre-analysis room outlines into explicitly provisional manual rooms so
+    // calibration, approval, DXF and Spaces can continue on real saved data.
+    const promotedGuides = mapped.length === 0
+      ? guideRegions.map((guide) => ({ ...guide, isAnalysisGuide: false, status: 'accepted' as const, note: 'Designer-traced provisional room boundary' }))
+      : guideRegions;
+    setElements([...promotedGuides, ...mapped]);
     setIssues(analysisIssues.filter((issue) => !nonMeasurableIssues.includes(issue)).map((issue, index) => ({
       id: `${issue.code}-${issue.entityId ?? index}`,
       elementId: issue.entityId,
@@ -680,6 +688,17 @@ export function PlanReviewWorkspace({
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'var(--brown-mid)', color: '#fff', border: 0, borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
               >
                 {analysisInFlight ? <Loader2 size={14} className="ultida-spinner" /> : <Sparkles size={14} />} {analysisInFlight ? 'Analysing source' : 'Run AI Analysis'}
+              </button>
+            )}
+            {onStartManualReview && !analysed && (
+              <button
+                type="button"
+                onClick={onStartManualReview}
+                disabled={!fileName || analysisInFlight}
+                title="Store this plan and continue with calibrated manual tracing. This does not claim AI-verified geometry."
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#fff', color: 'var(--brown-mid)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+              >
+                <PenTool size={14} /> Guided trace instead
               </button>
             )}
             {onRetryAnalysis && analysisRetryAvailable && (

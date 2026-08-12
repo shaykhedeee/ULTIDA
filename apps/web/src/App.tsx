@@ -681,7 +681,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     return byExtension[extension] ?? file.type;
   }
 
-  async function analysePlan() {
+  async function analysePlan(startAnalysis = true) {
     if (!planFile) return setPlanStatus('Choose a floor plan first.');
     if (!projectId) return setPlanStatus('Create or open a project before analysing a floor plan.');
     if (localDemoMode) {
@@ -696,7 +696,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       return;
     }
     if (!supabase) return setPlanStatus('Supabase is required for professional plan analysis. Sign in and try again.');
-    setPlanStatus('Uploading and preparing review...');
+    setPlanStatus(startAnalysis ? 'Uploading and preparing review...' : 'Uploading plan for guided review...');
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     let uploadedAssetId: string | null = null;
     let accessToken: string | null = null;
@@ -729,7 +729,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         const completionHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
         const completed = await fetch(`${apiBase}/projects/${projectId}/floor-plans/complete`, {
         method: 'POST', headers: completionHeaders,
-        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size, analysisGuides })
+        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size, analysisGuides, startAnalysis })
       });
       const completion = await completed.json().catch(() => null);
        // A 202 is an accepted durable-job response. Older/local API processes
@@ -743,6 +743,13 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
        }
        uploadedAssetId = registeredAssetId;
       setSourceAssetId(uploadedAssetId);
+      if (!startAnalysis) {
+        setPlanProposals([]);
+        setPlanAnalysisIssues([{ code: 'GUIDED_REVIEW', severity: 'warning', message: 'Guided tracing is active. Manually traced geometry is provisional until verified on site.' }]);
+        setPlanAnalysed(true);
+        setPlanStatus(completion?.message ?? 'Plan stored for guided review. Calibrate one visible dimension, then trace or confirm the rooms and walls.');
+        return;
+      }
       if (!completion.jobId) return setPlanStatus('The plan was stored, but no durable analysis job was created.');
       setAnalysisJobId(completion.jobId);
       analysisAutoRetryRef.current = null;
@@ -1006,7 +1013,10 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       setLayoutRooms(rooms);
       setSelectedLayoutSpaceId((current) => current && rooms.some((room: any) => room.id === current) ? current : rooms[0]?.id ?? null);
     })();
-  }, [projectId, planApproved]);
+  // Spaces are edited on their own route. Refresh this lightweight room
+  // context whenever the designer enters a downstream workspace so Layout
+  // never operates on the pre-edit room list held by the application shell.
+  }, [projectId, planApproved, stage]);
 
   async function handleLayoutCandidates(config: LayoutConfig, roomCategory: import('./components/layout/LayoutConfigWorkspace').RoomCategory, roomRequirements: Record<string, unknown>, spaceId: string) {
     if (!projectId) throw new Error('Open a project before generating layout candidates.');
@@ -1194,6 +1204,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             layoutConfig={layoutConfig}
             onFile={selectPlan}
             onAnalyze={analysePlan}
+            onStartManualReview={() => void analysePlan(false)}
             onRetryAnalysis={retryPlanAnalysis}
             analysisRetryAvailable={analysisRetryAvailable}
             onApprove={approvePlan}
