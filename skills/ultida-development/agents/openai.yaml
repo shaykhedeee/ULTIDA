@@ -1,0 +1,4 @@
+interface:
+  display_name: "ULTIDA Development"
+  short_description: "Safely evolve ULTIDA's geometry-first workflow"
+  default_prompt: "Use $ultida-development to implement and verify this ULTIDA workflow change without breaking the plan-to-scene authority chain."
