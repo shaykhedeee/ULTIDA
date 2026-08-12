@@ -453,52 +453,6 @@ export async function getPlanAnalysisJob(environment: Environment, projectId: st
   if (!client) return { status: 'unavailable' as const };
   const job = await client.from('jobs').select('id,status,output,error,request_id,attempts,max_attempts,created_at,updated_at,queued_at,processing_at,completed_at,failed_at,last_error_code,lease_token,lease_expires_at,deadline_at,progress_stage').eq('id', jobId).eq('project_id', projectId).eq('kind', 'plan-analysis').maybeSingle();
   if (job.error || !job.data) return { status: 'not_found' as const };
-  const leaseExpiryMs = new Date(job.data.lease_expires_at ?? '').getTime();
-  const deadlineMs = new Date(job.data.deadline_at ?? '').getTime();
-  // A serverless request can be interrupted after it claims the job but before
-  // it writes a terminal result. Recover only a genuinely idle claim and
-  // re-dispatch the exact same idempotent source job.
-  // Provider + OCR + deterministic CV can legitimately take several minutes
-  // on a cold serverless invocation. Recover only after a lease has been idle
-  // beyond the complete bounded analysis window; otherwise polling could
-  // launch a duplicate provider request while the original is still working.
-  if (job.data.status === 'running' && ((Number.isFinite(deadlineMs) && Date.now() > deadlineMs) || (Number.isFinite(leaseExpiryMs) && Date.now() > leaseExpiryMs))) {
-    const timedOut = new Date().toISOString();
-    const reset = await client.from('jobs')
-      .update({
-        status: Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3) ? 'failed' : 'queued',
-        error: Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3) ? { code: 'PLAN_JOB_TIMED_OUT', message: 'The analysis lease expired before a terminal result was saved.' } : null,
-        last_error_code: Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3) ? 'PLAN_JOB_TIMED_OUT' : null,
-        failed_at: Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3) ? timedOut : null,
-        queued_at: timedOut,
-        available_at: timedOut,
-        progress_stage: Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3) ? 'failed' : 'queued',
-        locked_at: null,
-        locked_by: null,
-        lease_token: null,
-        lease_expires_at: null,
-        updated_at: timedOut
-      })
-      .eq('id', job.data.id)
-      .eq('status', 'running')
-      .eq('lease_token', job.data.lease_token ?? '');
-    if (!reset.error) {
-      if (Number(job.data.attempts ?? 0) >= Number(job.data.max_attempts ?? 3)) {
-        return {
-          status: 'failed' as const, jobId: job.data.id, requestId: job.data.request_id, attempts: job.data.attempts, maxAttempts: job.data.max_attempts,
-          error: { code: 'PLAN_JOB_TIMED_OUT', message: 'Analysis stopped after its final permitted attempt. Retry it from the review screen after checking the source.' },
-          createdAt: job.data.created_at, updatedAt: timedOut, failedAt: timedOut,
-        };
-      }
-      const dispatch = await dispatchPlanAnalysisJob(environment, job.data.id).catch(() => ({ dispatched: false as const }));
-      if (!dispatch.dispatched) await processPlanAnalysisJob(environment, job.data.id);
-      return {
-        status: 'queued' as const, jobId: job.data.id, requestId: job.data.request_id, attempts: job.data.attempts, maxAttempts: job.data.max_attempts, analysis: job.data.output, error: job.data.error,
-        createdAt: job.data.created_at, updatedAt: new Date().toISOString(), queuedAt: new Date().toISOString(), redispatched: dispatch.dispatched,
-        recovery: dispatch.dispatched ? 'Recovered a stalled worker claim and re-dispatched the analysis.' : 'Analysis worker recovery could not be dispatched.'
-      };
-    }
-  }
   // Polling is intentionally read-only. Queue delivery, retries and recovery
   // are owned by the Worker so a browser refresh or a second browser tab can
   // never race a provider call. The explicit retry route is the only user
@@ -725,6 +679,36 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
 export async function processPlanAnalysisJobs(environment: Environment, limit = 2) {
   const client = serverClient(environment);
   if (!client) return;
+  // Recovery is worker-owned. A status poll must never change work ownership
+  // or initiate a provider call just because a designer opened another tab.
+  const now = new Date().toISOString();
+  const expired = await client
+    .from('jobs')
+    .select('id,attempts,max_attempts,lease_token,input')
+    .eq('kind', 'plan-analysis')
+    .eq('status', 'running')
+    .or(`lease_expires_at.lt.${now},deadline_at.lt.${now}`)
+    .limit(Math.max(1, Math.min(limit, 10)));
+  if (expired.error) throw new Error(`Plan job expiry lookup failed: ${expired.error.message}`);
+  for (const job of expired.data ?? []) {
+    if (!isOwnedByCurrentDeployment(environment, job.input)) continue;
+    const exhausted = Number(job.attempts ?? 0) >= Number(job.max_attempts ?? 3);
+    const reset = await client.from('jobs').update({
+      status: exhausted ? 'failed' : 'queued',
+      error: exhausted ? { code: 'PLAN_JOB_TIMED_OUT', message: 'The worker lease expired before a terminal result was saved.' } : null,
+      last_error_code: exhausted ? 'PLAN_JOB_TIMED_OUT' : null,
+      failed_at: exhausted ? now : null,
+      queued_at: exhausted ? null : now,
+      available_at: exhausted ? undefined : now,
+      progress_stage: exhausted ? 'failed' : 'queued',
+      locked_at: null,
+      locked_by: null,
+      lease_token: null,
+      lease_expires_at: null,
+      updated_at: now,
+    }).eq('id', job.id).eq('status', 'running').eq('lease_token', job.lease_token ?? '');
+    if (reset.error) throw new Error(`Plan job expiry recovery failed: ${reset.error.message}`);
+  }
   // This runs only as a recovery sweep; queue-delivered jobs retain their
   // exact message priority. For a missed handoff, newest first prevents an
   // active designer's plan being stuck behind abandoned historical jobs.

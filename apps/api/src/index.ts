@@ -343,16 +343,9 @@ app.post('/api/plan/analyze', requireProjectUser, async (request, response) => {
   if (job.status === 'unavailable') return response.status(503).json({ success: false, code: job.code, message: job.reason });
   if (job.status === 'not_found') return response.status(404).json({ success: false, code: 'PLAN_SOURCE_NOT_FOUND', message: job.reason });
   const dispatch = job.status === 'queued' ? await dispatchPlanAnalysisJob(process.env, job.jobId) : null;
-  if (job.status === 'queued' && !dispatch?.dispatched) {
-    // Controlled fallback: when the queue/worker is temporarily unavailable,
-    // process the exact persisted job through the API worker instead of leaving
-    // the designer stuck at “Analysis running”. The job remains idempotent and
-    // is still persisted with the same request ID and terminal status.
-    await processPlanAnalysisJob(process.env, job.jobId);
-    const recovered = await getPlanAnalysisJob(process.env, projectId, job.jobId);
-    return response.status(recovered.status === 'succeeded' ? 200 : recovered.status === 'failed' ? 502 : 202)
-      .json({ success: recovered.status === 'succeeded', ...recovered, dispatch, fallback: 'api-worker' });
-  }
+  // A request handler never consumes a durable job. Cloudflare owns retries,
+  // leases and recovery; retaining this as a warning prevents a browser/API
+  // request from duplicating a slow provider call.
   return response.status(job.status === 'failed' ? 502 : 202).json({ success: job.status !== 'failed', ...job, dispatch });
 });
 
@@ -384,12 +377,6 @@ app.post('/api/plan/analyze/:jobId/retry', requireProjectUser, async (request, r
   const reset = await client.from('jobs').update({ status: 'queued', queued_at: queuedAt, processing_at: null, failed_at: null, error: null, last_error_code: null, locked_at: null, locked_by: null, updated_at: queuedAt }).eq('id', job.id);
   if (reset.error) return response.status(502).json({ success: false, code: 'PLAN_JOB_RETRY_FAILED', message: reset.error.message });
   const dispatch = await dispatchPlanAnalysisJob(process.env, job.id);
-  if (!dispatch.dispatched) {
-    await processPlanAnalysisJob(process.env, job.id);
-    const recovered = await getPlanAnalysisJob(process.env, projectId, job.id);
-    return response.status(recovered.status === 'succeeded' ? 200 : recovered.status === 'failed' ? 502 : 202)
-      .json({ success: recovered.status === 'succeeded', ...recovered, dispatch, fallback: 'api-worker' });
-  }
   return response.status(202).json({ success: true, jobId: job.id, requestId: job.id, status: 'queued', queuedAt, dispatch });
 });
 
@@ -898,21 +885,6 @@ app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, as
       return response.status(503).json({ success: false, code: 'PLAN_JOB_CREATE_FAILED', message: reason, detail: job });
     }
     const dispatch = await dispatchPlanAnalysisJob(process.env, job.jobId);
-    if (!dispatch.dispatched) {
-      await processPlanAnalysisJob(process.env, job.jobId);
-      const recovered = await getPlanAnalysisJob(process.env, projectId, job.jobId);
-      // The storage record is valid even if the local direct-analysis fallback
-      // reaches a terminal provider error. Preserve the asset/job contract so
-      // the browser reports the real analysis state rather than claiming that
-      // the upload itself could not be registered.
-      return response.status(recovered.status === 'failed' ? 202 : 200).json({
-        success: true,
-        asset: { id: asset.data.id, storagePath, name: fileName, mimeType: normalizedMimeType },
-        ...recovered,
-        dispatch,
-        fallback: 'api-worker',
-      });
-    }
     return response.status(200).json({
       success: true,
       asset: { id: asset.data.id, storagePath, name: fileName, mimeType: normalizedMimeType },
