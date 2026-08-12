@@ -126,7 +126,7 @@ type Props = {
   initialSnapshot?: any;
   layoutConfig?: any;
   onFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  onAnalyze?: () => void;
+  onAnalyze?: () => void | Promise<void>;
   onStartManualReview?: () => void;
   onRetryAnalysis?: () => void;
   analysisRetryAvailable?: boolean;
@@ -394,6 +394,68 @@ export function PlanReviewWorkspace({
     return { x: Math.round(((event.clientX - rect.left) / rect.width) * 1000), y: Math.round(((event.clientY - rect.top) / rect.height) * 850) };
   };
 
+  const beginCalibration = () => {
+    setActiveTool('calibrate');
+    setCalibrating(true);
+    setCalibPoints([]);
+    setContinuationHint('Calibration: enter the printed length, then click both endpoints of that same dimension line.');
+  };
+
+  const cancelCalibration = () => {
+    setCalibPoints([]);
+    setCalibrating(false);
+    setActiveTool('select');
+    setContinuationHint('Calibration cancelled. Your existing scale was kept.');
+  };
+
+  const addCalibrationPoint = (point: Point) => {
+    const realMm = Number.parseFloat(knownMmInput);
+    if (!Number.isFinite(realMm) || realMm <= 0) {
+      setContinuationHint('Enter a positive printed dimension in millimetres before selecting endpoints.');
+      return;
+    }
+
+    if (calibPoints.length === 0) {
+      setCalibPoints([point]);
+      setContinuationHint('Calibration step 2 of 2: click the other endpoint of the same printed dimension.');
+      return;
+    }
+
+    const pointA = calibPoints[0];
+    const pixelDistance = Math.hypot(point.x - pointA.x, point.y - pointA.y);
+    if (pixelDistance < 3) {
+      setContinuationHint('Choose two distinct endpoints. The selected points are too close together to calibrate reliably.');
+      return;
+    }
+
+    const nextScale: ScaleCalibration = {
+      pointA,
+      pointB: point,
+      pixelDistance,
+      realDistanceMm: realMm,
+      // Preserve sub-pixel precision for measurements and DXF export. The UI
+      // can round for display, but the stored scale must not be rounded to 0.01.
+      mmPerPixel: Math.round((realMm / pixelDistance) * 10_000) / 10_000,
+    };
+    setScale(nextScale);
+    setIssues((previous) => previous.filter((issue) => !issue.id.startsWith('CALIBRATION_REQUIRED-')));
+    setCalibPoints([]);
+    setCalibrating(false);
+    setActiveTool('select');
+    setContinuationHint(`Scale calibrated from ${Math.round(pixelDistance)} px = ${realMm} mm. You can now review and edit the measured plan.`);
+  };
+
+  // Child room/wall SVG elements intentionally stop bubble clicks for select
+  // and move. Capture-phase handling ensures calibration always receives both
+  // endpoints, even when an endpoint lies on top of detected geometry.
+  const handleCalibrationCapture = (event: React.MouseEvent<SVGSVGElement>) => {
+    if (activeTool !== 'calibrate') return;
+    event.preventDefault();
+    event.stopPropagation();
+    const point = canvasPoint(event);
+    if (point) addCalibrationPoint(point);
+  };
+
   const translateElement = (id: string, delta: Point) => {
     setElements((previous) => previous.map((element) => {
       if (element.id !== id) return element;
@@ -523,27 +585,6 @@ export function PlanReviewWorkspace({
       return;
     }
 
-    if (activeTool === 'calibrate') {
-      if (calibPoints.length === 0) {
-        setCalibPoints([{ x, y }]);
-      } else if (calibPoints.length === 1) {
-        const ptA = calibPoints[0];
-        const ptB = { x, y };
-        const pixDist = Math.hypot(ptB.x - ptA.x, ptB.y - ptA.y);
-        const realMm = parseFloat(knownMmInput);
-        if (!Number.isFinite(realMm) || realMm <= 0 || pixDist <= 0) return;
-        const DerivedScale: ScaleCalibration = {
-          pointA: ptA, pointB: ptB,
-          pixelDistance: pixDist, realDistanceMm: realMm,
-          mmPerPixel: Math.round((realMm / pixDist) * 100) / 100,
-        };
-        setScale(DerivedScale);
-        setIssues((previous) => previous.filter((issue) => !issue.id.startsWith('CALIBRATION_REQUIRED-')));
-        setCalibPoints([]);
-        setActiveTool('select');
-        setCalibrating(false);
-      }
-    }
   };
 
   const handleCanvasMove = (event: React.MouseEvent<SVGSVGElement>) => {
@@ -692,7 +733,7 @@ export function PlanReviewWorkspace({
             </label>
             {onAnalyze && (
               <button
-                onClick={onAnalyze}
+                onClick={() => void onAnalyze()}
                 disabled={!fileName || analysisInFlight}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'var(--brown-mid)', color: '#fff', border: 0, borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
               >
@@ -745,6 +786,13 @@ export function PlanReviewWorkspace({
             <div className="summary-heading"><span className="summary-status-dot" /><strong>Analysis ready for review</strong></div>
             <div className="summary-metrics"><span><b>{elements.filter((element) => element.kind === 'room').length}</b> rooms</span><span><b>{elements.filter((element) => element.kind === 'wall').length}</b> walls</span><span><b>{elements.filter((element) => element.kind === 'door' || element.kind === 'window').length}</b> openings</span><span><b>{issues.length}</b> review items</span></div>
             <p>Calibrate one visible dimension to unlock the editable model. Unresolved findings remain labelled as assumptions.</p>
+            {elements.some((element) => element.kind === 'room') && !elements.some((element) => element.kind === 'wall') && (
+              <div role="alert" style={{ marginTop: 10, padding: '9px 10px', borderRadius: 7, background: '#fff5db', border: '1px solid #e9c46a', color: '#694f13', fontSize: 12, lineHeight: 1.45 }}>
+                <strong>Room regions were detected, but no usable wall geometry was returned.</strong>{' '}
+                Calibrate first, then trace the structural walls before approving the plan.
+                <button type="button" onClick={() => { setActiveTool('draw_wall'); setToolStart(null); setContinuationHint('Trace each visible structural wall with two clicks.'); }} style={{ marginLeft: 8, padding: '3px 7px', borderRadius: 5, border: '1px solid #b9891e', background: '#fff', color: '#694f13', fontWeight: 700, cursor: 'pointer' }}>Trace walls</button>
+              </div>
+            )}
           </div>
         )}
         {geometryMode === 'initial_design' && <p className="geometry-mode-note">Initial design mode needs one trusted scale calibration, but allows unresolved findings and incomplete openings. It applies editable defaults: external walls 254 mm, internal walls 152.4 mm, ceiling 2700 mm. Outputs are proposals until site verification.</p>}
@@ -804,7 +852,7 @@ export function PlanReviewWorkspace({
               </button>
               <button
                 className={`tool-btn${activeTool === 'calibrate' ? ' active' : ''}`}
-                onClick={() => { setActiveTool('calibrate'); setCalibrating(true); setCalibPoints([]); }}
+                onClick={beginCalibration}
                 title="Calibrate Scale (Click 2 points)"
               >
                 <Crosshair size={14} /> Calibrate
@@ -872,10 +920,12 @@ export function PlanReviewWorkspace({
             )}
 
             {calibrating && (
-              <div className="calib-banner">
-                <div>Click 2 points on a wall with known length:</div>
+              <div className="calib-banner" role="status" aria-live="polite">
+                <div style={{ fontWeight: 800 }}>Calibrate scale — step {calibPoints.length + 1} of 2</div>
+                <div style={{ fontSize: 12, marginTop: 3 }}>{calibPoints.length === 0 ? 'Enter a printed dimension, then click its first endpoint.' : 'Click the second endpoint of the same printed dimension.'}</div>
                 <input
                   type="number"
+                  min="1"
                   value={knownMmInput}
                   onChange={(e) => setKnownMmInput(e.target.value)}
                   placeholder="Length in mm (e.g. 3800)"
@@ -883,6 +933,10 @@ export function PlanReviewWorkspace({
                 />
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
                   Points selected: {calibPoints.length} / 2
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  {calibPoints.length > 0 && <button type="button" onClick={() => { setCalibPoints([]); setContinuationHint('Calibration reset. Click the first endpoint again.'); }} style={{ flex: 1, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 4, background: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Reset points</button>}
+                  <button type="button" onClick={cancelCalibration} style={{ flex: 1, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 4, background: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
                 </div>
               </div>
             )}
@@ -909,6 +963,7 @@ export function PlanReviewWorkspace({
               ref={svgRef}
               viewBox="0 0 1000 850"
               className="interactive-svg-canvas"
+              onClickCapture={handleCalibrationCapture}
               onClick={handleCanvasClick}
               onMouseDown={handleCanvasMouseDown}
               onMouseMove={handleCanvasMove}
@@ -931,6 +986,12 @@ export function PlanReviewWorkspace({
               )}
               {toolStart && pointerPoint && activeTool === 'draw_wall' && (
                 <line x1={toolStart.x} y1={toolStart.y} x2={pointerPoint.x} y2={pointerPoint.y} stroke="#2563eb" strokeWidth="5" strokeDasharray="7,4" />
+              )}
+              {activeTool === 'calibrate' && calibPoints[0] && (
+                <g pointerEvents="none">
+                  {pointerPoint && <line x1={calibPoints[0].x} y1={calibPoints[0].y} x2={pointerPoint.x} y2={pointerPoint.y} stroke="#c59c2d" strokeWidth="3" strokeDasharray="7,4" />}
+                  <text x={calibPoints[0].x + 12} y={calibPoints[0].y - 12} fill="#694f13" fontSize="12" fontWeight="800">1 — click endpoint 2</text>
+                </g>
               )}
 
               {/* Source Plan Overlay image */}
@@ -1107,7 +1168,11 @@ export function PlanReviewWorkspace({
 
               {/* Calibration points indicator */}
               {calibPoints.map((pt, i) => (
-                <circle key={i} cx={pt.x} cy={pt.y} r={6} fill="#c59c2d" stroke="#fff" strokeWidth={2} />
+                <g key={i} pointerEvents="none">
+                  <circle cx={pt.x} cy={pt.y} r={9} fill="#fff" stroke="#c59c2d" strokeWidth={3} />
+                  <circle cx={pt.x} cy={pt.y} r={3} fill="#c59c2d" />
+                  <text x={pt.x + 12} y={pt.y + 5} fill="#694f13" fontSize="12" fontWeight="800">{i + 1}</text>
+                </g>
               ))}
             </svg>
           </div>

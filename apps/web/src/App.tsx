@@ -1207,7 +1207,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             initialSnapshot={demoSnapshot}
             layoutConfig={layoutConfig}
             onFile={selectPlan}
-            onAnalyze={analysePlan}
+            onAnalyze={() => void analysePlan(true)}
             onStartManualReview={() => void analysePlan(false)}
             onRetryAnalysis={retryPlanAnalysis}
             analysisRetryAvailable={analysisRetryAvailable}
