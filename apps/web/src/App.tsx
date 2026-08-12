@@ -600,9 +600,18 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             return;
           }
           const labels: Record<string, string> = { queued: 'queued', running: 'analysing', processing: 'analysing', review_required: 'ready for review' };
-          const progressStage = typeof payload.analysis?.progress?.stage === 'string' ? payload.analysis.progress.stage : '';
-          const progressMessage = typeof payload.analysis?.progress?.message === 'string' ? payload.analysis.progress.message : '';
+          const progressStage = typeof payload.progressStage === 'string'
+            ? payload.progressStage
+            : (typeof payload.analysis?.progress?.stage === 'string' ? payload.analysis.progress.stage : '');
+          const progressMessage = typeof payload.progressMessage === 'string'
+            ? payload.progressMessage
+            : (typeof payload.analysis?.progress?.message === 'string' ? payload.analysis.progress.message : '');
           const progressLabels: Record<string, string> = {
+            queued: 'Queued securely...',
+            preprocessing: 'Preparing the source...',
+            tracing: 'Tracing likely walls and rooms...',
+            awaiting_guidance: 'Ready for your calibration and room guides.',
+            review_required: 'Ready for review.',
             preparing: 'Preparing the source…',
             analysing: 'Reading rooms, walls and openings…',
             reconciling: 'Reconciling drawing evidence…',

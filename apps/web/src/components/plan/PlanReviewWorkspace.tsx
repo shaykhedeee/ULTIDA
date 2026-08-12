@@ -320,7 +320,14 @@ export function PlanReviewWorkspace({
     return element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0));
   });
   const wallsReady = approvalElements.filter((element) => element.kind === 'wall').every((element) => (element.thicknessMm ?? 0) > 0 && (element.heightMm ?? 0) > 0);
-  const initialDesignReady = analysed && approvalElements.some((element) => element.kind === 'wall' || element.kind === 'room') && Boolean(scale) && Number(ceilingHeightMm) > 0;
+  // A room alone cannot support wall-attached modules, layout, or rendering.
+  // Initial Design is still permissive about uncertain openings, but it needs
+  // one calibrated room and one measured wall before it becomes plan.v1.
+  const initialDesignReady = analysed
+    && approvalElements.some((element) => element.kind === 'room')
+    && approvalElements.some((element) => element.kind === 'wall')
+    && Boolean(scale)
+    && Number(ceilingHeightMm) > 0;
   const finalProductionReady = initialDesignReady && openingsReady && wallsReady && issues.length === 0 && !elements.some((element) => element.status === 'needs_review' || element.status === 'proposed');
   const approvalReady = geometryMode === 'initial_design' ? initialDesignReady : finalProductionReady;
   const analysisInFlight = /uploading|queued|processing|analysing|preparing|reconnecting|re-dispatch/i.test(status);
@@ -608,10 +615,12 @@ export function PlanReviewWorkspace({
       const areaMm2 = Math.abs(worldPolygon.slice(0, -1).reduce((sum, point, index) => { const next = worldPolygon[index + 1]; return sum + point.xMm * next.yMm - next.xMm * point.yMm; }, 0) / 2);
       return [{ id: room.id, sourcePolygon, worldPolygon, roomType: 'other', roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm!, wallRefs: [], openingRefs: [], confidence: room.confidence, verification: isInitialDesign ? 'assumed' : 'verified' }];
     });
-    if (!spaces.length) {
+    if (!spaces.length || !wallModels.length) {
       setActiveTool('add_room');
       setToolStart(null);
-      setContinuationHint('Draw one room rectangle on the plan, then press Create Initial Model & Continue again. It will be saved as an explicitly labelled provisional room for Initial Design.');
+      setContinuationHint(!spaces.length
+        ? 'Draw one room rectangle, then trace at least one visible wall before continuing. Both are saved as explicitly labelled Initial Design geometry.'
+        : 'Trace at least one visible wall before continuing. Wall geometry is required for safe module placement and renders.');
       return;
     }
     const canonicalModel = {
@@ -740,7 +749,7 @@ export function PlanReviewWorkspace({
         )}
         {geometryMode === 'initial_design' && <p className="geometry-mode-note">Initial design mode needs one trusted scale calibration, but allows unresolved findings and incomplete openings. It applies editable defaults: external walls 254 mm, internal walls 152.4 mm, ceiling 2700 mm. Outputs are proposals until site verification.</p>}
         {geometryMode === 'final_production' && <p className="geometry-mode-note production">Final production mode requires every finding to be resolved, openings dimensioned, walls assigned thickness/height, and a trusted calibration.</p>}
-        {!approvalReady && analysed && <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>Calibrate one visible dimension and complete the required geometry fields to continue.</p>}
+        {!approvalReady && analysed && <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>Calibrate one visible dimension, then keep at least one room and one visible wall to continue.</p>}
         {continuationHint && <p role="status" style={{ fontSize: 12, color: 'var(--brown-mid)', fontWeight: 700, margin: '6px 0 0' }}>{continuationHint}</p>}
       </div>
 

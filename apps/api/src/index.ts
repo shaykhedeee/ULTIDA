@@ -738,7 +738,10 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
     quality: options.quality === 'draft' || options.quality === 'final' ? options.quality : 'review',
     camera: { view: 'wide-corner', lensMm: 24, eyeHeightMm: 1500 },
     structuredPrompt: operation === 'material-swap' ? `Compiled server-side from the approved ULTIDA scene. Change material only on module ${targetModuleId}; preserve all geometry, openings, camera, ceiling, and every other module.` : 'Compiled server-side from the approved ULTIDA scene.',
-    providerPreference: ['cloudflare', 'openai-dall-e-3', 'openai-gpt-image-1', 'comfyui']
+    // Cloudflare is the declared hosted render provider. Optional local
+    // providers may be selected only when configured; automatic OpenAI
+    // fallback makes costs and 429 failures unpredictable.
+    providerPreference: ['cloudflare', 'comfyui', 'localai']
   });
   if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_RENDER_REQUEST', message: 'Select a persisted room before requesting a scene render.', issues: parsed.error.issues });
   const result = await createVisualJob(process.env, gateway, parsed.data, authReq.ultidaUser?.id, getRequestSupabaseClient(request));
