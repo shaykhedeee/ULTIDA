@@ -89,6 +89,7 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
   const [showClearances, setShowClearances] = useState(false);
   const [showViolations, setShowViolations] = useState(false);
   const [approvalState, setApprovalState] = useState('');
+  const [layoutApproved, setLayoutApproved] = useState(false);
 
   function update<K extends keyof LayoutConfig>(key: K, value: LayoutConfig[K]) {
     setConfig((prev) => ({ ...prev, [key]: value }));
@@ -120,6 +121,7 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
     setCandidates([]);
     setSelectedCandidateId(null);
     setApprovalState('Room changed. Dimensions are loaded from the approved plan.');
+    setLayoutApproved(false);
   }, [selectedSpaceId, detectedDimensions?.lengthMm, detectedDimensions?.widthMm, detectedDimensions?.heightMm]);
 
   function templatesForCategory(cat: RoomCategory) {
@@ -142,8 +144,9 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
       try {
         if (!selectedSpaceId) throw new Error('Select a room from the approved floor plan before generating candidates.');
         const generated = await onGenerateCandidates(config, roomCategory, roomRequirements, selectedSpaceId);
-        setCandidates(generated);
-        setSelectedCandidateId(generated[0]?.id ?? null);
+      setCandidates(generated);
+      setSelectedCandidateId(generated[0]?.id ?? null);
+      setLayoutApproved(false);
         setApprovalState(generated.length ? '' : 'No valid candidates were found for the approved room geometry.');
         setActiveStep(generated.length ? 'candidates' : 'dimensions');
       } catch (error) {
@@ -184,6 +187,7 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
     try {
       await onApproveCandidate(selectedCandidate, config);
       setApprovalState('Layout approved. Downstream outputs are marked for recompilation.');
+      setLayoutApproved(true);
       setActiveStep('review');
     } catch (error) {
       setApprovalState(error instanceof Error ? error.message : 'Layout approval failed.');
@@ -443,7 +447,7 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
 
             <div style={{ marginTop: '18px', display: 'flex', justifyContent: 'space-between' }}>
               <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px', background: 'var(--surface-raised)', color: 'var(--brown-mid)', border: '1px solid var(--line)', boxShadow: 'none' }} onClick={() => setActiveStep('candidates')}>← Back to candidates</button>
-              {onGenerate && (<button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} onClick={() => onGenerate(config)}>Continue to Modules <ArrowRight size={16} /></button>)}
+              {onGenerate && (<button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} onClick={() => onGenerate(config)} disabled={!layoutApproved} title={layoutApproved ? 'Open Module Placement' : 'Approve one layout candidate first'}>Continue to Modules <ArrowRight size={16} /></button>)}
             </div>
           </div>
         </div>
@@ -463,7 +467,7 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
           </div>
         </div>
         {onGenerate && (
-          <button className="btn-generate" onClick={() => onGenerate(config)}>
+          <button className="btn-generate" onClick={() => onGenerate(config)} disabled={!layoutApproved} title={layoutApproved ? 'Open Module Placement' : 'Approve one layout candidate first'}>
             <Sparkles size={18} /> Continue to Modules <ArrowRight size={16} />
           </button>
         )}
