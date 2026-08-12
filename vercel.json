@@ -10,7 +10,8 @@
       "maxDuration": 60
     },
     "api/plan_cv.py": {
-      "includeFiles": "apps/api/cv/wall_tracer.py"
+      "includeFiles": "apps/api/cv/wall_tracer.py",
+      "excludeFiles": "{.git/**,.playwright-browsers/**,docs/**,node_modules/**,apps/web/**,apps/cloudflare-ai-worker/**,apps/worker/**,apps/api/dist/**,apps/api/test/**,packages/**,tmp/**,floorplan analyser/**}"
     }
   },
   "rewrites": [

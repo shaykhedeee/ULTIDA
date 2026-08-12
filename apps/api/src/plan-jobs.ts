@@ -429,13 +429,18 @@ export async function createPlanAnalysisJob(environment: Environment, request: P
   if (project.error || asset.error || !project.data || !asset.data) return { status: 'not_found' as const, reason: 'The project or its uploaded floor-plan asset was not found.' };
   const requestId = crypto.randomUUID();
   const queuedAt = new Date().toISOString();
+  // This is an identity marker, not a caller-controlled callback. The Worker
+  // receives the same value separately and validates it before use. Keeping it
+  // on the job prevents a production recovery sweep from claiming a Preview
+  // job that happens to share the canonical Supabase queue.
+  const callbackBase = deployedApiBase(environment);
   const inserted = await client.from('jobs').insert({
     organization_id: project.data.organization_id,
     project_id: request.projectId,
     kind: 'plan-analysis',
     status: 'queued',
     idempotency_key: idempotencyKey,
-    input: { sourceAssetId: request.sourceAssetId, fileName: request.fileName, mimeType: request.mimeType, storagePath: asset.data.storage_path, analysisGuides: Array.isArray(request.analysisGuides) ? request.analysisGuides.slice(0, 24) : [] },
+    input: { sourceAssetId: request.sourceAssetId, fileName: request.fileName, mimeType: request.mimeType, storagePath: asset.data.storage_path, analysisGuides: Array.isArray(request.analysisGuides) ? request.analysisGuides.slice(0, 24) : [], callbackBase },
     output: {}, request_id: requestId, queued_at: queuedAt,
     created_by: actorId
   }).select('id').single();
@@ -747,7 +752,7 @@ export async function processPlanAnalysisJobs(environment: Environment, limit = 
   // active designer's plan being stuck behind abandoned historical jobs.
   const candidates = await client
     .from('jobs')
-    .select('id')
+    .select('id,input')
     .eq('kind', 'plan-analysis')
     .eq('status', 'queued')
     .lte('available_at', new Date().toISOString())
@@ -755,8 +760,23 @@ export async function processPlanAnalysisJobs(environment: Environment, limit = 
     .limit(Math.max(1, Math.min(limit, 10)));
   if (candidates.error) throw new Error(`Plan job recovery lookup failed: ${candidates.error.message}`);
   for (const candidate of candidates.data ?? []) {
+    if (!isOwnedByCurrentDeployment(environment, candidate.input)) continue;
     await processPlanAnalysisJob(environment, String(candidate.id));
   }
+}
+
+/**
+ * Preview and production use one canonical database, but must never process
+ * each other's jobs. Legacy jobs have no marker and remain recoverable by the
+ * original production callback; newly created jobs require an exact deployed
+ * API match.
+ */
+function isOwnedByCurrentDeployment(environment: Environment, input: unknown) {
+  const requested = input && typeof input === 'object' && typeof (input as { callbackBase?: unknown }).callbackBase === 'string'
+    ? (input as { callbackBase: string }).callbackBase
+    : null;
+  if (!requested) return true;
+  return requested === deployedApiBase(environment);
 }
 
 /** Process the exact queue message that Cloudflare delivered, so older jobs
@@ -770,6 +790,7 @@ export async function processPlanAnalysisJob(environment: Environment, jobId: st
   const queued = await client.from('jobs').select('*').eq('id', jobId).eq('kind', 'plan-analysis').eq('status', 'queued').lte('available_at', now).maybeSingle();
   if (queued.error) throw new Error(`Targeted plan job lookup failed: ${queued.error.message}`);
   if (!queued.data) return;
+  if (!isOwnedByCurrentDeployment(environment, queued.data.input)) return;
   const claimed = await client
     .from('jobs')
     .update({
