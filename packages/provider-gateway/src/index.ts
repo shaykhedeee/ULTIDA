@@ -59,6 +59,13 @@ function isRetryableStatus(status: number) {
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
+function detectImageMime(bytes: Buffer): string | null {
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
+  if (bytes.length >= 3 && bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) return 'image/jpeg';
+  if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
 function geminiImageKey(environment: Environment) {
   return environment.GEMINI_IMAGE_API_KEY || environment.GEMINI_API_KEY || environment.GOOGLE_AI_STUDIO_KEY_1 || environment.GOOGLE_AI_STUDIO_KEY_2;
 }
@@ -215,15 +222,16 @@ export function createProviderGateway(environment: Environment) {
       // some gateway/compatibility paths return the encoded image as the HTTP
       // response itself. Accept both shapes so a valid image can never be
       // mistaken for a JSON parse error and leave the UI polling forever.
-      if (response.ok && contentType.startsWith('image/')) {
+      if (response.ok && (contentType.startsWith('image/') || contentType === 'application/octet-stream')) {
         const bytes = Buffer.from(await response.arrayBuffer());
-        if (bytes.byteLength >= 1024) {
+        const detectedMime = detectImageMime(bytes);
+        if (bytes.byteLength >= 256 && (contentType.startsWith('image/') || detectedMime)) {
           return {
             status: 'succeeded',
             synthetic: false,
             provider: 'cloudflare',
             model,
-            image: { encoding: 'base64', data: bytes.toString('base64'), mimeType: contentType },
+            image: { encoding: 'base64', data: bytes.toString('base64'), mimeType: detectedMime ?? contentType },
             sourceSceneVersionId: request.sceneVersionId,
             operation: request.operation,
             attemptedProviders
@@ -231,8 +239,11 @@ export function createProviderGateway(environment: Environment) {
         }
       }
 
-      const payload = await response.json().catch(() => null) as { success?: boolean; result?: { image?: string }; errors?: Array<{ message?: string }> } | null;
-      if (!response.ok || !payload?.success || !payload.result?.image) {
+      const payload = await response.json().catch(() => null) as { success?: boolean; result?: { image?: string | { data?: string; mimeType?: string } } | string; errors?: Array<{ message?: string }> } | null;
+      const resultImage = typeof payload?.result === 'string' ? payload.result : payload?.result?.image;
+      const imageData = typeof resultImage === 'string' ? resultImage : resultImage?.data;
+      const imageMime = typeof resultImage === 'string' ? 'image/jpeg' : resultImage?.mimeType ?? 'image/jpeg';
+      if (!response.ok || !payload?.success || !imageData) {
         const errorMsg = payload?.errors?.map((e) => e.message).join(', ') || `Cloudflare returned HTTP ${response.status}${contentType ? ` (${contentType})` : ''}`;
         return { status: 'failed', code: 'CLOUDFLARE_EXECUTION_FAILED', message: errorMsg, retryable: isRetryableStatus(response.status), sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
       }
@@ -242,7 +253,7 @@ export function createProviderGateway(environment: Environment) {
         synthetic: false,
         provider: 'cloudflare',
         model,
-        image: { encoding: 'base64', data: payload.result.image, mimeType: 'image/jpeg' },
+        image: { encoding: 'base64', data: imageData, mimeType: imageMime },
         sourceSceneVersionId: request.sceneVersionId,
         operation: request.operation,
         attemptedProviders
