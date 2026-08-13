@@ -651,13 +651,27 @@ export function PlanReviewWorkspace({
     const mmPerPixel = scale!.mmPerPixel;
     const isInitialDesign = geometryMode === 'initial_design';
     const selectedWalls = approvalElements.filter((element) => element.kind === 'wall');
+    const durableIds = new Map<string, string>();
+    const durableId = (value: string) => {
+      const existing = durableIds.get(value);
+      if (existing) return existing;
+      const next = crypto.randomUUID();
+      durableIds.set(value, next);
+      return next;
+    };
+    const canonicalRoomType = (value?: string) => {
+      if (value === 'master_bedroom' || value === 'kids_bedroom') return 'bedroom' as const;
+      if (value === 'bathroom') return 'bath' as const;
+      if (!value || value === 'other') return 'other' as const;
+      return value as any;
+    };
     const wallModels = selectedWalls.flatMap((wall) => {
       const { x1, y1, x2, y2 } = wall.geometry;
       if ([x1, y1, x2, y2].some((value) => value === undefined)) return [];
       const worldStart = { xMm: Math.round(x1! * mmPerPixel), yMm: Math.round(y1! * mmPerPixel) };
       const worldEnd = { xMm: Math.round(x2! * mmPerPixel), yMm: Math.round(y2! * mmPerPixel) };
       const isExternal = /external|outer|perimeter/i.test(wall.note ?? wall.label);
-      return [{ id: wall.id, sourceStart: { x: x1!, y: y1! }, sourceEnd: { x: x2!, y: y2! }, worldStart, worldEnd, lengthMm: Math.round(Math.hypot(worldEnd.xMm - worldStart.xMm, worldEnd.yMm - worldStart.yMm)), thicknessMm: wall.thicknessMm ?? (isExternal ? 254 : 152.4), heightMm: wall.heightMm ?? ceilingHeightMm!, adjacentSpaces: [], verification: isInitialDesign ? 'assumed' : 'verified', confidence: wall.confidence }];
+      return [{ id: durableId(wall.id), sourceStart: { x: x1!, y: y1! }, sourceEnd: { x: x2!, y: y2! }, worldStart, worldEnd, lengthMm: Math.round(Math.hypot(worldEnd.xMm - worldStart.xMm, worldEnd.yMm - worldStart.yMm)), thicknessMm: wall.thicknessMm ?? (isExternal ? 254 : 152.4), heightMm: wall.heightMm ?? ceilingHeightMm!, adjacentSpaces: [], verification: isInitialDesign ? 'assumed' : 'verified', confidence: wall.confidence }];
     });
     const spaces = approvalElements.filter((element) => element.kind === 'room').flatMap((room) => {
       const polygon = room.geometry.polygon ?? [];
@@ -666,7 +680,7 @@ export function PlanReviewWorkspace({
       const worldPolygon = sourcePolygon.map((point) => ({ xMm: Math.round(point.x * mmPerPixel), yMm: Math.round(point.y * mmPerPixel) }));
       if (worldPolygon[0].xMm !== worldPolygon.at(-1)?.xMm || worldPolygon[0].yMm !== worldPolygon.at(-1)?.yMm) worldPolygon.push({ ...worldPolygon[0] });
       const areaMm2 = Math.abs(worldPolygon.slice(0, -1).reduce((sum, point, index) => { const next = worldPolygon[index + 1]; return sum + point.xMm * next.yMm - next.xMm * point.yMm; }, 0) / 2);
-      return [{ id: room.id, sourcePolygon, worldPolygon, roomType: room.roomType ?? 'other', roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm!, wallRefs: [], openingRefs: [], confidence: room.confidence, verification: isInitialDesign ? 'assumed' : 'verified' }];
+      return [{ id: durableId(room.id), sourcePolygon, worldPolygon, roomType: canonicalRoomType(room.roomType), roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm!, wallRefs: [], openingRefs: [], confidence: room.confidence, verification: isInitialDesign ? 'assumed' : 'verified' }];
     });
     if (!spaces.length || !wallModels.length) {
       setActiveTool('add_room');
@@ -678,7 +692,7 @@ export function PlanReviewWorkspace({
     }
     const canonicalModel = {
       schemaVersion: 'plan.v1',
-      source: { schemaVersion: 'plan.v1', sourceAssetId, sourceType: 'raster_image', sourceWidth: 1000, sourceHeight: 850, sourceRotation: 0, coordinateSystem: 'millimetres', scaleResolution: isInitialDesign ? 'initial_design_calibration' : 'two_point_calibration', mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservations: [] },
+      source: { schemaVersion: 'plan.v1', sourceAssetId, sourceType: 'raster_image', sourceWidth: 1000, sourceHeight: 850, sourceRotation: 0, coordinateSystem: 'millimetres', scaleResolution: 'two_point_calibration', mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservations: [] },
       state: 'approved',
       geometryMode: isInitialDesign ? 'initial_design' : 'final_production',
       scale: { id: crypto.randomUUID(), pointA: { xMm: scale!.pointA.x, yMm: scale!.pointA.y }, pointB: { xMm: scale!.pointB.x, yMm: scale!.pointB.y }, realMm: scale!.realDistanceMm, inferredMm: scale!.pixelDistance * mmPerPixel, verifiedDimensionMm: scale!.realDistanceMm, scaleObservedMm: mmPerPixel, method: isInitialDesign ? 'initial_design_calibration' : 'two_point_calibration', verified: !isInitialDesign },
@@ -689,19 +703,19 @@ export function PlanReviewWorkspace({
         if (element.kind !== 'door' && element.kind !== 'window') return false;
         return Boolean(element.wallId && element.widthMm && element.widthMm > 0 && element.heightMm && element.heightMm > 0 && (element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0))));
       }).map((opening) => opening.kind === 'window'
-        ? { id: opening.id, wallId: opening.wallId!, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, sillMm: opening.sillMm!, headMm: opening.headMm!, verification: 'verified', confidence: opening.confidence }
-        : { id: opening.id, wallId: opening.wallId!, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, heightMm: opening.heightMm!, verification: 'verified', confidence: opening.confidence }), columns: [], beams: [], servicePoints: [],
+        ? { id: durableId(opening.id), wallId: durableId(opening.wallId!), offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, sillMm: opening.sillMm!, headMm: opening.headMm!, verification: 'verified', confidence: opening.confidence }
+        : { id: durableId(opening.id), wallId: durableId(opening.wallId!), offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, heightMm: opening.heightMm!, verification: 'verified', confidence: opening.confidence }), columns: [], beams: [], servicePoints: [],
       annotations: approvalElements
         .filter((element) => element.kind === 'annotation' || element.kind === 'fixture')
         .map((element) => ({
-          id: element.id,
+          id: durableId(element.id),
           text: element.kind === 'fixture' ? `Existing fixture: ${element.label}` : element.label,
           kind: 'note' as const,
           position: Number.isFinite(element.geometry.x) && Number.isFinite(element.geometry.y)
             ? { xMm: Math.round((element.geometry.x ?? 0) * mmPerPixel), yMm: Math.round((element.geometry.y ?? 0) * mmPerPixel) }
             : undefined,
         })),
-      issues, assumptions: isInitialDesign ? ['Initial-design geometry: scale, openings, and wall roles must be verified on site before production release.', 'Incomplete door and window measurements are retained as unresolved evidence and excluded from fabrication outputs.', 'Default wall thicknesses: external 254 mm; internal 152.4 mm unless edited by the designer.', 'Default ceiling height is 2700 mm until site measurement confirms it.'] : [],
+      issues: [], assumptions: [...issues.map((issue) => issue.question), ...(isInitialDesign ? ['Initial-design geometry: scale, openings, and wall roles must be verified on site before production release.', 'Incomplete door and window measurements are retained as unresolved evidence and excluded from fabrication outputs.', 'Default wall thicknesses: external 254 mm; internal 152.4 mm unless edited by the designer.', 'Default ceiling height is 2700 mm until site measurement confirms it.'] : [])],
       validation: { isValid: wallModels.length > 0 && spaces.length > 0, blockingIssueCount: 0, issues: [] },
       approval: { approvedAt: new Date().toISOString() },
     };
