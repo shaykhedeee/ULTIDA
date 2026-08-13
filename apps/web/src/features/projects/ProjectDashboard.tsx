@@ -236,7 +236,20 @@ function ProjectCard({ project, index, onClick, onArchive }: { project: Project;
   const progress = getProgressPercent(project.workflow_stage);
 
   return (
-    <div className="project-card" onClick={onClick}>
+    <div
+      className="project-card"
+      role="link"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      aria-label={`Open ${project.name}`}
+    >
       {/* Thumbnail */}
       <div className="card-thumb" style={{ background: getThumbBg(index) }}>
         <div className="card-thumb-placeholder">
@@ -403,7 +416,11 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.client_name.toLowerCase().includes(search.toLowerCase()) ||
       (p.location ?? '').toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === 'all' || p.project_status === statusFilter;
+    // Archived work is recoverable, but deliberately kept out of the active
+    // portfolio until the user chooses the Archived filter.
+    const matchStatus = statusFilter === 'all'
+      ? p.project_status !== 'archived'
+      : p.project_status === statusFilter;
     return matchSearch && matchStatus;
   });
 
@@ -416,7 +433,12 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
       navigate(`/projects/${project.id}/spaces?roomDraft=1`);
       return;
     }
-    navigate(`/projects/${project.id}/brief`);
+    if (project.project_status === 'archived') {
+      setArchiveTarget(project);
+      return;
+    }
+    const stage = STAGE_ORDER.includes(project.workflow_stage) ? project.workflow_stage : 'brief';
+    navigate(`/projects/${project.id}/${stage}`);
   }
 
   async function updateProjectArchive(project: Project) {
