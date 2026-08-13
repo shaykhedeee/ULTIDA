@@ -99,8 +99,8 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
       if (!token) throw new Error('Sign in again to export production assets.');
-      const apiBase = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
-      const response = await fetch(`${apiBase}/api/projects/${projectId}/scenes/${sceneVersionId}/production/${asset}`, { headers: { Authorization: `Bearer ${token}` } });
+      const apiBase = String(import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production/${asset}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error(await response.text());
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
