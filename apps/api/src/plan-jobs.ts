@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -150,6 +151,18 @@ function planDeadlineMs(environment: Environment) {
 /** OCR is supporting review evidence. It gets a deliberately short budget so
  * a slow language-data boot never makes a completed vision result look stuck. */
 async function runPlanOcr(environment: Environment, raster: Uint8Array): Promise<{ text: string; measurements: ReturnType<typeof extractOcrMeasurements>; status: 'completed' | 'unavailable' }> {
+  // Vercel's Node function tracer does not currently bundle Tesseract's WASM
+  // payload. Calling createWorker in that state aborts the complete process
+  // from inside Emscripten (it is not a catchable recognition error), which
+  // makes an otherwise healthy durable analysis appear to freeze. OCR is
+  // corroborating evidence, so skip it truthfully when the runtime asset is
+  // absent; browser OCR and provider dimension extraction remain available.
+  if (environment.VERCEL_URL && ![
+    join(process.cwd(), 'node_modules', 'tesseract.js-core', 'tesseract-core-relaxedsimd.wasm'),
+    join('/var/task', 'node_modules', 'tesseract.js-core', 'tesseract-core-relaxedsimd.wasm'),
+  ].some(existsSync)) {
+    return { text: '', measurements: [], status: 'unavailable' };
+  }
   let worker: Worker | null = null;
   let timedOut = false;
   const timeoutMs = boundedTimeout(environment.PLAN_OCR_TIMEOUT_MS, 8_000, 3_000, 20_000);

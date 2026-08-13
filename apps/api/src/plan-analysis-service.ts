@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -188,6 +189,10 @@ export async function runWallTracer(pngPath: string): Promise<{
 }
 
 async function runOcr(pngPath: string): Promise<string> {
+  if (process.env.VERCEL_URL && ![
+    join(process.cwd(), 'node_modules', 'tesseract.js-core', 'tesseract-core-relaxedsimd.wasm'),
+    join('/var/task', 'node_modules', 'tesseract.js-core', 'tesseract-core-relaxedsimd.wasm'),
+  ].some(existsSync)) return '';
   let worker: Worker | null = null;
   try {
     worker = await createWorker('eng');
