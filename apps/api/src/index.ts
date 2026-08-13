@@ -1355,6 +1355,7 @@ app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, 
       id: String(room.id),
       sourcePolygon: polygon.map((point) => ({ x: point.xMm, y: point.yMm })),
       worldPolygon: polygon,
+      worldGeometry: { polygon },
       roomType: String(room.roomType ?? prior?.roomType ?? 'other'),
       roomName: String(room.name ?? prior?.roomName ?? 'Space'),
       areaSqm: polygonArea(polygon) / 1e6,
@@ -1373,7 +1374,7 @@ app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, 
     const end = { xMm: Number(wall.end.xMm), yMm: Number(wall.end.yMm) };
     if (Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm) < 100) return null;
     const prior = baseWalls.get(String(wall.id));
-    return { ...(prior ?? {}), id: String(wall.id), sourceStart: { x: start.xMm, y: start.yMm }, sourceEnd: { x: end.xMm, y: end.yMm }, worldStart: start, worldEnd: end, lengthMm: Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm), heightMm: Number(prior?.heightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm), thicknessMm: Number(prior?.thicknessMm ?? 152.4), adjacentSpaces: Array.isArray(prior?.adjacentSpaces) ? prior.adjacentSpaces : [], verification: prior?.verification ?? 'unverified' };
+    return { ...(prior ?? {}), id: String(wall.id), sourceStart: { x: start.xMm, y: start.yMm }, sourceEnd: { x: end.xMm, y: end.yMm }, worldStart: start, worldEnd: end, worldGeometry: { start, end }, lengthMm: Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm), heightMm: Number(prior?.heightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm), thicknessMm: Number(prior?.thicknessMm ?? 152.4), adjacentSpaces: Array.isArray(prior?.adjacentSpaces) ? prior.adjacentSpaces : [], verification: prior?.verification ?? 'unverified' };
   });
   if (nextWalls.some((wall: any) => !wall)) return response.status(422).json({ success: false, code: 'INVALID_WALL_GEOMETRY', message: 'Walls must have unique IDs, two endpoints, and be at least 100 mm long.' });
   const wallIds = new Set(nextWalls.map((wall: any) => wall.id));

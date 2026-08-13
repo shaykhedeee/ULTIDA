@@ -136,7 +136,7 @@ export function SpacesWorkspace() {
       const roomsP: PlanRoom[] = (payload.rooms ?? []).map((r: any) => ({ id: r.id, spaceRecordId: r.spaceRecordId, name: r.name, roomType: r.roomType ?? 'other', polygon: r.polygon ?? [], areaSqm: r.areaSqm ?? polyArea(r.polygon ?? []), ceilingHeightMm: r.ceilingHeightMm, requiredFurniture: Array.isArray(r.requiredFurniture) ? r.requiredFurniture : [], budgetInr: r.budgetInr ?? null, designPriority: r.designPriority ?? 'balanced', applianceNeeds: Array.isArray(r.applianceNeeds) ? r.applianceNeeds : [], constraints: Array.isArray(r.constraints) ? r.constraints : [], floorFinish: r.floorFinish ?? '', falseCeiling: r.falseCeiling ?? '', styleDirection: r.styleDirection ?? '', paletteDirection: r.paletteDirection ?? '', retainedElements: Array.isArray(r.retainedElements) ? r.retainedElements : [], wallRoles: r.wallRoles ?? {}, preferredCamera: r.preferredCamera ?? '', verificationStatus: r.verificationStatus, included: true }));
       if (!live) return;
       setPlan({ ceilingHeightMm: payload.ceilingHeightMm, walls: payload.walls, rooms: payload.rooms, openings: payload.openings, services: payload.services, obstacles: payload.columns } as any);
-      setRooms(roomsP); setWalls(payload.walls ?? []); setOpenings(payload.openings ?? []);
+      setRooms(roomsP); setSelectedRoom((current) => current ?? roomsP[0]?.id ?? null); setWalls(payload.walls ?? []); setOpenings(payload.openings ?? []);
       setColumns(payload.columns ?? []); setBeams(payload.beams ?? []); setServices(payload.services ?? []);
       setAnnotations(payload.annotations ?? []); setIssues(payload.issues ?? []);
       setScaleVerified(payload.scaleVerified); setCeilingHeightMm(payload.ceilingHeightMm ?? 2700); setFloorPlanVersionId(payload.floorPlanVersionId ?? '');
@@ -262,7 +262,16 @@ export function SpacesWorkspace() {
   // ── Tools ──
   function includeRoom(id: string, inc: boolean) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, included: inc } : r)); }
   function setRoomCeiling(id: string, h: number) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, ceilingHeightMm: h } : r)); }
-  function setRoomType(id: string, t: string) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, roomType: t, requiredFurniture: [] } : r)); }
+  function setRoomType(id: string, t: string) {
+    snapshot();
+    setRooms(rs => rs.map(r => {
+      if (r.id !== id) return r;
+      const generatedName = /^(new space|space|room)\s*\d*$/i.test(r.name.trim());
+      const typeLabel = ROOM_TYPES[t] ?? 'Space';
+      const sameTypeCount = rs.filter(candidate => candidate.id !== id && candidate.roomType === t).length;
+      return { ...r, roomType: t, name: generatedName ? `${typeLabel}${sameTypeCount ? ` ${sameTypeCount + 1}` : ''}` : r.name, requiredFurniture: [] };
+    }));
+  }
   function patchRoom(id: string, patch: Partial<PlanRoom>) { setRooms(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r)); }
   function splitList(value: string) { return value.split(',').map(item => item.trim()).filter(Boolean); }
   function toggleFurniture(id: string, furnitureId: string) {
@@ -497,7 +506,7 @@ export function SpacesWorkspace() {
                 return <polygon key={r.id} points={pts} fill={selectedRoom === r.id ? 'rgba(197,156,45,.18)' : 'rgba(120,92,64,.10)'} stroke={selectedRoom === r.id ? 'var(--gold)' : '#7a5c3a'} strokeWidth={selectedRoom === r.id ? 2.5 : 1.5} onClick={(e) => { e.stopPropagation(); setSelectedRoom(r.id); }} />;
               })}
               {layers.walls && walls.map(w => { const a = toPx(w.start), b = toPx(w.end); return <line key={w.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={selectedWall === w.id ? 'var(--gold)' : '#2b2b2b'} strokeWidth={selectedWall === w.id ? 5 : 3} onClick={(e) => { e.stopPropagation(); setSelectedWall(w.id); setSelectedRoom(null); }} />; })}
-              {layers.openings && openings.map(o => { const w = walls.find(x => x.id === o.wallId); if (!w) return null; const a = toPx(w.start), b = toPx(w.end); const t = (o.offsetAlongWallMm) / (wallLen(w) || 1); const px = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; const col = o.kind === 'door' ? '#c97b2c' : '#2f6fb0'; return <rect key={o.id} x={px.x - 4} y={px.y - 4} width={8} height={8} fill={col} stroke="#fff" strokeWidth={1} />; })}
+              {layers.openings && openings.map(o => { const w = walls.find(x => x.id === o.wallId); if (!w) return null; const a = toPx(w.start), b = toPx(w.end); const length = wallLen(w) || 1; const centerOffset = Math.max(0, Math.min(length, Number(o.offsetAlongWallMm ?? 0))); const t = centerOffset / length; const px = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; const col = o.kind === 'door' ? '#c97b2c' : '#2f6fb0'; return <rect key={o.id} x={px.x - 5} y={px.y - 5} width={10} height={10} rx={2} fill={col} stroke="#fff" strokeWidth={1} />; })}
               {layers.columns && columns.map(c => { const p = toPx(c.position); return <rect key={c.id} x={p.x - 5} y={p.y - 5} width={10} height={10} fill="#444" stroke="#fff" />; })}
               {layers.beams && beams.map(b => { const a = toPx(b.start), e2 = toPx(b.end); return <line key={b.id} x1={a.x} y1={a.y} x2={e2.x} y2={e2.y} stroke="#9b59b6" strokeWidth={3} strokeDasharray="4 3" />; })}
               {layers.services && services.map(s => { const p = toPx(s.position); return <circle key={s.id} cx={p.x} cy={p.y} r={5} fill="#27ae60" stroke="#fff" />; })}
@@ -576,9 +585,7 @@ export function SpacesWorkspace() {
                   <label>Floor finish</label><input placeholder="e.g. 600 × 1200 matte tile" value={sel.room.floorFinish ?? ''} onChange={(e) => patchRoom(sel.room.id, { floorFinish: e.target.value })} />
                   <label>Ceiling intent</label><input placeholder="e.g. plain ceiling with warm cove" value={sel.room.falseCeiling ?? ''} onChange={(e) => patchRoom(sel.room.id, { falseCeiling: e.target.value })} />
                 </>}
-                {sel.room.spaceRecordId
-                  ? <Button variant="outline" onClick={() => persistRoom(sel.room)}><Save size={13} /> Save room</Button>
-                  : <Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}><Pencil size={13} /> Review geometry in Plan</Button>}
+                <Button variant="outline" onClick={() => void persistRoom(sel.room)}><Save size={13} /> {sel.room.spaceRecordId ? 'Save room' : 'Save new space'}</Button>
               </div>
             ) : selectedWall ? (
               <div className="props-body">
