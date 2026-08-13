@@ -336,6 +336,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [sceneModules, setSceneModules] = useState<any[]>([]);
   const [sceneMaterials, setSceneMaterials] = useState<any[]>([]);
   const [sceneApproved, setSceneApproved] = useState(false);
+  const [layoutApproved, setLayoutApproved] = useState(false);
 
   // Brief & layout
   const [brief, setBrief] = useState<ClientBrief>(emptyBrief);
@@ -663,8 +664,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     let lockReason: string | undefined;
     if (s.id === 'plan' && !(useServerStages ? serverStageMap['brief'] : briefSaved)) { status = 'locked'; lockReason = 'Complete brief first'; }
     if (s.id === 'spaces' && !(useServerStages ? serverStageMap['plan'] : planApproved)) { status = 'locked'; lockReason = 'Approve floor plan first'; }
-    if (s.id === 'layouts' && !(useServerStages ? serverStageMap['plan'] : planApproved)) { status = 'locked'; lockReason = 'Configure spaces first'; }
-    if (s.id === 'modules' && !(useServerStages ? serverStageMap['plan'] : planApproved)) { status = 'locked'; lockReason = 'Approve layout first'; }
+    if (s.id === 'layouts' && !(useServerStages ? serverStageMap['spaces'] : planApproved)) { status = 'locked'; lockReason = 'Configure and approve spaces first'; }
+    if (s.id === 'modules' && !(useServerStages ? serverStageMap['layouts'] : layoutApproved)) { status = 'locked'; lockReason = 'Approve a layout first'; }
     if (['materials','3d','renders','drawings','estimate','presentation'].includes(s.id) && !(useServerStages ? (serverStageMap['3d'] || serverStageMap['layouts'] || serverStageMap['modules']) : sceneVersionId)) {
       status = 'locked'; lockReason = s.lockReason;
     }
@@ -1001,6 +1002,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     const approvedPayload = await approved.json();
     if (!approved.ok) throw new Error(approvedPayload?.message ?? 'Layout could not be approved.');
     setLayoutConfig(config);
+    setLayoutApproved(true);
     void fetchProjectStatus();
   }
 
@@ -1033,6 +1035,9 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       }) : [];
       setLayoutRooms(rooms);
       setSelectedLayoutSpaceId((current) => current && rooms.some((room: any) => room.id === current) ? current : rooms[0]?.id ?? null);
+      const layoutsResponse = await fetch(`${apiBase}/projects/${projectId}/layouts`, { headers: { Authorization: `Bearer ${token}` } });
+      const layoutsPayload = await layoutsResponse.json().catch(() => null);
+      setLayoutApproved(Boolean(layoutsResponse.ok && (layoutsPayload?.layouts ?? []).some((layout: any) => layout.status === 'approved')));
     })();
   // Spaces are edited on their own route. Refresh this lightweight room
   // context whenever the designer enters a downstream workspace so Layout
