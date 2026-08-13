@@ -60,8 +60,19 @@ function toLayoutRoomCategory(roomType: unknown): import('./components/layout/La
   const normalized = String(roomType ?? '').toLowerCase();
   if (normalized === 'kitchen') return 'kitchen';
   if (normalized === 'living') return 'living';
+  if (normalized === 'tv_unit' || normalized === 'tv unit' || normalized === 'entertainment') return 'tv_unit';
+  if (normalized === 'wardrobe' || normalized === 'storage') return 'wardrobe';
   if (normalized === 'bedroom' || normalized === 'master_bedroom' || normalized === 'kids_bedroom') return 'bedroom';
   return 'other';
+}
+
+function inferLayoutCategory(roomType: unknown, requirements: Record<string, unknown>): LayoutRoomContext['roomType'] {
+  const direct = toLayoutRoomCategory(roomType);
+  if (direct !== 'other') return direct;
+  const furniture = Array.isArray(requirements.requiredFurniture) ? requirements.requiredFurniture.map(String) : [];
+  if (furniture.some((item) => item.includes('wardrobe'))) return 'wardrobe';
+  if (furniture.some((item) => item.includes('tv_unit'))) return 'tv_unit';
+  return direct;
 }
 
 function roomDimensionsFromPolygon(polygon: unknown, ceilingHeightMm?: number) {
@@ -1009,12 +1020,13 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         const planRoom = planRoomBySpaceId.get(String(space.id));
         const ceilingHeightMm = Number(space.ceiling_height_mm ?? planRoom?.ceilingHeightMm ?? 0) || undefined;
         const polygon = planRoom?.polygon ?? space.geometry_json?.polygon ?? [];
+        const requirements = (space.requirements_json && typeof space.requirements_json === 'object') ? space.requirements_json : {};
         return {
           id: String(space.id),
           name: String(space.name ?? planRoom?.name ?? space.room_type ?? space.id),
-          roomType: toLayoutRoomCategory(space.room_type ?? planRoom?.roomType),
+          roomType: inferLayoutCategory(space.room_type ?? planRoom?.roomType, requirements),
           ceilingHeightMm,
-          requirements: (space.requirements_json && typeof space.requirements_json === 'object') ? space.requirements_json : {},
+          requirements,
           dimensions: roomDimensionsFromPolygon(polygon, ceilingHeightMm),
         };
       }) : [];

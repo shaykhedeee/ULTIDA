@@ -141,7 +141,7 @@ function formatShape(id: string): string {
 
 export function generateCandidates(input: LayoutInput): LayoutCandidate[] {
   const parsed = LayoutInputSchema.parse(input);
-  const shapes = SHAPE_CATALOG[parsed.roomCategory] ?? [];
+  const shapes = SHAPE_CATALOG[parsed.roomCategory]?.length ? SHAPE_CATALOG[parsed.roomCategory] : ['balanced'];
   const candidateTypes = parsed.candidateTypes.length ? parsed.candidateTypes : ['balanced'];
   const candidates: LayoutCandidate[] = [];
 
@@ -178,7 +178,7 @@ function derivePlacements(input: LayoutInput & { shape: string; candidateType: C
     return tvUnitPlacements(shape as TvUnitShape, widthMm, depthMm, baseClearance, candidateType);
   }
   if (roomCategory === 'wardrobe') {
-    return wardrobePlacements(shape as WardrobeShape, widthMm, depthMm, baseClearance, candidateType);
+    return wardrobePlacements(shape as WardrobeShape, widthMm, depthMm, baseClearance, candidateType, usableWalls);
   }
   if (roomCategory === 'living') {
     return livingPlacements(shape as LivingShape, widthMm, depthMm, baseClearance, candidateType);
@@ -247,24 +247,26 @@ function tvUnitPlacements(shape: TvUnitShape, widthMm: number, depthMm: number, 
   return [roomPlacement('tv-unit', widthMm * 0.6, baseDepth, 600, clearanceMm, ['power']), roomPlacement('crockery', widthMm * 0.3, 400, 1200, clearanceMm, [])];
 }
 
-function wardrobePlacements(shape: WardrobeShape, widthMm: number, depthMm: number, clearanceMm: number, candidateType: CandidateType): Placement[] {
+function wardrobePlacements(shape: WardrobeShape, widthMm: number, depthMm: number, clearanceMm: number, candidateType: CandidateType, usableWalls: LayoutInput['usableWalls']): Placement[] {
   const baseDepth = candidateType === 'maximum_storage' ? 700 : 600;
+  const wallA = usableWalls[0];
+  const wallB = usableWalls[1] ?? wallA;
   if (shape === 'linear') {
-    return [wallPlacement('wardrobe', null, widthMm, baseDepth, 2400, clearanceMm, [])];
+    return [wallPlacement('wardrobe', wallA, widthMm, baseDepth, 2400, clearanceMm, [])];
   }
   if (shape === 'l_shaped') {
-    return [wallPlacement('wardrobe', null, widthMm, baseDepth, 2400, clearanceMm, []), wallPlacement('wardrobe', null, depthMm * 0.35, baseDepth, 2400, clearanceMm, [])];
+    return [wallPlacement('wardrobe', wallA, widthMm, baseDepth, 2400, clearanceMm, []), wallPlacement('wardrobe', wallB, depthMm * 0.35, baseDepth, 2400, clearanceMm, [])];
   }
   if (shape === 'walk_in') {
     return [roomPlacement('walk-in-wardrobe', widthMm * 0.55, depthMm * 0.45, 2400, clearanceMm, [])];
   }
   if (shape === 'wardrobe_plus_dresser') {
-    return [wallPlacement('wardrobe', null, widthMm * 0.7, baseDepth, 2400, clearanceMm, []), roomPlacement('dresser', widthMm * 0.25, 450, 750, clearanceMm, [])];
+    return [wallPlacement('wardrobe', wallA, widthMm * 0.7, baseDepth, 2400, clearanceMm, []), roomPlacement('dresser', widthMm * 0.25, 450, 750, clearanceMm, [])];
   }
   if (shape === 'wardrobe_plus_study') {
-    return [wallPlacement('wardrobe', null, widthMm * 0.65, baseDepth, 2400, clearanceMm, []), roomPlacement('study', widthMm * 0.3, 550, 750, clearanceMm, ['power'])];
+    return [wallPlacement('wardrobe', wallA, widthMm * 0.65, baseDepth, 2400, clearanceMm, []), roomPlacement('study', widthMm * 0.3, 550, 750, clearanceMm, ['power'])];
   }
-  return [wallPlacement('wardrobe', null, widthMm * 0.6, baseDepth, 2400, clearanceMm, []), roomPlacement('tv-unit', widthMm * 0.35, 400, 600, clearanceMm, ['power'])];
+  return [wallPlacement('wardrobe', wallA, widthMm * 0.6, baseDepth, 2400, clearanceMm, []), roomPlacement('tv-unit', widthMm * 0.35, 400, 600, clearanceMm, ['power'])];
 }
 
 function livingPlacements(shape: LivingShape, widthMm: number, depthMm: number, clearanceMm: number, candidateType: CandidateType): Placement[] {
@@ -302,14 +304,14 @@ function bedroomPlacements(shape: BedroomShape, widthMm: number, depthMm: number
   return [wallPlacement('wardrobe', null, widthMm * 0.45, 600, 2400, clearanceMm, []), roomPlacement('study', widthMm * 0.4, 550, 750, clearanceMm, ['power', 'natural_light'])];
 }
 
-function wallPlacement(templateFamily: string, wall: { minX?: number; minY?: number; maxX?: number; maxY?: number } | null | undefined, widthMm: number, depthMm: number, heightMm: number, clearanceMm: number, requiredServicePoints: string[]): Placement {
+function wallPlacement(templateFamily: string, wall: { id?: string; minX?: number; minY?: number; maxX?: number; maxY?: number } | null | undefined, widthMm: number, depthMm: number, heightMm: number, clearanceMm: number, requiredServicePoints: string[]): Placement {
   const positionMm: [number, number, number] = wall ? [(wall.minX ?? 0), (wall.minY ?? 0), 0] : [0, 0, 0];
   return PlacementSchema.parse({
     id: `${templateFamily}-${Date.now().toString(36)}`,
     category: inferCategory(templateFamily),
     templateFamily,
     anchor: 'wall',
-    wallRef: wall ? 'wall-1' : undefined,
+    wallRef: wall?.id,
     positionMm,
     rotationYawDeg: 0,
     widthMm,
