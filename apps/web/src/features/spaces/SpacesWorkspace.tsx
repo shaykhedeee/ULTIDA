@@ -9,7 +9,7 @@ import {
   MapPin, TriangleAlert, Save, Plus, X, Maximize
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Badge, Button } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
 import {
@@ -86,6 +86,9 @@ function entityId() { return crypto.randomUUID(); }
 export function SpacesWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const roomDraftRequested = searchParams.get('roomDraft') === '1';
+  const [roomDraftSummary, setRoomDraftSummary] = useState<{ name?: string; widthMm?: number; depthMm?: number; ceilingHeightMm?: number } | null>(null);
 
   const [plan, setPlan] = useState<CanonicalPlanFragment | null>(null);
   const [rooms, setRooms] = useState<PlanRoom[]>([]);
@@ -119,6 +122,17 @@ export function SpacesWorkspace() {
   const [roomDraftCurrent, setRoomDraftCurrent] = useState<Pt | null>(null);
   const [lineDraftStart, setLineDraftStart] = useState<Pt | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  useEffect(() => {
+    if (!roomDraftRequested) return;
+    try {
+      const raw = window.localStorage.getItem('ultida.pendingRoomDraft.v1');
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object') setRoomDraftSummary(parsed);
+    } catch {
+      setRoomDraftSummary(null);
+    }
+  }, [roomDraftRequested]);
 
   // ── Load approved plan geometry (no measurement re-entry) ──
   useEffect(() => {
@@ -455,6 +469,7 @@ export function SpacesWorkspace() {
       </div>
       {saveState && <p role="status" className="save-state">{saveState}</p>}
       <div className="spaces-flow-note" role="note"><strong>Recommended order:</strong> run AI analysis first to detect rooms, walls, doors, windows, and dimensions; then use this workspace to correct boundaries, set room requirements, place furniture in 2D, and continue to layout and 3D.</div>
+      {roomDraftRequested && <div className="spaces-flow-note" role="status"><strong>Measured Room Builder draft:</strong> {roomDraftSummary ? `${roomDraftSummary.name || 'Untitled room'} - ${roomDraftSummary.widthMm ?? '—'} × ${roomDraftSummary.depthMm ?? '—'} mm, ceiling ${roomDraftSummary.ceilingHeightMm ?? '—'} mm.` : 'The local draft was not found in this browser.'} Use it as an editable measurement reference while tracing or correcting this project’s plan. It will not silently replace approved geometry.</div>}
 
       {loadState === 'loading' && <div className="spaces-empty"><Layers size={22} /><strong>Loading approved plan spaces...</strong></div>}
       {loadState === 'blocked' && <div className="spaces-empty"><AlertTriangle size={22} /><strong>Floor Plan approval required</strong><p>{saveState || 'Approve an Initial Design plan to derive editable rooms.'}</p><Button variant="outline" onClick={() => navigate(`/projects/${projectId}/plan`)}>Open Floor Plan Intelligence</Button></div>}

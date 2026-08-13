@@ -349,6 +349,7 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const placingPreparedModule = searchParams.get('placeModule') === '1';
+  const attachingRoomDraft = searchParams.get('attachRoom') === '1';
 
   const load = useCallback(async () => {
     if (!supabase) { setError('Supabase is not configured.'); setLoading(false); return; }
@@ -399,7 +400,15 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
   });
 
   function openProject(project: Project) {
-    navigate(placingPreparedModule ? `/projects/${project.id}/design?pendingModule=1` : `/projects/${project.id}/brief`);
+    if (placingPreparedModule) {
+      navigate(`/projects/${project.id}/design?pendingModule=1`);
+      return;
+    }
+    if (attachingRoomDraft) {
+      navigate(`/projects/${project.id}/spaces?roomDraft=1`);
+      return;
+    }
+    navigate(`/projects/${project.id}/brief`);
   }
 
   return (
@@ -429,6 +438,12 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
             </button>
           </div>
         </div>
+
+        {attachingRoomDraft && (
+          <div className="projects-room-draft-note" role="status">
+            <strong>Measured Room Builder draft ready.</strong> Choose a project to open Spaces. The draft remains editable and will never overwrite an approved plan automatically.
+          </div>
+        )}
 
         {/* Filter bar */}
         <div className="filter-bar">

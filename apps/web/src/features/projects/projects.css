@@ -6,6 +6,19 @@
   max-width: 1400px;
 }
 
+.projects-room-draft-note {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--brown-mid) 36%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gold-soft, #fff5dc) 72%, #fff);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.projects-room-draft-note strong { color: var(--brown-dark); }
+
 /* ─── Page Header ───────────────────────────── */
 .page-header {
   display: flex;
