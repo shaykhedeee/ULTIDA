@@ -1559,6 +1559,35 @@ app.get('/api/projects/:projectId/material-library', requireProjectUser, async (
   return response.json({ success: true, materials: materials.data ?? [] });
 });
 
+// An explicit studio action for a new organization. These are curated starter
+// records, not supplier-stock claims; the unique organization/code key makes
+// the operation safe to repeat without duplicating a material library.
+app.post('/api/projects/:projectId/material-library/starter', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const project = await getRequestSupabaseClient(request).from('projects').select('organization_id').eq('id', request.params.projectId).single();
+  if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
+  const client = getRequestSupabaseClient(request);
+  const rows = CuratedLaminateCatalog.map((item) => ({
+    organization_id: project.data.organization_id,
+    name: `${item.brand} ${item.name}`,
+    supplier: item.brand,
+    brand: item.brand,
+    code: item.id,
+    category: 'laminate',
+    finish: item.finish,
+    grain_direction: item.family === 'woodgrain' ? 'follow_part' : 'none',
+    thickness_mm: item.thicknessMm,
+    availability: 'available',
+    metadata: { family: item.family, suitableFor: item.suitableFor, edgeBand: item.edgeBand, source: 'ultida-curated-starter', requiresSupplierConfirmation: true },
+    created_by: authReq.ultidaUser!.id,
+  }));
+  const inserted = await client.from('material_library_items').upsert(rows, { onConflict: 'organization_id,code', ignoreDuplicates: true }).select('*');
+  if (inserted.error) return response.status(500).json({ success: false, code: 'STARTER_MATERIALS_CREATE_FAILED', message: inserted.error.message });
+  const materials = await client.from('material_library_items').select('*').eq('organization_id', project.data.organization_id).order('name');
+  if (materials.error) return response.status(500).json({ success: false, code: 'MATERIAL_LIBRARY_LOAD_FAILED', message: materials.error.message });
+  return response.status(201).json({ success: true, created: inserted.data?.length ?? 0, materials: materials.data ?? [], note: 'Starter materials are visual and specification placeholders. Confirm current supplier SKU and technical sheet before production.' });
+});
+
 app.post('/api/projects/:projectId/material-library', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const parsed = MaterialLibraryItemV1Schema.safeParse(request.body);

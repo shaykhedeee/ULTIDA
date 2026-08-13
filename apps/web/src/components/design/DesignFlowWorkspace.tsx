@@ -71,6 +71,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const [compiledSceneId, setCompiledSceneId] = useState<string | null>(sceneVersionId);
   const [materialLibrary, setMaterialLibrary] = useState<any[]>([]);
   const [materialAssignmentsSaved, setMaterialAssignmentsSaved] = useState(materials.length > 0);
+  const [starterMaterialsState, setStarterMaterialsState] = useState('');
 
   useEffect(() => { setCompiledSceneId(sceneVersionId); }, [sceneVersionId]);
 
@@ -142,6 +143,23 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
       }
     })();
   }, [projectId, planApproved]);
+
+  async function addStarterMaterials() {
+    if (!projectId) return;
+    setStarterMaterialsState('Adding curated starter materials...');
+    try {
+      const response = await fetch(`${apiBase}/projects/${projectId}/material-library/starter`, { method: 'POST', headers: await authenticatedHeaders() });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !Array.isArray(payload?.materials)) {
+        setStarterMaterialsState(payload?.message ?? 'Starter materials could not be added.');
+        return;
+      }
+      setMaterialLibrary(payload.materials);
+      setStarterMaterialsState(`Starter material library ready (${payload.materials.length} items). Confirm supplier SKUs before production.`);
+    } catch {
+      setStarterMaterialsState('Starter material service is unavailable.');
+    }
+  }
 
   useEffect(() => {
     if (!projectId || !planApproved) return;
@@ -893,6 +911,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
 
               <div>
                 <label style={{ fontWeight: 'bold', fontSize: '0.8rem', display: 'block', marginBottom: '0.5rem' }}>2. Selected Laminate Finish</label>
+                {!catalogLaminates.length && <div className="placement-notice" role="status" style={{ marginBottom: '0.6rem' }}><span>No organization laminate is available yet.</span><Button variant="outline" onClick={() => void addStarterMaterials()} disabled={!projectId || starterMaterialsState.startsWith('Adding')}>Add curated Cubex, Advance &amp; Virgo starters</Button><small>{starterMaterialsState || 'These are editable starter specifications; verify supplier availability before production.'}</small></div>}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {catalogLaminates.map((laminate) => (
                     <button
