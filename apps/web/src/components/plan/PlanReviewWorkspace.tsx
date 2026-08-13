@@ -42,6 +42,7 @@ export type PlanElement = {
   id: string;
   kind: 'wall' | 'room' | 'door' | 'window' | 'fixture' | 'column' | 'beam' | 'service' | 'annotation';
   label: string;
+  roomType?: 'living' | 'master_bedroom' | 'bedroom' | 'kids_bedroom' | 'kitchen' | 'dining' | 'utility' | 'pooja' | 'bathroom' | 'study' | 'other';
   confidence: number;
   status: 'proposed' | 'accepted' | 'rejected' | 'needs_review';
   color: string;
@@ -264,10 +265,15 @@ export function PlanReviewWorkspace({
             { x: geometry.x, y: geometry.y + geometry.height },
           ]
         : undefined;
+      const validRoomTypes = ['living', 'master_bedroom', 'bedroom', 'kids_bedroom', 'kitchen', 'dining', 'utility', 'pooja', 'bathroom', 'study', 'other'] as const;
+      const roomType = proposalKind === 'room' && typeof geometry.roomType === 'string' && (validRoomTypes as readonly string[]).includes(geometry.roomType) ? geometry.roomType as PlanElement['roomType'] : undefined;
       return {
       id: proposal.id || `proposal-${index + 1}`,
       kind: proposalKind as PlanElement['kind'],
-      label: proposal.note || `${proposal.kind} proposal ${index + 1}`,
+      label: proposalKind === 'room'
+        ? (proposal.note && !/^(room|space)(\s+proposal)?\s*\d*$/i.test(proposal.note.trim()) ? proposal.note : `Room ${guideRegions.length + index + 1}`)
+        : (proposal.note || `${proposal.kind} proposal ${index + 1}`),
+      roomType,
       confidence: proposal.confidence,
       status: (proposal.status === 'accepted' || proposal.status === 'rejected' ? proposal.status : 'needs_review') as PlanElement['status'],
       color: proposal.kind === 'wall' ? '#2563eb' : proposal.kind === 'room' ? 'rgba(197,156,45,0.18)' : proposal.kind === 'fixture' ? '#7c3aed' : '#059669',
@@ -372,8 +378,14 @@ export function PlanReviewWorkspace({
   };
 
   // Accept element
-  const acceptElement = (id: string) => updateElement(id, { status: 'accepted' });
-  const rejectElement = (id: string) => updateElement(id, { status: 'rejected' });
+  const acceptElement = (id: string) => {
+    updateElement(id, { status: 'accepted' });
+    setContinuationHint('Proposal accepted. Continue reviewing the remaining highlighted findings.');
+  };
+  const rejectElement = (id: string) => {
+    updateElement(id, { status: 'rejected' });
+    setContinuationHint('Proposal rejected and excluded from the model. You can trace a replacement manually.');
+  };
   const deleteElement = (id: string) => {
     commitElements((prev) => prev.filter((e) => e.id !== id));
     if (selectedId === id) setSelectedId(null);
@@ -654,7 +666,7 @@ export function PlanReviewWorkspace({
       const worldPolygon = sourcePolygon.map((point) => ({ xMm: Math.round(point.x * mmPerPixel), yMm: Math.round(point.y * mmPerPixel) }));
       if (worldPolygon[0].xMm !== worldPolygon.at(-1)?.xMm || worldPolygon[0].yMm !== worldPolygon.at(-1)?.yMm) worldPolygon.push({ ...worldPolygon[0] });
       const areaMm2 = Math.abs(worldPolygon.slice(0, -1).reduce((sum, point, index) => { const next = worldPolygon[index + 1]; return sum + point.xMm * next.yMm - next.xMm * point.yMm; }, 0) / 2);
-      return [{ id: room.id, sourcePolygon, worldPolygon, roomType: 'other', roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm!, wallRefs: [], openingRefs: [], confidence: room.confidence, verification: isInitialDesign ? 'assumed' : 'verified' }];
+      return [{ id: room.id, sourcePolygon, worldPolygon, roomType: room.roomType ?? 'other', roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm!, wallRefs: [], openingRefs: [], confidence: room.confidence, verification: isInitialDesign ? 'assumed' : 'verified' }];
     });
     if (!spaces.length || !wallModels.length) {
       setActiveTool('add_room');
@@ -1280,6 +1292,29 @@ export function PlanReviewWorkspace({
                     onChange={(e) => updateElement(selectedElement.id, { label: e.target.value })}
                   />
                 </div>
+
+                {selectedElement.kind === 'room' && (
+                  <div className="form-field" style={{ marginTop: 8 }}>
+                    <label>Room type (used by Layout Studio)</label>
+                    <select
+                      value={selectedElement.roomType ?? 'other'}
+                      onChange={(event) => updateElement(selectedElement.id, { roomType: event.target.value as PlanElement['roomType'] })}
+                    >
+                      <option value="other">Select room type…</option>
+                      <option value="master_bedroom">Master Bedroom</option>
+                      <option value="bedroom">Bedroom</option>
+                      <option value="kids_bedroom">Kids Bedroom</option>
+                      <option value="kitchen">Kitchen</option>
+                      <option value="living">Living Room</option>
+                      <option value="dining">Dining Room</option>
+                      <option value="utility">Utility</option>
+                      <option value="pooja">Pooja Room</option>
+                      <option value="study">Study</option>
+                      <option value="bathroom">Bathroom</option>
+                    </select>
+                    <small style={{ display: 'block', marginTop: 4, color: 'var(--text-muted)' }}>Choose a type so the next screen can load the right furniture requirements and layout templates.</small>
+                  </div>
+                )}
 
                 {(selectedElement.kind === 'wall' || selectedElement.kind === 'door' || selectedElement.kind === 'window') && (
                   <div className="inspector-grid" style={{ marginTop: 8 }}>
