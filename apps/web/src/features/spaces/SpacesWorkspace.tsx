@@ -6,7 +6,7 @@
 import {
   Home, CheckCircle2, Circle, Edit3, AlertTriangle, Layers, Ruler, Square, SplitSquareHorizontal,
   Merge, Columns, Plug, DoorOpen, Pencil, Undo2, Redo2, Eye, EyeOff, Sparkles,
-  MapPin, TriangleAlert, Save, Plus, X, Maximize
+  MapPin, TriangleAlert, Save, Plus, X, Maximize, ArrowRight, LayoutGrid, Sofa
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -134,7 +134,7 @@ export function SpacesWorkspace() {
   const [ceilingHeightMm, setCeilingHeightMm] = useState(2700);
   const [floorPlanVersionId, setFloorPlanVersionId] = useState<string>('');
   const [geometryMode, setGeometryMode] = useState<'initial_design' | 'final_production'>('final_production');
-  const [canvasFocus, setCanvasFocus] = useState<'room' | 'plan'>('room');
+  const [canvasFocus, setCanvasFocus] = useState<'room' | 'plan'>('plan');
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
@@ -554,13 +554,16 @@ export function SpacesWorkspace() {
             <button className="icon-btn" onClick={redo} title="Redo"><Redo2 size={15} /></button>
           </div>
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
-          <button className="btn-secondary" onClick={() => void saveGeometryVersion()} title="Create a new approved plan version from the current room, wall, opening, column, beam, and service edits">Save geometry version</button>
-          <button className="btn-secondary" disabled={!selectedRoom} onClick={() => selectedRoom && navigate(`/projects/${projectId}/design?spaceId=${encodeURIComponent(selectedRoom)}`)} title="Open the selected room in the 2D furniture placement workspace">Place furniture in 2D</button>
-          <button className="btn-primary proceed-header-action" disabled={openingLayouts || !overallReadiness.approved} onClick={() => void openLayoutStudio()} title={overallReadiness.approved ? 'Validate saved rooms and continue to Layout Studio' : 'Verify the included rooms, or remove rooms that are outside this design scope.'}>{openingLayouts ? 'Validating spaces…' : 'Proceed to Layout Studio →'}</button>
+          <button className="btn-secondary workspace-action" onClick={() => void saveGeometryVersion()} title="Create a new approved plan version from the current room, wall, opening, column, beam, and service edits"><Save size={14} /> Save geometry</button>
+          <button className="btn-secondary workspace-action" disabled={!selectedRoom} onClick={() => selectedRoom && navigate(`/projects/${projectId}/design?spaceId=${encodeURIComponent(selectedRoom)}`)} title="Open the selected room in the 2D furniture placement workspace"><Sofa size={14} /> Place furniture</button>
+          <button className="btn-primary proceed-header-action workspace-action" disabled={openingLayouts || !overallReadiness.approved} onClick={() => void openLayoutStudio()} title={overallReadiness.approved ? 'Validate saved rooms and continue to Layout Studio' : 'Verify the included rooms, or remove rooms that are outside this design scope.'}><LayoutGrid size={15} /> {openingLayouts ? 'Validating…' : 'Layout Studio'} <ArrowRight size={14} /></button>
         </div>
       </div>
       {saveState && <p role="status" className="save-state">{saveState}</p>}
-      <div className="spaces-flow-note" role="note"><strong>Recommended order:</strong> run AI analysis first to detect rooms, walls, doors, windows, and dimensions; then use this workspace to correct boundaries, set room requirements, place furniture in 2D, and continue to layout and 3D.</div>
+      <div className="spaces-flow-note spaces-guidance-bar" role="note">
+        <div><strong>Best results:</strong> calibrate one known dimension and outline rough rooms before AI enrichment, then confirm the accepted walls and openings here. Rough traces guide the analyser; they do not silently become verified measurements.</div>
+        <button type="button" className="btn-secondary workspace-action" onClick={() => navigate(`/projects/${projectId}/plan`)}><Ruler size={14} /> Review plan &amp; calibration</button>
+      </div>
       {roomDraftRequested && <div className="spaces-flow-note" role="status"><strong>Measured Room Builder draft:</strong> {roomDraftSummary ? `${roomDraftSummary.name || 'Untitled room'} - ${roomDraftSummary.widthMm ?? '—'} × ${roomDraftSummary.depthMm ?? '—'} mm, ceiling ${roomDraftSummary.ceilingHeightMm ?? '—'} mm.` : 'The local draft was not found in this browser.'} Use it as an editable measurement reference while tracing or correcting this project’s plan. It will not silently replace approved geometry.</div>}
 
       {loadState === 'loading' && <div className="spaces-empty"><Layers size={22} /><strong>Loading approved plan spaces...</strong></div>}
@@ -589,6 +592,7 @@ export function SpacesWorkspace() {
                     {scaleReview && <span className="rc-scale-review" title="This room is unusually small for its selected type. Check the plan calibration before layout.">Check scale</span>}
                     <label className="inc-toggle"><input type="checkbox" checked={room.included !== false} onChange={(e) => includeRoom(room.id, e.target.checked)} onClick={(e) => e.stopPropagation()} /> include</label>
                   </div>
+                  {room.included !== false && <button type="button" className={`room-quick-approve ${readiness.ready ? 'ready' : ''}`} onClick={(event) => { event.stopPropagation(); setSelectedRoom(room.id); if (readiness.ready) { setSpacePanel('geometry'); return; } if (!room.requiredFurniture.length) { setSpacePanel('brief'); setSaveState(`Choose the required furniture for ${room.name}, then verify it.`); return; } void persistRoom(room, 'verified'); }}><CheckCircle2 size={13} /> {readiness.ready ? 'Room ready' : room.requiredFurniture.length ? 'Verify room' : 'Complete brief'}</button>}
                 </div>
               ))}
             </div>
@@ -748,7 +752,9 @@ export function SpacesWorkspace() {
             ) : <div className="props-empty">Select a room or wall.</div>}
           </aside>
 
-          <div className="space-context-strip" aria-label="Space context">
+          <details className="space-context-strip" aria-label="Space context">
+          <summary><Layers size={14} /> Plan checks and layers <Badge tone={issues.length ? 'warn' : 'neutral'}>{issues.length ? `${issues.length} issue${issues.length === 1 ? '' : 's'}` : 'No blockers'}</Badge></summary>
+          <div className="space-context-grid">
           <aside className="region layers-region">
             <div className="region-title"><Layers size={14} /> Layers</div>
             <div className="layer-controls">
@@ -780,6 +786,7 @@ export function SpacesWorkspace() {
             </div>
           </aside>
           </div>
+          </details>
         </div>
       )}
       {loadState === 'ready' && <section className="layout-handoff" aria-label="Continue to Layout Studio">
