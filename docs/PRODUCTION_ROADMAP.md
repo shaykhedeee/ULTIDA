@@ -40,11 +40,10 @@ Generated images and imported CAD/PDF files are evidence, never geometry authori
 
 ## Remaining milestones
 
-- Persist production snapshots, approvals, labels, stock sheets, offcuts and revision comparisons in Supabase with organisation-scoped RLS.
 - Add a reviewed CAD/PDF production-import workspace. Detected dimensions and annotations such as AS/EQ remain untrusted until mapped to scene components.
-- Add parameterised Om, jaali, lattice, arch, floral and geometric CNC templates with bridge and clearance validation.
-- Complete the standalone project-attachment flow for Plan Tracer, Room Builder, Layout, Module Planner, Material Preview, Render, Drawing and Cutlist tools.
+- Complete the standalone project-attachment flow for tools that still require a pre-existing workflow context. Room Builder and Module Planner already hand off local drafts through project selection; Render Studio already selects an approved project scene.
 - Add authenticated desktop/tablet/mobile browser coverage and provider canaries before production promotion.
+- Persist and display provider-canary history and daily Workers AI usage instead of treating configuration health as a generation canary.
 
 ## Safety constraints
 
@@ -52,4 +51,3 @@ Generated images and imported CAD/PDF files are evidence, never geometry authori
 - AURA may read, explain and prepare proposals; it cannot silently mutate approved geometry, estimates, cutlists, quotes or release state.
 - LocalAI and ComfyUI are optional studio-local providers and are not demo dependencies.
 - SketchUp exports are reviewable Ruby scripts derived from scene.v1. Hosted ULTIDA never executes arbitrary Ruby.
-
