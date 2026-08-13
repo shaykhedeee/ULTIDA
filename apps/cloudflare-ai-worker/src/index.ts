@@ -20,6 +20,16 @@ interface MessageBatch<T> {
 type JobMessage = { jobId: string; kind: 'plan-analysis' };
 type DispatchMessage = JobMessage & { callbackBase?: string };
 
+class DispatchError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
+}
+
 async function sameSecret(expected: string | undefined, supplied: string | null) {
   if (!expected || !supplied) return false;
   const encoder = new TextEncoder();
@@ -52,8 +62,18 @@ function resolveCallbackBase(env: Env, message?: DispatchMessage) {
 }
 
 async function processOne(env: Env, jobId?: string, message?: DispatchMessage) {
-  if (!env.API_BASE || !env.ULTIDA_WORKER_SHARED_SECRET) throw new Error('Worker API dispatch is not configured.');
-  const response = await fetch(`${resolveCallbackBase(env, message)}/internal/plan-jobs/process`, {
+  if (!env.API_BASE || !env.ULTIDA_WORKER_SHARED_SECRET) {
+    throw new DispatchError('Worker API dispatch is not configured.', false);
+  }
+  let callbackBase: string;
+  try {
+    callbackBase = resolveCallbackBase(env, message);
+  } catch (error) {
+    throw new DispatchError(error instanceof Error ? error.message : 'The queued job callback URL is invalid.', false);
+  }
+  let response: Response;
+  try {
+    response = await fetch(`${callbackBase}/internal/plan-jobs/process`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -65,8 +85,22 @@ async function processOne(env: Env, jobId?: string, message?: DispatchMessage) {
     body: JSON.stringify(jobId
       ? { requestedBy: 'cloudflare-queue', jobId }
       : { requestedBy: 'cloudflare-sweep' })
-  });
-  if (!response.ok) throw new Error(`Ultida API returned HTTP ${response.status}.`);
+    });
+  } catch (error) {
+    throw new DispatchError(error instanceof Error ? error.message : 'The ULTIDA API could not be reached.', true);
+  }
+  if (!response.ok) {
+    // Authentication and request-contract failures will not recover through
+    // retries. Retrying only transient upstream failures avoids messages
+    // cycling forever and lets the API move the job to a visible terminal state.
+    const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+    const details = await response.text().catch(() => '');
+    throw new DispatchError(
+      `Ultida API returned HTTP ${response.status}${details ? `: ${details.slice(0, 280)}` : '.'}`,
+      retryable,
+      response.status,
+    );
+  }
 }
 
 export default {
@@ -82,6 +116,7 @@ export default {
         service: 'ultida-ai-worker',
         message: 'ULTIDA AI worker is online. Use /health for readiness and POST /dispatch for authenticated jobs.',
         queueConsumer: true,
+        previewCallbackBypassConfigured: Boolean(env.VERCEL_PROTECTION_BYPASS_SECRET),
         // This is intentionally only a boolean. It lets the API prove that the
         // two deployments share a secret without returning any secret material.
         dispatchAuthenticated: await sameSecret(env.ULTIDA_WORKER_SHARED_SECRET, suppliedSecret),
@@ -108,7 +143,20 @@ export default {
         if (message.body?.kind !== 'plan-analysis' || !message.body.jobId) throw new Error('Invalid plan-analysis queue message.');
         await processOne(env, message.body.jobId, message.body);
         message.ack();
-      } catch {
+      } catch (error) {
+        if (error instanceof DispatchError && !error.retryable) {
+          console.error('ULTIDA plan-analysis message rejected without retry', {
+            jobId: message.body?.jobId,
+            status: error.status,
+            message: error.message,
+          });
+          message.ack();
+          continue;
+        }
+        console.warn('ULTIDA plan-analysis delivery will retry', {
+          jobId: message.body?.jobId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         message.retry({ delaySeconds: 10 });
       }
     }
