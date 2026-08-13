@@ -131,6 +131,14 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     void loadRenders();
   }, [stage, projectId]);
 
+  // A render selected from the persisted gallery must remain reviewable after
+  // refresh. Previously only a newly-created job populated reviewVisualJobId,
+  // which made Approve/Reject appear disabled for an existing output.
+  useEffect(() => {
+    const selected = renders.find((render) => render.id === selectedRenderId) ?? renders[0];
+    if (selected) setReviewVisualJobId(selected.id);
+  }, [renders, selectedRenderId]);
+
   useEffect(() => {
     if (!projectId || !planApproved) { setMaterialLibrary([]); return; }
     void (async () => {
@@ -554,6 +562,11 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                 )}
               </div>
               <div className="visual-controls visual-controls-stack">
+                <div className="scene-lock-summary" role="status">
+                  <div className="scene-lock-summary-heading"><Layers3 size={15} /><strong>Geometry lock</strong><Badge tone={sceneApproved ? 'success' : 'accent'}>{sceneApproved ? 'Active' : 'Required'}</Badge></div>
+                  <span>Camera, room shell, openings, ceiling and module bounds come from scene.v1 and cannot be changed by the image model.</span>
+                  <small>{sceneVersionId ? `Scene ${sceneVersionId.slice(0, 8)} linked` : 'Compile a scene to continue'}</small>
+                </div>
                 <label>
                   Scene room
                   <select
@@ -649,7 +662,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                     <option value="final">Final</option>
                   </select>
                 </label>
-                <Button onClick={() => void createVisual()} disabled={!sceneApproved || visualBusy}>
+                  <Button onClick={() => void createVisual()} disabled={!sceneApproved || !spaceId || visualBusy} title={!sceneApproved ? 'Approve scene.v1 first' : !spaceId ? 'Select a persisted room first' : 'Generate a scene-linked image'}>
                   {visualBusy ? <RefreshCw className="spin" size={16} /> : <Wand2 size={16} />} {visualBusy ? 'Processing' : 'Generate proposal'}
                 </Button>
               </div>

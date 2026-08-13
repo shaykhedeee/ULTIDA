@@ -732,7 +732,12 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
   const parsed = VisualProposalRequestSchema.safeParse({
     projectId,
     sceneVersionId,
-    idempotencyKey: typeof request.body?.idempotencyKey === 'string' ? request.body.idempotencyKey : `${sceneVersionId}:render:${Date.now()}`,
+    // Retries from a refreshed browser must address the same durable job. A
+    // time-based fallback silently created duplicate provider calls whenever
+    // the client lost the first response.
+    idempotencyKey: typeof request.body?.idempotencyKey === 'string' && request.body.idempotencyKey.trim()
+      ? request.body.idempotencyKey.trim()
+      : `${sceneVersionId}:${operation}:${targetModuleId || 'room'}:${String(options.roomId ?? '')}:${String(options.style ?? 'Warm contemporary Indian').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48)}:${String(options.quality ?? 'review')}`,
     roomId: typeof options.roomId === 'string' ? options.roomId : '',
     sourceAssets: [`scene:${sceneVersionId}`],
     referenceAssets: [],
