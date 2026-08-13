@@ -838,7 +838,7 @@ export function PlanReviewWorkspace({
               <span>Analysis Layers</span>
             </div>
             <div className="layer-list">
-              {(Object.keys(layers) as LayerKey[]).map((key) => {
+              {(Object.keys(layers) as LayerKey[]).filter((key) => !['fixtures', 'columns', 'beams', 'services'].includes(key)).map((key) => {
                 const layer = layers[key];
                 return (
                   <button
