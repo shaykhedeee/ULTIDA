@@ -378,3 +378,7 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   .command-bar { padding: 0 14px; }
   .shell-content { padding: 18px 14px; }
 }
+.sidebar-tool-groups { overflow-y: auto; padding: 4px 0 8px; border-top: 1px solid rgba(255,255,255,.07); }
+.sidebar-tool-group { padding-top: 9px; }
+.nav-item.compact { min-height: 34px; padding-top: 6px; padding-bottom: 6px; font-size: 12px; }
+.sidebar-collapsed .sidebar-tool-groups .nav-label { display: none; }

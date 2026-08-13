@@ -45,6 +45,23 @@ type Material = {
   edge_band_status?: string | null;
 };
 
+const MODULE_REFERENCE_IMAGES: Record<string, string[]> = {
+  kitchen: ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/002-cab37cfa0bb2.png', '/reference-vault/003-1f61a8aabde4.png', '/reference-vault/004-ee04b56efde7.png'],
+  'kitchen-base': ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/003-1f61a8aabde4.png'],
+  'kitchen-wall': ['/reference-vault/002-cab37cfa0bb2.png', '/reference-vault/004-ee04b56efde7.png'],
+  'kitchen-tall': ['/reference-vault/003-1f61a8aabde4.png', '/reference-vault/005-7919b88e0dc1.png'],
+  'tv-unit': ['/reference-vault/013-52a29a1053dc.png', '/reference-vault/014-685f67e3ff6f.png', '/reference-vault/015-5705e2ee9cb1.png', '/reference-vault/016-f106846da92c.png', '/reference-vault/017-cd2b9919c856.png'],
+  wardrobe: ['/reference-vault/007-2b9d568ff444.png', '/reference-vault/008-5fd497f005d8.png', '/reference-vault/009-f68e47674ead.png', '/reference-vault/010-a0dbdf361a50.png'],
+  crockery: ['/reference-vault/013-52a29a1053dc.png', '/reference-vault/018-b7dd5f1492fe.png'],
+};
+
+function stableImageForModule(module: CatalogModule) {
+  const images = MODULE_REFERENCE_IMAGES[module.family] ?? MODULE_REFERENCE_IMAGES[module.family.split('-')[0]];
+  if (!images?.length) return null;
+  const seed = [...module.id].reduce((total, character) => total + character.charCodeAt(0), 0);
+  return images[seed % images.length];
+}
+
 function apiBase() {
   const configured = String(import.meta.env.VITE_API_BASE ?? '').trim();
   const isLocalTarget = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/api\/?$/i.test(configured);
@@ -266,8 +283,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
 
       {activeTab === 'modules' && <Card className="workflow">
         <CardContent style={{display:'flex',gap:8,flexWrap:'wrap',padding:'14px 16px',borderBottom:'1px solid #e7e5e4'}}><strong style={{marginRight:8}}>Furniture filters</strong><select aria-label="Filter modules by family" value={moduleFamily} onChange={e=>setModuleFamily(e.target.value)} style={{padding:'7px 9px',border:'1px solid #d6d3d1',borderRadius:6}}><option value="all">All families</option>{[...new Set(modules.map(m=>m.family))].sort().map(f=><option key={f} value={f}>{f.replaceAll('-',' ')}</option>)}</select><select aria-label="Filter modules by room" value={moduleRoom} onChange={e=>setModuleRoom(e.target.value)} style={{padding:'7px 9px',border:'1px solid #d6d3d1',borderRadius:6}}><option value="all">All rooms</option>{[...new Set(modules.flatMap(m=>m.roomTypes))].sort().map(r=><option key={r} value={r}>{r}</option>)}</select></CardContent>
-        <CardHeader className="section-title"><div><small>PARAMETRIC MODULES</small><h2>Manufacturing-aware modular furniture templates</h2></div><Badge tone="success">{visibleModules.filter((module) => module.production.cutlistSupported).length} cutlist-ready</Badge></CardHeader>
-        <CardContent>{visibleModules.length ? <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>{visibleModules.map((module) => <article key={module.id} className="library-item" style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 10, padding: 12, boxShadow: '0 1px 2px rgba(28,25,23,.04)' }}><ModulePreview module={module} /><div style={{ padding: '12px 4px 3px' }}><strong style={{ display: 'block', fontSize: 14, color: '#1c1917' }}>{module.name}</strong><span style={{ fontSize: 12, color: '#78716c', textTransform: 'capitalize' }}>{module.family.replaceAll('-', ' ')}</span><small style={{ display: 'block', marginTop: 8, fontSize: 11, color: '#78716c', fontVariantNumeric: 'tabular-nums' }}>{module.widthMm}W × {module.depthMm}D × {module.heightMm}H mm</small><small style={{ display: 'block', marginTop: 4, fontSize: 11, color: '#a8a29e' }}>{module.sku} · {module.roomTypes.join(', ')}</small></div></article>)}</div> : emptyState('The modular catalog is unavailable. Check the API health and catalog route before placing modules.')}</CardContent>
+        <CardHeader className="section-title"><div><small>PARAMETRIC MODULES + VISUAL REFERENCES</small><h2>Professional furniture compositions backed by manufacturing geometry</h2><p style={{margin:'5px 0 0',fontSize:12,color:'#78716c'}}>Reference photos guide appearance only. Dimensions, parts and cutlists always come from the parametric module.</p></div><Badge tone="success">{visibleModules.filter((module) => module.production.cutlistSupported).length} cutlist-ready</Badge></CardHeader>
+        <CardContent>{visibleModules.length ? <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}>{visibleModules.map((module) => { const referenceImage = stableImageForModule(module); return <article key={module.id} className="library-item module-catalog-card"><div className="module-reference-frame">{referenceImage ? <img src={referenceImage} alt={`${module.name} approved visual reference`} loading="lazy" /> : <ModulePreview module={module} />}<span>Approved style reference</span></div><div className="module-technical-strip"><ModulePreview module={module} compact /><div><strong>Parametric build</strong><small>{module.widthMm}W × {module.depthMm}D × {module.heightMm}H mm</small><small>{module.production.cutlistSupported ? 'Scene + cutlist ready' : 'Concept configuration'}</small></div></div><div className="module-card-copy"><strong>{module.name}</strong><span>{module.family.replaceAll('-', ' ')}</span><p>{module.description ?? 'Configurable modular assembly with editable dimensions and component-level finishes.'}</p><small>{module.sku} · {module.roomTypes.join(', ')}</small></div></article>; })}</div> : emptyState('The modular catalog is unavailable. Check the API health and catalog route before placing modules.')}</CardContent>
       </Card>}
 
       {activeTab === 'materials' && <Card className="workflow">

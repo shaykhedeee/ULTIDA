@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, FolderKanban, Library, BookOpen,
-  Palette, Settings, Users, Ruler, ChevronRight,
+  Palette, Settings, Users, Ruler, ChevronRight, Box, Home, Wand2, CalendarDays, Receipt, Compass,
   PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut,
   CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2
 } from 'lucide-react';
@@ -38,6 +38,22 @@ const PRIMARY_NAV = [
   { id: 'rules',     label: 'Company Rules',  path: '/rules',       icon: Ruler },
   { id: 'team',      label: 'Team',           path: '/team',        icon: Users },
   { id: 'settings',  label: 'Settings',       path: '/settings',    icon: Settings },
+];
+
+const TOOL_NAV = [
+  { label: 'Design tools', items: [
+    { id: 'room-builder', label: 'Room Builder', path: '/tools/room-builder', icon: Home },
+    { id: 'module-planner', label: 'Module Planner', path: '/tools/modules', icon: Box },
+    { id: 'render-studio', label: 'Render Studio', path: '/tools/render', icon: Wand2 },
+  ] },
+  { label: 'Production tools', items: [
+    { id: 'cnc-studio', label: 'CNC Patterns', path: '/tools/cnc', icon: Compass },
+    { id: 'measurements', label: 'Measurements', path: '/tools/measurements', icon: Ruler },
+  ] },
+  { label: 'Studio operations', items: [
+    { id: 'calendar', label: 'Calendar', path: '/tools/calendar', icon: CalendarDays },
+    { id: 'invoices', label: 'Invoices', path: '/tools/invoices', icon: Receipt },
+  ] },
 ];
 
 // ─── Default workflow stages ──────────────────────────────────────
@@ -132,6 +148,10 @@ export function Shell({
             );
           })}
         </div>
+
+        {!inProject && <div className="sidebar-tool-groups">
+          {TOOL_NAV.map(group => <div className="sidebar-tool-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => { const Icon = item.icon; const active = location.pathname === item.path; return <Link key={item.id} to={item.path} className={`nav-item compact${active ? ' active' : ''}`} onClick={() => setMobileOpen(false)}><span className="nav-icon"><Icon size={15} /></span><span>{item.label}</span></Link>; })}</div>)}
+        </div>}
 
         {/* Project workflow nav */}
         {inProject && (
