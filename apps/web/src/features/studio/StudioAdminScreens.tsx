@@ -336,7 +336,7 @@ export function RulesWorkspace({ organizationId }: { organizationId: string | nu
   );
 }
 
-export function SettingsWorkspace({ organizationId, orgName }: { organizationId: string | null; orgName: string }) {
+export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySaved }: { organizationId: string | null; orgName: string; onStudioIdentitySaved?: (name: string) => void }) {
   const [health, setHealth] = useState<any>(null);
   const [tab, setTab] = useState('workspace');
   const [status, setStatus] = useState('');
@@ -360,7 +360,8 @@ export function SettingsWorkspace({ organizationId, orgName }: { organizationId:
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message ?? 'Studio name could not be updated.');
       setStudioName(payload.organization.name);
-      setStatus('Studio identity saved. Navigation will use the new name after refresh.');
+      onStudioIdentitySaved?.(payload.organization.name);
+      setStatus('Studio identity saved. Your branded studio name is now active across the workspace.');
     } catch (error: any) {
       setStatus(error?.message ?? 'Studio name could not be updated.');
     } finally {

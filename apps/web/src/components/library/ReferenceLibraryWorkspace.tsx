@@ -43,6 +43,12 @@ type Material = {
   edge_band_thickness_mm?: number | null;
   edge_band_material?: string | null;
   edge_band_status?: string | null;
+  metadata?: {
+    colourHex?: string;
+    colorHex?: string;
+    texture?: string;
+    laminateFace?: string;
+  } | null;
 };
 
 const MODULE_REFERENCE_IMAGES: Record<string, string[]> = {
@@ -75,6 +81,11 @@ function materialSubtitle(material: Material) {
   return [material.category, material.finish, thickness, edge, material.supplier, material.availability]
     .filter(Boolean)
     .join(' · ');
+}
+
+function materialColour(material: Material) {
+  const candidate = material.metadata?.colourHex ?? material.metadata?.colorHex;
+  return /^#[0-9a-f]{6}$/i.test(candidate ?? '') ? candidate! : '#d6c1a7';
 }
 
 export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { organizationId?: string | null; projectId?: string | null }) {
@@ -289,7 +300,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
 
       {activeTab === 'materials' && <Card className="workflow">
         <CardHeader className="section-title"><div><small>PROJECT MATERIALS</small><h2>Persisted finishes and hardware for this project</h2></div><Badge tone="neutral">{visibleMaterials.length} saved</Badge></CardHeader>
-        <CardContent>{!projectId ? emptyState('Open this library from a project to see its persisted material library.') : visibleMaterials.length ? <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>{visibleMaterials.map((material) => <article key={material.id} className="library-item" style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8, padding: 16 }}><div style={{ background: '#f5f5f4', borderRadius: 6, height: 96, display: 'grid', placeItems: 'center', marginBottom: 12 }}><Palette size={28} color="#a8a29e" /></div><strong style={{ display: 'block', fontSize: 14, color: '#1c1917' }}>{material.name}</strong><span style={{ fontSize: 12, color: '#78716c' }}>{materialSubtitle(material) || 'Finish details pending'}</span><small style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#a8a29e' }}>Code: {material.code}</small></article>)}</div> : emptyState('No materials are saved for this project. Add a finish through Design Studio to create a versioned material assignment.')}</CardContent>
+        <CardContent>{!projectId ? emptyState('Open this library from a project to see its persisted material library.') : visibleMaterials.length ? <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>{visibleMaterials.map((material) => { const colour = materialColour(material); return <article key={material.id} className="library-item" style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8, padding: 16 }}><div aria-label={`${material.name} finish swatch`} style={{ background: `linear-gradient(135deg, ${colour}, #fff 180%)`, border: '1px solid #e7e5e4', borderRadius: 6, height: 96, display: 'flex', alignItems: 'flex-end', padding: 10, marginBottom: 12 }}><span style={{ background: 'rgba(255,255,255,.82)', borderRadius: 4, padding: '3px 6px', fontSize: 10, fontWeight: 700, color: '#44382e' }}>{material.metadata?.texture ?? material.finish ?? 'Laminate'}</span></div><strong style={{ display: 'block', fontSize: 14, color: '#1c1917' }}>{material.name}</strong><span style={{ fontSize: 12, color: '#78716c' }}>{materialSubtitle(material) || 'Finish details pending'}</span><small style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#a8a29e' }}>Code: {material.code}</small></article>; })}</div> : emptyState('No materials are saved for this project. Add a finish through Design Studio to create a versioned material assignment.')}</CardContent>
       </Card>}
     </div>
   );

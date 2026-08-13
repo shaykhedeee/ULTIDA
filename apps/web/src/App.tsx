@@ -10,35 +10,38 @@
  * and reached through routes.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { X, Plus, ChevronRight } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
 import { Shell, DEFAULT_WORKFLOW_STAGES, type WorkflowStageConfig } from './Shell';
-import { ProjectDashboard } from './features/projects/ProjectDashboard';
-import { StudioDashboard } from './features/dashboard/StudioDashboard';
-import { CncPatternStudio } from './features/tools/CncPatternStudio';
-import { ModularUnitPlanner } from './features/tools/ModularUnitPlanner';
-import { StudioOperations } from './features/tools/StudioOperations';
-import { AuraChat } from './features/tools/AuraChat';
-import { RenderLauncher } from './features/tools/RenderLauncher';
-import { MeasurementConverter } from './features/tools/MeasurementConverter';
-import { RoomBuilder } from './features/tools/RoomBuilder';
+const ProjectDashboard = lazy(() => import('./features/projects/ProjectDashboard').then((module) => ({ default: module.ProjectDashboard })));
+const StudioDashboard = lazy(() => import('./features/dashboard/StudioDashboard').then((module) => ({ default: module.StudioDashboard })));
+const CncPatternStudio = lazy(() => import('./features/tools/CncPatternStudio').then((module) => ({ default: module.CncPatternStudio })));
+const ModularUnitPlanner = lazy(() => import('./features/tools/ModularUnitPlanner').then((module) => ({ default: module.ModularUnitPlanner })));
+const StudioOperations = lazy(() => import('./features/tools/StudioOperations').then((module) => ({ default: module.StudioOperations })));
+const AuraChat = lazy(() => import('./features/tools/AuraChat').then((module) => ({ default: module.AuraChat })));
+const RenderLauncher = lazy(() => import('./features/tools/RenderLauncher').then((module) => ({ default: module.RenderLauncher })));
+const MeasurementConverter = lazy(() => import('./features/tools/MeasurementConverter').then((module) => ({ default: module.MeasurementConverter })));
+const RoomBuilder = lazy(() => import('./features/tools/RoomBuilder').then((module) => ({ default: module.RoomBuilder })));
 
 // Existing feature components — preserved
-import { BriefWorkspace, type ClientBrief, emptyBrief } from './components/brief/BriefWorkspace';
-import { PlanReviewWorkspace } from './components/plan/PlanReviewWorkspace';
-import { LayoutConfigWorkspace, type LayoutConfig } from './components/layout/LayoutConfigWorkspace';
+import { type ClientBrief, emptyBrief } from './features/project-types';
+import { type LayoutConfig } from './components/layout/LayoutConfigWorkspace';
 import type { LayoutCandidate } from '@ultida/layout-core';
-import { DesignFlowWorkspace } from './components/design/DesignFlowWorkspace';
-import { CommercialWorkspace } from './components/commercial/CommercialWorkspace';
-import { DeliveryWorkspace } from './components/delivery/DeliveryWorkspace';
-import { ReferenceLibraryWorkspace } from './components/library/ReferenceLibraryWorkspace';
-import { SpacesWorkspace } from './features/spaces/SpacesWorkspace';
-import { SceneStudio } from './features/scene/SceneStudio';
-import { DesignWorkspace } from './features/design/DesignWorkspace';
-import { ProductionWorkspace } from './features/production/ProductionWorkspace';
-import { TeamWorkspace, RulesWorkspace, SettingsWorkspace } from './features/studio/StudioAdminScreens';
+const BriefWorkspace = lazy(() => import('./components/brief/BriefWorkspace').then((module) => ({ default: module.BriefWorkspace })));
+const PlanReviewWorkspace = lazy(() => import('./components/plan/PlanReviewWorkspace').then((module) => ({ default: module.PlanReviewWorkspace })));
+const LayoutConfigWorkspace = lazy(() => import('./components/layout/LayoutConfigWorkspace').then((module) => ({ default: module.LayoutConfigWorkspace })));
+const DesignFlowWorkspace = lazy(() => import('./components/design/DesignFlowWorkspace').then((module) => ({ default: module.DesignFlowWorkspace })));
+const CommercialWorkspace = lazy(() => import('./components/commercial/CommercialWorkspace').then((module) => ({ default: module.CommercialWorkspace })));
+const DeliveryWorkspace = lazy(() => import('./components/delivery/DeliveryWorkspace').then((module) => ({ default: module.DeliveryWorkspace })));
+const ReferenceLibraryWorkspace = lazy(() => import('./components/library/ReferenceLibraryWorkspace').then((module) => ({ default: module.ReferenceLibraryWorkspace })));
+const SpacesWorkspace = lazy(() => import('./features/spaces/SpacesWorkspace').then((module) => ({ default: module.SpacesWorkspace })));
+const SceneStudio = lazy(() => import('./features/scene/SceneStudio').then((module) => ({ default: module.SceneStudio })));
+const ProductionWorkspace = lazy(() => import('./features/production/ProductionWorkspace').then((module) => ({ default: module.ProductionWorkspace })));
+const TeamWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.TeamWorkspace })));
+const RulesWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.RulesWorkspace })));
+const SettingsWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.SettingsWorkspace })));
 
 import './intake.css';
 
@@ -1210,7 +1213,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       projectName={projectName || 'Loading…'}
       workflowStages={stageStatuses}
     >
-      <Routes>
+      <Suspense fallback={<RouteLoading label="Loading workspace…" />}><Routes>
         <Route path="brief" element={
           <BriefWorkspace
             initialBrief={brief}
@@ -1350,16 +1353,16 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         {/* Default: redirect to brief */}
         <Route index element={<Navigate to="brief" replace />} />
         <Route path="*" element={<Navigate to="brief" replace />} />
-      </Routes>
+      </Routes></Suspense>
     </Shell>
   );
 }
 
 // ─── Dashboard shell (non-project routes) ─────────────────────────
-function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgName: string }) {
+function DashboardShell({ sessionEmail, orgName, onStudioIdentitySaved }: { sessionEmail: string; orgName: string; onStudioIdentitySaved?: (name: string) => void }) {
   return (
     <Shell sessionEmail={sessionEmail} orgName={orgName}>
-      <Routes>
+      <Suspense fallback={<RouteLoading label="Loading studio…" />}><Routes>
         <Route index element={<StudioDashboard orgName={orgName} />} />
         <Route path="projects" element={<ProjectDashboard sessionEmail={sessionEmail} orgName={orgName} />} />
         <Route path="tools/cnc" element={<CncPatternStudio />} />
@@ -1376,11 +1379,15 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
         <Route path="materials" element={<Navigate to="/library" replace />} />
         <Route path="rules" element={<RulesWorkspace organizationId={null} />} />
         <Route path="team" element={<TeamWorkspace organizationId={null} />} />
-        <Route path="settings" element={<SettingsWorkspace organizationId={null} orgName={orgName} />} />
+        <Route path="settings" element={<SettingsWorkspace organizationId={null} orgName={orgName} onStudioIdentitySaved={onStudioIdentitySaved} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      </Routes></Suspense>
     </Shell>
   );
+}
+
+function RouteLoading({ label }: { label: string }) {
+  return <div role="status" aria-live="polite" style={{ minHeight: 280, display: 'grid', placeItems: 'center', color: '#6f5f50', fontWeight: 700 }}>{label}</div>;
 }
 
 // ─── Root App ──────────────────────────────────────────────────────
@@ -1457,11 +1464,11 @@ export function App() {
     // write shared data, or claim a production result; sign-in is required as
     // soon as a draft is attached to a studio project.
     if (['/tools/room-builder', '/tools/measurements', '/tools/cnc'].includes(window.location.pathname)) {
-      return <Routes>
+      return <Suspense fallback={<RouteLoading label="Loading tool…" />}><Routes>
         <Route path="/tools/room-builder" element={<RoomBuilder />} />
         <Route path="/tools/measurements" element={<MeasurementConverter />} />
         <Route path="/tools/cnc" element={<CncPatternStudio />} />
-      </Routes>;
+      </Routes></Suspense>;
     }
     return <SignInScreen onSuccess={(email) => {
       setSessionEmail(email);
@@ -1478,7 +1485,7 @@ export function App() {
 
       {/* All other routes use the dashboard shell */}
       <Route path="/*" element={
-        <DashboardShell sessionEmail={sessionEmail} orgName={orgName} />
+        <DashboardShell sessionEmail={sessionEmail} orgName={orgName} onStudioIdentitySaved={setOrgName} />
       } />
     </Routes>
   );
