@@ -2078,8 +2078,18 @@ app.post('/api/projects/:projectId/layout-candidates', requireProjectUser, async
     const end = wall.worldEnd ?? wall.worldGeometry?.end ?? wall.end;
     if (!start || !end) return null;
     return { id: String(wall.id), minX: Math.min(Number(start.xMm ?? start.x), Number(end.xMm ?? end.x)), minY: Math.min(Number(start.yMm ?? start.y), Number(end.yMm ?? end.y)), maxX: Math.max(Number(start.xMm ?? start.x), Number(end.xMm ?? end.x)), maxY: Math.max(Number(start.yMm ?? start.y), Number(end.yMm ?? end.y)), orientation: Math.abs(Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x)) >= Math.abs(Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) ? 'north' : 'east' };
-  }).filter(Boolean);
-  const openings = (Array.isArray(plan.openings) ? plan.openings : []).map((opening: any) => ({ id: String(opening.id), wallId: opening.wallId ? String(opening.wallId) : undefined, type: opening.kind === 'window' ? 'window' : 'door', xMm: Number(opening.worldPosition?.xMm ?? opening.xMm ?? opening.offsetMm ?? 0), yMm: Number(opening.worldPosition?.yMm ?? opening.yMm ?? 0), widthMm: Number(opening.widthMm ?? 0), heightMm: Number(opening.heightMm ?? 0), swingDeg: opening.swingDeg == null ? undefined : Number(opening.swingDeg) }));
+  }).filter((wall: any) => wall && wall.maxX >= minX - 250 && wall.minX <= maxX + 250 && wall.maxY >= minY - 250 && wall.minY <= maxY + 250);
+  const openings = (Array.isArray(plan.openings) ? plan.openings : []).map((opening: any) => {
+    const wall = walls.find((candidate: any) => String(candidate.id) === String(opening.wallId));
+    const start = wall?.worldStart ?? wall?.worldGeometry?.start ?? wall?.start;
+    const end = wall?.worldEnd ?? wall?.worldGeometry?.end ?? wall?.end;
+    const offset = Number(opening.offsetMm ?? opening.offsetAlongWallMm ?? 0);
+    const length = start && end ? Math.hypot(Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x), Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) : 0;
+    const t = length > 0 ? Math.max(0, Math.min(1, offset / length)) : 0;
+    const xMm = Number(opening.worldPosition?.xMm ?? opening.xMm ?? (start ? Number(start.xMm ?? start.x) + (Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x)) * t : offset));
+    const yMm = Number(opening.worldPosition?.yMm ?? opening.yMm ?? (start ? Number(start.yMm ?? start.y) + (Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) * t : 0));
+    return { id: String(opening.id), wallId: opening.wallId ? String(opening.wallId) : undefined, type: opening.kind === 'window' ? 'window' : 'door', xMm, yMm, widthMm: Number(opening.widthMm ?? 0), heightMm: Number(opening.heightMm ?? 0), swingDeg: opening.swingDeg == null ? undefined : Number(opening.swingDeg) };
+  });
   const servicePoints = (Array.isArray(plan.servicePoints) ? plan.servicePoints : []).map((point: any) => ({ id: String(point.id), xMm: Number(point.position?.xMm ?? point.xMm ?? 0), yMm: Number(point.position?.yMm ?? point.yMm ?? 0), type: String(point.kind ?? point.type ?? 'service') }));
   try {
     const candidates = generateCandidates({ projectId: request.params.projectId, spaceId, roomCategory, floorPlanVersionId: project.data.active_floor_plan_version_id, shape: String(shape ?? 'balanced'), candidateTypes: Array.isArray(candidateTypes) ? candidateTypes : ['maximum_storage', 'best_circulation', 'balanced', 'cost_efficient'], requirements: requirements && typeof requirements === 'object' ? requirements : {}, roomBoundingBoxMm: { minX, minY, maxX, maxY }, usableWalls, openings, servicePoints, structuralElements: [], companyRules: {} } as any);
