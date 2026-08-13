@@ -947,6 +947,9 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
               <Button onClick={() => void compileMoodboard()} variant="outline" disabled={!selectedModule || !materialAssignmentsSaved} title={!selectedModule ? 'Place and select a module first' : !materialAssignmentsSaved ? 'Save selected materials before compiling' : 'Compile persisted geometry, modules and materials'}>
                 <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Compile {draftModules.length} reviewed module{draftModules.length === 1 ? '' : 's'} to scene.v1
               </Button>
+              <Button onClick={() => { if (compiledSceneId) void onSceneApproved(compiledSceneId); }} variant="outline" disabled={!compiledSceneId || sceneApproved} title={!compiledSceneId ? 'Compile a scene first' : sceneApproved ? 'This scene is already approved' : 'Approve this exact scene before rendering'}>
+                <Check size={16} style={{ marginRight: '0.5rem' }} /> {sceneApproved ? 'Scene approved' : 'Approve scene'}
+              </Button>
               <Button disabled={!compiledSceneId || !projectId} onClick={() => navigate(`/projects/${projectId}/3d`)} variant="outline">
                 <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Inspect compiled scene in 3D
               </Button>
