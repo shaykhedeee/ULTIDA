@@ -550,8 +550,20 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       // usable structural set, retain that real evidence as a *review-only*
       // draft. It deliberately requires calibration and room subdivision;
       // nothing is silently declared site-verified.
-      if (!analysis && cvTrace.value?.result?.sourceImageSize && tracedWalls.length >= 4) {
+      if (!analysis && cvTrace.value?.result?.sourceImageSize && tracedWalls.length >= 2) {
         const proposals = supplementSparseVisionProposals([], cvTrace.value.result as CvTraceResult);
+        // OCR is independent evidence. Keep every unambiguous printed value in
+        // the review model so the designer can attach it to a traced wall or
+        // room after calibration instead of losing the measurement when the
+        // semantic provider is sparse.
+        for (const measurement of ocr.value.measurements) {
+          proposals.push({
+            kind: 'dimension',
+            confidence: 0.58,
+            geometry: { valueMm: measurement.valueMm, x: 0, y: 0 },
+            note: `OCR detected ${measurement.originalText} (${measurement.valueMm} mm); attach to the matching visible dimension during review.`,
+          });
+        }
         const confidences = proposals.map((proposal) => Number(proposal.confidence ?? 0));
         analysis = {
           provider: 'intake-parser',
