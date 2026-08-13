@@ -721,6 +721,11 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
   if (!sceneVersionId) return response.status(400).json({ success: false, code: 'SCENE_REQUIRED', message: 'sceneVersionId is required.' });
   const operation = ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'].includes(String(options.operation)) ? String(options.operation) : 'generate';
   const targetModuleId = typeof options.targetModuleId === 'string' ? options.targetModuleId : '';
+  const targetComponentId = typeof options.targetComponentId === 'string' ? options.targetComponentId : '';
+  const targetMaterialId = typeof options.targetMaterialId === 'string' ? options.targetMaterialId : '';
+  const targetSemanticSlot = ['carcass', 'shutter', 'back_panel', 'countertop', 'profile', 'glass', 'hardware', 'flooring', 'wall', 'ceiling', 'lighting'].includes(String(options.targetSemanticSlot))
+    ? String(options.targetSemanticSlot)
+    : undefined;
   if (operation === 'material-swap') {
     if (!targetModuleId) return response.status(400).json({ success: false, code: 'RENDER_TARGET_REQUIRED', message: 'Select the exact module before requesting a material revision.' });
     const scene = await getRequestSupabaseClient(request).from('scene_versions').select('scene,status').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
@@ -739,6 +744,10 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
       ? request.body.idempotencyKey.trim()
       : `${sceneVersionId}:${operation}:${targetModuleId || 'room'}:${String(options.roomId ?? '')}:${String(options.style ?? 'Warm contemporary Indian').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48)}:${String(options.quality ?? 'review')}`,
     roomId: typeof options.roomId === 'string' ? options.roomId : '',
+    targetModuleId: targetModuleId || undefined,
+    targetComponentId: targetComponentId || undefined,
+    targetMaterialId: targetMaterialId || undefined,
+    targetSemanticSlot,
     sourceAssets: [`scene:${sceneVersionId}`],
     referenceAssets: [],
     masks: [],
@@ -746,7 +755,9 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
     style: typeof options.style === 'string' ? options.style : 'Warm contemporary Indian',
     quality: options.quality === 'draft' || options.quality === 'final' ? options.quality : 'review',
     camera: { view: 'wide-corner', lensMm: 24, eyeHeightMm: 1500 },
-    structuredPrompt: operation === 'material-swap' ? `Compiled server-side from the approved ULTIDA scene. Change material only on module ${targetModuleId}; preserve all geometry, openings, camera, ceiling, and every other module.` : 'Compiled server-side from the approved ULTIDA scene.',
+    structuredPrompt: operation === 'material-swap'
+      ? `Compiled server-side from the approved ULTIDA scene. Change only the ${targetSemanticSlot ?? 'selected finish'} of module ${targetModuleId}; preserve all geometry, openings, camera, ceiling, and every other module.`
+      : 'Compiled server-side from the approved ULTIDA scene.',
     // Cloudflare is the only automatic hosted render provider. LocalAI and
     // ComfyUI remain explicit studio-local choices; silently changing
     // providers makes cost, latency and render lineage unpredictable.
@@ -1599,7 +1610,7 @@ app.post('/api/projects/:projectId/material-library/starter', requireProjectUser
     grain_direction: item.family === 'woodgrain' ? 'follow_part' : 'none',
     thickness_mm: item.thicknessMm,
     availability: 'available',
-    metadata: { family: item.family, suitableFor: item.suitableFor, edgeBand: item.edgeBand, source: 'ultida-curated-starter', requiresSupplierConfirmation: true },
+    metadata: { family: item.family, suitableFor: item.suitableFor, edgeBand: item.edgeBand, colourHex: item.colourHex, source: 'ultida-curated-starter', requiresSupplierConfirmation: true },
     created_by: authReq.ultidaUser!.id,
   }));
   const inserted = await client.from('material_library_items').upsert(rows, { onConflict: 'organization_id,code', ignoreDuplicates: true }).select('*');

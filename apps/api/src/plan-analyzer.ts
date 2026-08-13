@@ -11,8 +11,11 @@ function providerTimeoutMs(environment: Environment) {
   // A failed provider must not hold the durable job for a full minute before
   // the next real provider can try. Dense plans normally complete in seconds;
   // callers may opt into a longer ceiling for unusual source files.
-  const parsed = Number(environment.PLAN_ANALYZER_TIMEOUT_MS ?? 30_000);
-  return Number.isFinite(parsed) ? Math.max(5_000, Math.min(parsed, 60_000)) : 30_000;
+  // Keep the interactive review flow moving. CV and OCR run in parallel, so a
+  // semantic provider that has not produced structured evidence in 18 seconds
+  // should yield to guided tracing instead of holding the job indefinitely.
+  const parsed = Number(environment.PLAN_ANALYZER_TIMEOUT_MS ?? 18_000);
+  return Number.isFinite(parsed) ? Math.max(5_000, Math.min(parsed, 30_000)) : 18_000;
 }
 
 function providerOutputTokenBudget(environment: Environment) {
@@ -342,7 +345,12 @@ async function analyzeCloudflare(environment: Environment, input: Input) {
     '@cf/moondream/moondream3.1-9B-A2B',
   ].filter(Boolean) as string[]));
   let lastError: Error | null = null;
-  for (const model of candidateModels) {
+  // Multiple unavailable Cloudflare models used to be tried serially, turning
+  // one missing model into minutes of "Analysing…". Keep one configured or
+  // current primary plus one independently capable fallback. A failed pair is
+  // reported truthfully and the deterministic guided-review route remains
+  // available immediately.
+  for (const model of candidateModels.slice(0, 2)) {
     if (model.includes('8b-instruct') && !model.includes('vision')) continue;
     try {
       const isMoondream = model.includes('moondream');

@@ -39,12 +39,18 @@ export type CatalogModule = z.infer<typeof CatalogModuleSchema>;
 // Curated starting palette: intentionally small, brand-labelled, and never
 // treated as a substitute for a supplier's current technical datasheet.
 export const CuratedLaminateCatalog = [
-  { id: 'cubex-neutral-sand', brand: 'Cubex', name: 'Neutral Sand', family: 'solid', finish: 'matte', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['wardrobe', 'tv-unit', 'crockery', 'bed'] },
-  { id: 'cubex-walnut-grain', brand: 'Cubex', name: 'Walnut Grain', family: 'woodgrain', finish: 'textured', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'ABS', status: 'required' }, suitableFor: ['tv-unit', 'crockery', 'bed'] },
-  { id: 'advance-ivory-matte', brand: 'Advance', name: 'Ivory Matte', family: 'solid', finish: 'matte', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['kitchen', 'wardrobe', 'pooja'] },
-  { id: 'advance-stone-grey', brand: 'Advance', name: 'Stone Grey', family: 'stone', finish: 'textured', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'PVC', status: 'required' }, suitableFor: ['kitchen', 'tv-unit', 'crockery'] },
-  { id: 'virgo-sage-green', brand: 'Virgo', name: 'Sage Green', family: 'solid', finish: 'satin', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['kitchen', 'wardrobe', 'bed'] },
-  { id: 'virgo-smoked-oak', brand: 'Virgo', name: 'Smoked Oak', family: 'woodgrain', finish: 'satin', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'ABS', status: 'required' }, suitableFor: ['tv-unit', 'bed', 'crockery'] },
+  { id: 'cubex-neutral-sand', brand: 'Cubex', name: 'Neutral Sand', family: 'solid', finish: 'matte', colourHex: '#C9B59B', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['wardrobe', 'tv-unit', 'crockery', 'bed'] },
+  { id: 'cubex-walnut-grain', brand: 'Cubex', name: 'Walnut Grain', family: 'woodgrain', finish: 'textured', colourHex: '#654230', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'ABS', status: 'required' }, suitableFor: ['tv-unit', 'crockery', 'bed'] },
+  { id: 'cubex-charcoal-oak', brand: 'Cubex', name: 'Charcoal Oak', family: 'woodgrain', finish: 'textured', colourHex: '#34302B', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'ABS', status: 'required' }, suitableFor: ['tv-unit', 'kitchen', 'study'] },
+  { id: 'cubex-blush-ivory', brand: 'Cubex', name: 'Blush Ivory', family: 'solid', finish: 'suede', colourHex: '#E8D9CC', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['bed', 'wardrobe', 'pooja'] },
+  { id: 'advance-ivory-matte', brand: 'Advance', name: 'Ivory Matte', family: 'solid', finish: 'matte', colourHex: '#E7E0D2', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['kitchen', 'wardrobe', 'pooja'] },
+  { id: 'advance-stone-grey', brand: 'Advance', name: 'Stone Grey', family: 'stone', finish: 'textured', colourHex: '#77736D', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'PVC', status: 'required' }, suitableFor: ['kitchen', 'tv-unit', 'crockery'] },
+  { id: 'advance-terrazzo-beige', brand: 'Advance', name: 'Terrazzo Beige', family: 'stone', finish: 'textured', colourHex: '#BBA99B', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'PVC', status: 'required' }, suitableFor: ['kitchen', 'crockery', 'study'] },
+  { id: 'advance-graphite', brand: 'Advance', name: 'Graphite', family: 'solid', finish: 'matte', colourHex: '#303234', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['kitchen', 'tv-unit', 'wardrobe'] },
+  { id: 'virgo-sage-green', brand: 'Virgo', name: 'Sage Green', family: 'solid', finish: 'satin', colourHex: '#77816B', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['kitchen', 'wardrobe', 'bed'] },
+  { id: 'virgo-smoked-oak', brand: 'Virgo', name: 'Smoked Oak', family: 'woodgrain', finish: 'satin', colourHex: '#5A473B', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'ABS', status: 'required' }, suitableFor: ['tv-unit', 'bed', 'crockery'] },
+  { id: 'virgo-forest-green', brand: 'Virgo', name: 'Forest Green', family: 'solid', finish: 'matte', colourHex: '#38463A', thicknessMm: 1, edgeBand: { thicknessMm: 2, material: 'ABS', status: 'required' }, suitableFor: ['crockery', 'tv-unit', 'pooja'] },
+  { id: 'virgo-dune-oak', brand: 'Virgo', name: 'Dune Oak', family: 'woodgrain', finish: 'textured', colourHex: '#A77B5B', thicknessMm: 0.8, edgeBand: { thicknessMm: 1, material: 'PVC', status: 'required' }, suitableFor: ['wardrobe', 'bed', 'study'] },
 ] as const;
 
 export const IndianModularDesignPresetSchema = z.object({

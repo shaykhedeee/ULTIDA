@@ -1,30 +1,36 @@
-import React, { useEffect, useState } from 'react';
-import { RefreshCcw, Wand2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Layers3, RefreshCcw, Wand2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
-type Material = { id: string; name: string; code: string; category: string; finish?: string | null; availability?: string };
+type MaterialSlot = 'carcass' | 'shutter' | 'back_panel' | 'countertop' | 'profile' | 'glass' | 'hardware' | 'flooring' | 'wall' | 'ceiling' | 'lighting';
+type Material = {
+  id: string; name: string; code: string; category: string; finish?: string | null; availability?: string;
+  supplier?: string | null; brand?: string | null; thickness_mm?: number | null; grain_direction?: string | null;
+  metadata?: { colourHex?: string; colorHex?: string; edgeBand?: { thicknessMm?: number; material?: string; status?: string } };
+};
 
 type Props = {
-  entityId: string;
-  projectId?: string | null;
-  moduleInstanceId?: string | null;
-  semanticSlot?: 'carcass' | 'shutter' | 'back_panel' | 'countertop' | 'profile' | 'glass' | 'hardware' | 'flooring' | 'wall' | 'ceiling' | 'lighting';
-  currentLaminate?: string;
-  onConfirmCatalogSwap?: (payload: { entityId: string; laminate: string }) => void;
-  onPreviewCatalogSwap?: (payload: { entityId: string; materialId: string; laminate: string }) => Promise<void> | void;
-  onConfirmAiProposal?: (payload: { entityId: string; prompt: string; negativePrompt?: string }) => void;
+  entityId: string; projectId?: string | null; moduleInstanceId?: string | null; semanticSlot?: MaterialSlot; currentLaminate?: string;
+  onConfirmCatalogSwap?: (payload: { entityId: string; laminate: string; materialId: string; semanticSlot: MaterialSlot }) => void;
+  onPreviewCatalogSwap?: (payload: { entityId: string; materialId: string; laminate: string; semanticSlot: MaterialSlot }) => Promise<void> | void;
 };
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+const slots: Array<{ id: MaterialSlot; label: string }> = [
+  { id: 'shutter', label: 'Shutters' }, { id: 'carcass', label: 'Carcass' }, { id: 'back_panel', label: 'Back panel' },
+  { id: 'countertop', label: 'Countertop' }, { id: 'profile', label: 'Profile' }, { id: 'glass', label: 'Glass' },
+];
+const defaultSwatch = '#b6a28d';
+const materialColor = (material: Material) => material.metadata?.colourHex ?? material.metadata?.colorHex ?? defaultSwatch;
 
-export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, semanticSlot = 'shutter', currentLaminate = 'Unknown', onConfirmCatalogSwap, onPreviewCatalogSwap, onConfirmAiProposal }: Props) {
+export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, semanticSlot = 'shutter', currentLaminate = 'Unknown', onConfirmCatalogSwap, onPreviewCatalogSwap }: Props) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [materialId, setMaterialId] = useState('');
-  const [prompt, setPrompt] = useState(`Warm contemporary Indian interior for ${entityId}. Natural materials, soft shadows.`);
-  const [negative, setNegative] = useState('blurry, distorted, watermark');
+  const [targetSlot, setTargetSlot] = useState<MaterialSlot>(semanticSlot);
   const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState(projectId ? 'Loading organization material library...' : 'Select a project to use the material library.');
+  const [message, setMessage] = useState(projectId ? 'Loading your studio laminate library…' : 'Select a project to use the studio laminate library.');
 
+  useEffect(() => setTargetSlot(semanticSlot), [semanticSlot]);
   useEffect(() => {
     if (!projectId) return;
     let active = true;
@@ -35,86 +41,62 @@ export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, seman
         const response = await fetch(`${apiBase}/projects/${projectId}/material-library`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         const payload = await response.json();
         if (!active) return;
-        if (!response.ok) {
-          setMaterials([]);
-          setMessage(payload.message ?? 'Material library is unavailable.');
-          return;
-        }
-        const next = Array.isArray(payload.materials) ? payload.materials : [];
+        if (!response.ok) { setMaterials([]); setMessage(payload.message ?? 'Material library is unavailable.'); return; }
+        const next = Array.isArray(payload.materials) ? payload.materials as Material[] : [];
         setMaterials(next);
-        setMaterialId((current) => current || next[0]?.id || '');
-        setMessage(next.length ? '' : 'No approved materials exist in this organization library yet.');
-      } catch {
-        if (active) setMessage('Material library request failed. No material was changed.');
-      }
+        const firstLaminate = next.find((item) => item.category === 'laminate') ?? next[0];
+        setMaterialId((current) => current || firstLaminate?.id || '');
+        setMessage(next.length ? '' : 'No saved laminates yet. Add the curated starter palette from Materials first.');
+      } catch { if (active) setMessage('Material library request failed. No material was changed.'); }
     })();
     return () => { active = false; };
   }, [projectId]);
 
-  if (!entityId) return <div className="material-swap-panel"><p>Select a module, wall or opening to swap materials.</p></div>;
-
+  const laminates = useMemo(() => materials.filter((item) => item.category === 'laminate'), [materials]);
   const selected = materials.find((item) => item.id === materialId);
+  if (!entityId) return <div className="material-swap-panel"><p>Select an exact placed module before changing a laminate.</p></div>;
+
   const applyCatalogSwap = async (preview = false) => {
-    if (!projectId || !selected) return;
-    setPending(true);
-    setMessage('Saving a versioned material assignment...');
+    if (!projectId || !selected || !moduleInstanceId) { setMessage('Select a placed module and saved laminate before continuing.'); return; }
+    setPending(true); setMessage('Saving the versioned component material assignment…');
     try {
       const session = await supabase?.auth.getSession();
       const token = session?.data.session?.access_token;
       const response = await fetch(`${apiBase}/projects/${projectId}/material-assignments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ materialId: selected.id, moduleInstanceId: moduleInstanceId ?? null, targetKind: moduleInstanceId ? 'module' : 'semantic_slot', targetId: moduleInstanceId ?? entityId, semanticSlot, status: 'draft' })
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ materialId: selected.id, moduleInstanceId, targetKind: 'module', targetId: moduleInstanceId, semanticSlot: targetSlot, status: 'draft' })
       });
       const payload = await response.json();
-      if (!response.ok) {
-        setMessage(payload.message ?? 'Material assignment was not saved.');
-        return;
-      }
-      onConfirmCatalogSwap?.({ entityId, laminate: selected.name });
+      if (!response.ok) { setMessage(payload.message ?? 'Material assignment was not saved.'); return; }
+      onConfirmCatalogSwap?.({ entityId, laminate: selected.name, materialId: selected.id, semanticSlot: targetSlot });
       if (preview) {
-        setMessage(`${selected.name} saved. Starting a scene-locked material preview...`);
-        await onPreviewCatalogSwap?.({ entityId, materialId: selected.id, laminate: selected.name });
-      } else {
-        setMessage(`${selected.name} saved. The assignment is ready for a scene-locked preview.`);
-      }
-    } catch {
-      setMessage('Material assignment request failed. No material was changed.');
-    } finally {
-      setPending(false);
-    }
+        setMessage(`${selected.name} saved. Compiling a scene-locked preview for the selected ${targetSlot.replace('_', ' ')}…`);
+        await onPreviewCatalogSwap?.({ entityId, materialId: selected.id, laminate: selected.name, semanticSlot: targetSlot });
+      } else setMessage(`${selected.name} saved on ${targetSlot.replace('_', ' ')}. Preview is ready when the scene is compiled.`);
+    } catch { setMessage('Material assignment request failed. No material was changed.'); }
+    finally { setPending(false); }
   };
 
-  return (
-    <div className="material-swap-panel">
-      <div className="material-section">
-        <h4>Material library</h4>
-        <label>
-          Laminate / material
-          <select value={materialId} onChange={(event) => setMaterialId(event.target.value)} disabled={pending || !materials.length}>
-            {!materials.length && <option value="">No library materials</option>}
-            {materials.map((material) => <option key={material.id} value={material.id}>{material.name} ({material.code})</option>)}
-          </select>
-        </label>
-        {selected && <small>{selected.category}{selected.finish ? ` · ${selected.finish}` : ''}{selected.availability ? ` · ${selected.availability}` : ''}</small>}
-        <button type="button" disabled={pending || !projectId || !selected} onClick={() => void applyCatalogSwap()}>
-          <RefreshCcw size={14} /> {pending ? 'Saving assignment...' : 'Apply saved material'}
-        </button>
-        <button type="button" disabled={pending || !projectId || !selected} onClick={() => void applyCatalogSwap(true)}>
-          <Wand2 size={14} /> {pending ? 'Preparing preview...' : 'Apply and preview in render'}
-        </button>
-        <p role="status">{message || `Current visual label: ${currentLaminate}`}</p>
+  return <div className="material-swap-panel">
+    <div className="material-section">
+      <div className="material-swap-heading"><Layers3 size={15} /><div><h4>Targeted laminate swap</h4><small>Only the chosen module mask is sent for editing. Room geometry remains locked.</small></div></div>
+      <span className="material-slot-label">Apply to this component group</span>
+      <div className="material-slot-grid">{slots.map((slot) => <button key={slot.id} type="button" className={targetSlot === slot.id ? 'active' : ''} disabled={pending} onClick={() => setTargetSlot(slot.id)}>{slot.label}</button>)}</div>
+      <span className="material-slot-label">Laminate palette</span>
+      <div className="laminate-swatch-grid">
+        {(laminates.length ? laminates : materials).map((material) => <button key={material.id} type="button" aria-pressed={materialId === material.id} className={materialId === material.id ? 'selected' : ''} disabled={pending} onClick={() => setMaterialId(material.id)}>
+          <span className="laminate-swatch" style={{ background: materialColor(material) }} />
+          <span>{material.name}</span><small>{material.brand ?? material.supplier ?? 'Studio'} · {material.thickness_mm ?? '—'} mm</small>
+        </button>)}
       </div>
-      <div className="material-section">
-        <h4>AI proposal</h4>
-        <label>Prompt<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label>
-        <label>Negative prompt<textarea value={negative} onChange={(event) => setNegative(event.target.value)} /></label>
-        <button type="button" disabled={pending || !prompt.trim()} onClick={() => onConfirmAiProposal?.({ entityId, prompt: prompt.trim(), negativePrompt: negative.trim() || undefined })}>
-          <Wand2 size={14} /> Request AI proposal
-        </button>
+      {selected && <div className="laminate-spec"><CheckCircle2 size={14} /><span><strong>{selected.name}</strong> · {selected.finish ?? 'finish to confirm'} · {selected.thickness_mm ?? '—'} mm laminate · {selected.metadata?.edgeBand?.thicknessMm ?? '—'} mm {selected.metadata?.edgeBand?.material ?? 'edge band'} · grain {selected.grain_direction ?? 'none'}</span></div>}
+      <div className="material-swap-actions">
+        <button type="button" disabled={pending || !projectId || !selected || !moduleInstanceId} onClick={() => void applyCatalogSwap()}><RefreshCcw size={14} /> {pending ? 'Saving…' : 'Save component material'}</button>
+        <button type="button" className="primary" disabled={pending || !projectId || !selected || !moduleInstanceId} onClick={() => void applyCatalogSwap(true)}><Wand2 size={14} /> {pending ? 'Preparing…' : 'Generate locked preview'}</button>
       </div>
+      <p role="status">{message || `Current visual label: ${currentLaminate}`}</p>
     </div>
-  );
+  </div>;
 }
 
 export default MaterialSwapPanel;

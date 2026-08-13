@@ -403,7 +403,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     }
   }
 
-  async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string, sceneVersionOverride?: string, sceneIsApproved = sceneApproved) {
+  async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string, sceneVersionOverride?: string, sceneIsApproved = sceneApproved, materialTarget?: { materialId: string; semanticSlot: string }) {
     const renderSceneVersionId = sceneVersionOverride ?? compiledSceneId ?? sceneVersionId;
     if (!renderSceneVersionId) { setVisualState('Create and save a scene first.'); return; }
     if (!sceneIsApproved) { setVisualState('Approve the source scene before generating a scene-linked render or laminate revision.'); return; }
@@ -418,7 +418,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
       if (!renderRoomId) { setVisualBusy(false); setVisualState('Select a persisted room before generating a render.'); return; }
       if (operation === 'material-swap' && !selectedModule) { setVisualBusy(false); setVisualState('Select the exact module whose material should change before creating a revision.'); return; }
       const normalizedStyle = renderStyle.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48) || 'studio-default';
-      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId: renderSceneVersionId, idempotencyKey: `${renderSceneVersionId}:${renderRoomId}:${selectedModule?.id ?? 'room'}:${operation}:${normalizedStyle}:${quality}`, options: { roomId: renderRoomId, targetModuleId: selectedModule?.id ?? null, style: renderStyle, quality, operation } }) });
+      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId: renderSceneVersionId, idempotencyKey: `${renderSceneVersionId}:${renderRoomId}:${selectedModule?.id ?? 'room'}:${materialTarget?.materialId ?? 'base'}:${materialTarget?.semanticSlot ?? 'module'}:${operation}:${normalizedStyle}:${quality}`, options: { roomId: renderRoomId, targetModuleId: selectedModule?.id ?? null, targetMaterialId: materialTarget?.materialId, targetSemanticSlot: materialTarget?.semanticSlot, style: renderStyle, quality, operation } }) });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
         setVisualBusy(false);
@@ -600,7 +600,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                       setMaterialAssignmentsSaved(true);
                       setVisualState('Material assignment saved. Preview it in the approved scene when ready.');
                     }}
-                    onPreviewCatalogSwap={async ({ materialId, laminate }) => {
+                    onPreviewCatalogSwap={async ({ materialId, laminate, semanticSlot }) => {
                       setActiveLaminate(materialId);
                       if (!selectedModule) {
                         setVisualState('Select the exact module before creating a laminate revision.');
@@ -620,9 +620,8 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                         setVisualState('The material revision was saved as a draft but could not be approved. Review its scene validation before rendering.');
                         return;
                       }
-                      await createVisual('material-swap', laminate, compiledSceneVersionId, true);
+                      await createVisual('material-swap', laminate, compiledSceneVersionId, true, { materialId, semanticSlot });
                     }}
-                    onConfirmAiProposal={() => setVisualState('AI material proposals require an approved scene revision before rendering.')}
                   />
                 </div>
 

@@ -380,6 +380,17 @@ def trace_image(img: np.ndarray) -> dict:
     """
     if img is None:
         raise ValueError("Could not decode the supplied plan image")
+    # Extremely large uploads multiply Hough/connected-component cost without
+    # improving the editable review model. Trace at a bounded working size and
+    # return coordinates in the original source coordinate space so existing
+    # reconciliation and calibration remain exact to the uploaded preview.
+    source_h, source_w = img.shape[:2]
+    longest = max(source_h, source_w)
+    working_limit = 2200
+    scale = 1.0
+    if longest > working_limit:
+        scale = working_limit / float(longest)
+        img = cv2.resize(img, (round(source_w * scale), round(source_h * scale)), interpolation=cv2.INTER_AREA)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     h, w = gray.shape
 
@@ -398,15 +409,30 @@ def trace_image(img: np.ndarray) -> dict:
 
     openings = detect_openings(walls, binary)
 
+    if scale != 1.0:
+        inverse = 1.0 / scale
+        for wall in walls:
+            for key in ('x1', 'y1', 'x2', 'y2', 'lengthPx', 'thicknessPx'):
+                if key in wall:
+                    wall[key] = round(float(wall[key]) * inverse, 2)
+        for corner in corners:
+            corner['x'] = round(float(corner['x']) * inverse, 2)
+            corner['y'] = round(float(corner['y']) * inverse, 2)
+        for opening in openings:
+            opening['approxCenterPx']['x'] = round(float(opening['approxCenterPx']['x']) * inverse, 2)
+            opening['approxCenterPx']['y'] = round(float(opening['approxCenterPx']['y']) * inverse, 2)
+            opening['approxWidthPx'] = round(float(opening['approxWidthPx']) * inverse, 2)
+
     return {
         'schema': 'PlanAnalysisResultV1.wallCandidates',
-        'sourceImageSize': {'widthPx': w, 'heightPx': h},
+        'sourceImageSize': {'widthPx': source_w, 'heightPx': source_h},
         'corners': corners,
         'walls': walls,
         'wallCount': len(walls),
         'openings': openings,
         'openingCount': len(openings),
         'method': 'deterministic-cv-hough-thickness-pairing',
+        'workingScale': scale,
         'notes': (
             'Candidate geometry only. Not authoritative until reconciled '
             'with vision-model semantics and confirmed by a human reviewer, '
