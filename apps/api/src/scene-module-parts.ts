@@ -78,6 +78,7 @@ export function compileStoredModuleForScene(
   if (!wall) return { ok: false, code: 'MODULE_WALL_NOT_FOUND', message: `Module ${module.id} references a wall outside the active plan.` };
   const compiler = COMPILER_REGISTRY[category];
   const configuration = typeof config.configuration === 'object' && config.configuration ? config.configuration as Record<string, unknown> : {};
+  const parameters = typeof config.parameters === 'object' && config.parameters ? config.parameters as Record<string, unknown> : {};
   const drawerCount = typeof configuration.drawerCount === 'number' ? configuration.drawerCount : undefined;
   const shutterCount = typeof configuration.shutterCount === 'number' ? configuration.shutterCount : undefined;
   const lighting = configuration.lighting === 'shelf-led' || configuration.lighting === 'vertical-led' ? 'profile_led' : 'none';
@@ -89,6 +90,7 @@ export function compileStoredModuleForScene(
     templateVersionId: module.template_id ?? `catalog-${family}`,
     instanceId: module.id,
     parameters: {
+      ...parameters,
       ...config,
       totalWidthMm: widthMm,
       totalDepthMm: depthMm,

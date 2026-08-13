@@ -34,6 +34,10 @@ export const SymbolicPlacementSchema = z.object({
   depthMm: z.number().positive(),
   clearanceZoneMm: z.number().nonnegative().default(0),
   requiredServicePoints: z.array(z.string()).default([]),
+  // Construction/archetype controls are preserved with the placement so the
+  // module editor, scene compiler, drawings and cutlist all compile the same
+  // physical assembly instead of reconstructing a generic box downstream.
+  parameters: z.record(z.unknown()).default({}),
   materialSlots: z.record(z.string()).default({}), // part-semantic -> material code
   source: z.enum(['builder_symbol', 'ai_proposal', 'manual']),
   confirmed: z.boolean().default(false),
@@ -90,6 +94,7 @@ export function builderPlanToSymbols(candidates: AnalysisSymbolCandidate[], opts
     depthMm: c.depthMm,
     clearanceZoneMm: 0,
     requiredServicePoints: [],
+    parameters: {},
     materialSlots: {},
     source: 'builder_symbol',
     confirmed: !requireConfirmation,
@@ -135,6 +140,7 @@ export function parseAutoLayoutResponse(json: unknown): SymbolicPlacement[] {
     depthMm: p.depthMm,
     clearanceZoneMm: p.clearanceZoneMm ?? 0,
     materialSlots: p.materialSlots ?? {},
+    parameters: p.parameters ?? {},
     source: 'ai_proposal',
     confirmed: false,
   }));

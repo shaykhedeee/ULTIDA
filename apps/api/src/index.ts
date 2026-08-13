@@ -1070,6 +1070,22 @@ app.post('/api/studio/calendar', requireStudioUser, async (request, response) =>
   return response.status(201).json({ success: true, event: result.data });
 });
 
+app.patch('/api/studio/identity', requireStudioUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const organizationId = authReq.ultidaUser!.organizationId!;
+  const client = getRequestSupabaseClient(request);
+  const membership = await client.from('organization_members').select('role').eq('organization_id', organizationId).eq('user_id', authReq.ultidaUser!.id).maybeSingle();
+  if (membership.error) return response.status(500).json({ success: false, code: 'STUDIO_ROLE_LOOKUP_FAILED', message: membership.error.message });
+  if (!membership.data || !['owner', 'admin'].includes(String(membership.data.role))) {
+    return response.status(403).json({ success: false, code: 'STUDIO_ADMIN_REQUIRED', message: 'Only a studio owner or administrator can change the studio identity.' });
+  }
+  const name = typeof request.body?.name === 'string' ? request.body.name.trim().replace(/\s+/g, ' ') : '';
+  if (name.length < 2 || name.length > 80) return response.status(400).json({ success: false, code: 'INVALID_STUDIO_NAME', message: 'Studio name must be between 2 and 80 characters.' });
+  const updated = await client.from('organizations').update({ name }).eq('id', organizationId).select('id,name').single();
+  if (updated.error) return response.status(500).json({ success: false, code: 'STUDIO_IDENTITY_UPDATE_FAILED', message: updated.error.message });
+  return response.json({ success: true, organization: updated.data });
+});
+
 // Team administration is organization-scoped. Invitations are created here
 // rather than directly from the browser so role checks and duplicate handling
 // cannot be bypassed by a client-side caller.

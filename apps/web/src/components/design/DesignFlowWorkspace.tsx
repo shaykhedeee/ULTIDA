@@ -12,7 +12,7 @@ type Module = { id: string; roomId: string; family: string; label: string; width
 type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; description?: string; manufacturingRules?: string[] };
 type PreparedModulePlan = { schema: 'ultida.module-plan.v1'; templateId: string; family: string; name: string; dimensionsMm: { width: number; depth: number; height: number }; wallWidthMm: number; clearanceMm: number };
 type DesignPreset = { id: string; name: string; family: string; roomTypes: string[]; referenceStyle: string[]; renderRules: string[]; productionRules: string[] };
-type ModuleConfiguration = { shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; shutterCount?: number; includeLoft: boolean; glassProfile: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
+type ModuleConfiguration = { archetype: string; shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; shutterCount?: number; includeLoft: boolean; glassProfile: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
 type Provider = { id: string; configured: boolean; operations: string[] };
 type StoredRender = { id: string; scene_version_id: string; status: string; stale?: boolean; signedUrl: string | null; created_at: string; provenance?: { provider?: string; model?: string; promptVersion?: string; reviewStatus?: string } };
 type Props = { stage: Stage; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
@@ -50,7 +50,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [catalogQuery, setCatalogQuery] = useState('');
   const [familyFilter, setFamilyFilter] = useState('all');
-  const [moduleConfiguration, setModuleConfiguration] = useState<ModuleConfiguration>({ shutterStyle: 'swing', drawerCount: 0, includeLoft: false, glassProfile: false, handleStyle: 'long-profile', lighting: 'none' });
+  const [moduleConfiguration, setModuleConfiguration] = useState<ModuleConfiguration>({ archetype: 'full_wall_storage', shutterStyle: 'swing', drawerCount: 0, includeLoft: false, glassProfile: false, handleStyle: 'long-profile', lighting: 'none' });
   const [draftModules, setDraftModules] = useState<Module[]>([]);
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
   const [designMode, setDesignMode] = useState<'layout' | 'moodboard'>('layout');
@@ -324,7 +324,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
       const result = await response.json();
       if (!response.ok || !result.valid) { setPlacementNotice(result.issues?.join(' ') ?? 'This module cannot be placed here.'); return; }
       const adaptiveShutterCount = ['tv-unit', 'crockery'].includes(item.family) ? Math.max(2, Math.round(fitted.widthMm / 450)) : undefined;
-      const moduleResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ spaceId, templateId: item.id, category: item.family, label: item.name, config: { family: item.family, widthMm: fitted.widthMm, depthMm: fitted.depthMm, heightMm: fitted.heightMm, templateWidthMm: item.widthMm, tags: item.tags, manufacturingRules: item.manufacturingRules ?? [], configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount, source: fitted.adapted ? 'wall-fit' : 'catalog' } }, position: { wallId, offsetMm } }) });
+      const moduleResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ spaceId, templateId: item.id, category: item.family, label: item.name, config: { family: item.family, widthMm: fitted.widthMm, depthMm: fitted.depthMm, heightMm: fitted.heightMm, templateWidthMm: item.widthMm, tags: item.tags, manufacturingRules: item.manufacturingRules ?? [], parameters: { family: moduleConfiguration.archetype, archetype: moduleConfiguration.archetype, overheadStorage: moduleConfiguration.includeLoft, includeLoft: moduleConfiguration.includeLoft, profileGlassOption: moduleConfiguration.glassProfile, shelfOption: true, lighting: moduleConfiguration.lighting === 'none' ? 'none' : 'profile_led', drawerCount: moduleConfiguration.drawerCount, shutterCount: adaptiveShutterCount, handleStyle: moduleConfiguration.handleStyle }, configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount, source: fitted.adapted ? 'wall-fit' : 'catalog' } }, position: { wallId, offsetMm } }) });
       const modulePayload = await moduleResponse.json();
       if (!moduleResponse.ok || !modulePayload.module) { setPlacementNotice(modulePayload.message ?? 'Module anchor could not be saved.'); return; }
       const saved = modulePayload.module;
@@ -814,6 +814,17 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
               </label>
               <fieldset className="module-configuration" style={{ border: '1px solid #e8ded2', borderRadius: '6px', padding: '0.75rem', display: 'grid', gap: '0.55rem' }}>
                 <legend style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0 0.25rem' }}>CONFIGURE THE NEXT MOODBOARD MODULE</legend>
+                <label>
+                  Assembly archetype
+                  <select value={moduleConfiguration.archetype} onChange={(event) => setModuleConfiguration((current) => ({ ...current, archetype: event.target.value }))}>
+                    <option value="full_wall_storage">Full wall storage</option>
+                    <option value="minimal_floating">Minimal floating</option>
+                    <option value="asymmetric_profile_glass">Asymmetric profile glass</option>
+                    <option value="tv_plus_crockery">TV plus crockery</option>
+                    <option value="profile_glass_display">Profile glass display</option>
+                    <option value="open_niche_storage">Open niche storage</option>
+                  </select>
+                </label>
                 <label>
                   Front style
                   <select value={moduleConfiguration.shutterStyle} onChange={(event) => setModuleConfiguration((current) => ({ ...current, shutterStyle: event.target.value as ModuleConfiguration['shutterStyle'], glassProfile: event.target.value === 'profile-glass' }))}>
