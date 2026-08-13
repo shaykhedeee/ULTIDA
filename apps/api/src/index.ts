@@ -2105,12 +2105,28 @@ app.post('/api/projects/:projectId/layout-candidates', requireProjectUser, async
   const minY = Math.min(...points.map((point: any) => point.y));
   const maxY = Math.max(...points.map((point: any) => point.y));
   const walls = Array.isArray(plan.walls) ? plan.walls : [];
-  const usableWalls = walls.map((wall: any) => {
+  let usableWalls = walls.map((wall: any) => {
     const start = wall.worldStart ?? wall.worldGeometry?.start ?? wall.start;
     const end = wall.worldEnd ?? wall.worldGeometry?.end ?? wall.end;
     if (!start || !end) return null;
     return { id: String(wall.id), minX: Math.min(Number(start.xMm ?? start.x), Number(end.xMm ?? end.x)), minY: Math.min(Number(start.yMm ?? start.y), Number(end.yMm ?? end.y)), maxX: Math.max(Number(start.xMm ?? start.x), Number(end.xMm ?? end.x)), maxY: Math.max(Number(start.yMm ?? start.y), Number(end.yMm ?? end.y)), orientation: Math.abs(Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x)) >= Math.abs(Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) ? 'north' : 'east' };
   }).filter((wall: any) => wall && wall.maxX >= minX - 250 && wall.minX <= maxX + 250 && wall.maxY >= minY - 250 && wall.minY <= maxY + 250);
+  // AI plans can contain valid room loops before every shared wall is fully
+  // reconciled. Layout still needs stable, measured wall anchors, so derive
+  // missing boundary edges from the accepted room polygon.
+  if (usableWalls.length < 3) {
+    usableWalls = points.map((point: any, index: number) => {
+      const next = points[(index + 1) % points.length];
+      const horizontal = Math.abs(next.x - point.x) >= Math.abs(next.y - point.y);
+      return {
+        id: `room-boundary-${spaceId}-${index + 1}`,
+        minX: Math.min(point.x, next.x), minY: Math.min(point.y, next.y),
+        maxX: Math.max(point.x, next.x), maxY: Math.max(point.y, next.y),
+        orientation: horizontal ? (point.y <= (minY + maxY) / 2 ? 'north' : 'south') : (point.x <= (minX + maxX) / 2 ? 'west' : 'east'),
+      };
+    }).filter((wall: any) => Math.hypot(wall.maxX - wall.minX, wall.maxY - wall.minY) >= 300);
+  }
+  const usableWallIds = new Set(usableWalls.map((wall: any) => String(wall.id)));
   const openings = (Array.isArray(plan.openings) ? plan.openings : []).map((opening: any) => {
     const wall = walls.find((candidate: any) => String(candidate.id) === String(opening.wallId));
     const start = wall?.worldStart ?? wall?.worldGeometry?.start ?? wall?.start;
@@ -2120,11 +2136,12 @@ app.post('/api/projects/:projectId/layout-candidates', requireProjectUser, async
     const t = length > 0 ? Math.max(0, Math.min(1, offset / length)) : 0;
     const xMm = Number(opening.worldPosition?.xMm ?? opening.xMm ?? (start ? Number(start.xMm ?? start.x) + (Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x)) * t : offset));
     const yMm = Number(opening.worldPosition?.yMm ?? opening.yMm ?? (start ? Number(start.yMm ?? start.y) + (Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) * t : 0));
-    return { id: String(opening.id), wallId: opening.wallId ? String(opening.wallId) : undefined, type: opening.kind === 'window' ? 'window' : 'door', xMm, yMm, widthMm: Number(opening.widthMm ?? 0), heightMm: Number(opening.heightMm ?? 0), swingDeg: opening.swingDeg == null ? undefined : Number(opening.swingDeg) };
-  });
-  const servicePoints = (Array.isArray(plan.servicePoints) ? plan.servicePoints : []).map((point: any) => ({ id: String(point.id), xMm: Number(point.position?.xMm ?? point.xMm ?? 0), yMm: Number(point.position?.yMm ?? point.yMm ?? 0), type: String(point.kind ?? point.type ?? 'service') }));
+    return { id: String(opening.id), wallId: opening.wallId ? String(opening.wallId) : undefined, type: opening.kind === 'window' ? 'window' : 'door', xMm, yMm, widthMm: Math.max(300, Number(opening.widthMm ?? 900)), heightMm: Math.max(300, Number(opening.heightMm ?? (opening.kind === 'window' ? 1200 : 2100))), swingDeg: opening.swingDeg == null ? undefined : Number(opening.swingDeg) };
+  }).filter((opening: any) => (opening.wallId && usableWallIds.has(opening.wallId)) || (opening.xMm >= minX - 250 && opening.xMm <= maxX + 250 && opening.yMm >= minY - 250 && opening.yMm <= maxY + 250));
+  const servicePoints = (Array.isArray(plan.servicePoints) ? plan.servicePoints : []).map((point: any) => ({ id: String(point.id), xMm: Number(point.position?.xMm ?? point.xMm ?? 0), yMm: Number(point.position?.yMm ?? point.yMm ?? 0), type: String(point.kind ?? point.type ?? 'service') })).filter((point: any) => point.xMm >= minX && point.xMm <= maxX && point.yMm >= minY && point.yMm <= maxY);
   try {
-    const candidates = generateCandidates({ projectId: request.params.projectId, spaceId, roomCategory, floorPlanVersionId: project.data.active_floor_plan_version_id, shape: String(shape ?? 'balanced'), candidateTypes: Array.isArray(candidateTypes) ? candidateTypes : ['maximum_storage', 'best_circulation', 'balanced', 'cost_efficient'], requirements: requirements && typeof requirements === 'object' ? requirements : {}, roomBoundingBoxMm: { minX, minY, maxX, maxY }, usableWalls, openings, servicePoints, structuralElements: [], companyRules: {} } as any);
+    const savedRequirements = spaceResult.data.requirements_json && typeof spaceResult.data.requirements_json === 'object' ? spaceResult.data.requirements_json : {};
+    const candidates = generateCandidates({ projectId: request.params.projectId, spaceId, roomCategory, floorPlanVersionId: project.data.active_floor_plan_version_id, shape: String(shape ?? 'balanced'), candidateTypes: Array.isArray(candidateTypes) ? candidateTypes : ['maximum_storage', 'best_circulation', 'balanced', 'cost_efficient'], requirements: { ...savedRequirements, ...(requirements && typeof requirements === 'object' ? requirements : {}) }, roomBoundingBoxMm: { minX, minY, maxX, maxY }, usableWalls, openings, servicePoints, structuralElements: [], companyRules: {} } as any);
     return response.json({ success: true, floorPlanVersionId: project.data.active_floor_plan_version_id, spaceId, candidates });
   } catch (error) {
     return response.status(422).json({ success: false, code: 'LAYOUT_CANDIDATE_GENERATION_FAILED', message: error instanceof Error ? error.message : 'The canonical room geometry could not generate candidates.' });

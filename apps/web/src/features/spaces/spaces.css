@@ -249,3 +249,6 @@
   .layers-region .region-title { width:100%; }
   .layer-row { width:auto; }
 }
+.wall-elevation-preview { margin-top: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); }
+.wall-elevation-title { margin-bottom: 8px; color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.wall-elevation-preview svg { display: block; width: 100%; height: 145px; background: #fff; border-radius: 6px; }

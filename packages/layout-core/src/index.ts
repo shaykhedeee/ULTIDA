@@ -67,10 +67,12 @@ export function evaluateConstraintGraph(
 ): LayoutConstraintGraph {
   const constraints = placements.flatMap((placement) => {
     const defaults: LayoutConstraint[] = [
-      { id: `${placement.id}:wall`, kind: 'must_be_wall_anchored', sourceId: placement.id, weight: 2 },
       { id: `${placement.id}:opening`, kind: 'must_not_obstruct_opening', sourceId: placement.id, weight: 3 },
       { id: `${placement.id}:clearance`, kind: 'must_keep_clearance', sourceId: placement.id, valueMm: placement.clearanceMm, weight: 2 },
     ];
+    if (placement.anchor === 'wall' || placement.wallRef) {
+      defaults.unshift({ id: `${placement.id}:wall`, kind: 'must_be_wall_anchored', sourceId: placement.id, weight: 2 });
+    }
     return [...defaults, ...placement.constraints];
   });
   const violations: LayoutConstraintViolation[] = [];
@@ -147,11 +149,15 @@ export function generateCandidates(input: LayoutInput): LayoutCandidate[] {
 
   for (const candidateType of candidateTypes as CandidateType[]) {
     for (const shape of shapes) {
-      const placements = derivePlacements({ ...parsed, shape, candidateType });
+      const placements = normalizeGeneratedPlacements(
+        derivePlacements({ ...parsed, shape, candidateType }),
+        parsed,
+        `${candidateType}-${shape}`,
+      );
       const validation = validatePlacements(parsed, placements);
       const score = scoreCandidate({ ...parsed, shape, candidateType }, placements, validation);
       candidates.push(LayoutCandidateSchema.parse({
-        id: `${parsed.spaceId}-${candidateType}-${shape}-${Date.now().toString(36)}`,
+        id: `${parsed.spaceId}-${candidateType}-${shape}`,
         category: parsed.roomCategory,
         shape,
         candidateType,
@@ -163,6 +169,75 @@ export function generateCandidates(input: LayoutInput): LayoutCandidate[] {
   }
 
   return candidates.sort((a, b) => b.score.weighted - a.score.weighted);
+}
+
+/**
+ * Converts symbolic family proposals into measured placements inside the
+ * approved room. This is intentionally deterministic: refreshing Layout
+ * Studio produces the same IDs, wall anchors and coordinates.
+ */
+function normalizeGeneratedPlacements(
+  placements: Placement[],
+  input: LayoutInput,
+  candidateKey: string,
+): Placement[] {
+  const room = input.roomBoundingBoxMm;
+  const walls = [...input.usableWalls].sort((a, b) => wallLength(b) - wallLength(a));
+  let roomIndex = 0;
+  let wallIndex = 0;
+
+  return placements.map((placement, index) => {
+    const id = `${input.spaceId}-${candidateKey}-${placement.templateFamily}-${index + 1}`;
+    if (placement.anchor === 'wall') {
+      const requestedWall = placement.wallRef ? walls.find((wall) => wall.id === placement.wallRef) : undefined;
+      const wall = requestedWall ?? walls[wallIndex++ % Math.max(1, walls.length)];
+      if (!wall) {
+        const fitted = fitRoomDimensions(room, placement);
+        return PlacementSchema.parse({ ...placement, ...fitted, id, anchor: 'room', wallRef: undefined, positionMm: centredRoomPosition(room, { ...placement, ...fitted }, roomIndex++) });
+      }
+      const horizontal = Math.abs(wall.maxX - wall.minX) >= Math.abs(wall.maxY - wall.minY);
+      const capacity = Math.max(300, wallLength(wall) - 300);
+      const widthMm = Math.min(placement.widthMm, capacity);
+      const rotationYawDeg = horizontal ? 0 : 90;
+      const x = horizontal
+        ? clamp((wall.minX + wall.maxX - widthMm) / 2, room.minX, Math.max(room.minX, room.maxX - widthMm))
+        : clamp(wall.minX <= room.minX + 250 ? wall.minX : wall.maxX - placement.depthMm, room.minX, Math.max(room.minX, room.maxX - placement.depthMm));
+      const y = horizontal
+        ? clamp(wall.minY <= room.minY + 250 ? wall.minY : wall.maxY - placement.depthMm, room.minY, Math.max(room.minY, room.maxY - placement.depthMm))
+        : clamp((wall.minY + wall.maxY - widthMm) / 2, room.minY, Math.max(room.minY, room.maxY - widthMm));
+      return PlacementSchema.parse({ ...placement, id, wallRef: wall.id, widthMm, rotationYawDeg, positionMm: [x, y, 0] });
+    }
+    const fitted = fitRoomDimensions(room, placement);
+    return PlacementSchema.parse({ ...placement, ...fitted, id, positionMm: centredRoomPosition(room, { ...placement, ...fitted }, roomIndex++) });
+  });
+}
+
+function fitRoomDimensions(room: LayoutInput['roomBoundingBoxMm'], placement: Placement) {
+  return {
+    widthMm: Math.min(placement.widthMm, Math.max(300, room.maxX - room.minX - 200)),
+    depthMm: Math.min(placement.depthMm, Math.max(300, room.maxY - room.minY - 200)),
+  };
+}
+
+function centredRoomPosition(room: LayoutInput['roomBoundingBoxMm'], placement: Placement, index: number): [number, number, number] {
+  const usableWidth = room.maxX - room.minX;
+  const usableDepth = room.maxY - room.minY;
+  const widthMm = Math.min(placement.widthMm, Math.max(300, usableWidth - 200));
+  const depthMm = Math.min(placement.depthMm, Math.max(300, usableDepth - 200));
+  const offset = index === 0 ? 0 : (index % 2 === 0 ? -1 : 1) * Math.min(usableWidth * 0.18, 700);
+  return [
+    clamp(room.minX + (usableWidth - widthMm) / 2 + offset, room.minX + 100, Math.max(room.minX + 100, room.maxX - widthMm - 100)),
+    clamp(room.minY + (usableDepth - depthMm) / 2, room.minY + 100, Math.max(room.minY + 100, room.maxY - depthMm - 100)),
+    0,
+  ];
+}
+
+function wallLength(wall: LayoutInput['usableWalls'][number]) {
+  return Math.hypot(wall.maxX - wall.minX, wall.maxY - wall.minY);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
 function derivePlacements(input: LayoutInput & { shape: string; candidateType: CandidateType }): Placement[] {
@@ -349,8 +424,8 @@ function inferCategory(templateFamily: string): LayoutCandidate['category'] {
 
 export function validatePlacements(input: LayoutInput, placements: Placement[]): ValidationResult {
   const issues: ValidationIssue[] = [];
-  for (const placement of placements) {
-    issues.push(...validatePlacement(input, placement, placements));
+  for (let index = 0; index < placements.length; index += 1) {
+    issues.push(...validatePlacement(input, placements[index], placements.slice(index + 1)));
   }
   return ValidationResultSchema.parse({ valid: issues.filter((issue) => issue.severity === 'blocking').length === 0, issues });
 }
@@ -406,7 +481,10 @@ function validatePlacement(input: LayoutInput, placement: Placement, allPlacemen
 
 function placementBox(placement: Placement) {
   const [cx, cy] = placement.positionMm;
-  return { minX: cx, minY: cy, maxX: cx + placement.widthMm, maxY: cy + placement.depthMm };
+  const quarterTurn = Math.abs(Math.round(placement.rotationYawDeg / 90)) % 2 === 1;
+  const width = quarterTurn ? placement.depthMm : placement.widthMm;
+  const depth = quarterTurn ? placement.widthMm : placement.depthMm;
+  return { minX: cx, minY: cy, maxX: cx + width, maxY: cy + depth };
 }
 
 function fitsInRoom(room: { minX: number; minY: number; maxX: number; maxY: number }, box: { minX: number; minY: number; maxX: number; maxY: number }): boolean {

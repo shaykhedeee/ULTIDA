@@ -43,8 +43,8 @@ interface PlanRoom {
   verificationStatus?: string;
   included?: boolean;
 }
-interface PlanWall { id: string; start: Pt; end: Pt; isExterior?: boolean }
-interface PlanOpening { id: string; wallId: string; kind: string; offsetAlongWallMm: number; widthMm?: number }
+interface PlanWall { id: string; start: Pt; end: Pt; isExterior?: boolean; thicknessMm?: number; heightMm?: number }
+interface PlanOpening { id: string; wallId: string; kind: string; offsetAlongWallMm: number; widthMm?: number; heightMm?: number; sillHeightMm?: number }
 interface PlanColumn { id: string; position: Pt; sizeMm?: number }
 interface PlanBeam { id: string; start: Pt; end: Pt }
 interface PlanService { id: string; kind: string; position: Pt }
@@ -571,7 +571,7 @@ export function SpacesWorkspace() {
                 const pts = r.polygon.map(p => { const q = toPx(p); return `${q.x},${q.y}`; }).join(' ');
                 return <polygon key={r.id} points={pts} fill={selectedRoom === r.id ? 'rgba(197,156,45,.18)' : 'rgba(120,92,64,.10)'} stroke={selectedRoom === r.id ? 'var(--gold)' : '#7a5c3a'} strokeWidth={selectedRoom === r.id ? 2.5 : 1.5} onClick={(e) => { e.stopPropagation(); setSelectedRoom(r.id); }} />;
               })}
-              {layers.walls && walls.map(w => { const a = toPx(w.start), b = toPx(w.end); return <line key={w.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={selectedWall === w.id ? 'var(--gold)' : '#2b2b2b'} strokeWidth={selectedWall === w.id ? 5 : 3} onClick={(e) => { e.stopPropagation(); setSelectedWall(w.id); }} />; })}
+              {layers.walls && walls.map(w => { const a = toPx(w.start), b = toPx(w.end); const scaledThickness = Math.max(3, Math.min(14, Number(w.thicknessMm ?? (w.isExterior ? 254 : 152.4)) * view.scale)); return <line key={w.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={selectedWall === w.id ? 'var(--gold)' : '#2b2b2b'} strokeWidth={selectedWall === w.id ? scaledThickness + 3 : scaledThickness} strokeLinecap="square" onClick={(e) => { e.stopPropagation(); setSelectedWall(w.id); }} />; })}
               {layers.openings && openings.map(o => { const w = walls.find(x => x.id === o.wallId); if (!w) return null; const a = toPx(w.start), b = toPx(w.end); const length = wallLen(w) || 1; const centerOffset = Math.max(0, Math.min(length, Number(o.offsetAlongWallMm ?? 0))); const t = centerOffset / length; const px = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; const col = o.kind === 'door' ? '#c97b2c' : '#2f6fb0'; return <rect key={o.id} x={px.x - 5} y={px.y - 5} width={10} height={10} rx={2} fill={col} stroke="#fff" strokeWidth={1} />; })}
               {layers.columns && columns.map(c => { const p = toPx(c.position); return <rect key={c.id} x={p.x - 5} y={p.y - 5} width={10} height={10} fill="#444" stroke="#fff" />; })}
               {layers.beams && beams.map(b => { const a = toPx(b.start), e2 = toPx(b.end); return <line key={b.id} x1={a.x} y1={a.y} x2={e2.x} y2={e2.y} stroke="#9b59b6" strokeWidth={3} strokeDasharray="4 3" />; })}
@@ -682,6 +682,21 @@ export function SpacesWorkspace() {
                   setWalls(current => current.map(candidate => candidate.id === wall.id ? { ...candidate, end: { xMm: wall.start.xMm + (wall.end.xMm - wall.start.xMm) * ratio, yMm: wall.start.yMm + (wall.end.yMm - wall.start.yMm) * ratio } } : candidate));
                   setSaveState('Wall length updated. Review connected room boundaries, then save a geometry version.');
                 }} />
+                <label>Wall thickness (mm)</label>
+                <input type="number" min="75" max="600" step="1" value={Math.round(walls.find(w => w.id === selectedWall)?.thicknessMm ?? (walls.find(w => w.id === selectedWall)?.isExterior ? 254 : 152.4))} onChange={(event) => {
+                  const thicknessMm = Number(event.target.value);
+                  if (!Number.isFinite(thicknessMm)) return;
+                  snapshot(); setWalls(current => current.map(wall => wall.id === selectedWall ? { ...wall, thicknessMm: Math.max(75, Math.min(600, thicknessMm)) } : wall));
+                  setSaveState('Wall thickness updated. Save a geometry version before Layout Studio.');
+                }} />
+                {(() => {
+                  const wall = walls.find(candidate => candidate.id === selectedWall);
+                  if (!wall) return null;
+                  const wallOpenings = openings.filter(opening => opening.wallId === wall.id);
+                  const length = Math.max(1, wallLen(wall));
+                  const height = wall.heightMm ?? ceilingHeightMm;
+                  return <div className="wall-elevation-preview"><div className="wall-elevation-title">2D wall elevation · {Math.round(length)} × {Math.round(height)} mm</div><svg viewBox={`0 0 ${length} ${height}`} role="img" aria-label="Selected wall elevation"><rect x="0" y="0" width={length} height={height} fill="#eee8de" stroke="#2b2b2b" strokeWidth={Math.max(8, length / 250)} />{wallOpenings.map(opening => { const width = opening.widthMm ?? (opening.kind === 'door' ? 900 : 1200); const openingHeight = opening.heightMm ?? (opening.kind === 'door' ? 2100 : 1200); const sill = opening.kind === 'door' ? 0 : opening.sillHeightMm ?? 900; return <rect key={opening.id} x={Math.max(0, opening.offsetAlongWallMm - width / 2)} y={Math.max(0, height - sill - openingHeight)} width={Math.min(width, length)} height={Math.min(openingHeight, height)} fill={opening.kind === 'door' ? '#d8b28a' : '#b9d7ea'} stroke={opening.kind === 'door' ? '#9a5b23' : '#2f6fb0'} strokeWidth={Math.max(6, length / 350)} />; })}</svg></div>;
+                })()}
                 <div className="opening-editor-list">
                   {openings.filter(opening => opening.wallId === selectedWall).map(opening => <div key={opening.id}><span>{opening.kind} · {opening.widthMm ?? 900} mm</span><button type="button" onClick={() => { snapshot(); setOpenings(current => current.filter(candidate => candidate.id !== opening.id)); setSaveState(`${opening.kind} removed from the editable draft.`); }}>Remove</button></div>)}
                 </div>
