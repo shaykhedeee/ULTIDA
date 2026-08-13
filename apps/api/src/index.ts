@@ -1436,7 +1436,16 @@ app.post('/api/projects/:projectId/plan/approve', requireProjectUser, async (req
   if (!canonicalModel || typeof canonicalModel !== 'object') return response.status(400).json({ success: false, code: 'INVALID_CANONICAL_MODEL', message: 'A canonical plan model is required.' });
   if (typeof sourceAssetId !== 'string') return response.status(400).json({ success: false, code: 'SOURCE_ASSET_REQUIRED', message: 'Plan approval requires the exact uploaded source asset.' });
   const parsed = CanonicalPlanModelSchema.safeParse(canonicalModel);
-  if (!parsed.success) return response.status(422).json({ success: false, code: 'INVALID_CANONICAL_PLAN_V1', message: 'The reviewed plan does not satisfy the plan.v1 contract.', fieldErrors: parsed.error.flatten() });
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    const field = firstIssue?.path.length ? firstIssue.path.join('.') : 'plan';
+    return response.status(422).json({
+      success: false,
+      code: 'INVALID_CANONICAL_PLAN_V1',
+      message: `The reviewed plan needs one correction before it can be saved: ${field} — ${firstIssue?.message ?? 'invalid value'}.`,
+      fieldErrors: parsed.error.flatten()
+    });
+  }
   const client = getRequestSupabaseClient(request);
   const approved = await client.rpc('approve_plan_v1', {
     requested_project_id: projectId,
@@ -2075,7 +2084,13 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
   return response.json({
     success: true,
     floorPlanVersionId: version.data.id,
-    scaleVerified: version.data.scale_state === 'verified' || plan.scale?.verified === true,
+    // Initial Design is allowed to use a designer-trusted two-point
+    // calibration without claiming site-verification.  The previous check
+    // treated the JSON scale-state column as a string and therefore showed a
+    // false "Scale not verified" warning after a successful calibration.
+    scaleVerified: version.data.scale_state === 'verified'
+      || plan.scale?.verified === true
+      || (Number(plan.source?.mmPerPixel) > 0 && Number(plan.source?.verifiedDimensionMm) > 0),
     ceilingHeightMm: Number(plan.ceilingHeightMm ?? 2700),
     geometryMode: String(plan.geometryMode ?? 'final_production'),
     rooms, walls, openings, columns, beams, services, annotations, issues,
