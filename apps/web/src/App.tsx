@@ -1266,22 +1266,24 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             onApproveCandidate={handleLayoutApprove}
           />
         } />
-        <Route path="modules" element={<DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
-        <Route path="modules-legacy" element={
+        <Route path="modules" element={<DesignFlowWorkspace stage="Design" focus="modules" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
+        <Route path="modules-legacy" element={<Navigate to="../modules" replace />} />
+        {false && <Route path="modules-legacy-placeholder" element={
           <PlaceholderScreen
             title="Modules"
             description="Once your layout is approved, each modular unit opens a specialist configurator — TV unit, wardrobe, kitchen, crockery, pooja, study, and bed units with exact parametric dimensions."
             icon="📦"
           />
-        } />
-        <Route path="materials" element={<DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
-        <Route path="materials-legacy" element={
+        } />}
+        <Route path="materials" element={<DesignFlowWorkspace stage="Design" focus="materials" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
+        <Route path="materials-legacy" element={<Navigate to="../materials" replace />} />
+        {false && <Route path="materials-legacy-placeholder" element={
           <PlaceholderScreen
             title="Materials"
             description="Apply carcass, shutters, countertops, glass, profiles, hardware, and lighting from your company's curated material library."
             icon="🎨"
           />
-        } />
+        } />}
         <Route path="3d" element={
           <>
             <SceneStudio sceneVersionId={sceneVersionId} />
@@ -1300,9 +1302,10 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           </>
         } />
         <Route path="design" element={<DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
-        <Route path="design-legacy" element={
+        <Route path="design-legacy" element={<Navigate to="../design" replace />} />
+        {false && <Route path="design-legacy-placeholder" element={
           <DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />
-        } />
+        } />}
         <Route path="renders" element={
           <DesignFlowWorkspace
             stage="Visualize"

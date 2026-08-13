@@ -15,7 +15,8 @@ type DesignPreset = { id: string; name: string; family: string; roomTypes: strin
 type ModuleConfiguration = { archetype: string; shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; shutterCount?: number; includeLoft: boolean; glassProfile: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
 type Provider = { id: string; configured: boolean; operations: string[] };
 type StoredRender = { id: string; scene_version_id: string; status: string; stale?: boolean; signedUrl: string | null; created_at: string; provenance?: { provider?: string; model?: string; promptVersion?: string; reviewStatus?: string } };
-type Props = { stage: Stage; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
+type DesignFocus = 'all' | 'modules' | 'materials';
+type Props = { stage: Stage; focus?: DesignFocus; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
 
 function roundToModuleIncrement(valueMm: number, incrementMm = 50) {
@@ -37,7 +38,7 @@ function fitModuleToMeasuredWall(item: CatalogItem, wallLengthMm: number) {
   return { widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: widthMm !== item.widthMm };
 }
 
-export function DesignFlowWorkspace({ stage, projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
+export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedSpaceId = searchParams.get('spaceId');
@@ -53,7 +54,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const [moduleConfiguration, setModuleConfiguration] = useState<ModuleConfiguration>({ archetype: 'full_wall_storage', shutterStyle: 'swing', drawerCount: 0, includeLoft: false, glassProfile: false, handleStyle: 'long-profile', lighting: 'none' });
   const [draftModules, setDraftModules] = useState<Module[]>([]);
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
-  const [designMode, setDesignMode] = useState<'layout' | 'moodboard'>('layout');
+  const [designMode, setDesignMode] = useState<'layout' | 'moodboard'>(focus === 'materials' ? 'moodboard' : 'layout');
   const [visualState, setVisualState] = useState('No visual proposal requested');
   const [providers, setProviders] = useState<Provider[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -74,6 +75,14 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const [starterMaterialsState, setStarterMaterialsState] = useState('');
 
   useEffect(() => { setCompiledSceneId(sceneVersionId); }, [sceneVersionId]);
+
+  // The project routes have distinct jobs, but both update the same draft scene.
+  // Enter the task-specific tab when following a workflow action without losing
+  // any persisted placement or material data.
+  useEffect(() => {
+    if (focus === 'modules') setDesignMode('layout');
+    if (focus === 'materials') setDesignMode('moodboard');
+  }, [focus]);
 
   // Moodboard States
   const [stylePresets, setStylePresets] = useState<DesignPreset[]>([]);
@@ -774,14 +783,14 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     <section className="design-flow-workspace">
       <div className="workspace-heading">
         <div>
-          <small>SCENE CORE / MODULAR PLACEMENT</small>
-          <h2>Compose the room from buildable modules.</h2>
-          <p>Choose a room, place a catalog module, then save one scene version for every downstream output.</p>
+          <small>{focus === 'materials' ? 'MATERIALS / COMPONENT ASSIGNMENT' : focus === 'modules' ? 'MODULE PLANNER / WALL-ANCHORED PLACEMENT' : 'SCENE CORE / MODULAR PLACEMENT'}</small>
+          <h2>{focus === 'materials' ? 'Assign finishes to the exact parts you will render and build.' : focus === 'modules' ? 'Place buildable modules on measured room walls.' : 'Compose the room from buildable modules.'}</h2>
+          <p>{focus === 'materials' ? 'Choose a placed module, then save laminate, edge-band, hardware and lighting choices before compiling scene.v1.' : focus === 'modules' ? 'Select a saved room and verified wall, then fit a parametric catalogue module to available space.' : 'Choose a room, place a catalog module, then save one scene version for every downstream output.'}</p>
         </div>
         <Badge tone={briefComplete && planApproved ? 'success' : 'accent'}>{!briefComplete ? 'Brief required' : planApproved ? 'Approved plan linked' : 'Approved plan required'}</Badge>
       </div>
 
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }} aria-label="Design workspace mode">
         <Button variant={designMode === 'layout' ? 'default' : 'outline'} onClick={() => setDesignMode('layout')}>
           <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Modular Layout
         </Button>
