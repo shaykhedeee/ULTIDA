@@ -341,6 +341,23 @@ export function SpacesWorkspace() {
       return { ...r, roomType: t, name: generatedName ? `${typeLabel}${sameTypeCount ? ` ${sameTypeCount + 1}` : ''}` : r.name, requiredFurniture: [] };
     }));
   }
+
+  function activateCanvasTool(nextTool: string) {
+    if (nextTool === 'cancel_tool') {
+      setTool('select'); setRoomDraftStart(null); setRoomDraftCurrent(null); setLineDraftStart(null); setMeasureFrom(null); setMeasureTo(null); setSaveState('Canvas tool cancelled.');
+      return;
+    }
+    if (nextTool === 'split') { splitSelected(); return; }
+    if (nextTool === 'merge') { mergeSelected(); return; }
+    if (nextTool === 'wall') { addWall(); return; }
+    if (nextTool === 'door') { addOpening('door'); return; }
+    if (nextTool === 'window') { addOpening('window'); return; }
+    if (nextTool === 'column') { setTool('add_column'); setSaveState('Click the canvas to place a column.'); return; }
+    if (nextTool === 'beam') { addBeam(); return; }
+    if (nextTool === 'service') { setTool('add_service'); setSaveState('Click the canvas to place a service point.'); return; }
+    if (nextTool === 'annotate') { setAnnotationDraft(''); setAnnotationDialogOpen(true); return; }
+    setTool(nextTool);
+  }
   function patchRoom(id: string, patch: Partial<PlanRoom>) { setRooms(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r)); }
   function resizeRectangularRoom(id: string, widthMm: number, depthMm: number) {
     const room = rooms.find(candidate => candidate.id === id);
@@ -586,12 +603,15 @@ export function SpacesWorkspace() {
                 <button type="button" className={canvasFocus === 'plan' ? 'active' : ''} onClick={() => setCanvasFocus('plan')}>Fit plan</button>
               </div>
             </div>
-            <div className="toolbar">
-              {[['select', 'Choose'], ['measure', 'Measure'], ['draw_room', 'Draw room'], ['cancel_tool', 'Cancel tool'], ['split', 'Split'], ['merge', 'Merge'], ['wall', 'Add wall'], ['door', 'Add door'], ['window', 'Add window'], ['column', 'Column'], ['beam', 'Beam'], ['service', 'Service'], ['annotate', 'Annotate']].map(([t, label]) => (
-                <button key={t} className={`tool-btn ${(tool === t || (t === 'column' && tool === 'add_column') || (t === 'service' && tool === 'add_service') || (t === 'wall' && tool === 'draw_wall') || (t === 'beam' && tool === 'draw_beam') || (t === 'door' && tool === 'add_door') || (t === 'window' && tool === 'add_window')) ? 'active' : ''}`} onClick={() => { if (t === 'cancel_tool') { setTool('select'); setRoomDraftStart(null); setRoomDraftCurrent(null); setLineDraftStart(null); setMeasureFrom(null); setMeasureTo(null); setSaveState('Canvas tool cancelled.'); } else if (t === 'split') splitSelected(); else if (t === 'merge') mergeSelected(); else if (t === 'wall') addWall(); else if (t === 'door') addOpening('door'); else if (t === 'window') addOpening('window'); else if (t === 'column') { setTool('add_column'); setSaveState('Click the canvas to place a column.'); } else if (t === 'beam') addBeam(); else if (t === 'service') { setTool('add_service'); setSaveState('Click the canvas to place a service point.'); } else if (t === 'annotate') { setAnnotationDraft(''); setAnnotationDialogOpen(true); } else setTool(t); }}>
-                  {label}
-                </button>
-              ))}
+            <div className="toolbar" aria-label="Canvas tools">
+              {[
+                { label: 'Inspect', tools: [['select', 'Choose'], ['measure', 'Measure']] },
+                { label: 'Geometry', tools: [['draw_room', 'Draw room'], ['split', 'Split'], ['merge', 'Merge'], ['wall', 'Add wall']] },
+                { label: 'Plan features', tools: [['door', 'Door'], ['window', 'Window'], ['column', 'Column'], ['beam', 'Beam'], ['service', 'Service'], ['annotate', 'Note']] },
+              ].map((group) => <div className="tool-group" key={group.label}><span>{group.label}</span><div>{group.tools.map(([t, label]) => (
+                <button key={t} className={`tool-btn ${(tool === t || (t === 'column' && tool === 'add_column') || (t === 'service' && tool === 'add_service') || (t === 'wall' && tool === 'draw_wall') || (t === 'beam' && tool === 'draw_beam') || (t === 'door' && tool === 'add_door') || (t === 'window' && tool === 'add_window')) ? 'active' : ''}`} onClick={() => activateCanvasTool(t)}>{label}</button>
+              ))}</div></div>)}
+              {tool !== 'select' && <button type="button" className="tool-cancel" onClick={() => activateCanvasTool('cancel_tool')}>Cancel active tool</button>}
             </div>
             {annotationDialogOpen && <div className="annotation-dialog" role="dialog" aria-label="Add annotation"><label htmlFor="annotation-text">Annotation</label><input id="annotation-text" autoFocus value={annotationDraft} onChange={(e) => setAnnotationDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && annotationDraft.trim()) { addAnnotation(annotationDraft.trim()); setAnnotationDialogOpen(false); } if (e.key === 'Escape') setAnnotationDialogOpen(false); }} /><div><button type="button" onClick={() => setAnnotationDialogOpen(false)}>Cancel</button><button type="button" disabled={!annotationDraft.trim()} onClick={() => { addAnnotation(annotationDraft.trim()); setAnnotationDialogOpen(false); }}>Add annotation</button></div></div>}
             <svg ref={svgRef} className="plan-canvas" viewBox={`0 0 ${view.w} ${view.h}`} onClick={onCanvasClick} onMouseMove={(event) => { if (tool === 'draw_room' && roomDraftStart) setRoomDraftCurrent(svgPoint(event)); }}>
@@ -620,6 +640,7 @@ export function SpacesWorkspace() {
             <div className="region-title"><Edit3 size={14} /> Properties</div>
             {sel ? (
               <div className="props-body">
+                <div className="room-workflow-summary"><span>{spacePanel === 'geometry' ? '1' : spacePanel === 'brief' ? '2' : '3'}</span><div><strong>{spacePanel === 'geometry' ? 'Verify the physical room' : spacePanel === 'brief' ? 'Define the design brief' : 'Prepare the scene'}</strong><small>{spacePanel === 'geometry' ? 'Room edges, wall sizes, openings and ceiling.' : spacePanel === 'brief' ? 'Required modules, priorities and client intent.' : 'Feature walls, finishes and preferred camera.'}</small></div></div>
                 <div className="space-panel-tabs" role="tablist" aria-label="Room configuration">
                   <button type="button" className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>Geometry</button>
                   <button type="button" className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>Design brief</button>
