@@ -64,15 +64,15 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
     return { apiBase, token, scene: payload.sceneVersion.scene };
   }
 
-  async function downloadProductionFile(path: string, filename: string) {
+  async function downloadProductionFile(path: string, filename: string, method: 'POST' | 'GET' = 'POST') {
     setExportState('Preparing exact scene output...');
     try {
       const source = await readApprovedScene();
       if (!source || !sceneVersionId) return;
       const response = await fetch(`${source.apiBase}${path}`, {
-        method: 'POST',
+        method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${source.token}` },
-        body: JSON.stringify({ projectId, sceneVersionId, scene: source.scene })
+        ...(method === 'POST' ? { body: JSON.stringify({ projectId, sceneVersionId, scene: source.scene }) } : {})
       });
       if (!response.ok) {
         setExportState('The export service rejected this scene. No substitute file was created.');
@@ -293,7 +293,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
             <div className="exports-grid">
               <Card><CardHeader>SVG Drawing Package</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} title="SVG export endpoint not yet available" onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-elevations.svg`)}>Export SVG</Button></CardContent></Card>
               <Card><CardHeader>DXF Millimetres</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} title="DXF export endpoint not yet available" onClick={() => void downloadProductionFile('/drawings/dxf', `ultida-${sceneVersionId}.dxf`)}>Export DXF</Button></CardContent></Card>
-              <Card><CardHeader>SketchUp Model (.rb Script)</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile(`/export/sketchup`, `ultida-${projectId}-sketchup.rb`)}>Export SketchUp .rb</Button></CardContent></Card>
+              <Card><CardHeader>SketchUp Model (.rb Script)</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile(`/projects/${projectId}/export/sketchup?sceneVersionId=${encodeURIComponent(sceneVersionId ?? '')}`, `ultida-${projectId}-sketchup.rb`, 'GET')}>Export SketchUp .rb</Button></CardContent></Card>
               <Card><CardHeader>Part Drawings (PDF)</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} title="PDF export endpoint not yet available" onClick={() => void downloadProductionFile('/drawings/elevations.pdf', `ultida-${sceneVersionId}-elevations.pdf`)}>Export PDF</Button></CardContent></Card>
               <Card><CardHeader>Cutlist CSV</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/production/cutlist.csv', `ultida-${sceneVersionId}-cutlist.csv`)}>Export CSV</Button></CardContent></Card>
               <Card><CardHeader>Operation Sheet</CardHeader><CardContent><span className="inspector-empty">Unavailable until verified CNC operations are stored.</span></CardContent></Card>
