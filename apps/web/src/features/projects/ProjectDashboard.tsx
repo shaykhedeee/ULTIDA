@@ -1,7 +1,8 @@
 import {
   FolderKanban, MapPin, Home, Calendar, User,
   Plus, X, ChevronRight, RefreshCw,
-  Building2, Clock, AlertCircle, Sparkles, CheckCircle2, ArrowUpRight
+  Building2, Clock, AlertCircle, Sparkles, CheckCircle2, ArrowUpRight,
+  Archive, ArchiveRestore
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -230,7 +231,7 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
 }
 
 // ─── Project Card ─────────────────────────────────────────────────
-function ProjectCard({ project, index, onClick }: { project: Project; index: number; onClick: () => void }) {
+function ProjectCard({ project, index, onClick, onArchive }: { project: Project; index: number; onClick: () => void; onArchive: () => void }) {
   const stages = getStageStatuses(project.workflow_stage);
   const progress = getProgressPercent(project.workflow_stage);
 
@@ -297,6 +298,10 @@ function ProjectCard({ project, index, onClick }: { project: Project; index: num
           <span>{timeAgo(project.updated_at)}</span>
         </div>
         <div className="card-footer-actions">
+          <button className={`card-action-btn archive${project.project_status === 'archived' ? ' restore' : ''}`} onClick={(e) => { e.stopPropagation(); onArchive(); }}>
+            {project.project_status === 'archived' ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+            {project.project_status === 'archived' ? 'Restore' : 'Trash'}
+          </button>
           <button className="card-action-btn primary" onClick={(e) => { e.stopPropagation(); onClick(); }}>
             Open <ChevronRight size={12} />
           </button>
@@ -346,6 +351,8 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showNew, setShowNew] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<Project | null>(null);
+  const [updatingProjectId, setUpdatingProjectId] = useState<string | null>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const placingPreparedModule = searchParams.get('placeModule') === '1';
@@ -389,6 +396,7 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (searchParams.get('new') === '1') setShowNew(true); }, [searchParams]);
 
   const filtered = projects.filter((p) => {
     const matchSearch = !search ||
@@ -409,6 +417,24 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
       return;
     }
     navigate(`/projects/${project.id}/brief`);
+  }
+
+  async function updateProjectArchive(project: Project) {
+    if (!supabase) { setError('Supabase is not configured.'); return; }
+    const nextStatus = project.project_status === 'archived' ? 'draft' : 'archived';
+    setUpdatingProjectId(project.id);
+    setError('');
+    try {
+      const { error: updateError } = await supabase.from('projects').update({ project_status: nextStatus }).eq('id', project.id);
+      if (updateError) throw updateError;
+      setProjects((current) => current.map((item) => item.id === project.id ? { ...item, project_status: nextStatus, updated_at: new Date().toISOString() } : item));
+      setArchiveTarget(null);
+      if (nextStatus === 'archived' && statusFilter !== 'archived') setStatusFilter('all');
+    } catch (updateError: any) {
+      setError(updateError?.message ?? 'Project status could not be updated.');
+    } finally {
+      setUpdatingProjectId(null);
+    }
   }
 
   return (
@@ -499,7 +525,7 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
             </div>
           ) : (
             filtered.map((p, i) => (
-              <ProjectCard key={p.id} project={p} index={i} onClick={() => openProject(p)} />
+              <ProjectCard key={p.id} project={p} index={i} onClick={() => openProject(p)} onArchive={() => setArchiveTarget(p)} />
             ))
           )}
         </div>
@@ -515,6 +541,14 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
           }}
         />
       )}
+
+      {archiveTarget && <div className="modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget && !updatingProjectId) setArchiveTarget(null); }}>
+        <section className="modal-card project-archive-dialog" role="dialog" aria-modal="true" aria-labelledby="project-archive-title">
+          <div className="modal-header"><div><small>{archiveTarget.project_status === 'archived' ? 'Restore project' : 'Move project to trash'}</small><h2 id="project-archive-title">{archiveTarget.project_status === 'archived' ? 'Restore this project?' : 'Archive this project?'}</h2></div><button className="modal-close" onClick={() => setArchiveTarget(null)} disabled={!!updatingProjectId}><X size={18} /></button></div>
+          <p className="project-archive-copy">{archiveTarget.project_status === 'archived' ? `${archiveTarget.name} will return to your active portfolio as a draft. Its history, files, scene versions and approvals remain intact.` : `${archiveTarget.name} will leave your active dashboard but remain recoverable from the Archived filter. No project files, plans, scene versions, renders, or production records will be deleted.`}</p>
+          <div className="project-archive-actions"><button type="button" className="btn-secondary" onClick={() => setArchiveTarget(null)} disabled={!!updatingProjectId}>Cancel</button><button type="button" className={archiveTarget.project_status === 'archived' ? 'btn-primary' : 'btn-danger'} onClick={() => void updateProjectArchive(archiveTarget)} disabled={!!updatingProjectId}>{updatingProjectId ? 'Saving…' : archiveTarget.project_status === 'archived' ? 'Restore project' : 'Move to trash'}</button></div>
+        </section>
+      </div>}
     </>
   );
 }

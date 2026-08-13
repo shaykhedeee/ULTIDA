@@ -70,7 +70,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         </div>
         <div className="studio-hero-actions">
           <button className="studio-secondary" onClick={() => openTool('/projects')}><Layers3 size={16} /> All projects</button>
-          <button className="studio-primary" onClick={() => openTool('/projects')}><Plus size={16} /> New project</button>
+          <button className="studio-primary" onClick={() => openTool('/projects?new=1')}><Plus size={16} /> New project</button>
         </div>
       </section>
 
@@ -121,7 +121,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         <div className="studio-section-heading"><div><p className="studio-kicker">CONTINUE DESIGNING</p><h2>Recent projects</h2></div><button onClick={() => openTool('/projects')}>Open projects <ArrowRight size={15} /></button></div>
         {loading ? <div className="studio-loading">Loading your studio portfolio…</div> : projects.length ? (
           <div className="studio-project-grid">{projects.map((project) => <button key={project.id} className="studio-project-card" onClick={() => openProjectStage(project)}><div><span className="project-stage">{stageLabels[project.workflow_stage] ?? 'Brief'}</span><strong>{project.name}</strong><p>{project.client_name}</p></div><div className="project-card-footer"><span>{relativeTime(project.updated_at)}</span><ArrowRight size={16} /></div></button>)}</div>
-        ) : <div className="studio-empty"><PackageCheck size={24} /><strong>Your studio is ready for its first project.</strong><button className="studio-primary" onClick={() => openTool('/projects')}>Create project</button></div>}
+      ) : <div className="studio-empty"><PackageCheck size={24} /><strong>Your studio is ready for its first project.</strong><button className="studio-primary" onClick={() => openTool('/projects?new=1')}>Create project</button></div>}
       </section>
     </div>
   );

@@ -254,6 +254,16 @@
   display: flex;
   gap: 6px;
 }
+.card-action-btn.archive { color: var(--text-muted); background: transparent; border: 1px solid var(--line); }
+.card-action-btn.archive:hover { border-color: var(--warn-line); background: var(--warn-bg); color: var(--warn); }
+.card-action-btn.archive.restore:hover { border-color: var(--success-line); background: var(--success-bg); color: var(--success); }
+.project-archive-dialog { max-width: 480px; }
+.project-archive-copy { margin: 4px 0 20px; color: var(--text-secondary); font-size: 13px; line-height: 1.55; }
+.project-archive-actions { display: flex; justify-content: flex-end; gap: 9px; }
+.btn-secondary,.btn-danger { border-radius: 8px; padding: 9px 12px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.btn-secondary { border: 1px solid var(--line); background: var(--surface); color: var(--text-secondary); }
+.btn-danger { border: 1px solid #b91c1c; background: #b91c1c; color: #fff; }
+.btn-secondary:disabled,.btn-danger:disabled { opacity: .55; cursor: not-allowed; }
 
 .card-action-btn {
   display: flex;
