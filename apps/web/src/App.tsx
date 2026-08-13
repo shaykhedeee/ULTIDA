@@ -1049,7 +1049,14 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     const accessToken = await getValidToken();
     if (!accessToken) throw new Error('Sign in before generating layout candidates.');
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-    const response = await fetch(`${apiBase}/projects/${projectId}/layout-candidates`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ spaceId, roomCategory, requirements: roomRequirements, shape: config.shape }) });
+    const requirements = {
+      ...roomRequirements,
+      selectedTemplate: config.template,
+      preferredWallOrientation: config.wallOrientation,
+      stylePreset: config.style,
+      designDimensionsMm: { length: config.lengthMm, width: config.widthMm, height: config.heightMm },
+    };
+    const response = await fetch(`${apiBase}/projects/${projectId}/layout-candidates`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ spaceId, roomCategory, requirements, shape: config.shape, candidateTypes: ['maximum_storage', 'best_circulation', 'balanced'] }) });
     const payload = await response.json();
     if (!response.ok || !Array.isArray(payload.candidates)) throw new Error(payload.message ?? 'The approved plan could not generate layout candidates.');
     return payload.candidates as LayoutCandidate[];

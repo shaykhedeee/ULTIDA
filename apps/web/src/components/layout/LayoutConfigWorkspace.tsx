@@ -388,6 +388,8 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
                 <CandidateCard
                   key={candidate.id}
                   candidate={candidate}
+                  roomLengthMm={config.lengthMm}
+                  roomWidthMm={config.widthMm}
                   selected={candidate.id === selectedCandidateId}
                   showClearances={showClearances}
                   showViolations={showViolations}
@@ -498,13 +500,15 @@ function InfoTile({ label, value }: InfoTileProps) {
 
 type CandidateCardProps = {
   candidate: LayoutCandidate;
+  roomLengthMm: number;
+  roomWidthMm: number;
   selected: boolean;
   showClearances: boolean;
   showViolations: boolean;
   onSelect: () => void;
 };
 
-function CandidateCard({ candidate, selected, showClearances, showViolations, onSelect }: CandidateCardProps) {
+function CandidateCard({ candidate, roomLengthMm, roomWidthMm, selected, showClearances, showViolations, onSelect }: CandidateCardProps) {
   const blocking = candidate.validation.issues.filter((i) => i.severity === 'blocking');
   const warnings = candidate.validation.issues.filter((i) => i.severity === 'warning');
   return (
@@ -516,6 +520,8 @@ function CandidateCard({ candidate, selected, showClearances, showViolations, on
       <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
         {candidate.placements.length} placements &nbsp;|&nbsp; score {(candidate.score.weighted * 100).toFixed(0)}% &nbsp;|&nbsp; {candidate.validation.valid ? 'Valid ✅' : `${blocking.length} blocking`}
       </div>
+
+      <CandidatePlanPreview candidate={candidate} roomLengthMm={roomLengthMm} roomWidthMm={roomWidthMm} />
 
       {showClearances && (
         <div style={{ fontSize: '12px', marginBottom: '8px' }}>
@@ -538,5 +544,37 @@ function CandidateCard({ candidate, selected, showClearances, showViolations, on
         <button onClick={onSelect} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid var(--line)', background: selected ? 'var(--gold)' : 'var(--surface-raised)', color: selected ? '#fff' : 'var(--brown-mid)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>{selected ? 'Selected' : 'Select'}</button>
       </div>
     </div>
+  );
+}
+
+function CandidatePlanPreview({ candidate, roomLengthMm, roomWidthMm }: { candidate: LayoutCandidate; roomLengthMm: number; roomWidthMm: number }) {
+  const width = Math.max(1, roomLengthMm);
+  const depth = Math.max(1, roomWidthMm);
+  const inset = 8;
+  const drawW = 224 - inset * 2;
+  const drawH = 132 - inset * 2;
+  const scale = Math.min(drawW / width, drawH / depth);
+  const originX = (224 - width * scale) / 2;
+  const originY = (132 - depth * scale) / 2;
+  const planMinX = Math.min(0, ...candidate.placements.map((placement) => placement.positionMm[0]));
+  const planMinY = Math.min(0, ...candidate.placements.map((placement) => placement.positionMm[1]));
+  return (
+    <svg className="candidate-plan-preview" viewBox="0 0 224 132" role="img" aria-label={`${candidate.candidateType.replace(/_/g, ' ')} top view`}>
+      <rect x={originX} y={originY} width={width * scale} height={depth * scale} className="candidate-room-shell" />
+      {candidate.placements.map((placement, index) => {
+        const quarterTurn = Math.abs(Math.round(placement.rotationYawDeg / 90)) % 2 === 1;
+        const placementWidth = quarterTurn ? placement.depthMm : placement.widthMm;
+        const placementDepth = quarterTurn ? placement.widthMm : placement.depthMm;
+        const x = originX + Math.max(0, placement.positionMm[0] - planMinX) * scale;
+        const y = originY + Math.max(0, placement.positionMm[1] - planMinY) * scale;
+        return (
+          <g key={placement.id}>
+            <rect x={x} y={y} width={Math.max(3, placementWidth * scale)} height={Math.max(3, placementDepth * scale)} rx="2" className={`candidate-placement candidate-placement-${index % 4}`} />
+            <title>{placement.templateFamily}: {placement.widthMm} × {placement.depthMm} mm</title>
+          </g>
+        );
+      })}
+      <text x={originX + 4} y={originY + 11} className="candidate-plan-label">{Math.round(width)} × {Math.round(depth)} mm</text>
+    </svg>
   );
 }

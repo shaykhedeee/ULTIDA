@@ -508,7 +508,7 @@ export function SpacesWorkspace() {
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
           <button className="btn-secondary" onClick={() => void saveGeometryVersion()} title="Create a new approved plan version from the current room, wall, opening, column, beam, and service edits">Save geometry version</button>
           <button className="btn-secondary" disabled={!selectedRoom} onClick={() => selectedRoom && navigate(`/projects/${projectId}/design?spaceId=${encodeURIComponent(selectedRoom)}`)} title="Open the selected room in the 2D furniture placement workspace">Place furniture in 2D</button>
-          <button className="btn-primary" disabled={openingLayouts} onClick={() => void openLayoutStudio()}>{openingLayouts ? 'Validating spaces…' : 'Open Layout Studio →'}</button>
+          <button className="btn-primary" disabled={openingLayouts || !overallReadiness.approved} onClick={() => void openLayoutStudio()} title={overallReadiness.approved ? 'Validate saved rooms and continue to Layout Studio' : 'Complete the room requirements shown in the Readiness panel first'}>{openingLayouts ? 'Validating spaces…' : overallReadiness.approved ? 'Open Layout Studio →' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} rooms ready`}</button>
         </div>
       </div>
       {saveState && <p role="status" className="save-state">{saveState}</p>}
@@ -664,7 +664,7 @@ export function SpacesWorkspace() {
                 </>}
                 <div className="room-save-actions">
                   <Button variant="outline" onClick={() => void persistRoom(sel.room)}><Save size={13} /> Save room</Button>
-                  <Button disabled={!sel.room.spaceRecordId || !sel.room.requiredFurniture.length || !(sel.room.ceilingHeightMm ?? ceilingHeightMm)} onClick={() => void persistRoom(sel.room, 'verified')}><CheckCircle2 size={13} /> Verify & ready room</Button>
+                  <Button disabled={!sel.room.requiredFurniture.length || !(sel.room.ceilingHeightMm ?? ceilingHeightMm)} onClick={() => void persistRoom(sel.room, 'verified')} title={!sel.room.spaceRecordId ? 'This will first save the edited geometry, then reload the room record for verification.' : 'Save the room measurements and requirements as verified'}><CheckCircle2 size={13} /> {sel.room.spaceRecordId ? 'Verify & ready room' : 'Save geometry to verify'}</Button>
                 </div>
                 {!sel.room.requiredFurniture.length && <p className="room-blocker">Choose at least one furniture requirement before verifying this room.</p>}
                 {sel.readiness.blockingReasons.length > 0 && <div className="room-readiness-detail"><strong>Still needed</strong>{sel.readiness.blockingReasons.map(reason => <span key={reason}>{reason}</span>)}</div>}

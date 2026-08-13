@@ -363,6 +363,23 @@
   transform: none;
 }
 
+.candidate-plan-preview {
+  display: block;
+  width: 100%;
+  height: 132px;
+  margin: 10px 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: linear-gradient(135deg, rgba(255,255,255,.8), rgba(197,156,45,.05));
+}
+
+.candidate-room-shell { fill: #fffdf8; stroke: var(--brown-mid); stroke-width: 3; }
+.candidate-placement { stroke: rgba(45,31,18,.65); stroke-width: 1; fill: #c59c2d; }
+.candidate-placement-1 { fill: #82654a; }
+.candidate-placement-2 { fill: #789284; }
+.candidate-placement-3 { fill: #a87567; }
+.candidate-plan-label { font-size: 7px; font-weight: 800; fill: var(--brown-mid); }
+
 /* ─── Responsive ────────────────────────────────── */
 @media (max-width: 900px) {
   .shape-grid, .template-grid { grid-template-columns: repeat(2, 1fr); }

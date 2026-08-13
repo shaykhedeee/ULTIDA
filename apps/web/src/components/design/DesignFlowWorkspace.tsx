@@ -409,7 +409,8 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
       const renderRoomId = operation === 'material-swap' ? selectedModule?.roomId ?? null : spaceId ?? null;
       if (!renderRoomId) { setVisualBusy(false); setVisualState('Select a persisted room before generating a render.'); return; }
       if (operation === 'material-swap' && !selectedModule) { setVisualBusy(false); setVisualState('Select the exact module whose material should change before creating a revision.'); return; }
-      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId: renderSceneVersionId, idempotencyKey: `${renderSceneVersionId}:${renderRoomId}:${selectedModule?.id ?? 'room'}:${operation}:${renderStyle}:${quality}:${Date.now()}`, options: { roomId: renderRoomId, targetModuleId: selectedModule?.id ?? null, style: renderStyle, quality, operation } }) });
+      const normalizedStyle = renderStyle.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48) || 'studio-default';
+      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId: renderSceneVersionId, idempotencyKey: `${renderSceneVersionId}:${renderRoomId}:${selectedModule?.id ?? 'room'}:${operation}:${normalizedStyle}:${quality}`, options: { roomId: renderRoomId, targetModuleId: selectedModule?.id ?? null, style: renderStyle, quality, operation } }) });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
         setVisualBusy(false);
