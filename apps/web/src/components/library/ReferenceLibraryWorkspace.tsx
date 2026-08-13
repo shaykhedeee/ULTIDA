@@ -97,6 +97,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referenceTags, setReferenceTags] = useState('');
   const [uploadingReference, setUploadingReference] = useState(false);
+  const [addingStarterMaterials, setAddingStarterMaterials] = useState(false);
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [status, setStatus] = useState('Loading modular catalog…');
   const [vault, setVault] = useState<VaultEntry[]>([]);
@@ -223,6 +224,32 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     } finally { setUploadingReference(false); }
   }
 
+  async function addStarterMaterials() {
+    if (!projectId || !supabase) {
+      setStatus('Open this library from a project before creating its shared material palette.');
+      return;
+    }
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) { setStatus('Sign in before creating a project material palette.'); return; }
+    setAddingStarterMaterials(true);
+    setStatus('Adding the curated laminate and edge-band starter palette…');
+    try {
+      const response = await fetch(`${apiBase()}/projects/${projectId}/material-library/starter`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${session.access_token}`, 'content-type': 'application/json' },
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) throw new Error(payload?.message ?? 'The starter material palette could not be created.');
+      setMaterials(Array.isArray(payload.materials) ? payload.materials : []);
+      setActiveTab('materials');
+      setStatus(payload.note ?? 'Starter materials are ready for component-level assignment. Confirm supplier SKU and technical sheets before production.');
+    } catch (error: any) {
+      setStatus(error?.message ?? 'The starter material palette could not be created.');
+    } finally {
+      setAddingStarterMaterials(false);
+    }
+  }
+
   function emptyState(message: string) {
     return <div style={{ padding: '28px 0', color: '#78716c', fontSize: 14 }}>{message}</div>;
   }
@@ -299,8 +326,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       </Card>}
 
       {activeTab === 'materials' && <Card className="workflow">
-        <CardHeader className="section-title"><div><small>PROJECT MATERIALS</small><h2>Persisted finishes and hardware for this project</h2></div><Badge tone="neutral">{visibleMaterials.length} saved</Badge></CardHeader>
-        <CardContent>{!projectId ? emptyState('Open this library from a project to see its persisted material library.') : visibleMaterials.length ? <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>{visibleMaterials.map((material) => { const colour = materialColour(material); return <article key={material.id} className="library-item" style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8, padding: 16 }}><div aria-label={`${material.name} finish swatch`} style={{ background: `linear-gradient(135deg, ${colour}, #fff 180%)`, border: '1px solid #e7e5e4', borderRadius: 6, height: 96, display: 'flex', alignItems: 'flex-end', padding: 10, marginBottom: 12 }}><span style={{ background: 'rgba(255,255,255,.82)', borderRadius: 4, padding: '3px 6px', fontSize: 10, fontWeight: 700, color: '#44382e' }}>{material.metadata?.texture ?? material.finish ?? 'Laminate'}</span></div><strong style={{ display: 'block', fontSize: 14, color: '#1c1917' }}>{material.name}</strong><span style={{ fontSize: 12, color: '#78716c' }}>{materialSubtitle(material) || 'Finish details pending'}</span><small style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#a8a29e' }}>Code: {material.code}</small></article>; })}</div> : emptyState('No materials are saved for this project. Add a finish through Design Studio to create a versioned material assignment.')}</CardContent>
+        <CardHeader className="section-title"><div><small>PROJECT MATERIALS</small><h2>A compact, project-owned finish board</h2><p style={{ margin: '5px 0 0', fontSize: 12, color: '#78716c' }}>Assign finishes to named module components; the exact specification follows the scene, render, drawings and cutlist.</p></div><Badge tone="neutral">{visibleMaterials.length} saved</Badge></CardHeader>
+        <CardContent>{!projectId ? <div style={{ padding: '14px 0', maxWidth: 560 }}><strong style={{ display: 'block', color: '#1c1917', marginBottom: 6 }}>Choose a project to start a material board</strong><p style={{ margin: 0, color: '#78716c', fontSize: 13, lineHeight: 1.5 }}>Project materials are intentionally separate from generic catalogue samples. They keep supplier codes, sheet thickness, laminate faces and edge-band rules attached to the correct project.</p></div> : visibleMaterials.length ? <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>{visibleMaterials.map((material) => { const colour = materialColour(material); return <article key={material.id} className="library-item" style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8, padding: 16 }}><div aria-label={`${material.name} finish swatch`} style={{ background: `linear-gradient(135deg, ${colour}, #fff 180%)`, border: '1px solid #e7e5e4', borderRadius: 6, height: 96, display: 'flex', alignItems: 'flex-end', padding: 10, marginBottom: 12 }}><span style={{ background: 'rgba(255,255,255,.82)', borderRadius: 4, padding: '3px 6px', fontSize: 10, fontWeight: 700, color: '#44382e' }}>{material.metadata?.texture ?? material.finish ?? 'Laminate'}</span></div><strong style={{ display: 'block', fontSize: 14, color: '#1c1917' }}>{material.name}</strong><span style={{ fontSize: 12, color: '#78716c' }}>{materialSubtitle(material) || 'Finish details pending'}</span><small style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#a8a29e' }}>Code: {material.code}</small></article>; })}</div> : <div style={{ padding: '14px 0', maxWidth: 640 }}><strong style={{ display: 'block', color: '#1c1917', marginBottom: 6 }}>Start with a focused laminate palette</strong><p style={{ margin: '0 0 14px', color: '#78716c', fontSize: 13, lineHeight: 1.5 }}>Add the curated Cubex, Advance and Virgo starter records, then assign a selected finish to named shutters, carcasses, backs and edge bands in Design Studio. They are specification placeholders, not supplier-stock claims.</p><button type="button" disabled={addingStarterMaterials} onClick={() => void addStarterMaterials()} style={{ border: 0, borderRadius: 7, padding: '10px 13px', background: addingStarterMaterials ? '#d6d3d1' : '#3d2a1a', color: '#fff', fontWeight: 800, cursor: addingStarterMaterials ? 'not-allowed' : 'pointer' }}>{addingStarterMaterials ? 'Adding starter palette…' : 'Add curated starter materials'}</button></div>}</CardContent>
       </Card>}
     </div>
   );

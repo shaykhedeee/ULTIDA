@@ -3,7 +3,9 @@
 ═══════════════════════════════════════════════ */
 
 .spaces-workspace {
-  max-width: 1400px;
+  max-width: 1720px;
+  margin: 0 auto;
+  padding-inline: clamp(16px, 2vw, 32px);
 }
 
 .spaces-flow-note {
@@ -164,7 +166,7 @@
 .spaces-workspace.phase4 .spaces-empty { min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 28px; text-align: center; color: var(--text-secondary); background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; }
 .spaces-workspace.phase4 .spaces-empty p { max-width: 460px; margin: 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
 .spaces-workspace.phase4 .spaces-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; }
-.spaces-layout { display: grid; grid-template-columns: 250px 1fr 180px 240px; grid-template-rows: auto auto auto; gap: 14px; grid-template-areas: "rooms canvas layers props" "rooms canvas layers ai" "rooms canvas layers issues" "rooms canvas layers readiness"; }
+.spaces-layout { display: grid; grid-template-columns: 260px minmax(560px, 1fr) minmax(320px, 370px); gap: 16px; align-items: start; grid-template-areas: "rooms canvas props" "rooms context props"; }
 .region { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-height: 0; }
 .region-title { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-secondary); margin-bottom: 10px; }
 .room-list { grid-area: rooms; max-height: calc(100vh - 220px); overflow: auto; }
@@ -179,7 +181,7 @@
 .rc-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); padding: 2px 0; }
 .rc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
 .inc-toggle { font-size: 11px; display: flex; align-items: center; gap: 4px; color: var(--text-muted); }
-.canvas-region { grid-area: canvas; display: flex; flex-direction: column; }
+.canvas-region { grid-area: canvas; display: flex; flex-direction: column; min-height: 0; }
 .canvas-focus-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; padding:9px 10px; border:1px solid var(--line); border-radius:9px; background:#fffaf2; }
 .canvas-focus-bar > div:first-child { display:flex; flex-direction:column; gap:2px; }
 .canvas-focus-bar strong { font-size:13px; color:var(--text-secondary); }
@@ -190,12 +192,14 @@
 .toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .tool-btn { font-size: 11px; padding: 5px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; color: var(--text-secondary); font-weight: 600; }
 .tool-btn.active { background: var(--gold); color: #fff; border-color: var(--gold); }
-.plan-canvas { width: 100%; background: #faf8f4; border: 1px solid var(--line); border-radius: 10px; flex: 1; min-height: 360px; cursor: crosshair; }
+.plan-canvas { width: 100%; background: #faf8f4; border: 1px solid var(--line); border-radius: 10px; flex: 1; min-height: 560px; cursor: crosshair; }
 .measure-hint, .scale-warn { font-size: 11px; color: var(--danger); margin-top: 6px; display: flex; align-items: center; gap: 5px; }
-.layers-region { grid-area: layers; }
-.layer-row { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; font-size: 12px; padding: 6px 8px; border: 1px solid transparent; border-radius: 7px; background: none; cursor: pointer; color: var(--text-secondary); }
+.space-context-strip { grid-area: context; display: grid; grid-template-columns: minmax(180px, 1.2fr) repeat(3, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+.layers-region, .ai-region, .issues-region, .readiness-region { min-height: 0; }
+.layer-controls { display: flex; flex-wrap: wrap; gap: 5px; }
+.layer-row { display: inline-flex; align-items: center; gap: 5px; text-align: left; font-size: 11px; padding: 6px 7px; border: 1px solid var(--line); border-radius: 6px; background: #fbfaf7; cursor: pointer; color: var(--text-secondary); }
 .layer-row:hover { background: rgba(0,0,0,.03); }
-.props-region { grid-area: props; }
+.props-region { grid-area: props; position: sticky; top: 16px; max-height: calc(100dvh - 32px); overflow: auto; }
 .props-body { display: flex; flex-direction: column; gap: 8px; }
 .space-panel-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; background: #f3efe7; border-radius: 8px; }
 .space-panel-tabs button { border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 10px; font-weight: 800; padding: 6px 4px; cursor: pointer; }
@@ -227,28 +231,34 @@
 .room-blocker { margin:0; color:var(--danger); font-size:10px; line-height:1.4; }
 .room-readiness-detail { display:flex; flex-direction:column; gap:4px; padding:8px; border-radius:8px; background:rgba(197,156,45,.1); color:var(--gold-dim); font-size:10px; }
 .room-readiness-detail strong { text-transform:uppercase; letter-spacing:.04em; }
+.scale-review-note { display:flex; align-items:flex-start; gap:8px; padding:9px; border:1px solid #e7b44c; border-radius:8px; background:#fff8e8; color:#79520c; font-size:11px; line-height:1.4; }
+.scale-review-note strong, .scale-review-note span { display:block; }
+.scale-review-note strong { margin-bottom:2px; }
+.rc-scale-review { color:#976a07; font-size:10px; font-weight:700; white-space:nowrap; }
 .props-empty { font-size: 12px; color: var(--text-muted); }
 .wall-id { font-family: monospace; font-size: 12px; background: #f3efe7; padding: 6px 8px; border-radius: 6px; }
-.ai-region { grid-area: ai; }
 .finding { font-size: 12px; color: var(--text-secondary); display: flex; gap: 6px; align-items: flex-start; padding: 5px 0; border-bottom: 1px solid var(--line); }
-.issues-region { grid-area: issues; }
 .issue { font-size: 11px; padding: 6px 8px; border-radius: 6px; margin-bottom: 5px; display: flex; gap: 5px; }
 .issue.critical { background: rgba(192,57,43,.1); color: var(--danger); }
 .issue.warning { background: rgba(197,156,45,.12); color: var(--gold-dim); }
 .empty-note { font-size: 12px; color: var(--text-muted); }
-.readiness-region { grid-area: readiness; }
 .readiness-summary .ok { color: var(--success); font-weight: 700; font-size: 13px; }
 .readiness-summary .bad { color: var(--danger); font-weight: 700; font-size: 13px; }
 .readiness-room { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; padding: 3px 0; }
 .history-btns { display: inline-flex; gap: 4px; }
 .icon-btn { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); }
 
-@media (max-width: 1180px) {
-  .spaces-layout { grid-template-columns:220px minmax(0,1fr) 230px; grid-template-areas:"rooms canvas props" "rooms canvas ai" "rooms canvas issues" "rooms canvas readiness" "rooms layers layers"; }
-  .layers-region { display:flex; flex-wrap:wrap; gap:4px; }
-  .layers-region .region-title { width:100%; }
-  .layer-row { width:auto; }
+@media (max-width: 1280px) {
+  .spaces-layout { grid-template-columns: 236px minmax(0, 1fr); grid-template-areas: "rooms canvas" "rooms props" "context context"; }
+  .props-region { position: static; max-height: none; overflow: visible; }
 }
+@media (max-width: 820px) {
+  .spaces-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "rooms" "canvas" "props" "context"; }
+  .room-list { max-height: 300px; }
+  .space-context-strip { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .plan-canvas { min-height: 420px; }
+}
+@media (max-width: 560px) { .space-context-strip { grid-template-columns: minmax(0, 1fr); } }
 .wall-elevation-preview { margin-top: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); }
 .wall-elevation-title { margin-bottom: 8px; color: var(--text-muted); font-size: 11px; font-weight: 700; }
 .wall-elevation-preview svg { display: block; width: 100%; height: 145px; background: #fff; border-radius: 6px; }

@@ -52,8 +52,39 @@ interface PlanAnnotation { id: string; text: string; kind: string; position?: Pt
 
 const ROOM_TYPES: Record<string, string> = {
   living: 'Living Room', bedroom: 'Bedroom', master_bedroom: 'Master Bedroom', kids_bedroom: 'Kids Bedroom', kitchen: 'Kitchen', dining: 'Dining Room',
-  utility: 'Utility', pooja: 'Pooja Room', bathroom: 'Bathroom', study: 'Study', foyer: 'Foyer', other: 'Other'
+  utility: 'Utility', pooja: 'Pooja Room', bathroom: 'Bathroom', toilet: 'Toilet', study: 'Study', foyer: 'Foyer', balcony: 'Balcony', parking: 'Parking', store: 'Store', other: 'Other'
 };
+
+/** Keep supplied room types, but turn common AI/OCR labels into a useful first
+ * selection. The user can always correct this in the room inspector. */
+function inferRoomType(rawType: unknown, roomName: unknown) {
+  const supplied = String(rawType ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (supplied && supplied !== 'other' && ROOM_TYPES[supplied]) return supplied;
+  const label = `${rawType ?? ''} ${roomName ?? ''}`.toLowerCase();
+  if (/master|m\.?\s*bed/.test(label)) return 'master_bedroom';
+  if (/kids?|child|c\.?\s*bed/.test(label)) return 'kids_bedroom';
+  if (/bed(room)?/.test(label)) return 'bedroom';
+  if (/open\s*kitchen|kitchen|pantry/.test(label)) return 'kitchen';
+  if (/living|drawing|lounge|hall/.test(label)) return 'living';
+  if (/dining/.test(label)) return 'dining';
+  if (/toilet|bath|washroom/.test(label)) return 'bathroom';
+  if (/pooja|prayer/.test(label)) return 'pooja';
+  if (/utility|laundry/.test(label)) return 'utility';
+  if (/study|office/.test(label)) return 'study';
+  if (/foyer|entry|lobby/.test(label)) return 'foyer';
+  if (/balcony|terrace/.test(label)) return 'balcony';
+  if (/parking|garage/.test(label)) return 'parking';
+  if (/store|storage/.test(label)) return 'store';
+  return 'other';
+}
+
+function needsScaleReview(room: PlanRoom, widthMm: number, depthMm: number) {
+  // A small toilet or utility can be legitimate. Bedrooms, kitchens and living
+  // spaces this small almost always indicate an unreviewed scale calibration.
+  if (['bathroom', 'toilet', 'utility', 'pooja', 'balcony', 'store'].includes(room.roomType)) return false;
+  const shortestSide = Math.min(widthMm, depthMm);
+  return shortestSide > 0 && shortestSide < 1200;
+}
 
 const FURNITURE_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
   living: [{ id: 'tv_unit', label: 'TV unit' }, { id: 'crockery_unit', label: 'Crockery unit' }, { id: 'sofa', label: 'Seating' }, { id: 'pooja_unit', label: 'Pooja unit' }],
@@ -149,7 +180,7 @@ export function SpacesWorkspace() {
       const payload = await response.json().catch(() => null);
       if (!live) return;
       if (!response.ok) { setLoadState(response.status === 409 ? 'blocked' : 'error'); setSaveState(payload?.message ?? 'Approved plan could not be loaded.'); return; }
-      const roomsP: PlanRoom[] = (payload.rooms ?? []).map((r: any) => ({ id: r.id, spaceRecordId: r.spaceRecordId, name: r.name, roomType: r.roomType ?? 'other', polygon: r.polygon ?? [], areaSqm: r.areaSqm ?? polyArea(r.polygon ?? []), ceilingHeightMm: r.ceilingHeightMm, requiredFurniture: Array.isArray(r.requiredFurniture) ? r.requiredFurniture : [], budgetInr: r.budgetInr ?? null, designPriority: r.designPriority ?? 'balanced', applianceNeeds: Array.isArray(r.applianceNeeds) ? r.applianceNeeds : [], constraints: Array.isArray(r.constraints) ? r.constraints : [], floorFinish: r.floorFinish ?? '', falseCeiling: r.falseCeiling ?? '', styleDirection: r.styleDirection ?? '', paletteDirection: r.paletteDirection ?? '', retainedElements: Array.isArray(r.retainedElements) ? r.retainedElements : [], wallRoles: r.wallRoles ?? {}, preferredCamera: r.preferredCamera ?? '', verificationStatus: r.verificationStatus, included: true }));
+      const roomsP: PlanRoom[] = (payload.rooms ?? []).map((r: any) => ({ id: r.id, spaceRecordId: r.spaceRecordId, name: r.name, roomType: inferRoomType(r.roomType, r.name), polygon: r.polygon ?? [], areaSqm: r.areaSqm ?? polyArea(r.polygon ?? []), ceilingHeightMm: r.ceilingHeightMm, requiredFurniture: Array.isArray(r.requiredFurniture) ? r.requiredFurniture : [], budgetInr: r.budgetInr ?? null, designPriority: r.designPriority ?? 'balanced', applianceNeeds: Array.isArray(r.applianceNeeds) ? r.applianceNeeds : [], constraints: Array.isArray(r.constraints) ? r.constraints : [], floorFinish: r.floorFinish ?? '', falseCeiling: r.falseCeiling ?? '', styleDirection: r.styleDirection ?? '', paletteDirection: r.paletteDirection ?? '', retainedElements: Array.isArray(r.retainedElements) ? r.retainedElements : [], wallRoles: r.wallRoles ?? {}, preferredCamera: r.preferredCamera ?? '', verificationStatus: r.verificationStatus, included: true }));
       if (!live) return;
       setPlan({ ceilingHeightMm: payload.ceilingHeightMm, walls: payload.walls, rooms: payload.rooms, openings: payload.openings, services: payload.services, obstacles: payload.columns } as any);
       setRooms(roomsP); setSelectedRoom((current) => current ?? roomsP[0]?.id ?? null); setWalls(payload.walls ?? []); setOpenings(payload.openings ?? []);
@@ -200,7 +231,7 @@ export function SpacesWorkspace() {
       Boolean(room.spaceRecordId) && room.included !== false && room.requiredFurniture.length > 0 && (geometryMode === 'initial_design' || room.verificationStatus === 'verified'),
       issues.filter(i => i.entityId === room.id)
     );
-    return { room, widthMm, depthMm, wallCount: roomWalls.length, openingCount: roomOpenings.length, usable, readiness };
+    return { room, widthMm, depthMm, wallCount: roomWalls.length, openingCount: roomOpenings.length, usable, readiness, scaleReview: needsScaleReview(room, widthMm, depthMm) };
   }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode]);
 
   const overallReadiness = useMemo(() => canApproveSpaces(roomMetrics.map(m => m.readiness)), [roomMetrics]);
@@ -526,7 +557,7 @@ export function SpacesWorkspace() {
           <aside className="region room-list">
             <div className="region-title"><Home size={14} /> Rooms</div>
             <div className="room-cards">
-              {roomMetrics.map(({ room, widthMm, depthMm, wallCount, openingCount, usable, readiness }) => (
+              {roomMetrics.map(({ room, widthMm, depthMm, wallCount, openingCount, usable, readiness, scaleReview }) => (
                 <div key={room.id} className={`room-card ${selectedRoom === room.id ? 'sel' : ''}`} onClick={() => setSelectedRoom(room.id)}>
                   <div className="rc-head">
                     <strong>{room.name}</strong>
@@ -538,6 +569,7 @@ export function SpacesWorkspace() {
                   <div className="rc-row"><span>Usable wall</span><strong>{usable.usableWallMm} mm</strong></div>
                   <div className="rc-foot">
                     <Badge tone={readiness.ready ? 'success' : 'warn'}>{readiness.ready ? 'Ready' : 'Incomplete'}</Badge>
+                    {scaleReview && <span className="rc-scale-review" title="This room is unusually small for its selected type. Check the plan calibration before layout.">Check scale</span>}
                     <label className="inc-toggle"><input type="checkbox" checked={room.included !== false} onChange={(e) => includeRoom(room.id, e.target.checked)} onClick={(e) => e.stopPropagation()} /> include</label>
                   </div>
                 </div>
@@ -548,7 +580,7 @@ export function SpacesWorkspace() {
           {/* Region: Plan canvas + tools */}
           <section className="region canvas-region">
             <div className="canvas-focus-bar">
-              <div><strong>{sel?.room.name ?? 'Full plan'}</strong><span>{canvasFocus === 'room' ? 'Room verification view' : 'Apartment overview'}</span></div>
+              <div><strong>{sel?.room.name ?? 'Full plan'}</strong><span>{canvasFocus === 'room' ? (sel?.scaleReview ? 'Check room scale before layout' : 'Room verification view') : 'Apartment overview'}</span></div>
               <div className="canvas-focus-actions">
                 <button type="button" className={canvasFocus === 'room' ? 'active' : ''} disabled={!selectedRoom} onClick={() => setCanvasFocus('room')}>Fit room</button>
                 <button type="button" className={canvasFocus === 'plan' ? 'active' : ''} onClick={() => setCanvasFocus('plan')}>Fit plan</button>
@@ -583,16 +615,6 @@ export function SpacesWorkspace() {
             {!scaleVerified && <div className="scale-warn"><TriangleAlert size={13} /> Scale not verified — dimensions are approximate.</div>}
           </section>
 
-          {/* Region: Layer controls */}
-          <aside className="region layers-region">
-            <div className="region-title"><Layers size={14} /> Layers</div>
-            {Object.entries(layers).map(([k, v]) => (
-              <button key={k} className="layer-row" onClick={() => setLayers(l => ({ ...l, [k]: !l[k as keyof typeof l] }))}>
-                {v ? <Eye size={14} /> : <EyeOff size={14} />} {k}
-              </button>
-            ))}
-          </aside>
-
           {/* Region: Properties (room / wall) */}
           <aside className="region props-region">
             <div className="region-title"><Edit3 size={14} /> Properties</div>
@@ -604,6 +626,7 @@ export function SpacesWorkspace() {
                   <button type="button" className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>Scene setup</button>
                 </div>
                 {spacePanel === 'geometry' && <>
+                {sel.scaleReview && <div className="scale-review-note" role="status"><TriangleAlert size={14} /><div><strong>Check the room scale</strong><span>This {ROOM_TYPES[sel.room.roomType] ?? 'room'} is unusually small for its selected type. Confirm calibration or correct the room edges before using its layout measurements.</span></div></div>}
                 <label>Room name</label><input value={sel.room.name} onChange={(e) => setRooms(rs => rs.map(r => r.id === sel.room.id ? { ...r, name: e.target.value } : r))} />
                 <label>Type</label>
                 <select value={sel.room.roomType} onChange={(e) => setRoomType(sel.room.id, e.target.value)}>{Object.entries(ROOM_TYPES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
@@ -704,6 +727,17 @@ export function SpacesWorkspace() {
             ) : <div className="props-empty">Select a room or wall.</div>}
           </aside>
 
+          <div className="space-context-strip" aria-label="Space context">
+          <aside className="region layers-region">
+            <div className="region-title"><Layers size={14} /> Layers</div>
+            <div className="layer-controls">
+              {Object.entries(layers).map(([k, v]) => (
+                <button key={k} className="layer-row" onClick={() => setLayers(l => ({ ...l, [k]: !l[k as keyof typeof l] }))}>
+                  {v ? <Eye size={14} /> : <EyeOff size={14} />} {k}
+                </button>
+              ))}
+            </div>
+          </aside>
           {/* Region: AI findings */}
           <aside className="region ai-region">
             <div className="region-title"><Sparkles size={14} /> AI Findings</div>
@@ -724,6 +758,7 @@ export function SpacesWorkspace() {
               {roomMetrics.map(m => <div key={m.room.id} className="readiness-room"><CheckCircle2 size={12} color={m.readiness.ready ? '#2e9e4f' : '#c0392b'} /> {m.room.name}</div>)}
             </div>
           </aside>
+          </div>
         </div>
       )}
     </div>
