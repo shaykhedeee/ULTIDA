@@ -69,6 +69,8 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const [reviewVisualJobId, setReviewVisualJobId] = useState<string | null>(null);
   const [visualBusy, setVisualBusy] = useState(false);
   const [compiledSceneId, setCompiledSceneId] = useState<string | null>(sceneVersionId);
+  const [materialLibrary, setMaterialLibrary] = useState<any[]>([]);
+  const [materialAssignmentsSaved, setMaterialAssignmentsSaved] = useState(materials.length > 0);
 
   useEffect(() => { setCompiledSceneId(sceneVersionId); }, [sceneVersionId]);
 
@@ -77,8 +79,12 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const [activeTheme, setActiveTheme] = useState('');
   const [activeLaminate, setActiveLaminate] = useState('');
   const [activeHardware, setActiveHardware] = useState('');
-  const catalogLaminates = materials.filter((item: any) => ['laminate', 'veneer', 'acrylic', 'stone', 'countertop'].includes(String(item.category ?? '').toLowerCase())).map((item: any) => ({ id: String(item.id), name: String(item.name), code: String(item.code ?? item.id), hex: String(item.metadata?.hex ?? '#d6c7b8'), unitCost: Number(item.unit_cost ?? item.unitCost ?? 0) }));
-  const catalogHardwares = materials.filter((item: any) => ['hardware', 'handle', 'profile', 'glass'].includes(String(item.category ?? '').toLowerCase())).map((item: any) => ({ id: String(item.id), name: String(item.name), code: String(item.code ?? item.id), unitCost: Number(item.unit_cost ?? item.unitCost ?? 0) }));
+  // Library materials must be available before scene.v1 exists. Scene-only
+  // materials made the first assignment impossible, even though compilation
+  // correctly requires persisted assignments.
+  const availableMaterials = materialLibrary.length ? materialLibrary : materials;
+  const catalogLaminates = availableMaterials.filter((item: any) => ['laminate', 'veneer', 'acrylic', 'stone', 'countertop'].includes(String(item.category ?? '').toLowerCase())).map((item: any) => ({ id: String(item.id), name: String(item.name), code: String(item.code ?? item.id), hex: String(item.metadata?.hex ?? '#d6c7b8'), unitCost: Number(item.unit_cost ?? item.unitCost ?? 0) }));
+  const catalogHardwares = availableMaterials.filter((item: any) => ['hardware', 'handle', 'profile', 'glass'].includes(String(item.category ?? '').toLowerCase())).map((item: any) => ({ id: String(item.id), name: String(item.name), code: String(item.code ?? item.id), unitCost: Number(item.unit_cost ?? item.unitCost ?? 0) }));
   
   const selectedThemeObj = stylePresets.find((preset) => preset.id === activeTheme) ?? stylePresets[0];
   const selectedLaminateObj = catalogLaminates.find((l) => l.id === activeLaminate) ?? catalogLaminates[0] ?? { id: '', name: 'No laminate selected', code: '', hex: '#d6c7b8', unitCost: 0 };
@@ -123,6 +129,19 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
       .catch(() => setProviders([]));
     void loadRenders();
   }, [stage, projectId]);
+
+  useEffect(() => {
+    if (!projectId || !planApproved) { setMaterialLibrary([]); return; }
+    void (async () => {
+      try {
+        const response = await fetch(`${apiBase}/projects/${projectId}/material-library`, { headers: await authenticatedHeaders() });
+        const payload = await response.json().catch(() => null);
+        setMaterialLibrary(response.ok && Array.isArray(payload?.materials) ? payload.materials : []);
+      } catch {
+        setMaterialLibrary([]);
+      }
+    })();
+  }, [projectId, planApproved]);
 
   useEffect(() => {
     if (!projectId || !planApproved) return;
@@ -300,19 +319,19 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     } catch { setPlacementNotice('Placement validator unavailable. The module was not added.'); }
   }
 
-  async function saveMoodboard() {
-    if (!projectId) { setPlacementNotice('Select a project before saving the moodboard.'); return; }
-    if (!briefComplete || !planApproved) { setPlacementNotice('Save the brief and approve the floor plan before saving materials.'); return; }
+  async function saveMoodboard(): Promise<boolean> {
+    if (!projectId) { setPlacementNotice('Select a project before saving the moodboard.'); return false; }
+    if (!briefComplete || !planApproved) { setPlacementNotice('Save the brief and approve the floor plan before saving materials.'); return false; }
     if (!selectedLaminateObj.id && !selectedHardwareObj.id) {
       setPlacementNotice('Choose a material from the organization library before saving the moodboard.');
-      return;
+      return false;
     }
     setPlacementNotice('Saving versioned material assignments...');
     try {
       const headers = await authenticatedHeaders();
       if (!selectedModule) {
         setPlacementNotice('Place and select one module before assigning materials.');
-        return;
+        return false;
       }
       const assignments = [
         selectedLaminateObj.id ? { materialId: selectedLaminateObj.id, semanticSlot: 'shutter', targetId: selectedModule.id } : null,
@@ -323,25 +342,29 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
         body: JSON.stringify({ ...assignment, targetKind: 'module', moduleInstanceId: selectedModule.id, status: 'draft' }),
       }).then(async (response) => ({ response, payload: await response.json() }))));
       const failed = results.find(({ response, payload }) => !response.ok || !payload.success);
-      if (failed) { setPlacementNotice(failed.payload.message ?? 'A material assignment could not be saved.'); return; }
+      if (failed) { setPlacementNotice(failed.payload.message ?? 'A material assignment could not be saved.'); return false; }
       if (selectedThemeObj) {
         const preference = await fetch(`${apiBase}/projects/${projectId}/design-preferences`, {
           method: 'PUT', headers,
           body: JSON.stringify({ stylePresetId: selectedThemeObj.id, styleText: selectedThemeObj.name }),
         });
         const preferencePayload = await preference.json();
-        if (!preference.ok || !preferencePayload.success) { setPlacementNotice(preferencePayload.message ?? 'Project style preference could not be saved.'); return; }
+        if (!preference.ok || !preferencePayload.success) { setPlacementNotice(preferencePayload.message ?? 'Project style preference could not be saved.'); return false; }
       }
+      setMaterialAssignmentsSaved(true);
       setPlacementNotice(`${selectedModule.label} now has ${assignments.length} versioned material assignment${assignments.length === 1 ? '' : 's'}.`);
+      return true;
     } catch {
       setPlacementNotice('Material assignment service unavailable. No moodboard changes were applied.');
+      return false;
     }
   }
 
-  async function compileMoodboard(materialSelection?: any[]) {
+  async function compileMoodboard(materialSelection?: any[], assignmentVerified = materialAssignmentsSaved) {
     if (!projectId || !draftModules.length) { setPlacementNotice('Place at least one persisted module before compiling a scene.'); return; }
     const sceneMaterials = materialSelection ?? [selectedLaminateObj, selectedHardwareObj].filter((item) => item.id);
     if (!sceneMaterials.length) { setPlacementNotice('Save a real material-library selection before compiling a scene.'); return; }
+    if (!assignmentVerified) { setPlacementNotice('Save the selected component materials before compiling scene.v1.'); return; }
     setPlacementNotice('Compiling the reviewed moodboard into scene.v1...');
     try {
       const nextSceneId = await onSceneCreated(crypto.randomUUID(), draftModules, sceneMaterials);
@@ -354,10 +377,10 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     }
   }
 
-  async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string, sceneVersionOverride?: string) {
+  async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string, sceneVersionOverride?: string, sceneIsApproved = sceneApproved) {
     const renderSceneVersionId = sceneVersionOverride ?? compiledSceneId ?? sceneVersionId;
     if (!renderSceneVersionId) { setVisualState('Create and save a scene first.'); return; }
-    if (!sceneApproved) { setVisualState('Approve the source scene before generating a scene-linked render or laminate revision.'); return; }
+    if (!sceneIsApproved) { setVisualState('Approve the source scene before generating a scene-linked render or laminate revision.'); return; }
     if (!projectId) { setVisualState('Select a project before generating a render.'); return; }
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
@@ -542,6 +565,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                     currentLaminate={selectedLaminateObj.name}
                     onConfirmCatalogSwap={({ laminate }) => {
                       setStyle((current) => `${current}; selected persisted material: ${laminate}`);
+                      setMaterialAssignmentsSaved(true);
                       setVisualState('Material assignment saved. Preview it in the approved scene when ready.');
                     }}
                     onPreviewCatalogSwap={async ({ materialId, laminate }) => {
@@ -556,7 +580,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                         return;
                       }
                       setVisualState('Compiling the saved module material into a new scene version...');
-                      const compiledSceneVersionId = await compileMoodboard([previewLaminate, selectedHardwareObj].filter((item) => item.id));
+                      const compiledSceneVersionId = await compileMoodboard([previewLaminate, selectedHardwareObj].filter((item) => item.id), true);
                       if (!compiledSceneVersionId) return;
                       setVisualState('Validating and approving the material revision before rendering...');
                       const revisionApproved = await onSceneApproved(compiledSceneVersionId);
@@ -564,7 +588,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                         setVisualState('The material revision was saved as a draft but could not be approved. Review its scene validation before rendering.');
                         return;
                       }
-                      await createVisual('material-swap', laminate, compiledSceneVersionId);
+                      await createVisual('material-swap', laminate, compiledSceneVersionId, true);
                     }}
                     onConfirmAiProposal={() => setVisualState('AI material proposals require an approved scene revision before rendering.')}
                   />
@@ -917,10 +941,10 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                 </div>
               </div>
 
-              <Button onClick={saveMoodboard} style={{ marginTop: '0.5rem' }}>
+              <Button onClick={() => { void saveMoodboard(); }} style={{ marginTop: '0.5rem' }}>
                 <Check size={16} style={{ marginRight: '0.5rem' }} /> Save Moodboard
               </Button>
-              <Button onClick={() => void compileMoodboard()} variant="outline">
+              <Button onClick={() => void compileMoodboard()} variant="outline" disabled={!selectedModule || !materialAssignmentsSaved} title={!selectedModule ? 'Place and select a module first' : !materialAssignmentsSaved ? 'Save selected materials before compiling' : 'Compile persisted geometry, modules and materials'}>
                 <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Compile {draftModules.length} reviewed module{draftModules.length === 1 ? '' : 's'} to scene.v1
               </Button>
               <Button disabled={!compiledSceneId || !projectId} onClick={() => navigate(`/projects/${projectId}/3d`)} variant="outline">
