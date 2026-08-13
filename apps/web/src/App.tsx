@@ -581,20 +581,24 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         } else if (payload.status === 'failed') {
           setPlanStatus(payload.error?.message ?? 'Provider analysis failed. No geometry was generated.');
           setAnalysisJobId(null);
-        } else {
-          // `updatedAt` is a server-owned heartbeat. Use it so a live job is
-          // never retried simply because the original claim is old.
-          const activityAt = payload.updatedAt ?? (payload.status === 'running' ? payload.processingAt : payload.queuedAt);
-          const stateAgeMs = activityAt ? Date.now() - new Date(activityAt).getTime() : 0;
-          const exhausted = Number.isFinite(Number(payload.attempts)) && Number.isFinite(Number(payload.maxAttempts)) && Number(payload.attempts) >= Number(payload.maxAttempts);
-          if (exhausted || (payload.status === 'queued' && stateAgeMs > 45_000) || (payload.status === 'running' && stateAgeMs > 150_000)) {
-            // The queue processor exclusively owns retries. Re-dispatching
-            // from a polling browser caused concurrent duplicate analysis jobs
-            // and made a slow provider path look permanently stuck.
-            setAnalysisRetryAvailable(true);
-            setPlanStatus('The analysis worker has not reported progress. It will reach a safe terminal state; you can then use Retry analysis for this exact source file.');
-            return;
-          }
+          } else {
+            // `updatedAt` is a server-owned heartbeat. Use it so a live job is
+            // never retried simply because the original claim is old.
+            const activityAt = payload.updatedAt ?? (payload.status === 'running' ? payload.processingAt : payload.queuedAt);
+            const stateAgeMs = activityAt ? Date.now() - new Date(activityAt).getTime() : 0;
+            const deadlineMs = payload.deadlineAt ? new Date(payload.deadlineAt).getTime() : Number.NaN;
+            const exhausted = Number.isFinite(Number(payload.attempts)) && Number.isFinite(Number(payload.maxAttempts)) && Number(payload.attempts) >= Number(payload.maxAttempts);
+            const deadlineReached = Number.isFinite(deadlineMs) && Date.now() >= deadlineMs;
+            if (deadlineReached || exhausted || (payload.status === 'queued' && stateAgeMs > 45_000) || (payload.status === 'running' && stateAgeMs > 150_000)) {
+              // The queue processor exclusively owns retries. Re-dispatching
+              // from a polling browser caused concurrent duplicate analysis jobs
+              // and made a slow provider path look permanently stuck.
+              setAnalysisRetryAvailable(true);
+              setPlanStatus(deadlineReached
+                ? 'Analysis exceeded its safe processing deadline. No geometry was marked complete; use Retry analysis to start a bounded attempt.'
+                : 'The analysis worker has not reported progress. It will reach a safe terminal state; you can then use Retry analysis for this exact source file.');
+              return;
+            }
           const labels: Record<string, string> = { queued: 'queued', running: 'analysing', processing: 'analysing', review_required: 'ready for review' };
           const progressStage = typeof payload.progressStage === 'string'
             ? payload.progressStage
