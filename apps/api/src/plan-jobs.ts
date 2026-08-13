@@ -697,18 +697,22 @@ export async function processPlanAnalysisJobs(environment: Environment, limit = 
   // Recovery is worker-owned. A status poll must never change work ownership
   // or initiate a provider call just because a designer opened another tab.
   const now = new Date().toISOString();
+  const orphanedBefore = new Date(Date.now() - planLeaseWindowMs(environment)).toISOString();
   const expired = await client
     .from('jobs')
     .select('id,attempts,max_attempts,lease_token,input')
     .eq('kind', 'plan-analysis')
     .eq('status', 'running')
-    .or(`lease_expires_at.lt.${now},deadline_at.lt.${now}`)
+    // Jobs created by an older deployment can be `running` without lease or
+    // deadline metadata. Include those only after a full lease window, so a
+    // freshly claimed job is never stolen while its lease is being attached.
+    .or(`lease_expires_at.lt.${now},deadline_at.lt.${now},and(lease_expires_at.is.null,deadline_at.is.null,updated_at.lt.${orphanedBefore})`)
     .limit(Math.max(1, Math.min(limit, 10)));
   if (expired.error) throw new Error(`Plan job expiry lookup failed: ${expired.error.message}`);
   for (const job of expired.data ?? []) {
     if (!isOwnedByCurrentDeployment(environment, job.input)) continue;
     const exhausted = Number(job.attempts ?? 0) >= Number(job.max_attempts ?? 3);
-    const reset = await client.from('jobs').update({
+    let resetQuery = client.from('jobs').update({
       status: exhausted ? 'failed' : 'queued',
       error: exhausted ? { code: 'PLAN_JOB_TIMED_OUT', message: 'The worker lease expired before a terminal result was saved.' } : null,
       last_error_code: exhausted ? 'PLAN_JOB_TIMED_OUT' : null,
@@ -721,7 +725,13 @@ export async function processPlanAnalysisJobs(environment: Environment, limit = 
       lease_token: null,
       lease_expires_at: null,
       updated_at: now,
-    }).eq('id', job.id).eq('status', 'running').eq('lease_token', job.lease_token ?? '');
+    }).eq('id', job.id).eq('status', 'running');
+    // Preserve compare-and-set ownership for modern leased jobs. Legacy
+    // orphans have no token, so they are guarded by the age predicate above.
+    resetQuery = job.lease_token
+      ? resetQuery.eq('lease_token', job.lease_token)
+      : resetQuery.is('lease_token', null).lt('updated_at', orphanedBefore);
+    const reset = await resetQuery;
     if (reset.error) throw new Error(`Plan job expiry recovery failed: ${reset.error.message}`);
   }
   // This runs only as a recovery sweep; queue-delivered jobs retain their
