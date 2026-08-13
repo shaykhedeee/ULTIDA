@@ -834,7 +834,11 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                     <option value="full_wall_storage">Full wall storage</option>
                     <option value="minimal_floating">Minimal floating</option>
                     <option value="asymmetric_profile_glass">Asymmetric profile glass</option>
+                    <option value="tv_plus_study">TV plus study and library</option>
                     <option value="tv_plus_crockery">TV plus crockery</option>
+                    <option value="tv_plus_partition">TV plus slatted partition</option>
+                    <option value="french_beading_panel">French beading feature wall</option>
+                    <option value="curved_contemporary">Curved contemporary return</option>
                     <option value="profile_glass_display">Profile glass display</option>
                     <option value="open_niche_storage">Open niche storage</option>
                   </select>

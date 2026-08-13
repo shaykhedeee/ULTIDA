@@ -24,6 +24,10 @@ export function compileTvUnit(input: TemplateCompileInput): TemplateCompileResul
   const totalWidth = params.totalWidthMm;
   const totalDepth = params.totalDepthMm;
   const totalHeight = params.totalHeightMm;
+  // `family` identifies the catalogue family (tv-unit); `archetype` selects
+  // the actual construction assembly. Prefer the latter so a saved module's
+  // UI configuration survives scene compilation.
+  const archetype = String((params as any).archetype ?? (params as any).family ?? 'full_wall_storage').toLowerCase();
 
   // 1. Hard Rule: Wall-fit validation
   if (totalWidth > wallWidth) {
@@ -48,7 +52,7 @@ export function compileTvUnit(input: TemplateCompileInput): TemplateCompileResul
   // zones separately so 3D, renders, drawings and cutlists all describe the
   // same low storage, TV field, display bay and lighting anchors.
   if (totalHeight >= 1400) {
-    return compileTvWallComposition(input, params, { carcass: matCarcass, shutter: matShutter, back: matBack }, blockingViolations, warningViolations);
+    return compileTvWallComposition(input, params, { carcass: matCarcass, shutter: matShutter, back: matBack }, blockingViolations, warningViolations, archetype);
   }
 
   const parts: Part[] = [];
@@ -278,6 +282,7 @@ function compileTvWallComposition(
   materials: { carcass: string; shutter: string; back: string },
   blockingViolations: string[],
   warningViolations: string[],
+  archetype: string,
 ): TemplateCompileResult {
   const instanceId = input.instanceId ?? 'tv-wall-1';
   const totalWidth = params.totalWidthMm;
@@ -286,9 +291,15 @@ function compileTvWallComposition(
   const thick = params.carcassThicknessMm ?? DEFAULT_CARCASS_THICKNESS_MM;
   const baseClearance = params.baseType === 'floating' ? (params.floorClearanceMm ?? FLOATING_TV_BASE_CLEARANCE_MM) : 0;
   const baseHeight = Math.min(620, Math.max(460, Math.round(totalHeight * 0.24)));
-  const hasDisplayTower = params.profileGlassOption === true;
-  const towerWidth = hasDisplayTower ? Math.min(540, Math.max(360, Math.round(totalWidth * 0.22))) : 0;
-  const tvFieldWidth = totalWidth - towerWidth - (hasDisplayTower ? thick : 0);
+  const hasStudyBay = archetype === 'tv_plus_study';
+  const hasCrockeryBays = archetype === 'tv_plus_crockery';
+  const hasPartition = archetype === 'tv_plus_partition';
+  const hasFrenchPanels = archetype === 'french_beading_panel';
+  const hasCurvedReturn = archetype === 'curved_contemporary';
+  const hasDisplayTower = params.profileGlassOption === true || archetype === 'asymmetric_profile_glass' || hasCrockeryBays;
+  const featureBayWidth = hasStudyBay ? Math.min(900, Math.max(650, Math.round(totalWidth * 0.3))) : hasDisplayTower ? Math.min(540, Math.max(360, Math.round(totalWidth * (hasCrockeryBays ? 0.18 : 0.22)))) : 0;
+  const featureBayCount = hasCrockeryBays ? 2 : featureBayWidth ? 1 : 0;
+  const tvFieldWidth = totalWidth - featureBayWidth * featureBayCount - (featureBayCount ? thick * featureBayCount : 0);
   const tvFieldHeight = Math.min(980, Math.max(620, totalHeight - baseHeight - 260));
   const displayShutterCount = Math.max(2, Math.round(totalWidth / TARGET_SHUTTER_WIDTH_MM));
   const parts: Part[] = [];
@@ -312,23 +323,49 @@ function compileTvWallComposition(
     add(`handle-${index + 1}`, `Profile Handle ${index + 1}`, xMm + shutterWidth - 34, thick / 2, baseClearance + baseHeight / 2, 18, 18, 160, 'hardware', 'mat-hardware-steel', 'A-ANNO-HARDWARE', 'PROFILE-HANDLE');
   }
 
-  const tvFieldX = hasDisplayTower ? 0 : Math.max(0, Math.round(totalWidth * 0.12));
-  const finalTvFieldWidth = hasDisplayTower ? tvFieldWidth - 80 : Math.round(totalWidth * 0.76);
+  const tvFieldX = hasCrockeryBays ? featureBayWidth : hasDisplayTower ? 0 : Math.max(0, Math.round(totalWidth * 0.12));
+  const finalTvFieldWidth = hasDisplayTower || hasStudyBay ? tvFieldWidth - 80 : Math.round(totalWidth * 0.76);
   const tvFieldZ = baseClearance + baseHeight + 100;
   add('tv-recess', 'TV Service and Cable Recess', tvFieldX, totalDepth - 24, tvFieldZ, finalTvFieldWidth, 24, tvFieldHeight, 'back_panel', materials.back, 'A-MOD-SERVICE', 'TV-CABLE-RECESS');
   add('tv-shelf', 'TV Floating Display Shelf', tvFieldX + 80, totalDepth * 0.38, tvFieldZ - 34, Math.max(720, finalTvFieldWidth - 160), 280, thick, 'shelf', materials.carcass, 'A-MOD-SHELF', 'TV-DISPLAY-SHELF');
 
-  if (hasDisplayTower) {
-    const towerX = totalWidth - towerWidth;
-    add('display-tower-left', 'Display Tower Side', towerX, 0, baseClearance + baseHeight, thick, totalDepth, totalHeight - baseHeight, 'carcass', materials.carcass, 'A-MOD-CARCASS', 'TV-DISPLAY-SIDE');
-    add('display-tower-right', 'Display Tower Side', totalWidth - thick, 0, baseClearance + baseHeight, thick, totalDepth, totalHeight - baseHeight, 'carcass', materials.carcass, 'A-MOD-CARCASS', 'TV-DISPLAY-SIDE');
-    add('display-glass', 'Profile Glass Display Shutter', towerX + thick, 0, baseClearance + baseHeight + thick, towerWidth - thick * 2, 4, totalHeight - baseHeight - thick * 2, 'glass', 'mat-tinted-glass-grey', 'A-MOD-GLASS', 'TV-DISPLAY-GLASS');
-    for (let shelf = 0; shelf < 3; shelf += 1) add(`display-shelf-${shelf + 1}`, `Display Shelf ${shelf + 1}`, towerX + thick, 90, baseClearance + baseHeight + 260 + shelf * 360, towerWidth - thick * 2, totalDepth - 120, thick, 'shelf', materials.carcass, 'A-MOD-SHELF', 'TV-DISPLAY-SHELF');
+  if (hasStudyBay) {
+    const studyX = totalWidth - featureBayWidth;
+    const deskHeight = 750;
+    add('study-side', 'Study Bay Side Panel', studyX, 0, baseClearance + baseHeight, thick, totalDepth, totalHeight - baseHeight, 'carcass', materials.carcass, 'A-MOD-CARCASS', 'TV-STUDY-SIDE');
+    add('study-desk', 'Integrated Study Worktop', studyX + thick, 0, deskHeight, featureBayWidth - thick, 600, thick, 'shelf', materials.carcass, 'A-MOD-SHELF', 'TV-STUDY-DESK');
+    add('study-drawer', 'Study Drawer Pedestal', studyX + thick, 0, baseClearance, featureBayWidth - thick * 2, 560, 620, 'drawer', materials.shutter, 'A-MOD-DRAWER', 'TV-STUDY-DRAWER');
+    add('study-upper', 'Study Upper Storage', studyX + thick, 0, deskHeight + 340, featureBayWidth - thick * 2, totalDepth, Math.max(420, totalHeight - deskHeight - 380), 'shutter', materials.shutter, 'A-MOD-SHUTTER', 'TV-STUDY-UPPER');
+  } else if (hasDisplayTower) {
+    const towerPositions = hasCrockeryBays ? [0, totalWidth - featureBayWidth] : [totalWidth - featureBayWidth];
+    towerPositions.forEach((towerX, towerIndex) => {
+      const suffix = towerIndex + 1;
+      const displayName = hasCrockeryBays ? `Profile Glass Display Shutter ${suffix}` : 'Profile Glass Display Shutter';
+      add(`display-tower-left-${suffix}`, `Display Tower ${suffix} Side`, towerX, 0, baseClearance + baseHeight, thick, totalDepth, totalHeight - baseHeight, 'carcass', materials.carcass, 'A-MOD-CARCASS', 'TV-DISPLAY-SIDE');
+      add(`display-tower-right-${suffix}`, `Display Tower ${suffix} Side`, towerX + featureBayWidth - thick, 0, baseClearance + baseHeight, thick, totalDepth, totalHeight - baseHeight, 'carcass', materials.carcass, 'A-MOD-CARCASS', 'TV-DISPLAY-SIDE');
+      add(`display-glass-${suffix}`, displayName, towerX + thick, 0, baseClearance + baseHeight + thick, featureBayWidth - thick * 2, 4, totalHeight - baseHeight - thick * 2, 'glass', 'mat-tinted-glass-grey', 'A-MOD-GLASS', 'TV-DISPLAY-GLASS');
+      for (let shelf = 0; shelf < 3; shelf += 1) add(`display-shelf-${suffix}-${shelf + 1}`, `Display Shelf ${suffix}.${shelf + 1}`, towerX + thick, 90, baseClearance + baseHeight + 260 + shelf * 360, featureBayWidth - thick * 2, totalDepth - 120, thick, 'shelf', materials.carcass, 'A-MOD-SHELF', 'TV-DISPLAY-SHELF');
+    });
   }
+
+  if (hasPartition) {
+    const screenWidth = Math.min(420, Math.max(240, Math.round(totalWidth * 0.17)));
+    const screenX = totalWidth - screenWidth;
+    add('partition-frame', 'Open Partition Frame', screenX, totalDepth - 40, baseClearance, screenWidth, 40, totalHeight, 'panel', materials.carcass, 'A-MOD-PANEL', 'TV-PARTITION-FRAME');
+    for (let slat = 0; slat < Math.max(5, Math.floor(screenWidth / 55)); slat += 1) add(`partition-slat-${slat + 1}`, `Vertical Partition Slat ${slat + 1}`, screenX + 18 + slat * 55, totalDepth - 48, baseClearance, 24, 24, totalHeight, 'panel', materials.back, 'A-MOD-PANEL', 'TV-PARTITION-SLAT');
+  }
+  if (hasFrenchPanels) {
+    const panelWidth = Math.max(260, Math.round(finalTvFieldWidth / 3));
+    for (let panel = 0; panel < 3; panel += 1) add(`beading-panel-${panel + 1}`, `French Beading Feature Panel ${panel + 1}`, tvFieldX + panel * panelWidth, totalDepth - 18, tvFieldZ, panelWidth - 16, 12, tvFieldHeight, 'panel', materials.back, 'A-MOD-PANEL', 'TV-FRENCH-PANEL');
+  }
+  if (hasCurvedReturn) add('curved-return', 'Curved Contemporary Side Return', totalWidth - Math.min(260, Math.round(totalWidth * 0.12)), 0, baseClearance + baseHeight, Math.min(260, Math.round(totalWidth * 0.12)), totalDepth, totalHeight - baseHeight, 'panel', materials.carcass, 'A-MOD-PANEL', 'TV-CURVED-RETURN');
 
   if (params.lighting === 'profile_led' || params.lighting === 'both') {
     add('led-tv-field', 'Warm LED TV Field Anchor', tvFieldX + 40, totalDepth - 32, tvFieldZ + tvFieldHeight + 20, Math.max(400, finalTvFieldWidth - 80), 12, 12, 'lighting_channel', 'mat-led-warm', 'A-ANNO-LIGHTING', 'LED-3000K');
-    if (hasDisplayTower) add('led-display', 'Warm LED Display Anchor', totalWidth - towerWidth + 26, totalDepth - 28, baseClearance + baseHeight + 40, 12, 12, totalHeight - baseHeight - 80, 'lighting_channel', 'mat-led-warm', 'A-ANNO-LIGHTING', 'LED-3000K');
+    if (hasDisplayTower) {
+      const ledTowers = hasCrockeryBays ? [26, totalWidth - featureBayWidth + 26] : [totalWidth - featureBayWidth + 26];
+      ledTowers.forEach((xMm, index) => add(`led-display-${index + 1}`, `Warm LED Display Anchor ${index + 1}`, xMm, totalDepth - 28, baseClearance + baseHeight + 40, 12, 12, totalHeight - baseHeight - 80, 'lighting_channel', 'mat-led-warm', 'A-ANNO-LIGHTING', 'LED-3000K'));
+    }
   }
   if (params.overheadStorage) add('top-filler', 'Top Filler / Loft Closure', 0, 0, baseClearance + totalHeight - 50, totalWidth, totalDepth, 50, 'filler', materials.carcass, 'A-MOD-FILLER', 'TV-TOP-FILLER');
 

@@ -79,6 +79,15 @@ export function compileStoredModuleForScene(
   const compiler = COMPILER_REGISTRY[category];
   const configuration = typeof config.configuration === 'object' && config.configuration ? config.configuration as Record<string, unknown> : {};
   const parameters = typeof config.parameters === 'object' && config.parameters ? config.parameters as Record<string, unknown> : {};
+  // Module family remains a placement/category concept. The saved archetype is
+  // the construction choice that must reach the compiler unchanged.
+  const archetype = typeof parameters.archetype === 'string'
+    ? parameters.archetype
+    : typeof parameters.family === 'string'
+      ? parameters.family
+      : typeof configuration.archetype === 'string'
+        ? configuration.archetype
+        : undefined;
   const drawerCount = typeof configuration.drawerCount === 'number' ? configuration.drawerCount : undefined;
   const shutterCount = typeof configuration.shutterCount === 'number' ? configuration.shutterCount : undefined;
   const lighting = configuration.lighting === 'shelf-led' || configuration.lighting === 'vertical-led' ? 'profile_led' : 'none';
@@ -92,6 +101,7 @@ export function compileStoredModuleForScene(
     parameters: {
       ...parameters,
       ...config,
+      ...(archetype ? { archetype } : {}),
       totalWidthMm: widthMm,
       totalDepthMm: depthMm,
       totalHeightMm: heightMm,

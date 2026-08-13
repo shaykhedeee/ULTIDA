@@ -97,6 +97,8 @@ function LivingPreview({ module, colours }: { module: ModulePreviewData; colours
   const fluted = /fluted|slatted|ribbed/.test(tags);
   const partition = /partition|divider/.test(tags);
   const studySurface = /study|desk|workstation/.test(tags);
+  const archNiche = /arch|arched|niche/.test(tags);
+  const libraryWall = /library/.test(tags);
   return <>
     <rect x="20" y={fullWall ? 17 : 25} width="118" height={fullWall ? 95 : 81} rx="3" fill={colours.top} />
     {fullWall && <rect x="23" y="20" width="112" height="16" rx="1" fill={colours.front} opacity=".85" />}
@@ -106,6 +108,8 @@ function LivingPreview({ module, colours }: { module: ModulePreviewData; colours
     {fullWall && <rect x="23" y="40" width="8" height="51" fill={colours.front} opacity=".88" />}
     {fluted && Array.from({ length: 9 }).map((_, index) => <line key={index} x1={25 + index * 8} y1={fullWall ? 40 : 30} x2={25 + index * 8} y2={fullWall ? 90 : 84} stroke={colours.accent} strokeOpacity=".28" />)}
     {partition && <><rect x="24" y="37" width="9" height="54" fill={colours.accent} opacity=".6" />{Array.from({ length: 4 }).map((_, index) => <line key={index} x1={25 + index * 2.2} y1="39" x2={25 + index * 2.2} y2="88" stroke="#f7f3eb" strokeOpacity=".55" strokeWidth=".8" />)}</>}
+    {archNiche && <path d="M48 79 V58 C48 39 102 30 102 58 V79" fill="none" stroke={colours.accent} strokeWidth="4" opacity=".76" />}
+    {libraryWall && Array.from({ length: 4 }).map((_, index) => <rect key={index} x={24 + index * 8} y={fullWall ? 42 : 35} width="4" height="40" rx="1" fill={colours.accent} opacity=".56" />)}
     <rect x="20" y={floating ? 97 : 91} width="118" height="24" rx="2" fill={colours.front} />
     <polygon points={`138,${floating ? 97 : 91} 149,${floating ? 86 : 80} 149,${floating ? 104 : 104} 138,115`} fill={colours.side} />
     <line x1="59" y1={floating ? 97 : 91} x2="59" y2="115" stroke={colours.accent} strokeOpacity=".45" />

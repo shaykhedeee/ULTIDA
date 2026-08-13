@@ -67,6 +67,22 @@ test('equal shutter distribution calculates precise shutter widths and gaps', ()
   assert.strictEqual(shutters[2].transform.xMm, (480 + 30) * 2); // 1020mm
 });
 
+test('TV wall archetypes compile distinct production assemblies', () => {
+  const base = {
+    templateVersionId: 'tpl-tv-wall-v1',
+    wall: { widthMm: 4200, heightMm: 2700, depthMm: 150 },
+    parameters: { totalWidthMm: 3000, totalDepthMm: 450, totalHeightMm: 2400, lighting: 'profile_led' as const },
+  };
+  const study = compileTvUnit({ ...base, instanceId: 'tv-study', parameters: { ...base.parameters, family: 'tv_plus_study' } });
+  const crockery = compileTvUnit({ ...base, instanceId: 'tv-crockery', parameters: { ...base.parameters, family: 'tv_plus_crockery' } });
+  const partition = compileTvUnit({ ...base, instanceId: 'tv-partition', parameters: { ...base.parameters, family: 'tv_plus_partition' } });
+
+  assert.ok(study.parts.some((part) => part.name.includes('Study Worktop')));
+  assert.ok(crockery.parts.filter((part) => part.name.includes('Profile Glass Display Shutter')).length >= 2);
+  assert.ok(partition.parts.some((part) => part.name.includes('Partition Slat')));
+  assert.notEqual(study.parts.length, crockery.parts.length);
+});
+
 test('loft fillers compiled when overhead storage is enabled', () => {
   const result = compileTvUnit({
     templateVersionId: 'tpl-tv-v1',
