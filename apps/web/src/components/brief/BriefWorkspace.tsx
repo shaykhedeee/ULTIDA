@@ -1,10 +1,11 @@
-import { Check, FileUp, Save, Sparkles, Upload } from 'lucide-react';
+import { Check, Download, FileUp, Save, Sparkles, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import type { ClientBrief } from '../../features/project-types';
 export type { ClientBrief } from '../../features/project-types';
 
 type Props = {
+  projectId: string;
   initialBrief: ClientBrief;
   fileName?: string;
   status?: string;
@@ -32,7 +33,7 @@ const briefTemplates: BriefTemplate[] = [
   { id: 'best-without-compromise', name: 'Best without compromise', description: 'Premium detailing, tailored modular units, and material-led visual direction.', values: { propertyType: 'Villa', rooms: 'Living room | Kitchen | Master bedroom | Bedroom | Study | Pooja | Dining | Utility', style: 'Modern classic', budgetRange: 'Above INR 40 lakh', lifestyle: 'Family living | Frequent hosting', storageNeeds: 'Maximum storage', materials: 'Wood veneer | Stone and fluted panels | Glass and metal accents', vastuPreference: 'Follow vastu principles' } }
 ];
 
-export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile, onAnalyze }: Props) {
+export function BriefWorkspace({ projectId, initialBrief, fileName, status, onSave, onFile, onAnalyze }: Props) {
   const [brief, setBrief] = useState(initialBrief);
   const [state, setState] = useState('');
   const [editing, setEditing] = useState(true);
@@ -56,6 +57,20 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
     } catch (error) {
       setState(error instanceof Error ? error.message : 'Brief could not be saved.');
     }
+  }
+  async function downloadBrief() {
+    setState('Preparing project brief PDF...');
+    try {
+      const { supabase } = await import('../../lib/supabase');
+      const token = (await supabase?.auth.getSession())?.data.session?.access_token;
+      if (!token) throw new Error('Sign in again before downloading the brief.');
+      const apiBase = String(import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+      const response = await fetch(`${apiBase}/projects/${projectId}/brief.pdf`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) { const error = await response.json().catch(() => null); throw new Error(error?.message ?? 'Brief PDF could not be created.'); }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a'); link.href = url; link.download = `ultida-${projectId}-brief.pdf`; link.click(); URL.revokeObjectURL(url);
+      setState('Brief PDF downloaded.');
+    } catch (error) { setState(error instanceof Error ? error.message : 'Brief PDF could not be created.'); }
   }
   const field = (key: keyof ClientBrief, label: string, placeholder: string, options?: readonly string[]) => (
     <label className="brief-field">
@@ -127,6 +142,7 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
               <Button variant="outline" onClick={() => void save(false)} disabled={!editing}><Save size={16} /> Save draft</Button>
               <Button onClick={() => void save(true)} disabled={!editing || !valid}><Sparkles size={16} /> Complete brief</Button>
               {!editing && <Button variant="outline" onClick={() => setEditing(true)}>Edit brief</Button>}
+              {!editing && <Button variant="outline" onClick={() => void downloadBrief()}><Download size={16} /> Download brief PDF</Button>}
               <span role="status">{state}</span>
             </div>
           </CardContent>

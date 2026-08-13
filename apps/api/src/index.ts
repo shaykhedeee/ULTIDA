@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import cors from 'cors';
 import express from 'express';
+import PDFDocument from 'pdfkit';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const rootEnv = [resolve(currentDir, '../.env'), resolve(currentDir, '../../.env'), resolve(currentDir, '../../../.env')].find((c) => existsSync(c));
@@ -118,6 +119,16 @@ export function buildCutlist(scene: ReturnType<typeof migrateScene>) {
     nesting: nested.sheets,
     fabricationRules: snapshot.fabricationRules,
     status: snapshot.status,
+  };
+}
+
+function applyProductionReview<T extends ReturnType<typeof buildCutlist>>(cutlist: T, review: any): T {
+  const approvedIds = new Set(Array.isArray(review?.approved_part_ids) ? review.approved_part_ids.map(String) : []);
+  const approved = review?.status === 'approved' && cutlist.parts.length > 0 && cutlist.parts.every((part) => approvedIds.has(part.partInstanceId));
+  return {
+    ...cutlist,
+    parts: cutlist.parts.map((part) => ({ ...part, status: approvedIds.has(part.partInstanceId) ? 'approved' as const : 'review_required' as const })),
+    status: approved ? 'approved' as const : 'review_required' as const,
   };
 }
 
@@ -472,6 +483,9 @@ app.post('/api/drawings/elevations.pdf', async (request, response) => {
     stream.once('end', resolveStream);
     stream.once('error', rejectStream);
   });
+  // Compatibility endpoint: preserve the established drawing-only PDF for
+  // scenes without manufacturing parts. The authenticated production/package
+  // endpoint below is the strict comprehensive pack and requires exact parts.
   generateProjectionPdf(buildDrawingProjection(normalized), stream);
   await completed;
   response.setHeader('content-type', 'application/pdf');
@@ -534,13 +548,53 @@ app.get('/api/projects/:projectId/scenes/:sceneVersionId/production-snapshot', r
     if (!result.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND', message: 'That scene version does not belong to this project.' });
     if (!['approved', 'locked'].includes(String(result.data.status))) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before creating manufacturing outputs.' });
     const scene = migrateScene(result.data.scene);
-    return response.json({ success: true, cutlist: buildCutlist(scene), source: { projectId, sceneVersionId, sceneStatus: result.data.status } });
+    const review = await client.from('production_snapshot_reviews').select('status,approved_part_ids,review_notes,reviewed_at,reviewed_by').eq('project_id', projectId).eq('scene_version_id', sceneVersionId).maybeSingle();
+    if (review.error && review.error.code !== 'PGRST205') return response.status(500).json({ success: false, code: 'PRODUCTION_REVIEW_READ_FAILED', message: review.error.message });
+    return response.json({ success: true, cutlist: applyProductionReview(buildCutlist(scene), review.data), review: review.data ?? null, source: { projectId, sceneVersionId, sceneStatus: result.data.status } });
   } catch (err: any) {
     return response.status(422).json({ success: false, code: 'PRODUCTION_SNAPSHOT_FAILED', message: err?.message ?? 'The approved scene could not produce an authoritative manufacturing snapshot.' });
   }
 });
 
-async function readApprovedProductionScene(request: express.Request) {
+app.put('/api/projects/:projectId/scenes/:sceneVersionId/production-review', requireProjectUser, async (request, response) => {
+  try {
+    const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+    const projectId = String(request.params.projectId);
+    const sceneVersionId = String(request.params.sceneVersionId);
+    const client = getRequestSupabaseClient(request);
+    const membership = await client.from('organization_members').select('role').eq('organization_id', authReq.ultidaUser!.organizationId).eq('user_id', authReq.ultidaUser!.id).maybeSingle();
+    if (membership.error || !['owner', 'admin', 'designer', 'production'].includes(membership.data?.role ?? '')) return response.status(403).json({ success: false, code: 'PRODUCTION_REVIEW_FORBIDDEN', message: 'A studio owner, admin, designer, or production user must review this pack.' });
+    const sceneResult = await client.from('scene_versions').select('id,status,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
+    if (sceneResult.error || !sceneResult.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND', message: 'That exact scene version was not found.' });
+    if (!['approved', 'locked'].includes(String(sceneResult.data.status))) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before reviewing its production pack.' });
+    const cutlist = buildCutlist(migrateScene(sceneResult.data.scene));
+    const requestedIds: string[] = Array.isArray(request.body?.approvedPartIds) ? request.body.approvedPartIds.map(String) : [];
+    const validIds = new Set(cutlist.parts.map((part) => part.partInstanceId));
+    const uniqueIds = [...new Set(requestedIds)].filter((id) => validIds.has(id));
+    if (!cutlist.parts.length) return response.status(422).json({ success: false, code: 'PRODUCTION_PARTS_REQUIRED', message: 'The approved scene has no exact physical panels to review.' });
+    if (uniqueIds.length !== cutlist.parts.length) return response.status(422).json({ success: false, code: 'PRODUCTION_REVIEW_INCOMPLETE', message: 'Review every physical panel before approving the production pack.' });
+    const notes = typeof request.body?.notes === 'string' ? request.body.notes.trim().slice(0, 2000) : '';
+    const reviewedAt = new Date().toISOString();
+    const write = await client.from('production_snapshot_reviews').upsert({
+      organization_id: authReq.ultidaUser!.organizationId,
+      project_id: projectId,
+      scene_version_id: sceneVersionId,
+      fabrication_rules_version: cutlist.fabricationRules.version,
+      status: 'approved',
+      approved_part_ids: uniqueIds,
+      review_notes: notes || null,
+      reviewed_by: authReq.ultidaUser!.id,
+      reviewed_at: reviewedAt,
+      updated_at: reviewedAt,
+    }, { onConflict: 'project_id,scene_version_id' }).select('status,approved_part_ids,review_notes,reviewed_at,reviewed_by').single();
+    if (write.error) return response.status(500).json({ success: false, code: 'PRODUCTION_REVIEW_SAVE_FAILED', message: write.error.message });
+    return response.json({ success: true, cutlist: applyProductionReview(cutlist, write.data), review: write.data });
+  } catch (err: any) {
+    return response.status(422).json({ success: false, code: 'PRODUCTION_REVIEW_FAILED', message: err?.message ?? 'The production review could not be saved.' });
+  }
+});
+
+async function readApprovedProductionContext(request: express.Request) {
   const projectId = String(request.params.projectId);
   const sceneVersionId = String(request.params.sceneVersionId);
   const client = getRequestSupabaseClient(request);
@@ -548,8 +602,30 @@ async function readApprovedProductionScene(request: express.Request) {
   if (result.error) throw Object.assign(new Error(result.error.message), { status: 500, code: 'SCENE_VERSION_READ_FAILED' });
   if (!result.data) throw Object.assign(new Error('That scene version does not belong to this project.'), { status: 404, code: 'SCENE_VERSION_NOT_FOUND' });
   if (!['approved', 'locked'].includes(String(result.data.status))) throw Object.assign(new Error('Approve this exact scene before creating manufacturing outputs.'), { status: 409, code: 'SCENE_NOT_PRODUCTION_READY' });
-  return buildProductionSnapshot(migrateScene(result.data.scene));
+  const scene = migrateScene(result.data.scene);
+  return { scene, snapshot: buildProductionSnapshot(scene) };
 }
+
+async function readApprovedProductionScene(request: express.Request) {
+  return (await readApprovedProductionContext(request)).snapshot;
+}
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/package.pdf', requireProjectUser, async (request, response) => {
+  try {
+    const { scene, snapshot } = await readApprovedProductionContext(request);
+    const stream = new PassThrough();
+    const chunks: Buffer[] = [];
+    stream.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    const completed = new Promise<void>((resolveStream, rejectStream) => { stream.once('end', resolveStream); stream.once('error', rejectStream); });
+    generateProjectionPdf(buildDrawingProjection(scene), stream, snapshot);
+    await completed;
+    response.setHeader('content-type', 'application/pdf');
+    response.setHeader('content-disposition', `attachment; filename="ultida-${request.params.sceneVersionId}-production-pack.pdf"`);
+    return response.send(Buffer.concat(chunks));
+  } catch (err: any) {
+    return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_PACKAGE_FAILED', message: err?.message });
+  }
+});
 
 app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/labels.svg', requireProjectUser, async (request, response) => {
   try {
@@ -1233,6 +1309,42 @@ app.get('/api/projects/:projectId/brief', requireProjectUser, async (request, re
     .maybeSingle();
   if (error) return response.status(500).json({ success: false, code: 'BRIEF_READ_FAILED', message: error.message });
   return response.json({ success: true, brief: data?.brief ?? null, isComplete: data?.is_complete ?? false, updatedAt: data?.updated_at ?? null });
+});
+
+app.get('/api/projects/:projectId/brief.pdf', requireProjectUser, async (request, response) => {
+  const result = await getAuthorizedProjectPersistenceClient(request).from('project_briefs').select('brief,is_complete,updated_at').eq('project_id', request.params.projectId).maybeSingle();
+  if (result.error) return response.status(500).json({ success: false, code: 'BRIEF_READ_FAILED', message: result.error.message });
+  if (!result.data?.brief) return response.status(404).json({ success: false, code: 'BRIEF_NOT_FOUND', message: 'Save the project brief before downloading it.' });
+  const brief = result.data.brief as Record<string, unknown>;
+  const document = new PDFDocument({ size: 'A4', margin: 48, info: { Title: `ULTIDA Design Brief - ${String(brief.projectName ?? request.params.projectId)}` } });
+  const chunks: Buffer[] = [];
+  document.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+  const completed = new Promise<void>((resolveStream, rejectStream) => { document.once('end', resolveStream); document.once('error', rejectStream); });
+  document.fillColor('#2d211b').fontSize(22).text('ULTIDA PROJECT BRIEF');
+  document.moveDown(.3).fillColor('#8a6a42').fontSize(10).text(result.data.is_complete ? 'COMPLETED DESIGN CONTEXT' : 'DRAFT DESIGN CONTEXT');
+  document.moveDown(1.2).fillColor('#2d211b').fontSize(16).text(String(brief.projectName ?? 'Untitled project'));
+  document.fontSize(10).fillColor('#71655c').text(`Client: ${String(brief.clientName ?? 'Not provided')}   •   Updated: ${new Date(result.data.updated_at ?? Date.now()).toLocaleDateString('en-IN')}`);
+  const sections: Array<[string, string[]]> = [
+    ['PROJECT', ['propertyType', 'rooms', 'budgetRange']],
+    ['DESIGN DIRECTION', ['style', 'materials', 'vastuPreference']],
+    ['LIFESTYLE & STORAGE', ['lifestyle', 'storageNeeds']],
+    ['KITCHEN & SERVICES', ['kitchenRequirements', 'appliancesServices']],
+    ['NOTES & CONSTRAINTS', ['specialInstructions', 'constraints']],
+  ];
+  const labels: Record<string, string> = { propertyType: 'Property', rooms: 'Rooms in scope', budgetRange: 'Budget', style: 'Style', materials: 'Material direction', vastuPreference: 'Vastu', lifestyle: 'Lifestyle', storageNeeds: 'Storage', kitchenRequirements: 'Kitchen', appliancesServices: 'Appliances and services', specialInstructions: 'Special instructions', constraints: 'Constraints' };
+  for (const [title, keys] of sections) {
+    const values = keys.filter((key) => String(brief[key] ?? '').trim());
+    if (!values.length) continue;
+    document.moveDown(1).fillColor('#8a6a42').fontSize(9).text(title);
+    document.moveDown(.35);
+    for (const key of values) document.fillColor('#2d211b').fontSize(10).text(`${labels[key]}: `, { continued: true }).fillColor('#5f554d').text(String(brief[key]));
+  }
+  document.moveDown(1.5).fillColor('#7a6e62').fontSize(8).text('This brief records design intent. Approved plan.v1 and scene.v1 geometry remain authoritative for measurements, renders, drawings and fabrication outputs.');
+  document.end();
+  await completed;
+  response.setHeader('content-type', 'application/pdf');
+  response.setHeader('content-disposition', `attachment; filename="ultida-${request.params.projectId}-brief.pdf"`);
+  return response.send(Buffer.concat(chunks));
 });
 
 app.get('/api/projects/:projectId/design-preferences', requireProjectUser, async (request, response) => {

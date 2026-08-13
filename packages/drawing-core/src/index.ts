@@ -527,7 +527,7 @@ export function generateWallElevationsPdf(scene: SceneV1, outStream: any, option
   return generateProjectionPdf(buildDrawingProjection(scene), outStream);
 }
 
-export function generateProjectionPdf(projection: DrawingPackageProjection, outStream: NodeJS.WritableStream) {
+export function generateProjectionPdf(projection: DrawingPackageProjection, outStream: NodeJS.WritableStream, production?: ProductionSnapshotV1) {
   const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 24, info: { Title: `ULTIDA Production Drawings - ${projection.floorPlanVersionId}`, Author: 'ULTIDA', Subject: 'Approved scene production drawing package' } });
   doc.pipe(outStream);
   const pageWidth = 842; const pageHeight = 595;
@@ -543,7 +543,8 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
   };
   // Only walls carrying furniture/modules receive an elevation sheet.
   const furnitureWalls = projection.elevations.filter((wall) => wall.modules.length > 0);
-  const totalSheets = Math.max(1, furnitureWalls.length + 1);
+  const productionSheetCount = production ? 1 + Math.max(1, Math.ceil(production.parts.length / 25)) : 0;
+  const totalSheets = Math.max(1, furnitureWalls.length + 1 + productionSheetCount);
   drawFrame('DRAWING INDEX AND FLOOR PLAN', 1, totalSheets, 'Generated from immutable drawing.projection.v1. Verify all review warnings before release.');
   doc.font('Helvetica-Bold').fontSize(24).fillColor('#38291f').text('Production Drawing Package', 48, 50);
   doc.font('Helvetica').fontSize(10).fillColor('#53463d').text('Floor plan overview and wall elevation register', 48, 82);
@@ -592,6 +593,73 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
     doc.save().dash(3, { space: 2 }).strokeColor('#75665c').lineWidth(.5).moveTo(originX, originY + wall.heightMm * scale + 18).lineTo(originX + wall.lengthMm * scale, originY + wall.heightMm * scale + 18).stroke().undash().restore();
     doc.font('Helvetica').fontSize(8).fillColor('#53463d').text(`${Math.round(wall.lengthMm)} mm`, originX, originY + wall.heightMm * scale + 24, { width: wall.lengthMm * scale, align: 'center' });
   });
+  if (production) {
+    const firstProductionSheet = furnitureWalls.length + 2;
+    doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
+    drawFrame('PRODUCTION SUMMARY', firstProductionSheet, totalSheets, `Source scene ${production.sceneVersion}. Fabrication rules ${production.fabricationRules.version}.`);
+    doc.font('Helvetica-Bold').fontSize(20).fillColor('#38291f').text('Manufacturing Package Summary', 48, 52);
+    const materialGroups = new Map<string, { count: number; areaSqm: number }>();
+    for (const part of production.parts) {
+      const current = materialGroups.get(part.materialCode) ?? { count: 0, areaSqm: 0 };
+      current.count += 1;
+      current.areaSqm += (part.lengthMm * part.widthMm) / 1_000_000;
+      materialGroups.set(part.materialCode, current);
+    }
+    const metrics = [
+      ['Physical panels', String(production.parts.length)],
+      ['Hardware lines', String(production.hardware.length)],
+      ['Material groups', String(materialGroups.size)],
+      ['Release status', production.status.replaceAll('_', ' ').toUpperCase()],
+    ];
+    metrics.forEach(([label, value], index) => {
+      const x = 48 + index * 188;
+      doc.roundedRect(x, 102, 166, 62, 5).fillAndStroke('#f6f0e8', '#d7c8b7');
+      doc.font('Helvetica').fontSize(7).fillColor('#75665c').text(label.toUpperCase(), x + 12, 115);
+      doc.font('Helvetica-Bold').fontSize(15).fillColor('#38291f').text(value, x + 12, 133, { width: 142 });
+    });
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#38291f').text('MATERIAL / BOARD SUMMARY', 48, 194);
+    let summaryY = 216;
+    for (const [materialCode, group] of [...materialGroups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      doc.rect(48, summaryY, 470, 24).lineWidth(.35).stroke('#d7c8b7');
+      doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#38291f').text(materialCode, 58, summaryY + 8, { width: 250 });
+      doc.font('Helvetica').text(`${group.count} panels`, 320, summaryY + 8, { width: 80 });
+      doc.text(`${group.areaSqm.toFixed(3)} m²`, 410, summaryY + 8, { width: 90, align: 'right' });
+      summaryY += 25;
+    }
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#38291f').text('FABRICATION RULES', 548, 194);
+    const rules = production.fabricationRules;
+    doc.font('Helvetica').fontSize(8).fillColor('#53463d').text([
+      `Board: ${rules.carcassThicknessMm} mm carcass / ${rules.shutterThicknessMm} mm shutter`,
+      `Back: ${rules.backPanelThicknessMm} mm`,
+      `Edging: ${rules.visibleEdgeBandMm} mm visible / ${rules.internalEdgeBandMm} mm internal`,
+      `Stock: ${rules.sheetWidthMm} × ${rules.sheetHeightMm} mm`,
+      `Kerf: ${rules.kerfMm} mm | trim: ${rules.trimMm} mm`,
+    ].join('\n'), 548, 218, { width: 240, lineGap: 7 });
+    if (production.warnings.length) {
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#9b2c2c').text('REVIEW WARNINGS', 548, 350);
+      doc.font('Helvetica').fontSize(7).text(production.warnings.map((warning) => `• ${warning}`).join('\n'), 548, 370, { width: 240, height: 120 });
+    }
+
+    doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
+    drawFrame('PANEL CUTLIST', firstProductionSheet + 1, totalSheets, 'Every row is one traceable physical panel from the approved scene. Dimensions are finished millimetres.');
+    doc.font('Helvetica-Bold').fontSize(18).fillColor('#38291f').text('Scene-linked Panel Cutlist', 48, 48);
+    const columns = [48, 190, 300, 390, 455, 520, 580, 662, 745];
+    const headers = ['PART', 'MODULE', 'MATERIAL', 'L', 'W', 'T', 'GRAIN', 'EDGE', 'STATUS'];
+    headers.forEach((header, index) => doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#38291f').text(header, columns[index], 86, { width: index === 0 ? 138 : 82 }));
+    let rowY = 104;
+    const rowsPerPage = 25;
+    production.parts.forEach((part, index) => {
+      if (index > 0 && index % rowsPerPage === 0) {
+        doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
+        drawFrame('PANEL CUTLIST - CONTINUED', firstProductionSheet + 1 + Math.floor(index / rowsPerPage), totalSheets, 'Continuation sheet. Physical panel IDs remain linked to scene component IDs.');
+        rowY = 52;
+      }
+      if (index % 2 === 0) doc.rect(43, rowY - 4, 755, 16).fill('#faf7f2');
+      const values = [part.partName, part.moduleId, part.materialCode, part.lengthMm, part.widthMm, part.thicknessMm, part.grainDirection ?? 'none', part.edgeSchedule?.tapeType ?? 'none', part.status];
+      values.forEach((value, valueIndex) => doc.font(valueIndex === 0 ? 'Helvetica-Bold' : 'Helvetica').fontSize(5.8).fillColor('#38291f').text(String(value), columns[valueIndex], rowY, { width: valueIndex === 0 ? 138 : valueIndex === 1 ? 105 : 78, ellipsis: true }));
+      rowY += 17;
+    });
+  }
   doc.end();
 }
 

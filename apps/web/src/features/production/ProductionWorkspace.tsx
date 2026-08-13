@@ -43,6 +43,9 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
   const [cncAssets, setCncAssets] = useState<CncAsset[]>([]);
   const [preflightResult, setPreflightResult] = useState<{ status: 'idle' | 'running' | 'passed' | 'failed'; issues: string[] } | null>(null);
   const [exportState, setExportState] = useState('Choose an approved scene export.');
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [reviewNotes, setReviewNotes] = useState('');
+  const [reviewSaving, setReviewSaving] = useState(false);
 
   async function readApprovedScene() {
     if (!projectId || !sceneVersionId) {
@@ -75,7 +78,8 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
         ...(method === 'POST' ? { body: JSON.stringify({ projectId, sceneVersionId, scene: source.scene }) } : {})
       });
       if (!response.ok) {
-        setExportState('The export service rejected this scene. No substitute file was created.');
+        const error = await response.json().catch(() => null);
+        setExportState(error?.message ?? 'The export service rejected this scene. No substitute file was created.');
         return;
       }
       const blob = await response.blob();
@@ -130,6 +134,28 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
     })();
   }, [projectId, sceneVersionId, sceneApproved]);
 
+  async function approveProductionReview() {
+    if (!reviewConfirmed || !sceneVersionId || !parts.length) return;
+    setReviewSaving(true);
+    setExportState('Saving audited panel review...');
+    try {
+      const token = (await supabase?.auth.getSession())?.data.session?.access_token;
+      if (!token) throw new Error('Sign in again before approving production data.');
+      const apiBase = String(import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production-review`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ approvedPartIds: parts.map((part) => part.partInstanceId), notes: reviewNotes }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) throw new Error(payload?.message ?? 'Production review could not be saved.');
+      setCutlist(payload.cutlist);
+      setParts(payload.cutlist.parts);
+      setExportState('Production pack approved against this exact scene version.');
+    } catch (error) {
+      setExportState(error instanceof Error ? error.message : 'Production review could not be saved.');
+    } finally { setReviewSaving(false); }
+  }
+
   const activeTabIndex = TABS.findIndex((t) => t.id === activeTab);
   const nextTab = TABS[(activeTabIndex + 1) % TABS.length];
   const prevTab = TABS[(activeTabIndex - 1 + TABS.length) % TABS.length];
@@ -166,8 +192,8 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
               <span>{parts.length ? 'Verify all parts are approved before release.' : 'Compile approved module parts before releasing production data.'}</span>
             </div>
             <div className="rail-spacer" />
-            <Button variant="primary" size="sm" icon={<CheckCircle2 size={14} />} disabled={!releaseReady} onClick={async () => { if (releaseReady && onSceneApproved) await onSceneApproved(); }}>
-              Approve & Release Production Pack
+            <Button variant="primary" size="sm" icon={<CheckCircle2 size={14} />} disabled={!sceneApproved || !parts.length} onClick={() => setActiveTab('release')}>
+              {releaseReady ? 'View approved pack' : 'Review production pack'}
             </Button>
           </div>
         )}
@@ -181,6 +207,12 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
           ))}
         </nav>
         <div className="production-tab-content">
+          <div className="production-summary-strip">
+            <div><span>Scene source</span><strong>{sceneVersionId ? 'Approved scene.v1' : 'Not selected'}</strong></div>
+            <div><span>Physical panels</span><strong>{parts.length}</strong></div>
+            <div><span>Materials</span><strong>{new Set(parts.map((part) => part.materialCode)).size}</strong></div>
+            <div><span>Release state</span><strong className={releaseReady ? 'ready' : 'review'}>{releaseReady ? 'Ready' : 'Review required'}</strong></div>
+          </div>
           {activeTab === 'parts' && (
             <div className="production-parts-grid">
               <div className="parts-toolbar">
@@ -291,10 +323,10 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
             <h4>Export Production Outputs</h4>
             <p className="inspector-empty" role="status">{exportState}</p>
             <div className="exports-grid">
-              <Card><CardHeader>SVG Drawing Package</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} title="SVG export endpoint not yet available" onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-elevations.svg`)}>Export SVG</Button></CardContent></Card>
-              <Card><CardHeader>DXF Millimetres</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} title="DXF export endpoint not yet available" onClick={() => void downloadProductionFile('/drawings/dxf', `ultida-${sceneVersionId}.dxf`)}>Export DXF</Button></CardContent></Card>
+              <Card><CardHeader>SVG Drawing Package</CardHeader><CardContent><p>Scene-linked wall and module elevations.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-elevations.svg`)}>Export SVG</Button></CardContent></Card>
+              <Card><CardHeader>DXF Millimetres</CardHeader><CardContent><p>Editable millimetre geometry from the approved scene.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/dxf', `ultida-${sceneVersionId}.dxf`)}>Export DXF</Button></CardContent></Card>
               <Card><CardHeader>SketchUp Model (.rb Script)</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile(`/projects/${projectId}/export/sketchup?sceneVersionId=${encodeURIComponent(sceneVersionId ?? '')}`, `ultida-${projectId}-sketchup.rb`, 'GET')}>Export SketchUp .rb</Button></CardContent></Card>
-              <Card><CardHeader>Part Drawings (PDF)</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} title="PDF export endpoint not yet available" onClick={() => void downloadProductionFile('/drawings/elevations.pdf', `ultida-${sceneVersionId}-elevations.pdf`)}>Export PDF</Button></CardContent></Card>
+              <Card className="featured-export"><CardHeader>Complete Production Pack (PDF)</CardHeader><CardContent><p>Index, elevations, fabrication rules, material summary and panel cutlist.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile(`/projects/${projectId}/scenes/${sceneVersionId}/production/package.pdf`, `ultida-${sceneVersionId}-production-pack.pdf`, 'GET')}>Download complete PDF</Button></CardContent></Card>
               <Card><CardHeader>Cutlist CSV</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/production/cutlist.csv', `ultida-${sceneVersionId}-cutlist.csv`)}>Export CSV</Button></CardContent></Card>
               <Card><CardHeader>Operation Sheet</CardHeader><CardContent><span className="inspector-empty">Unavailable until verified CNC operations are stored.</span></CardContent></Card>
               <Card><CardHeader>Tooling Assumptions</CardHeader><CardContent><span className="inspector-empty">Unavailable until verified CNC tooling data is stored.</span></CardContent></Card>
@@ -313,8 +345,15 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
               <div className={`release-item ${preflightResult?.status === 'passed' ? 'pass' : 'warning'}`}><CheckCircle2 size={16} /> CNC preflight {preflightResult?.status ?? 'not run'}</div>
               <div className={`release-item ${parts.length ? 'pass' : 'fail'}`}><CheckCircle2 size={16} /> Exact production part data required</div>
             </div>
+            <label className="production-review-confirmation">
+              <input type="checkbox" checked={reviewConfirmed} onChange={(event) => setReviewConfirmed(event.target.checked)} />
+              <span><strong>I reviewed every panel.</strong> Finished sizes, board thickness, material, grain and edge schedule match this approved scene.</span>
+            </label>
+            <label className="production-review-notes">Review note<textarea value={reviewNotes} onChange={(event) => setReviewNotes(event.target.value)} placeholder="Optional fabrication or approval note" rows={3} /></label>
             <div className="release-actions">
-              <Button variant="primary" disabled={!releaseReady} onClick={async () => { if (releaseReady && onSceneApproved) await onSceneApproved(); }}>Approve Production Pack</Button>
+              {releaseReady
+                ? <Badge variant="success">Production pack approved</Badge>
+                : <Button variant="primary" disabled={!sceneApproved || !parts.length || !reviewConfirmed || reviewSaving} onClick={() => void approveProductionReview()}>{reviewSaving ? 'Saving review...' : 'Approve reviewed panels'}</Button>}
             </div>
           </div>
         )}

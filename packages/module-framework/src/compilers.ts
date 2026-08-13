@@ -160,17 +160,46 @@ export function compileKitchen(input: TemplateCompileInput): TemplateCompileResu
   return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts };
 }
 
-// ── Bed (bed base + headboard) ──────────────────────────────
+// ── Bed (panel-built storage bed + headboard) ───────────────
 export function compileBed(input: TemplateCompileInput): TemplateCompileResult {
   const p = input.parameters as any;
   const instanceId = input.instanceId ?? 'bed-1';
   const wallW = input.wall.widthMm, wallH = input.wall.heightMm;
-  const totalW = p.totalWidthMm ?? 1600, totalH = p.totalHeightMm ?? 450, totalD = p.totalDepthMm ?? 2000;
-  const blocking: string[] = []; if (totalW > wallW) blocking.push(`Bed width ${totalW}mm exceeds wall ${wallW}mm.`);
+  const totalW = p.totalWidthMm ?? 1600, platformH = Math.max(350, p.platformHeightMm ?? Math.min(450, p.totalHeightMm ?? 450)), totalD = p.totalDepthMm ?? 2100;
+  const headboardH = Math.max(900, p.headboardHeightMm ?? (p.totalHeightMm && p.totalHeightMm > 700 ? p.totalHeightMm : 1100));
+  const t = DEFAULT_CARCASS_THICKNESS_MM;
+  const blocking: string[] = [];
+  const warning: string[] = [];
+  if (totalW > wallW) blocking.push(`Bed width ${totalW}mm exceeds wall ${wallW}mm.`);
+  if (wallH > 0 && headboardH > wallH) blocking.push(`Headboard height ${headboardH}mm exceeds wall height ${wallH}mm.`);
+  if (totalD < 1850) warning.push('Bed length below 1850mm requires mattress verification.');
   const parts: Part[] = [];
-  parts.push({ id: `${instanceId}-base`, templateVersionId: input.templateVersionId, instanceId, name: 'Bed Base', transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: totalD, heightMm: totalH }, anchor: { face: 'bottom' }, meta: { semanticType: 'carcass', parentId: null, materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Bed Base' }, drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 }, bom: { sku: 'BED-BASE', qty: 1, unit: 'pc', lengthMm: totalW, widthMm: totalD, thicknessMm: totalH } } });
-  parts.push({ id: `${instanceId}-headboard`, templateVersionId: input.templateVersionId, instanceId, name: 'Headboard', transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: 80, heightMm: 1100 }, anchor: { face: 'back' }, meta: { semanticType: 'panel', parentId: `${instanceId}-base`, materialSlot: { id: COMPAT.panel, code: COMPAT.panel, name: 'Headboard' }, drawing: { layer: 'A-MOD-PANEL', sortOrder: 5 }, bom: { sku: 'HEADBOARD', qty: 1, unit: 'pc', lengthMm: totalW, heightMm: 1100, thicknessMm: 80 } } });
-  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: [], parts };
+  const addPanel = (id: string, name: string, xMm: number, yMm: number, zMm: number, widthMm: number, depthMm: number, heightMm: number, semanticType: Part['meta']['semanticType'], materialId = COMPAT.carcass, sku = 'BED-PANEL-18MM') => parts.push({
+    id: `${instanceId}-${id}`, templateVersionId: input.templateVersionId, instanceId, name,
+    transform: { xMm, yMm, zMm, rotationDeg: 0 }, size: { widthMm, depthMm, heightMm }, anchor: { face: 'bottom' },
+    meta: { semanticType, parentId: null, materialSlot: { id: materialId, code: materialId, name: semanticType === 'panel' ? 'Headboard finish' : 'Bed carcass' }, drawing: { layer: semanticType === 'panel' ? 'A-MOD-PANEL' : 'A-MOD-CARCASS', sortOrder: parts.length + 1 }, bom: { sku, qty: 1, unit: 'pc', lengthMm: Math.max(widthMm, depthMm, heightMm), widthMm: [widthMm, depthMm, heightMm].sort((a, b) => b - a)[1], thicknessMm: t } },
+  });
+
+  // Exact sheet parts: the visible bed envelope is reconstructed from these
+  // rails and deck panels by scene.v1, so render geometry and fabrication data
+  // stay in sync.
+  addPanel('left-rail', 'Left Storage Bed Side Rail', 0, 0, 0, t, totalD, platformH, 'carcass');
+  addPanel('right-rail', 'Right Storage Bed Side Rail', totalW - t, 0, 0, t, totalD, platformH, 'carcass');
+  addPanel('foot-rail', 'Storage Bed Foot Rail', t, totalD - t, 0, totalW - t * 2, t, platformH, 'carcass');
+  addPanel('head-rail', 'Storage Bed Head Rail', t, 0, 0, totalW - t * 2, t, platformH, 'carcass');
+  addPanel('centre-partition', 'Hydraulic Storage Centre Partition', totalW / 2 - t / 2, t, 0, t, totalD - t * 2, platformH - t, 'carcass');
+  const deckGap = 4;
+  const deckWidth = (totalW - t * 2 - deckGap) / 2;
+  addPanel('deck-left', 'Hydraulic Bed Deck Left', t, t, platformH - t, deckWidth, totalD - t * 2, t, 'panel', COMPAT.panel, 'BED-DECK-18MM');
+  addPanel('deck-right', 'Hydraulic Bed Deck Right', t + deckWidth + deckGap, t, platformH - t, deckWidth, totalD - t * 2, t, 'panel', COMPAT.panel, 'BED-DECK-18MM');
+  addPanel('headboard-panel', 'Bed Headboard Panel', 0, 0, 0, totalW, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-PANEL-18MM');
+  if (p.headboardStyle === 'extended' || p.archetype === 'extended_headboard') {
+    const wingWidth = Math.min(450, Math.max(300, Math.round(totalW * 0.22)));
+    addPanel('headboard-wing-left', 'Extended Headboard Left Wing', -wingWidth, 0, 0, wingWidth, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-WING-18MM');
+    addPanel('headboard-wing-right', 'Extended Headboard Right Wing', totalW, 0, 0, wingWidth, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-WING-18MM');
+  }
+  parts.push({ id: `${instanceId}-hydraulic-pair`, templateVersionId: input.templateVersionId, instanceId, name: 'Hydraulic Lift Mechanism Pair', transform: { xMm: totalW / 2, yMm: totalD / 2, zMm: platformH - 80, rotationDeg: 0 }, size: { widthMm: 40, depthMm: 420, heightMm: 80 }, anchor: { face: 'center' }, meta: { semanticType: 'hardware', parentId: null, materialSlot: { id: COMPAT.hardware, code: COMPAT.hardware, name: 'Hydraulic hardware' }, drawing: { layer: 'A-ANNO-HARDWARE', sortOrder: parts.length + 1 }, bom: { sku: 'HW-BED-HYDRAULIC-PAIR', qty: 1, unit: 'set' } } });
+  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts };
 }
 
 // ── Utility (tall units + sink base) ────────────────────────

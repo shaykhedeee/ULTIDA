@@ -44,3 +44,21 @@ test('does not invent parts for a non-panel furniture family', () => {
   if (!result.ok) return;
   assert.equal(result.parts.length, 0);
 });
+
+test('compiles a hydraulic storage bed into traceable panels and hardware', () => {
+  const result = compileStoredModuleForScene({
+    id: 'bed-1', space_id: 'bedroom-1', category: 'bed', template_id: 'bed-1800-extended-headboard',
+    config_json: {
+      family: 'bed', widthMm: 1800, depthMm: 2100, heightMm: 1200,
+      parameters: { archetype: 'extended_headboard', platformHeightMm: 450, headboardHeightMm: 1200 },
+    },
+    position_json: { wallId: 'wall-a', xMm: 500, yMm: 0, rotationDeg: 0, anchor: 'wall' },
+  }, walls);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.ok(result.parts.length >= 10);
+  assert.ok(result.parts.some((part) => part.name === 'Hydraulic Bed Deck Left'));
+  assert.ok(result.parts.some((part) => part.name === 'Extended Headboard Left Wing'));
+  assert.ok(result.parts.some((part) => part.semanticType === 'hardware'));
+  assert.ok(result.parts.every((part) => part.moduleId === 'bed-1' && part.roomId === 'bedroom-1'));
+});

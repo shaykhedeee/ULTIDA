@@ -1216,6 +1216,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       <Suspense fallback={<RouteLoading label="Loading workspace…" />}><Routes>
         <Route path="brief" element={
           <BriefWorkspace
+            projectId={projectId ?? ''}
             initialBrief={brief}
             fileName={planFile?.name}
             status={planStatus}
