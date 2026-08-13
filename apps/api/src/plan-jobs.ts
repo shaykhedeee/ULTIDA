@@ -300,12 +300,15 @@ function supplementSparseVisionProposals(
   }
   const hasOpening = supplemented.some((p) => p.kind === 'opening');
   if (!hasOpening) {
-    for (const opening of (cv as CvTraceResult & { openings?: Array<{ approxCenterPx: { x: number; y: number }; approxWidthPx: number; confidence?: number }> }).openings ?? []) {
+    for (const opening of (cv as CvTraceResult & { openings?: Array<{ approxCenterPx: { x: number; y: number }; approxWidthPx: number; kindHint?: 'door' | 'window' | 'unknown'; confidence?: number; note?: string }> }).openings ?? []) {
+      const kind = opening.kindHint === 'window' ? 1 : 0;
       supplemented.push({
         kind: 'opening',
         confidence: Number(opening.confidence ?? 0.45),
-        geometry: { x: Math.round((opening.approxCenterPx.x / cv.sourceImageSize.widthPx) * 1000), y: Math.round((opening.approxCenterPx.y / cv.sourceImageSize.heightPx) * 1000), width: Math.round((opening.approxWidthPx / cv.sourceImageSize.widthPx) * 1000), kind: 0 },
-        note: 'Derived from a collinear wall gap; classify as door or window during review.',
+        geometry: { x: Math.round((opening.approxCenterPx.x / cv.sourceImageSize.widthPx) * 1000), y: Math.round((opening.approxCenterPx.y / cv.sourceImageSize.heightPx) * 1000), width: Math.round((opening.approxWidthPx / cv.sourceImageSize.widthPx) * 1000), kind },
+        note: opening.kindHint === 'unknown'
+          ? `${opening.note ?? 'Derived from a collinear wall gap.'} Classify as door or window during review.`
+          : `${opening.note ?? 'Derived from a collinear wall gap.'} CV hint: ${opening.kindHint}.`,
       });
     }
   }
