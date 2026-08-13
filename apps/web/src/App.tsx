@@ -23,6 +23,7 @@ import { StudioOperations } from './features/tools/StudioOperations';
 import { AuraChat } from './features/tools/AuraChat';
 import { RenderLauncher } from './features/tools/RenderLauncher';
 import { MeasurementConverter } from './features/tools/MeasurementConverter';
+import { RoomBuilder } from './features/tools/RoomBuilder';
 
 // Existing feature components — preserved
 import { BriefWorkspace, type ClientBrief, emptyBrief } from './components/brief/BriefWorkspace';
@@ -1356,6 +1357,7 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
         <Route path="tools/aura" element={<AuraChat />} />
         <Route path="tools/render" element={<RenderLauncher />} />
         <Route path="tools/measurements" element={<MeasurementConverter />} />
+        <Route path="tools/room-builder" element={<RoomBuilder />} />
         <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={null} />} />
         <Route path="templates" element={<Navigate to="/library" replace />} />
         <Route path="modules" element={<Navigate to="/library" replace />} />
@@ -1439,6 +1441,16 @@ export function App() {
 
   // Not authenticated
   if (!sessionEmail) {
+    // These are deliberately local-first utilities. They never call providers,
+    // write shared data, or claim a production result; sign-in is required as
+    // soon as a draft is attached to a studio project.
+    if (['/tools/room-builder', '/tools/measurements', '/tools/cnc'].includes(window.location.pathname)) {
+      return <Routes>
+        <Route path="/tools/room-builder" element={<RoomBuilder />} />
+        <Route path="/tools/measurements" element={<MeasurementConverter />} />
+        <Route path="/tools/cnc" element={<CncPatternStudio />} />
+      </Routes>;
+    }
     return <SignInScreen onSuccess={(email) => {
       setSessionEmail(email);
       navigate('/');

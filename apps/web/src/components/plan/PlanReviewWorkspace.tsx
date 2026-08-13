@@ -201,6 +201,10 @@ export function PlanReviewWorkspace({
   const [pointerPoint, setPointerPoint] = useState<Point | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
+  // React state updates are intentionally asynchronous. Keep the two selected
+  // calibration points in a ref as well, so two quick clicks on a dense plan
+  // cannot both be interpreted as "point 1" before the component re-renders.
+  const calibrationPointsRef = useRef<Point[]>([]);
 
   useEffect(() => {
     if (analysed || !initialSnapshot || typeof initialSnapshot !== 'object') return;
@@ -221,10 +225,10 @@ export function PlanReviewWorkspace({
       // provider prompts use a 1000 x 850 source grid. Send source-relative
       // regions so an optional pre-analysis room outline genuinely improves
       // crop coverage instead of being shifted by the canvas margins.
-      const sourceX = Math.max(0, Math.min(1000, ((x! - 80) / 840) * 1000));
-      const sourceY = Math.max(0, Math.min(850, ((y! - 80) / 670) * 850));
-      const sourceRight = Math.max(sourceX, Math.min(1000, (((x! + width! - 80) / 840) * 1000)));
-      const sourceBottom = Math.max(sourceY, Math.min(850, (((y! + height! - 80) / 670) * 850)));
+      const sourceX = Math.max(0, Math.min(1000, x!));
+      const sourceY = Math.max(0, Math.min(850, y!));
+      const sourceRight = Math.max(sourceX, Math.min(1000, x! + width!));
+      const sourceBottom = Math.max(sourceY, Math.min(850, y! + height!));
       return [{ id: element.id, label: element.label, x: sourceX, y: sourceY, width: sourceRight - sourceX, height: sourceBottom - sourceY }];
     }));
   }, [analysed, elements, onAnalysisGuidesChange]);
@@ -409,11 +413,13 @@ export function PlanReviewWorkspace({
   const beginCalibration = () => {
     setActiveTool('calibrate');
     setCalibrating(true);
+    calibrationPointsRef.current = [];
     setCalibPoints([]);
     setContinuationHint('Calibration: enter the printed length, then click both endpoints of that same dimension line.');
   };
 
   const cancelCalibration = () => {
+    calibrationPointsRef.current = [];
     setCalibPoints([]);
     setCalibrating(false);
     setActiveTool('select');
@@ -427,13 +433,15 @@ export function PlanReviewWorkspace({
       return;
     }
 
-    if (calibPoints.length === 0) {
+    const currentPoints = calibrationPointsRef.current;
+    if (currentPoints.length === 0) {
+      calibrationPointsRef.current = [point];
       setCalibPoints([point]);
       setContinuationHint('Calibration step 2 of 2: click the other endpoint of the same printed dimension.');
       return;
     }
 
-    const pointA = calibPoints[0];
+    const pointA = currentPoints[0];
     const pixelDistance = Math.hypot(point.x - pointA.x, point.y - pointA.y);
     if (pixelDistance < 3) {
       setContinuationHint('Choose two distinct endpoints. The selected points are too close together to calibrate reliably.');
@@ -451,6 +459,7 @@ export function PlanReviewWorkspace({
     };
     setScale(nextScale);
     setIssues((previous) => previous.filter((issue) => !issue.id.startsWith('CALIBRATION_REQUIRED-')));
+    calibrationPointsRef.current = [];
     setCalibPoints([]);
     setCalibrating(false);
     setActiveTool('select');
@@ -466,6 +475,62 @@ export function PlanReviewWorkspace({
     event.stopPropagation();
     const point = canvasPoint(event);
     if (point) addCalibrationPoint(point);
+  };
+
+  const closestWallAttachment = (point: Point) => {
+    const candidates = elements.flatMap((wall) => {
+      if (wall.kind !== 'wall') return [];
+      const { x1, y1, x2, y2 } = wall.geometry;
+      if (![x1, y1, x2, y2].every((value) => typeof value === 'number')) return [];
+      const dx = x2! - x1!;
+      const dy = y2! - y1!;
+      const length = Math.hypot(dx, dy);
+      if (length < 1) return [];
+      const ratio = Math.max(0, Math.min(1, ((point.x - x1!) * dx + (point.y - y1!) * dy) / (length * length)));
+      const attached = { x: x1! + dx * ratio, y: y1! + dy * ratio };
+      return [{ wall, distance: Math.hypot(point.x - attached.x, point.y - attached.y), point: attached, ratio, length }];
+    });
+    return candidates.sort((a, b) => a.distance - b.distance)[0] ?? null;
+  };
+
+  const deriveWallsFromRoomBoundaries = () => {
+    const rooms = elements.filter((element) => element.kind === 'room' && element.status !== 'rejected' && !element.isAnalysisGuide);
+    if (!rooms.length) {
+      setContinuationHint('Add or accept a room boundary before deriving provisional perimeter walls.');
+      return;
+    }
+    const existingWalls = elements.filter((element) => element.kind === 'wall');
+    const segments: Array<{ start: Point; end: Point; room: PlanElement }> = [];
+    for (const room of rooms) {
+      const polygon = room.geometry.polygon ?? [];
+      if (polygon.length < 3) continue;
+      for (let index = 0; index < polygon.length; index += 1) {
+        const start = polygon[index];
+        const end = polygon[(index + 1) % polygon.length];
+        if (Math.hypot(end.x - start.x, end.y - start.y) >= 12) segments.push({ start, end, room });
+      }
+    }
+    const additions = segments.filter(({ start, end }) => !existingWalls.some((wall) => {
+      const { x1, y1, x2, y2 } = wall.geometry;
+      if (![x1, y1, x2, y2].every((value) => typeof value === 'number')) return false;
+      const direct = Math.hypot(start.x - x1!, start.y - y1!) + Math.hypot(end.x - x2!, end.y - y2!);
+      const reverse = Math.hypot(start.x - x2!, start.y - y2!) + Math.hypot(end.x - x1!, end.y - y1!);
+      return Math.min(direct, reverse) <= 24;
+    })).map(({ start, end, room }, index): PlanElement => ({
+      id: crypto.randomUUID(), kind: 'wall', label: `Derived wall ${existingWalls.length + index + 1}`,
+      confidence: Math.min(room.confidence, 0.7), status: 'accepted', color: '#2563eb',
+      geometry: { x1: start.x, y1: start.y, x2: end.x, y2: end.y },
+      dimensionMm: scale ? Math.round(Math.hypot(end.x - start.x, end.y - start.y) * scale.mmPerPixel) : undefined,
+      thicknessMm: 152.4, heightMm: ceilingHeightMm ?? 2700,
+      note: `Derived from ${room.label} boundary; verify against the visible source before Final Production.`,
+    }));
+    if (!additions.length) {
+      setContinuationHint('Every accepted room edge already has a traced wall.');
+      return;
+    }
+    commitElements((current) => [...current, ...additions]);
+    setSelectedId(additions[0].id);
+    setContinuationHint(`${additions.length} provisional wall segments were derived from accepted room outlines. Review each against the source before Final Production.`);
   };
 
   const translateElement = (id: string, delta: Point) => {
@@ -582,13 +647,30 @@ export function PlanReviewWorkspace({
       return;
     }
 
-    if (activeTool === 'add_door') {
-      const walls = elements.filter((element) => element.kind === 'wall' && element.geometry.x1 !== undefined && element.geometry.y1 !== undefined && element.geometry.x2 !== undefined && element.geometry.y2 !== undefined);
-      const nearestWall = walls.map((wall) => ({ wall, distance: Math.abs((wall.geometry.y2! - wall.geometry.y1!) * point.x - (wall.geometry.x2! - wall.geometry.x1!) * point.y + wall.geometry.x2! * wall.geometry.y1! - wall.geometry.y2! * wall.geometry.x1!) / Math.max(1, Math.hypot(wall.geometry.y2! - wall.geometry.y1!, wall.geometry.x2! - wall.geometry.x1!)) })).sort((a, b) => a.distance - b.distance)[0];
-      if (!nearestWall || nearestWall.distance > 32) return;
-      const door: PlanElement = { id: crypto.randomUUID(), kind: 'door', label: `Door ${elements.filter((element) => element.kind === 'door').length + 1}`, confidence: 1, status: 'accepted', color: '#059669', geometry: { x, y, width: 28 }, wallId: nearestWall.wall.id, offsetAlongWallMm: 0, widthMm: 900, heightMm: 2100, note: 'Manually placed opening' };
-      commitElements((current) => [...current, door]);
-      setSelectedId(door.id);
+    if (activeTool === 'add_door' || activeTool === 'add_window') {
+      const attachment = closestWallAttachment(point);
+      if (!attachment || attachment.distance > 32) {
+        setContinuationHint('Openings must attach to a visible traced wall. Trace the wall first, then click directly on it.');
+        return;
+      }
+      const kind = activeTool === 'add_window' ? 'window' : 'door';
+      const defaultWidthMm = kind === 'door' ? 900 : 1200;
+      const widthPx = scale ? defaultWidthMm / scale.mmPerPixel : 28;
+      const opening: PlanElement = {
+        id: crypto.randomUUID(), kind, label: `${kind === 'door' ? 'Door' : 'Window'} ${elements.filter((element) => element.kind === kind).length + 1}`,
+        confidence: 1, status: 'accepted', color: kind === 'door' ? '#059669' : '#0e7490',
+        geometry: { x: Math.round(attachment.point.x), y: Math.round(attachment.point.y), width: widthPx },
+        wallId: attachment.wall.id,
+        offsetAlongWallMm: scale ? Math.round(attachment.ratio * attachment.length * scale.mmPerPixel) : Math.round(attachment.ratio * attachment.length),
+        widthMm: defaultWidthMm,
+        heightMm: kind === 'door' ? 2100 : undefined,
+        sillMm: kind === 'window' ? 900 : undefined,
+        headMm: kind === 'window' ? 2100 : undefined,
+        note: `Manually attached ${kind} opening`,
+      };
+      commitElements((current) => [...current, opening]);
+      setSelectedId(opening.id);
+      setContinuationHint(`${opening.label} attached to ${attachment.wall.label}. Edit its measured width in the inspector if needed.`);
       return;
     }
 
@@ -673,6 +755,16 @@ export function PlanReviewWorkspace({
       const isExternal = /external|outer|perimeter/i.test(wall.note ?? wall.label);
       return [{ id: durableId(wall.id), sourceStart: { x: x1!, y: y1! }, sourceEnd: { x: x2!, y: y2! }, worldStart, worldEnd, lengthMm: Math.round(Math.hypot(worldEnd.xMm - worldStart.xMm, worldEnd.yMm - worldStart.yMm)), thicknessMm: wall.thicknessMm ?? (isExternal ? 254 : 152.4), heightMm: wall.heightMm ?? ceilingHeightMm!, adjacentSpaces: [], verification: isInitialDesign ? 'assumed' : 'verified', confidence: wall.confidence }];
     });
+    const pointToSegmentDistance = (point: Point, wall: PlanElement) => {
+      const { x1, y1, x2, y2 } = wall.geometry;
+      if (![x1, y1, x2, y2].every((value) => typeof value === 'number')) return Number.POSITIVE_INFINITY;
+      const dx = x2! - x1!;
+      const dy = y2! - y1!;
+      const lengthSquared = dx * dx + dy * dy;
+      if (lengthSquared < 1) return Number.POSITIVE_INFINITY;
+      const ratio = Math.max(0, Math.min(1, ((point.x - x1!) * dx + (point.y - y1!) * dy) / lengthSquared));
+      return Math.hypot(point.x - (x1! + ratio * dx), point.y - (y1! + ratio * dy));
+    };
     const spaces = approvalElements.filter((element) => element.kind === 'room').flatMap((room) => {
       const polygon = room.geometry.polygon ?? [];
       if (polygon.length < 3) return [];
@@ -680,7 +772,13 @@ export function PlanReviewWorkspace({
       const worldPolygon = sourcePolygon.map((point) => ({ xMm: Math.round(point.x * mmPerPixel), yMm: Math.round(point.y * mmPerPixel) }));
       if (worldPolygon[0].xMm !== worldPolygon.at(-1)?.xMm || worldPolygon[0].yMm !== worldPolygon.at(-1)?.yMm) worldPolygon.push({ ...worldPolygon[0] });
       const areaMm2 = Math.abs(worldPolygon.slice(0, -1).reduce((sum, point, index) => { const next = worldPolygon[index + 1]; return sum + point.xMm * next.yMm - next.xMm * point.yMm; }, 0) / 2);
-      return [{ id: durableId(room.id), sourcePolygon, worldPolygon, roomType: canonicalRoomType(room.roomType), roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm!, wallRefs: [], openingRefs: [], confidence: room.confidence, verification: isInitialDesign ? 'assumed' : 'verified' }];
+      const wallRefs = selectedWalls
+        .filter((wall) => sourcePolygon.some((point) => pointToSegmentDistance(point, wall) <= 28))
+        .map((wall) => durableId(wall.id));
+      const openingRefs = approvalElements
+        .filter((element) => (element.kind === 'door' || element.kind === 'window') && element.wallId && wallRefs.includes(durableId(element.wallId)))
+        .map((element) => durableId(element.id));
+      return [{ id: durableId(room.id), sourcePolygon, worldPolygon, roomType: canonicalRoomType(room.roomType), roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm!, wallRefs, openingRefs, confidence: room.confidence, verification: isInitialDesign ? 'assumed' : 'verified' }];
     });
     if (!spaces.length || !wallModels.length) {
       setActiveTool('add_room');
@@ -701,7 +799,9 @@ export function PlanReviewWorkspace({
       walls: wallModels,
       openings: approvalElements.filter((element) => {
         if (element.kind !== 'door' && element.kind !== 'window') return false;
-        return Boolean(element.wallId && element.widthMm && element.widthMm > 0 && element.heightMm && element.heightMm > 0 && (element.kind !== 'window' || (Number.isFinite(element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0))));
+        const attachedAndSized = Boolean(element.wallId && element.widthMm && element.widthMm > 0);
+        if (element.kind === 'window') return attachedAndSized && Number.isFinite(element.sillMm) && Number.isFinite(element.headMm) && (element.headMm ?? 0) > (element.sillMm ?? 0);
+        return attachedAndSized && Boolean(element.heightMm && element.heightMm > 0);
       }).map((opening) => opening.kind === 'window'
         ? { id: durableId(opening.id), wallId: durableId(opening.wallId!), offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, sillMm: opening.sillMm!, headMm: opening.headMm!, verification: 'verified', confidence: opening.confidence }
         : { id: durableId(opening.id), wallId: durableId(opening.wallId!), offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm!, heightMm: opening.heightMm!, verification: 'verified', confidence: opening.confidence }), columns: [], beams: [], servicePoints: [],
@@ -815,8 +915,9 @@ export function PlanReviewWorkspace({
             {elements.some((element) => element.kind === 'room') && !elements.some((element) => element.kind === 'wall') && (
               <div role="alert" style={{ marginTop: 10, padding: '9px 10px', borderRadius: 7, background: '#fff5db', border: '1px solid #e9c46a', color: '#694f13', fontSize: 12, lineHeight: 1.45 }}>
                 <strong>Room regions were detected, but no usable wall geometry was returned.</strong>{' '}
-                Calibrate first, then trace the structural walls before approving the plan.
+                Calibrate first, then trace structural walls or derive provisional room-edge walls before approving the plan.
                 <button type="button" onClick={() => { setActiveTool('draw_wall'); setToolStart(null); setContinuationHint('Trace each visible structural wall with two clicks.'); }} style={{ marginLeft: 8, padding: '3px 7px', borderRadius: 5, border: '1px solid #b9891e', background: '#fff', color: '#694f13', fontWeight: 700, cursor: 'pointer' }}>Trace walls</button>
+                <button type="button" onClick={deriveWallsFromRoomBoundaries} style={{ marginLeft: 6, padding: '3px 7px', borderRadius: 5, border: '1px solid #b9891e', background: '#fff', color: '#694f13', fontWeight: 700, cursor: 'pointer' }}>Use room edges</button>
               </div>
             )}
           </div>
@@ -891,6 +992,13 @@ export function PlanReviewWorkspace({
                 <Ruler size={14} /> Draw Wall
               </button>
               <button
+                className="tool-btn"
+                onClick={deriveWallsFromRoomBoundaries}
+                title="Create provisional wall segments from accepted room boundaries"
+              >
+                <Sparkles size={14} /> Trace Room Edges
+              </button>
+              <button
                 className={`tool-btn${activeTool === 'add_room' ? ' active' : ''}`}
                 onClick={() => { setActiveTool('add_room'); setToolStart(null); }}
                 title="Add Room Polygon"
@@ -903,6 +1011,13 @@ export function PlanReviewWorkspace({
                 title="Add Door Opening"
               >
                 <DoorOpen size={14} /> Add Door
+              </button>
+              <button
+                className={`tool-btn${activeTool === 'add_window' ? ' active' : ''}`}
+                onClick={() => setActiveTool('add_window')}
+                title="Add Window Opening"
+              >
+                <LayoutGrid size={14} /> Add Window
               </button>
               <button
                 className={`tool-btn${activeTool === 'move' ? ' active' : ''}`}
@@ -929,11 +1044,12 @@ export function PlanReviewWorkspace({
               <button className="tool-btn" onClick={redo} disabled={!redoStack.length} title="Redo last canvas change"><Redo2 size={14} /> Redo</button>
             </div>
 
-            {(activeTool === 'draw_wall' || activeTool === 'add_room' || activeTool === 'add_door') && (
+            {(activeTool === 'draw_wall' || activeTool === 'add_room' || activeTool === 'add_door' || activeTool === 'add_window') && (
               <div className="tool-guidance" role="status">
                 {activeTool === 'draw_wall' && (toolStart ? 'Click the wall end point.' : 'Click a wall start point.')}
                 {activeTool === 'add_room' && (toolStart ? 'Click the opposite corner to create this room.' : 'Click the first corner of the room rectangle.')}
                 {activeTool === 'add_door' && 'Click a visible wall to place a 900 mm door.'}
+                {activeTool === 'add_window' && 'Click a visible wall to place a 1200 mm window.'}
               </div>
             )}
 
@@ -961,7 +1077,7 @@ export function PlanReviewWorkspace({
                   Points selected: {calibPoints.length} / 2
                 </div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                  {calibPoints.length > 0 && <button type="button" onClick={() => { setCalibPoints([]); setContinuationHint('Calibration reset. Click the first endpoint again.'); }} style={{ flex: 1, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 4, background: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Reset points</button>}
+                  {calibPoints.length > 0 && <button type="button" onClick={() => { calibrationPointsRef.current = []; setCalibPoints([]); setContinuationHint('Calibration reset. Click the first endpoint again.'); }} style={{ flex: 1, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 4, background: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Reset points</button>}
                   <button type="button" onClick={cancelCalibration} style={{ flex: 1, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 4, background: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
                 </div>
               </div>
@@ -1022,7 +1138,7 @@ export function PlanReviewWorkspace({
 
               {/* Source Plan Overlay image */}
               {layers.source_plan.visible && preview && (
-                <image href={preview} x="80" y="80" width="840" height="670" opacity="0.35" preserveAspectRatio="xMidYMid meet" />
+                <image href={preview} x="0" y="0" width="1000" height="850" opacity="0.35" preserveAspectRatio="xMidYMid meet" />
               )}
 
               {/* Render Room Polygons */}

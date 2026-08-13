@@ -1,4 +1,4 @@
-import { ArrowRight, Box, CalendarDays, FileOutput, FileText, Image, LayoutTemplate, Layers3, PackageCheck, Plus, Ruler, Wand2, Workflow } from 'lucide-react';
+import { ArrowRight, Box, CalendarDays, FileOutput, FileText, Image, LayoutTemplate, Layers3, PackageCheck, Plus, Ruler, Wand2, Workflow, Home } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -78,6 +78,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         <div className="studio-launchpad-copy"><p className="studio-kicker">START A TASK</p><h2>Design tools, ready when you are.</h2><span>Use planning tools directly, then place validated work into a project when it is ready.</span></div>
         <div className="studio-launchpad-actions">
           <button onClick={() => openTool('/tools/modules')}><Box size={17} /><span><strong>Plan a modular unit</strong><small>TV, crockery, wardrobe, kitchen</small></span><ArrowRight size={15} /></button>
+          <button onClick={() => openTool('/tools/room-builder')}><Home size={17} /><span><strong>Build a measured room</strong><small>Offline room shell and openings</small></span><ArrowRight size={15} /></button>
           <button onClick={() => openTool('/tools/cnc')}><LayoutTemplate size={17} /><span><strong>Create a CNC pattern</strong><small>Size a reviewed DXF template</small></span><ArrowRight size={15} /></button>
           <button onClick={() => openTool('/tools/measurements')}><Ruler size={17} /><span><strong>Convert measurements</strong><small>mm, metres, feet and inches</small></span><ArrowRight size={15} /></button>
           <button onClick={() => openTool('/library')}><Image size={17} /><span><strong>Browse references</strong><small>Module families and studio vault</small></span><ArrowRight size={15} /></button>
@@ -102,6 +103,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         <div className="studio-section-heading"><div><p className="studio-kicker">DESIGN TOOLS</p><h2>Open the right workspace</h2></div><button onClick={() => openTool('/projects')}>View project flow <ArrowRight size={15} /></button></div>
         <div className="studio-tool-grid">
           <button className="studio-tool-card featured" onClick={() => openTool('/projects')}><span className="tool-icon"><Ruler size={20} /></span><strong>Floor plan intelligence</strong><p>Upload, analyse, calibrate, review rooms and continue into Spaces.</p><span>Start a plan project <ArrowRight size={14} /></span></button>
+          <button className="studio-tool-card featured" onClick={() => openTool('/tools/room-builder')}><span className="tool-icon"><Home size={20} /></span><strong>Room builder</strong><p>Create a measured room, openings, finishes and a deterministic shell preview before attaching it to a project.</p><span>Build a room <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card featured" onClick={() => openTool('/tools/modules')}><span className="tool-icon"><Box size={20} /></span><strong>Modular unit planner</strong><p>Pick a real TV, crockery, wardrobe or kitchen template, size it and export an initial brief.</p><span>Plan a unit <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card" onClick={() => openTool('/library')}><span className="tool-icon"><Workflow size={20} /></span><strong>Furniture catalogue</strong><p>Filter visual, dimensioned templates by module family, room and design intent.</p><span>Browse modules <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card featured" onClick={() => openTool('/tools/render')}><span className="tool-icon"><Wand2 size={20} /></span><strong>Render studio</strong><p>Choose an approved scene, then create a real geometry-locked interior render or laminate revision.</p><span>Start a render <ArrowRight size={14} /></span></button>
