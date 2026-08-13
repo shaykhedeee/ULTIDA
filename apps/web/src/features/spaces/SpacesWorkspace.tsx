@@ -102,6 +102,8 @@ export function SpacesWorkspace() {
   const [scaleVerified, setScaleVerified] = useState(false);
   const [ceilingHeightMm, setCeilingHeightMm] = useState(2700);
   const [floorPlanVersionId, setFloorPlanVersionId] = useState<string>('');
+  const [geometryMode, setGeometryMode] = useState<'initial_design' | 'final_production'>('final_production');
+  const [canvasFocus, setCanvasFocus] = useState<'room' | 'plan'>('room');
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
@@ -154,6 +156,7 @@ export function SpacesWorkspace() {
       setColumns(payload.columns ?? []); setBeams(payload.beams ?? []); setServices(payload.services ?? []);
       setAnnotations(payload.annotations ?? []); setIssues(payload.issues ?? []);
       setScaleVerified(payload.scaleVerified); setCeilingHeightMm(payload.ceilingHeightMm ?? 2700); setFloorPlanVersionId(payload.floorPlanVersionId ?? '');
+      setGeometryMode(payload.geometryMode === 'initial_design' ? 'initial_design' : 'final_production');
       setLoadState(roomsP.length ? 'ready' : 'empty');
     })();
     return () => { live = false; };
@@ -165,10 +168,26 @@ export function SpacesWorkspace() {
   function redo() { setFuture(f => { if (!f.length) return f; const next = f[0]; const cur = { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm }; setHistory(h => [...h, cur]); setRooms(next.rooms); setWalls(next.walls); setOpenings(next.openings); setColumns(next.columns); setBeams(next.beams); setServices(next.services); setAnnotations(next.annotations); setCeilingHeightMm(next.ceilingHeightMm); return f.slice(1); }); }
 
   // ── Derive room metrics (dimensions from plan, usable walls) ──
+  function roomBoundaryWalls(room: PlanRoom): PlanWall[] {
+    return room.polygon.map((start, index) => ({ id: `${room.id}:edge:${index + 1}`, start, end: room.polygon[(index + 1) % room.polygon.length], isExterior: false }));
+  }
+  function wallsForRoom(room: PlanRoom) {
+    const boundary = roomBoundaryWalls(room);
+    const tolerance = 250;
+    const closeToBoundary = (point: Pt) => boundary.some(edge => {
+      const dx = edge.end.xMm - edge.start.xMm, dy = edge.end.yMm - edge.start.yMm;
+      const l2 = dx * dx + dy * dy;
+      const t = l2 ? Math.max(0, Math.min(1, ((point.xMm - edge.start.xMm) * dx + (point.yMm - edge.start.yMm) * dy) / l2)) : 0;
+      return Math.hypot(point.xMm - (edge.start.xMm + t * dx), point.yMm - (edge.start.yMm + t * dy)) <= tolerance;
+    });
+    const detected = walls.filter(wall => closeToBoundary(wall.start) && closeToBoundary(wall.end));
+    return detected.length >= Math.min(3, boundary.length) ? detected : boundary;
+  }
+
   const roomMetrics = useMemo(() => rooms.map(room => {
     const b = bbox(room.polygon);
     const widthMm = b.maxX - b.minX, depthMm = b.maxY - b.minY;
-    const roomWalls = walls.filter(w => room.polygon.some(p => (Math.abs(p.xMm - w.start.xMm) < 1 && Math.abs(p.yMm - w.start.yMm) < 1) || (Math.abs(p.xMm - w.end.xMm) < 1 && Math.abs(p.yMm - w.end.yMm) < 1)));
+    const roomWalls = wallsForRoom(room);
     const roomOpenings = openings.filter(o => roomWalls.some(w => w.id === o.wallId));
     const roomCols = columns.filter(c => c.position.xMm >= b.minX && c.position.xMm <= b.maxX && c.position.yMm >= b.minY && c.position.yMm <= b.maxY);
     const deductions = [
@@ -178,22 +197,27 @@ export function SpacesWorkspace() {
     const usable = computeUsableWallLength(roomWalls.map(w => ({ id: w.id, lengthMm: wallLen(w) })), deductions);
     const readiness = computeSpaceReadiness(
       { spaceId: room.id, areaSqm: room.areaSqm, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, usableWalls: roomWalls.map(w => ({ id: w.id, lengthMm: Math.round(wallLen(w)), openings: [], isExterior: false })) } as any,
-      Boolean(room.spaceRecordId) && room.included !== false && room.requiredFurniture.length > 0,
+      Boolean(room.spaceRecordId) && room.included !== false && room.requiredFurniture.length > 0 && (geometryMode === 'initial_design' || room.verificationStatus === 'verified'),
       issues.filter(i => i.entityId === room.id)
     );
     return { room, widthMm, depthMm, wallCount: roomWalls.length, openingCount: roomOpenings.length, usable, readiness };
-  }), [rooms, walls, openings, columns, issues, ceilingHeightMm]);
+  }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode]);
 
   const overallReadiness = useMemo(() => canApproveSpaces(roomMetrics.map(m => m.readiness)), [roomMetrics]);
 
   // ── Canvas projection ──
   const view = useMemo(() => {
-    const all: Pt[] = [...rooms.flatMap(r => r.polygon), ...walls.flatMap(w => [w.start, w.end]), ...columns.map(c => c.position), ...services.map(s => s.position)];
+    const focusRoom = canvasFocus === 'room' ? rooms.find(room => room.id === selectedRoom) : null;
+    const focusBounds = focusRoom ? bbox(focusRoom.polygon) : null;
+    const inFocus = (point: Pt) => !focusBounds || (point.xMm >= focusBounds.minX - 500 && point.xMm <= focusBounds.maxX + 500 && point.yMm >= focusBounds.minY - 500 && point.yMm <= focusBounds.maxY + 500);
+    const all: Pt[] = focusRoom
+      ? [...focusRoom.polygon, ...walls.flatMap(w => [w.start, w.end]).filter(inFocus), ...columns.map(c => c.position).filter(inFocus), ...services.map(s => s.position).filter(inFocus)]
+      : [...rooms.flatMap(r => r.polygon), ...walls.flatMap(w => [w.start, w.end]), ...columns.map(c => c.position), ...services.map(s => s.position)];
     if (!all.length) return { minX: 0, minY: 0, scale: 0.1, w: 600, h: 400 };
     const b = bbox(all); const pad = 60; const W = 720, H = 460;
     const s = Math.min((W - 2 * pad) / (b.maxX - b.minX || 1), (H - 2 * pad) / (b.maxY - b.minY || 1));
     return { minX: b.minX, minY: b.minY, scale: s, w: W, h: H };
-  }, [rooms, walls, columns, services]);
+  }, [rooms, walls, columns, services, selectedRoom, canvasFocus]);
   const toPx = (p: Pt) => ({ x: (p.xMm - view.minX) * view.scale + 30, y: (p.yMm - view.minY) * view.scale + 30 });
   const pxToMm = (x: number, y: number): Pt => ({ xMm: (x - 30) / view.scale + view.minX, yMm: (y - 30) / view.scale + view.minY });
 
@@ -287,6 +311,23 @@ export function SpacesWorkspace() {
     }));
   }
   function patchRoom(id: string, patch: Partial<PlanRoom>) { setRooms(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r)); }
+  function resizeRectangularRoom(id: string, widthMm: number, depthMm: number) {
+    const room = rooms.find(candidate => candidate.id === id);
+    if (!room || room.polygon.length !== 4 || widthMm < 300 || depthMm < 300) {
+      setSaveState('Editable width and depth require a rectangular room at least 300 mm on each side.');
+      return;
+    }
+    snapshot();
+    const bounds = bbox(room.polygon);
+    const polygon = [
+      { xMm: bounds.minX, yMm: bounds.minY },
+      { xMm: bounds.minX + widthMm, yMm: bounds.minY },
+      { xMm: bounds.minX + widthMm, yMm: bounds.minY + depthMm },
+      { xMm: bounds.minX, yMm: bounds.minY + depthMm },
+    ];
+    patchRoom(id, { polygon, areaSqm: polyArea(polygon), verificationStatus: 'unverified' });
+    setSaveState('Room dimensions updated in the editable draft. Save a geometry version before Layout Studio.');
+  }
   function splitList(value: string) { return value.split(',').map(item => item.trim()).filter(Boolean); }
   function toggleFurniture(id: string, furnitureId: string) {
     snapshot();
@@ -382,7 +423,7 @@ export function SpacesWorkspace() {
     setReloadKey((key) => key + 1);
   }
 
-  async function persistRoom(room: PlanRoom) {
+  async function persistRoom(room: PlanRoom, verificationStatus = room.verificationStatus) {
     if (!supabase || !projectId) return;
     if (room.spaceRecordId && !room.requiredFurniture.length) {
       setSaveState('Choose at least one required modular category before saving this room.');
@@ -400,10 +441,13 @@ export function SpacesWorkspace() {
     if (!room.spaceRecordId) { await saveGeometryVersion(); return; }
     const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '' })
+      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '', verificationStatus })
     });
     const p = await res.json().catch(() => null);
-    setSaveState(res.ok ? 'Room saved.' : (p?.message ?? 'Save failed.'));
+    if (res.ok) {
+      setRooms(current => current.map(candidate => candidate.id === room.id ? { ...candidate, verificationStatus: verificationStatus === 'verified' ? 'verified' : 'unverified' } : candidate));
+      setSaveState(verificationStatus === 'verified' ? `${room.name} measurements and requirements verified.` : 'Room saved.');
+    } else setSaveState(p?.message ?? 'Save failed.');
   }
 
   async function openLayoutStudio() {
@@ -503,6 +547,13 @@ export function SpacesWorkspace() {
 
           {/* Region: Plan canvas + tools */}
           <section className="region canvas-region">
+            <div className="canvas-focus-bar">
+              <div><strong>{sel?.room.name ?? 'Full plan'}</strong><span>{canvasFocus === 'room' ? 'Room verification view' : 'Apartment overview'}</span></div>
+              <div className="canvas-focus-actions">
+                <button type="button" className={canvasFocus === 'room' ? 'active' : ''} disabled={!selectedRoom} onClick={() => setCanvasFocus('room')}>Fit room</button>
+                <button type="button" className={canvasFocus === 'plan' ? 'active' : ''} onClick={() => setCanvasFocus('plan')}>Fit plan</button>
+              </div>
+            </div>
             <div className="toolbar">
               {[['select', 'Choose'], ['measure', 'Measure'], ['draw_room', 'Draw room'], ['cancel_tool', 'Cancel tool'], ['split', 'Split'], ['merge', 'Merge'], ['wall', 'Add wall'], ['door', 'Add door'], ['window', 'Add window'], ['column', 'Column'], ['beam', 'Beam'], ['service', 'Service'], ['annotate', 'Annotate']].map(([t, label]) => (
                 <button key={t} className={`tool-btn ${(tool === t || (t === 'column' && tool === 'add_column') || (t === 'service' && tool === 'add_service') || (t === 'wall' && tool === 'draw_wall') || (t === 'beam' && tool === 'draw_beam') || (t === 'door' && tool === 'add_door') || (t === 'window' && tool === 'add_window')) ? 'active' : ''}`} onClick={() => { if (t === 'cancel_tool') { setTool('select'); setRoomDraftStart(null); setRoomDraftCurrent(null); setLineDraftStart(null); setMeasureFrom(null); setMeasureTo(null); setSaveState('Canvas tool cancelled.'); } else if (t === 'split') splitSelected(); else if (t === 'merge') mergeSelected(); else if (t === 'wall') addWall(); else if (t === 'door') addOpening('door'); else if (t === 'window') addOpening('window'); else if (t === 'column') { setTool('add_column'); setSaveState('Click the canvas to place a column.'); } else if (t === 'beam') addBeam(); else if (t === 'service') { setTool('add_service'); setSaveState('Click the canvas to place a service point.'); } else if (t === 'annotate') { setAnnotationDraft(''); setAnnotationDialogOpen(true); } else setTool(t); }}>
@@ -520,7 +571,7 @@ export function SpacesWorkspace() {
                 const pts = r.polygon.map(p => { const q = toPx(p); return `${q.x},${q.y}`; }).join(' ');
                 return <polygon key={r.id} points={pts} fill={selectedRoom === r.id ? 'rgba(197,156,45,.18)' : 'rgba(120,92,64,.10)'} stroke={selectedRoom === r.id ? 'var(--gold)' : '#7a5c3a'} strokeWidth={selectedRoom === r.id ? 2.5 : 1.5} onClick={(e) => { e.stopPropagation(); setSelectedRoom(r.id); }} />;
               })}
-              {layers.walls && walls.map(w => { const a = toPx(w.start), b = toPx(w.end); return <line key={w.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={selectedWall === w.id ? 'var(--gold)' : '#2b2b2b'} strokeWidth={selectedWall === w.id ? 5 : 3} onClick={(e) => { e.stopPropagation(); setSelectedWall(w.id); setSelectedRoom(null); }} />; })}
+              {layers.walls && walls.map(w => { const a = toPx(w.start), b = toPx(w.end); return <line key={w.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={selectedWall === w.id ? 'var(--gold)' : '#2b2b2b'} strokeWidth={selectedWall === w.id ? 5 : 3} onClick={(e) => { e.stopPropagation(); setSelectedWall(w.id); }} />; })}
               {layers.openings && openings.map(o => { const w = walls.find(x => x.id === o.wallId); if (!w) return null; const a = toPx(w.start), b = toPx(w.end); const length = wallLen(w) || 1; const centerOffset = Math.max(0, Math.min(length, Number(o.offsetAlongWallMm ?? 0))); const t = centerOffset / length; const px = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; const col = o.kind === 'door' ? '#c97b2c' : '#2f6fb0'; return <rect key={o.id} x={px.x - 5} y={px.y - 5} width={10} height={10} rx={2} fill={col} stroke="#fff" strokeWidth={1} />; })}
               {layers.columns && columns.map(c => { const p = toPx(c.position); return <rect key={c.id} x={p.x - 5} y={p.y - 5} width={10} height={10} fill="#444" stroke="#fff" />; })}
               {layers.beams && beams.map(b => { const a = toPx(b.start), e2 = toPx(b.end); return <line key={b.id} x1={a.x} y1={a.y} x2={e2.x} y2={e2.y} stroke="#9b59b6" strokeWidth={3} strokeDasharray="4 3" />; })}
@@ -558,6 +609,10 @@ export function SpacesWorkspace() {
                 <select value={sel.room.roomType} onChange={(e) => setRoomType(sel.room.id, e.target.value)}>{Object.entries(ROOM_TYPES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
                 <label>Ceiling height (mm)</label>
                 <input type="number" value={sel.room.ceilingHeightMm ?? ceilingHeightMm} onChange={(e) => setRoomCeiling(sel.room.id, parseInt(e.target.value, 10) || ceilingHeightMm)} />
+                <div className="dimension-inputs">
+                  <label>Room width (mm)<input type="number" min="300" step="10" defaultValue={Math.round(sel.widthMm)} onBlur={(e) => resizeRectangularRoom(sel.room.id, Number(e.target.value), Math.round(sel.depthMm))} /></label>
+                  <label>Room depth (mm)<input type="number" min="300" step="10" defaultValue={Math.round(sel.depthMm)} onBlur={(e) => resizeRectangularRoom(sel.room.id, Math.round(sel.widthMm), Number(e.target.value))} /></label>
+                </div>
                 <label>Required modular furniture</label>
                 <div className="furniture-options" role="group" aria-label="Required modular furniture">
                   {furnitureOptionsFor(sel.room.roomType).map((option) => (
@@ -572,6 +627,13 @@ export function SpacesWorkspace() {
                   <div><span>Area</span><strong>{sel.room.areaSqm.toFixed(1)} m²</strong></div>
                   <div><span>Usable wall</span><strong>{sel.usable.usableWallMm} mm</strong></div>
                   <div><span>Deductions</span><strong>{sel.usable.deductionsMm} mm</strong></div>
+                </div>
+                <div className="wall-verification-list">
+                  <strong>Confirm room walls</strong>
+                  <p>Review each measured edge. Select a detected wall on the canvas to add doors, windows, or assign its design role.</p>
+                  {roomBoundaryWalls(sel.room).map((wall, index) => <div key={wall.id}><span>Wall {String.fromCharCode(65 + index)}</span><strong>{Math.round(wallLen(wall))} mm</strong></div>)}
+                  <div><span>Doors</span><strong>{openings.filter(opening => opening.kind === 'door' && wallsForRoom(sel.room).some(wall => wall.id === opening.wallId)).length}</strong></div>
+                  <div><span>Windows</span><strong>{openings.filter(opening => opening.kind === 'window' && wallsForRoom(sel.room).some(wall => wall.id === opening.wallId)).length}</strong></div>
                 </div>
                 <div className="detected-items" aria-label="Detected existing items">
                   <strong>Existing plan symbols</strong>
@@ -600,13 +662,29 @@ export function SpacesWorkspace() {
                   <label>Floor finish</label><input placeholder="e.g. 600 × 1200 matte tile" value={sel.room.floorFinish ?? ''} onChange={(e) => patchRoom(sel.room.id, { floorFinish: e.target.value })} />
                   <label>Ceiling intent</label><input placeholder="e.g. plain ceiling with warm cove" value={sel.room.falseCeiling ?? ''} onChange={(e) => patchRoom(sel.room.id, { falseCeiling: e.target.value })} />
                 </>}
-                <Button variant="outline" onClick={() => void persistRoom(sel.room)}><Save size={13} /> {sel.room.spaceRecordId ? 'Save room' : 'Save new space'}</Button>
+                <div className="room-save-actions">
+                  <Button variant="outline" onClick={() => void persistRoom(sel.room)}><Save size={13} /> Save room</Button>
+                  <Button disabled={!sel.room.spaceRecordId || !sel.room.requiredFurniture.length || !(sel.room.ceilingHeightMm ?? ceilingHeightMm)} onClick={() => void persistRoom(sel.room, 'verified')}><CheckCircle2 size={13} /> Verify & ready room</Button>
+                </div>
+                {!sel.room.requiredFurniture.length && <p className="room-blocker">Choose at least one furniture requirement before verifying this room.</p>}
+                {sel.readiness.blockingReasons.length > 0 && <div className="room-readiness-detail"><strong>Still needed</strong>{sel.readiness.blockingReasons.map(reason => <span key={reason}>{reason}</span>)}</div>}
               </div>
             ) : selectedWall ? (
               <div className="props-body">
                 <label>Selected wall</label>
                 <div className="wall-id">{selectedWall}</div>
                 <div className="props-read"><div><span>Length</span><strong>{Math.round(wallLen(walls.find(w => w.id === selectedWall)!))} mm</strong></div></div>
+                <label>Wall length (mm)</label>
+                <input type="number" min="100" step="10" defaultValue={Math.round(wallLen(walls.find(w => w.id === selectedWall)!))} onBlur={(event) => {
+                  const nextLength = Number(event.target.value); const wall = walls.find(candidate => candidate.id === selectedWall);
+                  if (!wall || !Number.isFinite(nextLength) || nextLength < 100) { setSaveState('Wall length must be at least 100 mm.'); return; }
+                  snapshot(); const currentLength = wallLen(wall) || 1; const ratio = nextLength / currentLength;
+                  setWalls(current => current.map(candidate => candidate.id === wall.id ? { ...candidate, end: { xMm: wall.start.xMm + (wall.end.xMm - wall.start.xMm) * ratio, yMm: wall.start.yMm + (wall.end.yMm - wall.start.yMm) * ratio } } : candidate));
+                  setSaveState('Wall length updated. Review connected room boundaries, then save a geometry version.');
+                }} />
+                <div className="opening-editor-list">
+                  {openings.filter(opening => opening.wallId === selectedWall).map(opening => <div key={opening.id}><span>{opening.kind} · {opening.widthMm ?? 900} mm</span><button type="button" onClick={() => { snapshot(); setOpenings(current => current.filter(candidate => candidate.id !== opening.id)); setSaveState(`${opening.kind} removed from the editable draft.`); }}>Remove</button></div>)}
+                </div>
               </div>
             ) : <div className="props-empty">Select a room or wall.</div>}
           </aside>

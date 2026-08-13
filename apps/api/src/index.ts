@@ -1933,12 +1933,13 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
     floorPlanVersionId: version.data.id,
     scaleVerified: version.data.scale_state === 'verified' || plan.scale?.verified === true,
     ceilingHeightMm: Number(plan.ceilingHeightMm ?? 2700),
+    geometryMode: String(plan.geometryMode ?? 'final_production'),
     rooms, walls, openings, columns, beams, services, annotations, issues,
   });
 });
 
 app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (request, response) => {
-  const { name, roomType, ceilingHeightMm, requiredFurniture, floorFinish, falseCeiling, budgetInr, designPriority, applianceNeeds, constraints, styleDirection, paletteDirection, retainedElements, wallRoles, preferredCamera } = request.body ?? {};
+  const { name, roomType, ceilingHeightMm, requiredFurniture, floorFinish, falseCeiling, budgetInr, designPriority, applianceNeeds, constraints, styleDirection, paletteDirection, retainedElements, wallRoles, preferredCamera, verificationStatus } = request.body ?? {};
   const fieldErrors: Record<string, string> = {};
   if (!String(name ?? '').trim()) fieldErrors.name = 'Room name is required.';
   if (!String(roomType ?? '').trim()) fieldErrors.roomType = 'Room type is required.';
@@ -1959,7 +1960,9 @@ app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (r
       wallRoles: wallRoles && typeof wallRoles === 'object' && !Array.isArray(wallRoles) ? wallRoles : {},
       preferredCamera: preferredCamera ?? '',
     },
-    status: 'configured', updated_at: new Date().toISOString()
+    status: 'configured',
+    verification_status: verificationStatus === 'verified' ? 'verified' : 'unverified',
+    updated_at: new Date().toISOString()
   }).eq('id', request.params.spaceId).eq('project_id', request.params.projectId).select('*').single();
   if (updated.error) return response.status(500).json({ success: false, code: 'SPACE_SAVE_FAILED', message: updated.error.message });
   // Requirements and scene setup are layout inputs. A later change must make
