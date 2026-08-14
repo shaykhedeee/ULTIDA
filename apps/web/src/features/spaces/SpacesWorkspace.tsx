@@ -99,6 +99,19 @@ const FURNITURE_OPTIONS: Record<string, Array<{ id: string; label: string }>> = 
   other: [{ id: 'storage_unit', label: 'Storage unit' }, { id: 'study_unit', label: 'Study unit' }, { id: 'tv_unit', label: 'TV unit' }],
 };
 
+const STYLE_PRESETS = [
+  'Warm minimal', 'Scandinavian', 'Contemporary luxe', 'Modern classic', 'Japandi', 'Industrial modern',
+];
+
+const PALETTE_PRESETS = [
+  { label: 'Ivory, walnut & warm brass', value: 'ivory + walnut + warm brass', colors: ['#F1E8DA', '#74513B', '#B88A43'] },
+  { label: 'Beige, off-white & oak', value: 'beige + off-white + natural oak', colors: ['#D4B99B', '#F7F4EC', '#B78D5D'] },
+  { label: 'Mist grey, oak & black', value: 'mist grey + light oak + matte black', colors: ['#B7B5AF', '#C99C6A', '#272727'] },
+  { label: 'Sage, cream & brass', value: 'sage green + cream + brushed brass', colors: ['#68705B', '#F2EADA', '#B68A42'] },
+  { label: 'Navy, light oak & champagne', value: 'navy + light oak + champagne metal', colors: ['#223650', '#D0A878', '#C9B07A'] },
+  { label: 'Terracotta, ivory & walnut', value: 'terracotta + ivory + dark walnut', colors: ['#B46748', '#F4EBD9', '#513528'] },
+];
+
 function furnitureOptionsFor(roomType: string) {
   if (roomType === 'master_bedroom' || roomType === 'kids_bedroom') return FURNITURE_OPTIONS.bedroom;
   return FURNITURE_OPTIONS[roomType] ?? FURNITURE_OPTIONS.other;
@@ -455,7 +468,7 @@ export function SpacesWorkspace() {
   }
   function addAnnotation(text: string) { snapshot(); setAnnotations(a => [...a, { id: entityId(), text, kind: 'note' }]); }
 
-  async function saveGeometryVersion() {
+  async function saveGeometryVersion(roomsOverride: PlanRoom[] = rooms) {
     if (!supabase || !projectId) return;
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return; }
@@ -463,7 +476,7 @@ export function SpacesWorkspace() {
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     const response = await fetch(`${apiBase}/projects/${projectId}/spaces/commit-geometry`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ geometry: { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm } }),
+      body: JSON.stringify({ geometry: { rooms: roomsOverride, walls, openings, columns, beams, services, annotations, ceilingHeightMm } }),
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) { setSaveState(payload?.message ?? 'Geometry could not be saved as a new plan version.'); return; }
@@ -486,7 +499,14 @@ export function SpacesWorkspace() {
       body: JSON.stringify({ draft: { source: 'spaces-studio', updatedAt: new Date().toISOString(), geometry } }),
     });
     if (!draftRes.ok) { const p = await draftRes.json().catch(() => null); setSaveState(p?.message ?? 'Geometry draft could not be saved.'); return; }
-    if (!room.spaceRecordId) { await saveGeometryVersion(); return; }
+    if (!room.spaceRecordId) {
+      const roomsToCommit = rooms.map((candidate) => candidate.id === room.id
+        ? { ...candidate, verificationStatus: verificationStatus === 'verified' ? 'verified' : candidate.verificationStatus }
+        : candidate);
+      setRooms(roomsToCommit);
+      await saveGeometryVersion(roomsToCommit);
+      return;
+    }
     const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
       body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '', verificationStatus })
@@ -519,7 +539,12 @@ export function SpacesWorkspace() {
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        setSaveState(payload?.message ?? 'Spaces need review before Layout Studio can open.');
+        const blockedNames = Array.isArray(payload?.spaceIds)
+          ? payload.spaceIds.map((spaceId: string) => rooms.find((room) => room.spaceRecordId === spaceId)?.name).filter(Boolean)
+          : [];
+        setSaveState(blockedNames.length
+          ? `Save and verify these rooms before continuing: ${blockedNames.join(', ')}.`
+          : (payload?.message ?? 'Spaces need review before Layout Studio can open.'));
         return;
       }
       navigate(`/projects/${projectId}/layouts`);
@@ -697,8 +722,20 @@ export function SpacesWorkspace() {
                     {furnitureOptionsFor(sel.room.roomType).map((option) => <label key={option.id} className="furniture-option"><input type="checkbox" checked={sel.room.requiredFurniture.includes(option.id)} onChange={() => toggleFurniture(sel.room.id, option.id)} />{option.label}</label>)}
                   </div>
                   <label>Layout priority</label><select value={sel.room.designPriority ?? 'balanced'} onChange={(e) => patchRoom(sel.room.id, { designPriority: e.target.value })}><option value="storage">Maximum storage</option><option value="balanced">Balanced</option><option value="circulation">Maximum circulation</option></select>
-                  <label>Style direction</label><input placeholder="e.g. warm minimal" value={sel.room.styleDirection ?? ''} onChange={(e) => patchRoom(sel.room.id, { styleDirection: e.target.value })} />
-                  <label>Palette / finish direction</label><input placeholder="e.g. beige + off-white" value={sel.room.paletteDirection ?? ''} onChange={(e) => patchRoom(sel.room.id, { paletteDirection: e.target.value })} />
+                  <label>Style direction</label>
+                  <select value={sel.room.styleDirection ?? ''} onChange={(e) => patchRoom(sel.room.id, { styleDirection: e.target.value })}>
+                    <option value="">Choose a style direction</option>
+                    {sel.room.styleDirection && !STYLE_PRESETS.includes(sel.room.styleDirection) && <option value={sel.room.styleDirection}>Custom: {sel.room.styleDirection}</option>}
+                    {STYLE_PRESETS.map((style) => <option key={style} value={style}>{style}</option>)}
+                  </select>
+                  <label>Colour & finish direction</label>
+                  <div className="palette-presets" role="group" aria-label="Colour and finish direction">
+                    {PALETTE_PRESETS.map((palette) => <button type="button" key={palette.value} className={`palette-preset ${sel.room.paletteDirection === palette.value ? 'selected' : ''}`} onClick={() => patchRoom(sel.room.id, { paletteDirection: palette.value })} aria-pressed={sel.room.paletteDirection === palette.value}>
+                      <span className="palette-swatches" aria-hidden="true">{palette.colors.map((color) => <i key={color} style={{ background: color }} />)}</span>
+                      <span>{palette.label}</span>
+                    </button>)}
+                  </div>
+                  <input aria-label="Custom colour and finish direction" placeholder="Or write a custom palette" value={PALETTE_PRESETS.some((palette) => palette.value === sel.room.paletteDirection) ? '' : (sel.room.paletteDirection ?? '')} onChange={(e) => patchRoom(sel.room.id, { paletteDirection: e.target.value })} />
                   <label>Existing items to retain</label><input placeholder="AC, loose bed, window seat" value={(sel.room.retainedElements ?? []).join(', ')} onChange={(e) => patchRoom(sel.room.id, { retainedElements: splitList(e.target.value) })} />
                   <label>Constraints / client notes</label><input placeholder="900 mm clear passage" value={(sel.room.constraints ?? []).join(', ')} onChange={(e) => patchRoom(sel.room.id, { constraints: splitList(e.target.value) })} />
                 </>}
@@ -712,7 +749,7 @@ export function SpacesWorkspace() {
                 </>}
                 <div className="room-save-actions">
                   <Button variant="outline" onClick={() => void persistRoom(sel.room)}><Save size={13} /> Save room</Button>
-                  <Button disabled={!sel.room.requiredFurniture.length || !(sel.room.ceilingHeightMm ?? ceilingHeightMm)} onClick={() => void persistRoom(sel.room, 'verified')} title={!sel.room.spaceRecordId ? 'This will first save the edited geometry, then reload the room record for verification.' : 'Save the room measurements and requirements as verified'}><CheckCircle2 size={13} /> {sel.room.spaceRecordId ? 'Verify & ready room' : 'Save geometry to verify'}</Button>
+                  <Button disabled={!sel.room.requiredFurniture.length || !(sel.room.ceilingHeightMm ?? ceilingHeightMm)} onClick={() => void persistRoom(sel.room, 'verified')} title="Save this room's geometry, requirements, and verification together."><CheckCircle2 size={13} /> {sel.room.spaceRecordId ? 'Verify & ready room' : 'Save & ready room'}</Button>
                 </div>
                 {!sel.room.requiredFurniture.length && <p className="room-blocker">Choose at least one furniture requirement before verifying this room.</p>}
                 {sel.readiness.blockingReasons.length > 0 && <div className="room-readiness-detail"><strong>Still needed</strong>{sel.readiness.blockingReasons.map(reason => <span key={reason}>{reason}</span>)}</div>}

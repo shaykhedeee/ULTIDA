@@ -242,6 +242,12 @@
 .props-body .furniture-option { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
 .props-body .furniture-option:has(input:checked) { border-color: var(--gold); background: rgba(197,156,45,.1); color: var(--gold-dim); }
 .props-body .furniture-option input { margin: 0; }
+.palette-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.palette-preset { display: flex; min-width: 0; align-items: center; gap: 7px; padding: 8px; text-align: left; background: #fffdf9; border: 1px solid var(--line); border-radius: 8px; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 11px; line-height: 1.25; }
+.palette-preset:hover { border-color: #cbb889; }
+.palette-preset.selected { border-color: var(--gold); box-shadow: inset 0 0 0 1px rgba(197,156,45,.2); background: rgba(197,156,45,.08); color: #69521b; }
+.palette-swatches { display: inline-flex; flex: 0 0 auto; overflow: hidden; border: 1px solid rgba(74,68,58,.16); border-radius: 999px; }
+.palette-swatches i { width: 9px; height: 18px; display: block; }
 .props-read { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid var(--line); padding-top: 8px; }
 .props-read div { display: flex; justify-content: space-between; font-size: 12px; }
 .detected-items { border-top: 1px solid var(--line); padding-top: 8px; font-size: 12px; color: var(--text-secondary); }
@@ -288,6 +294,9 @@
   .spaces-guidance-bar { align-items:stretch; flex-direction:column; }
   .plan-canvas { min-height: 420px; }
   .toolbar { align-items: stretch; }
+}
+@media (max-width: 480px) {
+  .palette-presets { grid-template-columns: 1fr; }
 }
 .wall-elevation-preview { margin-top: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); }
 .wall-elevation-title { margin-bottom: 8px; color: var(--text-muted); font-size: 11px; font-weight: 700; }

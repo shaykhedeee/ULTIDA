@@ -1515,7 +1515,7 @@ app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, 
       ceilingHeightMm: Number(room.ceilingHeightMm ?? prior?.ceilingHeightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm),
       wallRefs: Array.isArray(prior?.wallRefs) ? prior.wallRefs : [],
       openingRefs: Array.isArray(prior?.openingRefs) ? prior.openingRefs : [],
-      verification: prior?.verification ?? 'unverified',
+      verification: room.verificationStatus === 'verified' ? 'verified' : (prior?.verification ?? 'unverified'),
     };
   });
   if (nextSpaces.some((space: any) => !space) || !nextSpaces.length) {
@@ -1585,7 +1585,11 @@ app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, 
       name: String(room.name ?? 'Space'), room_type: String(room.roomType ?? 'other'),
       ceiling_height_mm: Number(room.ceilingHeightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm),
       area_sqm: Number(room.areaSqm ?? 0), requirements_json: requirements, settings_json: settings,
-      status: requirements.requiredFurniture.length ? 'configured' : 'pending', updated_at: new Date().toISOString(),
+      status: requirements.requiredFurniture.length ? 'configured' : 'pending',
+      verification_status: room.verificationStatus === 'verified'
+        ? 'verified'
+        : (prior?.verification_status === 'verified' ? 'verified' : 'unverified'),
+      updated_at: new Date().toISOString(),
     }).eq('project_id', projectId).eq('floor_plan_version_id', nextVersionId).eq('space_id', String(room.id));
   }));
   const carryFailure = carried.find((result) => result.error);
