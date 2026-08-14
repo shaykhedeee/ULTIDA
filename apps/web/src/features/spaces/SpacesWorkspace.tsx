@@ -556,7 +556,7 @@ export function SpacesWorkspace() {
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
           <button className="btn-secondary workspace-action" onClick={() => void saveGeometryVersion()} title="Create a new approved plan version from the current room, wall, opening, column, beam, and service edits"><Save size={14} /> Save geometry</button>
           <button className="btn-secondary workspace-action" disabled={!selectedRoom} onClick={() => selectedRoom && navigate(`/projects/${projectId}/design?spaceId=${encodeURIComponent(selectedRoom)}`)} title="Open the selected room in the 2D furniture placement workspace"><Sofa size={14} /> Place furniture</button>
-          <button className="btn-primary proceed-header-action workspace-action" disabled={openingLayouts || !overallReadiness.approved} onClick={() => void openLayoutStudio()} title={overallReadiness.approved ? 'Validate saved rooms and continue to Layout Studio' : 'Verify the included rooms, or remove rooms that are outside this design scope.'}><LayoutGrid size={15} /> {openingLayouts ? 'Validating…' : 'Layout Studio'} <ArrowRight size={14} /></button>
+          <button className="btn-primary proceed-header-action workspace-action" disabled={openingLayouts || !overallReadiness.approved} onClick={() => void openLayoutStudio()} title={overallReadiness.approved ? 'Validate saved rooms and continue to Layout Studio' : 'Verify the included rooms, or remove rooms that are outside this design scope.'}><LayoutGrid size={15} /> {openingLayouts ? 'Validating…' : 'Proceed to Layout Studio'} <ArrowRight size={14} /></button>
         </div>
       </div>
       {saveState && <p role="status" className="save-state">{saveState}</p>}
@@ -789,19 +789,6 @@ export function SpacesWorkspace() {
           </details>
         </div>
       )}
-      {loadState === 'ready' && <section className="layout-handoff" aria-label="Continue to Layout Studio">
-        <div className="layout-handoff-copy">
-          <span className="layout-handoff-step">NEXT · LAYOUT STUDIO</span>
-          <strong>{overallReadiness.approved ? 'Your selected spaces are ready for layout options.' : 'Finish the selected rooms before generating layout options.'}</strong>
-          <p>{overallReadiness.approved
-            ? 'ULTIDA will use the saved room boundaries, openings, design brief, preferred walls and circulation rules to create validated layouts.'
-            : `${overallReadiness.readyRooms} of ${overallReadiness.totalRooms} included rooms are ready. Open each incomplete room, choose a required module, then select Verify & ready room. Uncheck rooms that are outside this project scope.`}</p>
-        </div>
-        <div className="layout-handoff-actions">
-          {!overallReadiness.approved && selectedRoom && <button type="button" className="btn-secondary" onClick={() => { setCanvasFocus('room'); setSpacePanel('brief'); }}>Complete selected room</button>}
-          <button className="btn-primary layout-handoff-button" disabled={openingLayouts || !overallReadiness.approved} onClick={() => void openLayoutStudio()}>{openingLayouts ? 'Validating spaces…' : 'Proceed to Layout Studio →'}</button>
-        </div>
-      </section>}
     </div>
   );
 }
