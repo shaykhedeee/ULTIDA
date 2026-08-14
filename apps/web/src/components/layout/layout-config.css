@@ -15,6 +15,17 @@
   gap: 16px;
 }
 
+.layout-input-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 12px; align-items: stretch; padding: 14px 16px; background: var(--surface-raised); border: 1px solid var(--line); border-radius: 12px; }
+.layout-input-summary > div { min-width: 0; padding-right: 12px; border-right: 1px solid var(--line); }
+.layout-input-summary span { display: block; margin-bottom: 4px; color: var(--text-muted); font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.layout-input-summary strong { display: block; overflow: hidden; color: var(--text-primary); font-size: 12px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.layout-edit-space { align-self: center; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--cream-warm); color: var(--brown-mid); cursor: pointer; font: inherit; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.layout-edit-space:hover { border-color: var(--gold); background: rgba(197,156,45,.08); }
+.layout-empty-state { display: flex; align-items: center; gap: 14px; padding: 28px; background: var(--surface-raised); border: 1px dashed var(--line); border-radius: 12px; color: var(--text-secondary); }
+.layout-empty-state h2 { margin: 0 0 4px; font-size: 18px; color: var(--text-primary); }
+.layout-empty-state p { max-width: 560px; margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+.layout-empty-state .btn-generate { margin-left: auto; }
+
 /* ─── Step Rail ─────────────────────────────────── */
 .layout-steps {
   display: flex;
@@ -167,6 +178,7 @@
   color: var(--text-primary);
   transition: border-color .15s;
 }
+.dim-field input[readonly] { cursor: default; background: #f7f3eb; color: var(--text-secondary); }
 
 .dim-field input:focus {
   outline: none;
@@ -386,4 +398,13 @@
   .style-grid { grid-template-columns: repeat(2, 1fr); }
   .dimension-grid { grid-template-columns: 1fr 1fr; }
   .orientation-grid { grid-template-columns: repeat(2, 1fr); }
+  .layout-input-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .layout-config-header { flex-direction: column; }
+  .layout-input-summary { grid-template-columns: 1fr; }
+  .layout-input-summary > div { padding-right: 0; padding-bottom: 8px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .layout-input-summary strong { white-space: normal; }
+  .layout-empty-state { align-items: flex-start; flex-direction: column; }
+  .layout-empty-state .btn-generate { margin-left: 0; }
 }

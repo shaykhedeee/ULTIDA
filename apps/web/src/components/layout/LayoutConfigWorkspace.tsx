@@ -4,7 +4,7 @@ import './layout-config.css';
 import { shapeCatalogFor, generateCandidates, validatePlacements, approveLayout, invalidateDownstream, type LayoutCandidate, type CandidateScore } from '@ultida/layout-core';
 
 // ─── Types ───────────────────────────────────────────────────────
-export type RoomShape = 'rectangular' | 'l-shape' | 'u-shape' | 'irregular';
+export type RoomShape = string;
 export type FurnitureTemplate = 'tv-unit' | 'kitchen-l' | 'kitchen-u' | 'kitchen-straight' | 'wardrobe' | 'dining' | 'study';
 export type StylePreset = 'japandi' | 'contemporary-indian' | 'industrial' | 'parisian' | 'coastal';
 export type WallOrientation = 'north' | 'south' | 'east' | 'west';
@@ -75,13 +75,14 @@ type Props = {
   onGenerateCandidates?: (config: LayoutConfig, roomCategory: RoomCategory, roomRequirements: Record<string, unknown>, spaceId: string) => Promise<LayoutCandidate[]>;
   onLoadDrafts?: (spaceId: string) => Promise<LayoutCandidate[]>;
   onApproveCandidate?: (candidate: LayoutCandidate, config: LayoutConfig) => Promise<void> | void;
+  onEditSpace?: () => void;
 };
 
-export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomCategory = 'other', roomRequirements = {}, rooms = [], selectedSpaceId, onSpaceChange, onGenerate, onGenerateCandidates, onLoadDrafts, onApproveCandidate }: Props) {
+export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomCategory = 'other', roomRequirements = {}, rooms = [], selectedSpaceId, onSpaceChange, onGenerate, onGenerateCandidates, onLoadDrafts, onApproveCandidate, onEditSpace }: Props) {
   const [config, setConfig] = useState<LayoutConfig>({
     ...DEFAULT_CONFIG,
-    ...(detectedDimensions ? { lengthMm: detectedDimensions.lengthMm, widthMm: detectedDimensions.widthMm, heightMm: detectedDimensions.heightMm } : {}),
     ...initialConfig,
+    ...(detectedDimensions ? { lengthMm: detectedDimensions.lengthMm, widthMm: detectedDimensions.widthMm, heightMm: detectedDimensions.heightMm } : {}),
   });
   const [activeStep, setActiveStep] = useState<'shape' | 'dimensions' | 'template' | 'style' | 'orientation' | 'candidates' | 'review'>('shape');
   const [candidates, setCandidates] = useState<LayoutCandidate[]>([]);
@@ -112,17 +113,21 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
 
   useEffect(() => {
     if (!detectedDimensions) return;
+    const firstValidShape = shapeCatalogFor(roomCategory)[0]?.id;
+    const firstTemplate = templatesForCategory(roomCategory)[0]?.id;
     setConfig((current) => ({
       ...current,
       lengthMm: detectedDimensions.lengthMm,
       widthMm: detectedDimensions.widthMm,
       heightMm: detectedDimensions.heightMm,
+      shape: firstValidShape && !shapeCatalogFor(roomCategory).some((shape) => shape.id === current.shape) ? firstValidShape : current.shape,
+      template: firstTemplate && !templatesForCategory(roomCategory).some((template) => template.id === current.template) ? firstTemplate : current.template,
     }));
     setCandidates([]);
     setSelectedCandidateId(null);
     setApprovalState('Room changed. Dimensions are loaded from the approved plan.');
     setLayoutApproved(false);
-  }, [selectedSpaceId, detectedDimensions?.lengthMm, detectedDimensions?.widthMm, detectedDimensions?.heightMm]);
+  }, [selectedSpaceId, roomCategory, detectedDimensions?.lengthMm, detectedDimensions?.widthMm, detectedDimensions?.heightMm]);
 
   function templatesForCategory(cat: RoomCategory) {
     if (cat === 'kitchen') return TEMPLATES.filter((t) => ['kitchen-l', 'kitchen-u'].includes(t.id));
@@ -194,6 +199,21 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
     }
   }
 
+  if (onGenerateCandidates && rooms.length === 0) {
+    return (
+      <div className="layout-config-workspace">
+        <section className="layout-empty-state">
+          <LayoutGrid size={24} />
+          <div>
+            <h2>Set up a room before Layout Studio</h2>
+            <p>Layout candidates need one configured Space with measured geometry, a ceiling height, and at least one required modular category.</p>
+          </div>
+          {onEditSpace && <button type="button" className="btn-generate" onClick={onEditSpace}>Open Spaces <ArrowRight size={16} /></button>}
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="layout-config-workspace">
       <div className="layout-config-header">
@@ -221,6 +241,22 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
         </div>
       )}
 
+      <section className="layout-input-summary" aria-label="Selected room inputs">
+        <div>
+          <span>Measured room</span>
+          <strong>{rooms.find((room) => room.id === selectedSpaceId)?.name ?? 'Select a room'}</strong>
+        </div>
+        <div>
+          <span>Authoritative dimensions</span>
+          <strong>{detectedDimensions ? `${detectedDimensions.lengthMm} × ${detectedDimensions.widthMm} × ${detectedDimensions.heightMm} mm` : 'Unavailable'}</strong>
+        </div>
+        <div>
+          <span>Required modules</span>
+          <strong>{Array.isArray(roomRequirements.requiredFurniture) && roomRequirements.requiredFurniture.length ? roomRequirements.requiredFurniture.map(String).join(', ').replaceAll('_', ' ') : 'Not set'}</strong>
+        </div>
+        {onEditSpace && <button type="button" className="layout-edit-space" onClick={onEditSpace}>Edit room setup</button>}
+      </section>
+
       <div className="layout-steps">
         {(['shape', 'dimensions', 'template', 'style', 'orientation', 'candidates', 'review'] as const).map((step, i) => (
           <div key={step} className={`layout-step ${activeStep === step ? 'active' : ''}`} onClick={() => setActiveStep(step)}>
@@ -243,7 +279,7 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
           <div className="layout-section-body">
             <div className="shape-grid">
               {(categoryShapes.length ? categoryShapes : ROOM_SHAPES).map((shape) => (
-                <button key={shape.id} type="button" className={`shape-card ${config.shape === shape.id ? 'selected' : ''}`} onClick={() => update('shape', shape.id as RoomShape)}>
+                <button key={shape.id} type="button" className={`shape-card ${config.shape === shape.id ? 'selected' : ''}`} onClick={() => update('shape', shape.id)}>
                   <div style={{ padding: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>{shape.label}</div>
                   <div style={{ padding: '0 12px 12px', fontSize: '11px', color: 'var(--text-muted)' }}>{shape.sub}</div>
                 </button>
@@ -263,14 +299,14 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
             <div className="section-icon"><Layers3 size={16} /></div>
             <div>
               <strong style={{ fontSize: '14px' }}>Room Dimensions</strong>
-              <p style={{ margin: 0, fontSize: '12px' }}>Verified room dimensions in millimetres. These boxes constrain candidate placement.</p>
+              <p style={{ margin: 0, fontSize: '12px' }}>These measurements come from the approved Space. Correct them in Spaces before generating a new layout.</p>
             </div>
           </div>
           <div className="layout-section-body">
             <div className="dimension-grid">
-              <div className="dim-field"><label>Length <span className="dim-unit">(mm)</span></label><input type="number" value={config.lengthMm} onChange={(e) => update('lengthMm', Number(e.target.value) || 5200)} min="1000" max="20000" step="50" /><span className="dim-unit">{(config.lengthMm / 1000).toFixed(2)} m</span></div>
-              <div className="dim-field"><label>Width <span className="dim-unit">(mm)</span></label><input type="number" value={config.widthMm} onChange={(e) => update('widthMm', Number(e.target.value) || 3800)} min="1000" max="20000" step="50" /><span className="dim-unit">{(config.widthMm / 1000).toFixed(2)} m</span></div>
-              <div className="dim-field"><label>Ceiling Height <span className="dim-unit">(mm)</span></label><input type="number" value={config.heightMm} onChange={(e) => update('heightMm', Number(e.target.value) || 2700)} min="2100" max="5000" step="50" /><span className="dim-unit">{(config.heightMm / 1000).toFixed(2)} m</span></div>
+              <div className="dim-field"><label>Length <span className="dim-unit">(mm)</span></label><input type="number" value={config.lengthMm} readOnly aria-readonly="true" /><span className="dim-unit">{(config.lengthMm / 1000).toFixed(2)} m</span></div>
+              <div className="dim-field"><label>Width <span className="dim-unit">(mm)</span></label><input type="number" value={config.widthMm} readOnly aria-readonly="true" /><span className="dim-unit">{(config.widthMm / 1000).toFixed(2)} m</span></div>
+              <div className="dim-field"><label>Ceiling Height <span className="dim-unit">(mm)</span></label><input type="number" value={config.heightMm} readOnly aria-readonly="true" /><span className="dim-unit">{(config.heightMm / 1000).toFixed(2)} m</span></div>
             </div>
             <div style={{ marginTop: '16px', padding: '14px 18px', background: 'var(--cream-mid)', borderRadius: '8px', border: '1px solid var(--line)', display: 'flex', gap: '24px' }}>
               <div><div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '2px' }}>FLOOR AREA</div><strong style={{ fontSize: '18px' }}>{((config.lengthMm * config.widthMm) / 1000000).toFixed(2)} m²</strong></div>

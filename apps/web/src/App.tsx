@@ -981,7 +981,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   function handleLayoutGenerate(config: LayoutConfig) {
     setLayoutConfig(config);
     localStorage.setItem('ultida-layout-config', JSON.stringify(config));
-    navigate(`/projects/${projectId}/design`);
+    navigate(`/projects/${projectId}/modules`);
   }
 
   async function handleLayoutApprove(candidate: LayoutCandidate, config: LayoutConfig) {
@@ -1022,7 +1022,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       const payload = await spacesResponse.json().catch(() => null);
       const activePlan = await planResponse.json().catch(() => null);
       const planRoomBySpaceId = new Map<string, any>((activePlan?.rooms ?? []).filter((room: any) => room?.spaceRecordId).map((room: any) => [String(room.spaceRecordId), room]));
-      const rooms = Array.isArray(payload?.spaces) ? payload.spaces.map((space: any) => {
+      const rooms = Array.isArray(payload?.spaces) ? payload.spaces.filter((space: any) => space.status === 'configured').map((space: any) => {
         const planRoom = planRoomBySpaceId.get(String(space.id));
         const ceilingHeightMm = Number(space.ceiling_height_mm ?? planRoom?.ceilingHeightMm ?? 0) || undefined;
         const polygon = planRoom?.polygon ?? space.geometry_json?.polygon ?? [];
@@ -1264,6 +1264,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             onLoadDrafts={handleLoadLayoutDrafts}
             onGenerate={handleLayoutGenerate}
             onApproveCandidate={handleLayoutApprove}
+            onEditSpace={() => navigate(`/projects/${projectId}/spaces`)}
           />
         } />
         <Route path="modules" element={<DesignFlowWorkspace stage="Design" focus="modules" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />

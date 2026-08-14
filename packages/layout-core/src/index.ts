@@ -143,7 +143,12 @@ function formatShape(id: string): string {
 
 export function generateCandidates(input: LayoutInput): LayoutCandidate[] {
   const parsed = LayoutInputSchema.parse(input);
-  const shapes = SHAPE_CATALOG[parsed.roomCategory]?.length ? SHAPE_CATALOG[parsed.roomCategory] : ['balanced'];
+  const categoryShapes = SHAPE_CATALOG[parsed.roomCategory] ?? [];
+  // A designer-selected shape is a real generation constraint. Previously
+  // every catalog shape was generated regardless of the selected value.
+  const shapes = categoryShapes.length
+    ? [categoryShapes.includes(parsed.shape) ? parsed.shape : categoryShapes[0]]
+    : [parsed.shape || 'balanced'];
   const candidateTypes = parsed.candidateTypes.length ? parsed.candidateTypes : ['balanced'];
   const candidates: LayoutCandidate[] = [];
 
