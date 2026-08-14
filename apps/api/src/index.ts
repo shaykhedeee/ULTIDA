@@ -1565,6 +1565,7 @@ app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, 
     const prior = priorByRoomId.get(String(room.id));
     const requirements = {
       ...(prior?.requirements_json ?? {}),
+      included: room.included !== false,
       requiredFurniture: Array.isArray(room.requiredFurniture) ? room.requiredFurniture : (prior?.requirements_json?.requiredFurniture ?? []),
       budgetInr: room.budgetInr ?? prior?.requirements_json?.budgetInr ?? null,
       designPriority: room.designPriority ?? prior?.requirements_json?.designPriority ?? 'balanced',
@@ -2048,6 +2049,7 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
       areaSqm: r.areaSqm,
       ceilingHeightMm: saved?.ceiling_height_mm ?? r.ceilingHeightMm,
       requiredFurniture: Array.isArray(saved?.requirements_json?.requiredFurniture) ? saved.requirements_json.requiredFurniture : [],
+      included: saved?.requirements_json?.included !== false,
       budgetInr: saved?.requirements_json?.budgetInr ?? null,
       designPriority: saved?.requirements_json?.designPriority ?? 'balanced',
       applianceNeeds: Array.isArray(saved?.requirements_json?.applianceNeeds) ? saved.requirements_json.applianceNeeds : [],
@@ -2102,7 +2104,7 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
 });
 
 app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (request, response) => {
-  const { name, roomType, ceilingHeightMm, requiredFurniture, floorFinish, falseCeiling, budgetInr, designPriority, applianceNeeds, constraints, styleDirection, paletteDirection, retainedElements, wallRoles, preferredCamera, verificationStatus } = request.body ?? {};
+  const { name, roomType, ceilingHeightMm, requiredFurniture, floorFinish, falseCeiling, budgetInr, designPriority, applianceNeeds, constraints, styleDirection, paletteDirection, retainedElements, wallRoles, preferredCamera, verificationStatus, included } = request.body ?? {};
   const fieldErrors: Record<string, string> = {};
   if (!String(name ?? '').trim()) fieldErrors.name = 'Room name is required.';
   if (!String(roomType ?? '').trim()) fieldErrors.roomType = 'Room type is required.';
@@ -2114,7 +2116,7 @@ app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (r
   if (current.error) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: current.error.message });
   const updated = await client.from('spaces').update({
     name: String(name).trim(), room_type: roomType, ceiling_height_mm: ceilingHeightMm,
-    requirements_json: { ...(current.data.requirements_json ?? {}), requiredFurniture, budgetInr: budgetInr ?? null, designPriority: designPriority ?? 'balanced', applianceNeeds: applianceNeeds ?? [], constraints: constraints ?? [] },
+    requirements_json: { ...(current.data.requirements_json ?? {}), requiredFurniture, included: included !== false, budgetInr: budgetInr ?? null, designPriority: designPriority ?? 'balanced', applianceNeeds: applianceNeeds ?? [], constraints: constraints ?? [] },
     settings_json: {
       ...(current.data.settings_json ?? {}),
       floorFinish: floorFinish ?? '', falseCeiling: falseCeiling ?? '',
@@ -2141,6 +2143,26 @@ app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (r
   return response.json({ success: true, space: updated.data, invalidated: { layouts: true, scenes: true, artifacts: true } });
 });
 
+// Scope is intentionally separate from a room's requirements: excluding a
+// utility, parking, or out-of-scope room must not force the designer to erase
+// its saved measurements just to open Layout Studio.
+app.patch('/api/projects/:projectId/spaces/:spaceId/scope', requireProjectUser, async (request, response) => {
+  const included = request.body?.included;
+  if (typeof included !== 'boolean') return response.status(422).json({ success: false, code: 'SPACE_SCOPE_INVALID', message: 'Provide whether this room is included in the current design scope.' });
+  const client = getRequestSupabaseClient(request);
+  const current = await client.from('spaces').select('requirements_json').eq('id', request.params.spaceId).eq('project_id', request.params.projectId).single();
+  if (current.error) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: current.error.message });
+  const updated = await client
+    .from('spaces')
+    .update({ requirements_json: { ...(current.data.requirements_json ?? {}), included }, updated_at: new Date().toISOString() })
+    .eq('id', request.params.spaceId)
+    .eq('project_id', request.params.projectId)
+    .select('id,requirements_json')
+    .single();
+  if (updated.error) return response.status(500).json({ success: false, code: 'SPACE_SCOPE_SAVE_FAILED', message: updated.error.message });
+  return response.json({ success: true, space: updated.data });
+});
+
 app.post('/api/projects/:projectId/spaces/approve', requireProjectUser, async (request, response) => {
   const client = getRequestSupabaseClient(request);
   const project = await client.from('projects').select('active_floor_plan_version_id').eq('id', request.params.projectId).single();
@@ -2151,11 +2173,12 @@ app.post('/api/projects/:projectId/spaces/approve', requireProjectUser, async (r
   const initialDesign = geometryMode === 'initial_design';
   const spaces = await client.from('spaces').select('id,status,verification_status,ceiling_height_mm,requirements_json').eq('project_id', request.params.projectId).eq('floor_plan_version_id', project.data.active_floor_plan_version_id);
   if (spaces.error) return response.status(500).json({ success: false, code: 'SPACES_READ_FAILED', message: spaces.error.message });
-  const notReady = (spaces.data ?? []).filter((space: any) => space.status !== 'configured' || (!initialDesign && space.verification_status !== 'verified') || !space.ceiling_height_mm || !Array.isArray(space.requirements_json?.requiredFurniture) || !space.requirements_json.requiredFurniture.length);
-  if (!(spaces.data ?? []).length || notReady.length) return response.status(422).json({ success: false, code: 'SPACES_NOT_READY', message: 'Every room must have verified geometry, a ceiling height, and saved requirements.', spaceIds: notReady.map((space: any) => space.id) });
+  const includedSpaces = (spaces.data ?? []).filter((space: any) => space.requirements_json?.included !== false);
+  const notReady = includedSpaces.filter((space: any) => space.status !== 'configured' || (!initialDesign && space.verification_status !== 'verified') || !space.ceiling_height_mm || !Array.isArray(space.requirements_json?.requiredFurniture) || !space.requirements_json.requiredFurniture.length);
+  if (!includedSpaces.length || notReady.length) return response.status(422).json({ success: false, code: 'SPACES_NOT_READY', message: !includedSpaces.length ? 'Include at least one configured room before opening Layout Studio.' : 'Every included room needs verified geometry, a ceiling height, and saved requirements.', spaceIds: notReady.map((space: any) => space.id) });
   const updated = await client.from('projects').update({ workflow_stage: 'layouts', current_step: 'layouts', updated_at: new Date().toISOString() }).eq('id', request.params.projectId);
   if (updated.error) return response.status(500).json({ success: false, code: 'SPACES_APPROVAL_FAILED', message: updated.error.message });
-  return response.json({ success: true, readySpaceCount: spaces.data!.length });
+  return response.json({ success: true, readySpaceCount: includedSpaces.length });
 });
 
 app.get(['/api/projects/:projectId/status', '/api/projects/:projectId/workflow-status'], requireProjectUser, async (request, response) => {
@@ -2177,7 +2200,7 @@ app.get(['/api/projects/:projectId/status', '/api/projects/:projectId/workflow-s
 
   const briefComplete = !!briefRes.data && (briefRes.data.is_complete !== false);
   const planComplete = !!floorRes.data?.approved_at;
-  const spacesList = spaceRes.data ?? [];
+  const spacesList = (spaceRes.data ?? []).filter((space: any) => space.requirements_json?.included !== false);
   const initialDesign = String((floorRes.data?.canonical_model as any)?.geometryMode ?? 'final_production') === 'initial_design';
   const spacesComplete = spacesList.length > 0 && spacesList.every((s: any) => s.status === 'configured' && (initialDesign || s.verification_status === 'verified') && Boolean(s.ceiling_height_mm) && Array.isArray(s.requirements_json?.requiredFurniture) && s.requirements_json.requiredFurniture.length > 0);
   const layoutsComplete = (layoutRes.data ?? []).some((layout: any) => layout.status === 'approved');
@@ -2245,6 +2268,7 @@ app.post('/api/projects/:projectId/layout-candidates', requireProjectUser, async
     client.from('floor_plan_versions').select('id,canonical_model').eq('id', project.data.active_floor_plan_version_id).single(),
   ]);
   if (spaceResult.error || !spaceResult.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected room is not part of the active approved plan.' });
+  if (spaceResult.data.requirements_json?.included === false) return response.status(409).json({ success: false, code: 'SPACE_OUT_OF_SCOPE', message: 'Include this room in Spaces before generating a layout.' });
   if (spaceResult.data.status !== 'configured') return response.status(409).json({ success: false, code: 'SPACE_CONFIGURATION_REQUIRED', message: 'Save this room’s requirements and scene setup before generating layouts.' });
   if (planResult.error || !planResult.data) return response.status(404).json({ success: false, code: 'PLAN_NOT_FOUND', message: 'The active approved plan could not be loaded.' });
   const plan = (planResult.data.canonical_model ?? {}) as any;

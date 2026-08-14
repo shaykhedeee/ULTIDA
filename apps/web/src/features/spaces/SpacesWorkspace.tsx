@@ -193,7 +193,7 @@ export function SpacesWorkspace() {
       const payload = await response.json().catch(() => null);
       if (!live) return;
       if (!response.ok) { setLoadState(response.status === 409 ? 'blocked' : 'error'); setSaveState(payload?.message ?? 'Approved plan could not be loaded.'); return; }
-      const roomsP: PlanRoom[] = (payload.rooms ?? []).map((r: any) => ({ id: r.id, spaceRecordId: r.spaceRecordId, name: r.name, roomType: inferRoomType(r.roomType, r.name), polygon: r.polygon ?? [], areaSqm: r.areaSqm ?? polyArea(r.polygon ?? []), ceilingHeightMm: r.ceilingHeightMm, requiredFurniture: Array.isArray(r.requiredFurniture) ? r.requiredFurniture : [], budgetInr: r.budgetInr ?? null, designPriority: r.designPriority ?? 'balanced', applianceNeeds: Array.isArray(r.applianceNeeds) ? r.applianceNeeds : [], constraints: Array.isArray(r.constraints) ? r.constraints : [], floorFinish: r.floorFinish ?? '', falseCeiling: r.falseCeiling ?? '', styleDirection: r.styleDirection ?? '', paletteDirection: r.paletteDirection ?? '', retainedElements: Array.isArray(r.retainedElements) ? r.retainedElements : [], wallRoles: r.wallRoles ?? {}, preferredCamera: r.preferredCamera ?? '', verificationStatus: r.verificationStatus, included: true }));
+      const roomsP: PlanRoom[] = (payload.rooms ?? []).map((r: any) => ({ id: r.id, spaceRecordId: r.spaceRecordId, name: r.name, roomType: inferRoomType(r.roomType, r.name), polygon: r.polygon ?? [], areaSqm: r.areaSqm ?? polyArea(r.polygon ?? []), ceilingHeightMm: r.ceilingHeightMm, requiredFurniture: Array.isArray(r.requiredFurniture) ? r.requiredFurniture : [], budgetInr: r.budgetInr ?? null, designPriority: r.designPriority ?? 'balanced', applianceNeeds: Array.isArray(r.applianceNeeds) ? r.applianceNeeds : [], constraints: Array.isArray(r.constraints) ? r.constraints : [], floorFinish: r.floorFinish ?? '', falseCeiling: r.falseCeiling ?? '', styleDirection: r.styleDirection ?? '', paletteDirection: r.paletteDirection ?? '', retainedElements: Array.isArray(r.retainedElements) ? r.retainedElements : [], wallRoles: r.wallRoles ?? {}, preferredCamera: r.preferredCamera ?? '', verificationStatus: r.verificationStatus, included: r.included !== false }));
       if (!live) return;
       setPlan({ ceilingHeightMm: payload.ceilingHeightMm, walls: payload.walls, rooms: payload.rooms, openings: payload.openings, services: payload.services, obstacles: payload.columns } as any);
       setRooms(roomsP); setSelectedRoom((current) => current ?? roomsP[0]?.id ?? null); setWalls(payload.walls ?? []); setOpenings(payload.openings ?? []);
@@ -247,7 +247,11 @@ export function SpacesWorkspace() {
     return { room, widthMm, depthMm, wallCount: roomWalls.length, openingCount: roomOpenings.length, usable, readiness, scaleReview: needsScaleReview(room, widthMm, depthMm) };
   }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode]);
 
-  const overallReadiness = useMemo(() => canApproveSpaces(roomMetrics.map(m => m.readiness)), [roomMetrics]);
+  // A project may legitimately exclude a parking bay, toilet, passage, or an
+  // otherwise out-of-scope zone. Scope is persisted server-side, so those
+  // rooms never silently block the selected design brief from reaching Layout.
+  const includedMetrics = useMemo(() => roomMetrics.filter(({ room }) => room.included !== false), [roomMetrics]);
+  const overallReadiness = useMemo(() => canApproveSpaces(includedMetrics.map(m => m.readiness)), [includedMetrics]);
 
   // ── Canvas projection ──
   const view = useMemo(() => {
@@ -342,7 +346,34 @@ export function SpacesWorkspace() {
   }
 
   // ── Tools ──
-  function includeRoom(id: string, inc: boolean) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, included: inc } : r)); }
+  async function includeRoom(id: string, included: boolean) {
+    const room = rooms.find((candidate) => candidate.id === id);
+    if (!room) return;
+    snapshot();
+    setRooms((current) => current.map((candidate) => candidate.id === id ? { ...candidate, included } : candidate));
+    if (!room.spaceRecordId || !supabase || !projectId) {
+      setSaveState(included ? `${room.name} is included in this design scope.` : `${room.name} is excluded until you include it again.`);
+      return;
+    }
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return; }
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    try {
+      const response = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}/scope`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ included })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setRooms((current) => current.map((candidate) => candidate.id === id ? { ...candidate, included: !included } : candidate));
+        setSaveState(payload?.message ?? 'The room scope could not be saved.');
+        return;
+      }
+      setSaveState(included ? `${room.name} is included in the layout scope.` : `${room.name} is excluded from the current layout scope.`);
+    } catch {
+      setRooms((current) => current.map((candidate) => candidate.id === id ? { ...candidate, included: !included } : candidate));
+      setSaveState('The room scope could not be saved. Check your connection and try again.');
+    }
+  }
   function setRoomCeiling(id: string, h: number) { snapshot(); setRooms(rs => rs.map(r => r.id === id ? { ...r, ceilingHeightMm: h } : r)); }
   function setRoomType(id: string, t: string) {
     snapshot();
@@ -509,7 +540,7 @@ export function SpacesWorkspace() {
     }
     const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '', verificationStatus })
+      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '', verificationStatus, included: room.included !== false })
     });
     const p = await res.json().catch(() => null);
     if (res.ok) {

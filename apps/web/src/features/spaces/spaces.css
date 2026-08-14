@@ -176,7 +176,7 @@
 .spaces-workspace.phase4 .page-header-actions { max-width: 570px; justify-content: flex-end; }
 .page-header-actions .proceed-header-action { white-space: nowrap; }
 .workspace-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; border-radius: 8px; }
-.spaces-layout { display: grid; width: 100%; min-width: 0; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); gap: 16px; align-items: start; grid-template-areas: "rooms canvas" "rooms props" "rooms context"; }
+.spaces-layout { display: grid; width: 100%; min-width: 0; grid-template-columns: minmax(232px, 280px) minmax(0, 1fr); gap: 16px; align-items: start; grid-template-areas: "rooms canvas" "rooms props" "rooms context"; }
 .spaces-layout > * { min-width: 0; }
 .region { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-height: 0; }
 .region-title { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-secondary); margin-bottom: 10px; }
@@ -192,7 +192,7 @@
 .rc-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); padding: 2px 0; }
 .rc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
 .inc-toggle { font-size: 11px; display: flex; align-items: center; gap: 4px; color: var(--text-muted); }
-.canvas-region { grid-area: canvas; display: flex; flex-direction: column; min-height: 0; }
+.canvas-region { grid-area: canvas; display: flex; flex-direction: column; min-height: 0; overflow: clip; }
 .canvas-focus-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; padding:9px 10px; border:1px solid var(--line); border-radius:9px; background:#fffaf2; }
 .canvas-focus-bar > div:first-child { display:flex; flex-direction:column; gap:2px; }
 .canvas-focus-bar strong { font-size:13px; color:var(--text-secondary); }
@@ -287,9 +287,20 @@
   .spaces-workspace.phase4 .page-header { flex-direction:column; }
   .spaces-workspace.phase4 .page-header-actions { max-width:none; justify-content:flex-start; }
 }
+/* Keep the full inspector readable on ordinary laptop viewports. The earlier
+   compact desktop grid squeezed the canvas, checks and properties together,
+   which produced the overlapping horizontal-scroll state seen in review. */
+@media (max-width: 1100px) {
+  .spaces-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "rooms" "canvas" "props" "context"; }
+  .room-list { position: static; max-height: none; overflow: visible; }
+  .room-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .canvas-region, .props-region, .space-context-strip { min-width: 0; }
+  .plan-canvas { min-height: 500px; }
+}
 @media (max-width: 820px) {
   .spaces-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "rooms" "canvas" "props" "context"; }
   .room-list { position:static; max-height: 360px; }
+  .room-cards { display: flex; }
   .space-context-grid { grid-template-columns:minmax(0,1fr); }
   .spaces-guidance-bar { align-items:stretch; flex-direction:column; }
   .plan-canvas { min-height: 420px; }
