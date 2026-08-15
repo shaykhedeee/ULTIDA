@@ -91,6 +91,7 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
   const [showViolations, setShowViolations] = useState(false);
   const [approvalState, setApprovalState] = useState('');
   const [layoutApproved, setLayoutApproved] = useState(false);
+  const [busy, setBusy] = useState<'generate' | 'approve' | null>(null);
 
   function update<K extends keyof LayoutConfig>(key: K, value: LayoutConfig[K]) {
     setConfig((prev) => ({ ...prev, [key]: value }));
@@ -139,12 +140,14 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
   }
 
   async function generateLayoutCandidates() {
+    if (busy) return;
     if (config.lengthMm <= 0 || config.widthMm <= 0 || config.heightMm <= 0) {
       setApprovalState('Enter verified room length, width, and ceiling height in millimetres before generating candidates.');
       setActiveStep('dimensions');
       return;
     }
     if (onGenerateCandidates) {
+      setBusy('generate');
       setApprovalState('Generating candidates from the approved plan geometry...');
       try {
         if (!selectedSpaceId) throw new Error('Select a room from the approved floor plan before generating candidates.');
@@ -156,6 +159,8 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
         setActiveStep(generated.length ? 'candidates' : 'dimensions');
       } catch (error) {
         setApprovalState(error instanceof Error ? error.message : 'Canonical layout generation failed.');
+      } finally {
+        setBusy(null);
       }
       return;
     }
@@ -183,11 +188,12 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
   }
 
   async function handleApprove() {
-    if (!selectedCandidate) return;
+    if (!selectedCandidate || busy) return;
     if (!onApproveCandidate) {
       setApprovalState('Approval connection is unavailable.');
       return;
     }
+    setBusy('approve');
     setApprovalState('Saving and approving layout...');
     try {
       await onApproveCandidate(selectedCandidate, config);
@@ -196,6 +202,8 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
       setActiveStep('review');
     } catch (error) {
       setApprovalState(error instanceof Error ? error.message : 'Layout approval failed.');
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -416,7 +424,7 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
               <button className="btn-generate" style={{ fontSize: '12px', padding: '8px 12px' }} onClick={() => setShowClearances((v) => !v)}>{showClearances ? 'Hide clearances' : 'Show clearances'}</button>
               <button className="btn-generate" style={{ fontSize: '12px', padding: '8px 12px' }} onClick={() => setShowViolations((v) => !v)}>{showViolations ? 'Hide violations' : 'Show violations'}</button>
-              <button className="btn-generate" style={{ fontSize: '12px', padding: '8px 12px', background: 'var(--surface-raised)', color: 'var(--brown-mid)', border: '1px solid var(--line)', boxShadow: 'none' }} onClick={generateLayoutCandidates}><RotateCw size={16} /> Regenerate</button>
+              <button className="btn-generate" style={{ fontSize: '12px', padding: '8px 12px', background: 'var(--surface-raised)', color: 'var(--brown-mid)', border: '1px solid var(--line)', boxShadow: 'none' }} disabled={Boolean(busy)} onClick={generateLayoutCandidates}><RotateCw size={16} /> {busy === 'generate' ? 'Generating…' : 'Regenerate'}</button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
@@ -436,7 +444,7 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
               <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px', background: 'var(--surface-raised)', color: 'var(--brown-mid)', border: '1px solid var(--line)', boxShadow: 'none' }} onClick={() => setActiveStep('orientation')}>← Back</button>
-              <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} disabled={!selectedCandidateId || !selectedCandidate?.validation.valid} onClick={handleApprove}><ShieldCheck size={18} /> {selectedCandidate?.validation.valid ? 'Approve layout version' : 'Resolve blocking constraints'}</button>
+              <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} disabled={Boolean(busy) || !selectedCandidateId || !selectedCandidate?.validation.valid} onClick={handleApprove}><ShieldCheck size={18} /> {busy === 'approve' ? 'Approving…' : selectedCandidate?.validation.valid ? 'Approve layout version' : 'Resolve blocking constraints'}</button>
             </div>
             {!selectedCandidate?.validation.valid && selectedCandidate && <p role="status" style={{ margin: '12px 0 0', fontSize: '12px', color: 'var(--danger)' }}>This candidate has blocking constraints. Select a valid alternative or adjust the room requirements before approval.</p>}
             {approvalState && <p role="status" style={{ margin: '12px 0 0', fontSize: '12px', color: approvalState.startsWith('Layout approved') ? 'var(--success)' : 'var(--danger)' }}>{approvalState}</p>}
