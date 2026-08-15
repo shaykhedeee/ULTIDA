@@ -1287,18 +1287,14 @@ app.post('/api/projects/:projectId/operations/risks', requireProjectUser, async 
 
 // Phase 2: Designer Draft Review Persistence Endpoints
 app.get('/api/projects/:projectId/plan-draft', requireProjectUser, async (request, response) => {
-  const client = getRequestSupabaseClient(request);
-  const { data, error } = await client.from('projects').select('draft_review_json').eq('id', request.params.projectId).single();
-  if (error) return response.status(500).json({ success: false, code: 'DRAFT_READ_FAILED', message: error.message });
-  return response.json({ success: true, draft: data?.draft_review_json ?? null });
+  // Retained only for older clients. Editable analysis drafts live in
+  // plan_analysis_drafts; projects never had a draft_review_json column in
+  // the canonical schema.
+  return response.json({ success: true, draft: null, deprecated: true });
 });
 
 app.put('/api/projects/:projectId/plan-draft', requireProjectUser, async (request, response) => {
-  const client = getRequestSupabaseClient(request);
-  const { draft } = request.body ?? {};
-  const { error } = await client.from('projects').update({ draft_review_json: draft, updated_at: new Date().toISOString() }).eq('id', request.params.projectId);
-  if (error) return response.status(500).json({ success: false, code: 'DRAFT_SAVE_FAILED', message: error.message });
-  return response.json({ success: true });
+  return response.status(410).json({ success: false, code: 'PLAN_DRAFT_ROUTE_RETIRED', message: 'Use the versioned plan-analysis draft route or save an approved geometry version.' });
 });
 
 app.get('/api/projects/:projectId/brief', requireProjectUser, async (request, response) => {
@@ -1595,7 +1591,9 @@ app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, 
   }));
   const carryFailure = carried.find((result) => result.error);
   if (carryFailure?.error) return response.status(500).json({ success: false, code: 'SPACE_SETTINGS_CARRY_FAILED', message: carryFailure.error.message });
-  return response.status(201).json({ success: true, ...committed });
+  const createdSpaces = await client.from('spaces').select('id,space_id').eq('project_id', projectId).eq('floor_plan_version_id', nextVersionId);
+  if (createdSpaces.error) return response.status(500).json({ success: false, code: 'SPACE_MAPPING_READ_FAILED', message: createdSpaces.error.message });
+  return response.status(201).json({ success: true, ...committed, spaces: createdSpaces.data ?? [] });
 });
 
 app.get('/api/projects/:projectId/module-instances', requireProjectUser, async (request, response) => {

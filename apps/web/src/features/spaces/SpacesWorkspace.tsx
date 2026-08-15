@@ -503,10 +503,10 @@ export function SpacesWorkspace() {
   }
   function addAnnotation(text: string) { snapshot(); setAnnotations(a => [...a, { id: entityId(), text, kind: 'note' }]); }
 
-  async function saveGeometryVersion(roomsOverride: PlanRoom[] = rooms) {
-    if (!supabase || !projectId) return;
+  async function saveGeometryVersion(roomsOverride: PlanRoom[] = rooms): Promise<{ spaces: Array<{ id: string; space_id: string | null }> } | null> {
+    if (!supabase || !projectId) return null;
     const session = (await supabase.auth.getSession()).data.session;
-    if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return; }
+    if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return null; }
     setSaveState('Saving a new plan geometry version…');
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
     const response = await fetch(`${apiBase}/projects/${projectId}/spaces/commit-geometry`, {
@@ -514,9 +514,10 @@ export function SpacesWorkspace() {
       body: JSON.stringify({ geometry: { rooms: roomsOverride, walls, openings, columns, beams, services, annotations, ceilingHeightMm } }),
     });
     const payload = await response.json().catch(() => null);
-    if (!response.ok) { setSaveState(payload?.message ?? 'Geometry could not be saved as a new plan version.'); return; }
+    if (!response.ok) { setSaveState(payload?.message ?? 'Geometry could not be saved as a new plan version.'); return null; }
     setSaveState(`Geometry version ${payload?.versionNumber ?? ''} saved. Room settings can now be saved and used by Layout Studio.`);
     setReloadKey((key) => key + 1);
+    return { spaces: Array.isArray(payload?.spaces) ? payload.spaces : [] };
   }
 
   async function persistRoom(room: PlanRoom, verificationStatus = room.verificationStatus) {
@@ -528,18 +529,17 @@ export function SpacesWorkspace() {
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) { setSaveState('Session expired.'); return; }
     const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-    const geometry = { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm, floorPlanVersionId };
-    const draftRes = await fetch(`${apiBase}/projects/${projectId}/plan-draft`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ draft: { source: 'spaces-studio', updatedAt: new Date().toISOString(), geometry } }),
-    });
-    if (!draftRes.ok) { const p = await draftRes.json().catch(() => null); setSaveState(p?.message ?? 'Geometry draft could not be saved.'); return; }
     if (!room.spaceRecordId) {
       const roomsToCommit = rooms.map((candidate) => candidate.id === room.id
         ? { ...candidate, verificationStatus: verificationStatus === 'verified' ? 'verified' : candidate.verificationStatus }
         : candidate);
       setRooms(roomsToCommit);
-      await saveGeometryVersion(roomsToCommit);
+      const committed = await saveGeometryVersion(roomsToCommit);
+      const spaceRecordId = committed?.spaces.find((space) => space.space_id === room.id)?.id;
+      if (!spaceRecordId) return;
+      const hydratedRoom = { ...roomsToCommit.find((candidate) => candidate.id === room.id)!, spaceRecordId };
+      setRooms((current) => current.map((candidate) => candidate.id === room.id ? hydratedRoom : candidate));
+      await persistRoom(hydratedRoom, verificationStatus);
       return;
     }
     const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
