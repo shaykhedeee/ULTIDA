@@ -1461,6 +1461,7 @@ app.post('/api/projects/:projectId/plan/approve', requireProjectUser, async (req
 // active plan and makes the revision the sole source for layouts and scenes.
 app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, async (request, response) => {
   const projectId = String(request.params.projectId);
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const geometry = request.body?.geometry as any;
   if (!geometry || !Array.isArray(geometry.rooms) || !Array.isArray(geometry.walls) || !Array.isArray(geometry.openings)) {
     return response.status(400).json({ success: false, code: 'INVALID_SPACE_GEOMETRY', message: 'Rooms, walls, and openings are required to save a geometry version.' });
@@ -1556,7 +1557,44 @@ app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, 
   if (approved.error) return response.status(422).json({ success: false, code: 'GEOMETRY_VERSION_APPROVAL_FAILED', message: approved.error.message });
   const committed = approved.data as Record<string, unknown>;
   const nextVersionId = String(committed.floorPlanVersionId ?? '');
+  if (!nextVersionId) {
+    return response.status(500).json({ success: false, code: 'GEOMETRY_VERSION_ID_MISSING', message: 'The approved geometry version did not return an ID.' });
+  }
   const priorByRoomId = new Map((priorSpaces.data ?? []).filter((space: any) => space.space_id).map((space: any) => [String(space.space_id), space]));
+  // approve_plan_v1 normally creates the child Space rows.  Older database
+  // function revisions did not do so consistently, though, and an update that
+  // matched zero rows is still reported as successful by PostgREST.  Repair
+  // that historical drift here so a visually verified room always has a real
+  // persisted record for Layout Studio to consume.
+  const createdBeforeCarry = await client
+    .from('spaces')
+    .select('id,space_id')
+    .eq('project_id', projectId)
+    .eq('floor_plan_version_id', nextVersionId);
+  if (createdBeforeCarry.error) return response.status(500).json({ success: false, code: 'SPACE_MAPPING_READ_FAILED', message: createdBeforeCarry.error.message });
+  const existingSpaceIds = new Set((createdBeforeCarry.data ?? []).map((space: any) => String(space.space_id)));
+  const missingSpaceRows = nextSpaces
+    .filter((space: any) => !existingSpaceIds.has(String(space.id)))
+    .map((space: any) => ({
+      organization_id: authReq.ultidaUser?.organizationId,
+      project_id: projectId,
+      floor_plan_version_id: nextVersionId,
+      space_id: String(space.id),
+      name: String(space.roomName ?? 'Space'),
+      room_type: String(space.roomType ?? 'other'),
+      area_sqm: Number(space.areaSqm ?? 0),
+      ceiling_height_mm: Number(space.ceilingHeightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm),
+      geometry_json: space,
+      requirements_json: { requiredFurniture: [], geometryVerified: false },
+      settings_json: {},
+      status: 'pending',
+      verification_status: 'provisional',
+      created_by: authReq.ultidaUser?.id,
+    }));
+  if (missingSpaceRows.length) {
+    const inserted = await client.from('spaces').insert(missingSpaceRows).select('id,space_id');
+    if (inserted.error) return response.status(500).json({ success: false, code: 'SPACE_RECORD_CREATE_FAILED', message: inserted.error.message });
+  }
   const carried = await Promise.all(geometry.rooms.map((room: any) => {
     const prior = priorByRoomId.get(String(room.id));
     const requirements = {
@@ -1587,10 +1625,16 @@ app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, 
         ? 'verified'
         : (prior?.verification_status === 'verified' ? 'verified' : 'unverified'),
       updated_at: new Date().toISOString(),
-    }).eq('project_id', projectId).eq('floor_plan_version_id', nextVersionId).eq('space_id', String(room.id));
+    }).eq('project_id', projectId).eq('floor_plan_version_id', nextVersionId).eq('space_id', String(room.id)).select('id');
   }));
   const carryFailure = carried.find((result) => result.error);
   if (carryFailure?.error) return response.status(500).json({ success: false, code: 'SPACE_SETTINGS_CARRY_FAILED', message: carryFailure.error.message });
+  const unmatchedRooms = carried
+    .map((result, index) => ((result.data ?? []).length ? null : String(geometry.rooms[index]?.name ?? 'Space')))
+    .filter(Boolean);
+  if (unmatchedRooms.length) {
+    return response.status(500).json({ success: false, code: 'SPACE_SETTINGS_NOT_PERSISTED', message: `Could not attach the saved room settings for ${unmatchedRooms.join(', ')}. Please retry Save geometry.` });
+  }
   const createdSpaces = await client.from('spaces').select('id,space_id').eq('project_id', projectId).eq('floor_plan_version_id', nextVersionId);
   if (createdSpaces.error) return response.status(500).json({ success: false, code: 'SPACE_MAPPING_READ_FAILED', message: createdSpaces.error.message });
   return response.status(201).json({ success: true, ...committed, spaces: createdSpaces.data ?? [] });

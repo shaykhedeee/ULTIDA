@@ -536,7 +536,10 @@ export function SpacesWorkspace() {
       setRooms(roomsToCommit);
       const committed = await saveGeometryVersion(roomsToCommit);
       const spaceRecordId = committed?.spaces.find((space) => space.space_id === room.id)?.id;
-      if (!spaceRecordId) return;
+      if (!spaceRecordId) {
+        setSaveState('The geometry version was saved, but this room could not be attached to it. Retry Save geometry before verifying the room.');
+        return;
+      }
       const hydratedRoom = { ...roomsToCommit.find((candidate) => candidate.id === room.id)!, spaceRecordId };
       setRooms((current) => current.map((candidate) => candidate.id === room.id ? hydratedRoom : candidate));
       await persistRoom(hydratedRoom, verificationStatus);
