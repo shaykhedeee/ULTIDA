@@ -2173,12 +2173,12 @@ app.post('/api/projects/:projectId/spaces/approve', requireProjectUser, async (r
   const initialDesign = geometryMode === 'initial_design';
   const spaces = await client.from('spaces').select('id,status,verification_status,ceiling_height_mm,requirements_json').eq('project_id', request.params.projectId).eq('floor_plan_version_id', project.data.active_floor_plan_version_id);
   if (spaces.error) return response.status(500).json({ success: false, code: 'SPACES_READ_FAILED', message: spaces.error.message });
-  const includedSpaces = (spaces.data ?? []).filter((space: any) => space.requirements_json?.included !== false);
-  const notReady = includedSpaces.filter((space: any) => space.status !== 'configured' || (!initialDesign && space.verification_status !== 'verified') || !space.ceiling_height_mm || !Array.isArray(space.requirements_json?.requiredFurniture) || !space.requirements_json.requiredFurniture.length);
-  if (!includedSpaces.length || notReady.length) return response.status(422).json({ success: false, code: 'SPACES_NOT_READY', message: !includedSpaces.length ? 'Include at least one configured room before opening Layout Studio.' : 'Every included room needs verified geometry, a ceiling height, and saved requirements.', spaceIds: notReady.map((space: any) => space.id) });
+  const scopedSpaces = (spaces.data ?? []).filter((space: any) => space.requirements_json?.included !== false);
+  const readySpaces = scopedSpaces.filter((space: any) => space.status === 'configured' && (initialDesign || space.verification_status === 'verified') && Boolean(space.ceiling_height_mm) && Array.isArray(space.requirements_json?.requiredFurniture) && space.requirements_json.requiredFurniture.length > 0);
+  if (!readySpaces.length) return response.status(422).json({ success: false, code: 'SPACES_NOT_READY', message: 'Prepare at least one included room with geometry, a ceiling height, and saved requirements. Other rooms can be completed later.', spaceIds: scopedSpaces.map((space: any) => space.id) });
   const updated = await client.from('projects').update({ workflow_stage: 'layouts', current_step: 'layouts', updated_at: new Date().toISOString() }).eq('id', request.params.projectId);
   if (updated.error) return response.status(500).json({ success: false, code: 'SPACES_APPROVAL_FAILED', message: updated.error.message });
-  return response.json({ success: true, readySpaceCount: includedSpaces.length });
+  return response.json({ success: true, readySpaceCount: readySpaces.length, skippedSpaceCount: Math.max(0, scopedSpaces.length - readySpaces.length), skippedSpaceIds: scopedSpaces.filter((space: any) => !readySpaces.some((ready: any) => ready.id === space.id)).map((space: any) => space.id) });
 });
 
 app.get(['/api/projects/:projectId/status', '/api/projects/:projectId/workflow-status'], requireProjectUser, async (request, response) => {
@@ -2200,7 +2200,7 @@ app.get(['/api/projects/:projectId/status', '/api/projects/:projectId/workflow-s
 
   const briefComplete = !!briefRes.data && (briefRes.data.is_complete !== false);
   const planComplete = !!floorRes.data?.approved_at;
-  const spacesList = (spaceRes.data ?? []).filter((space: any) => space.requirements_json?.included !== false);
+  const spacesList = (spaceRes.data ?? []).filter((space: any) => space.requirements_json?.included !== false && space.status === 'configured' && (String((floorRes.data?.canonical_model as any)?.geometryMode ?? 'final_production') === 'initial_design' || space.verification_status === 'verified') && Boolean(space.ceiling_height_mm) && Array.isArray(space.requirements_json?.requiredFurniture) && space.requirements_json.requiredFurniture.length > 0);
   const initialDesign = String((floorRes.data?.canonical_model as any)?.geometryMode ?? 'final_production') === 'initial_design';
   const spacesComplete = spacesList.length > 0 && spacesList.every((s: any) => s.status === 'configured' && (initialDesign || s.verification_status === 'verified') && Boolean(s.ceiling_height_mm) && Array.isArray(s.requirements_json?.requiredFurniture) && s.requirements_json.requiredFurniture.length > 0);
   const layoutsComplete = (layoutRes.data ?? []).some((layout: any) => layout.status === 'approved');

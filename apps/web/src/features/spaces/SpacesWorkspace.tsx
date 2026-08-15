@@ -13,7 +13,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Badge, Button } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
 import {
-  computeUsableWallLength, computeSpaceReadiness, canApproveSpaces, polygonsOverlap,
+  computeUsableWallLength, computeSpaceReadiness, polygonsOverlap,
   editSplitRoom, editMergeRooms, editAddWall, editAddOpening, editAddColumn, type CanonicalPlanFragment
 } from '@ultida/spaces-core';
 import './spaces.css';
@@ -251,7 +251,11 @@ export function SpacesWorkspace() {
   // otherwise out-of-scope zone. Scope is persisted server-side, so those
   // rooms never silently block the selected design brief from reaching Layout.
   const includedMetrics = useMemo(() => roomMetrics.filter(({ room }) => room.included !== false), [roomMetrics]);
-  const overallReadiness = useMemo(() => canApproveSpaces(includedMetrics.map(m => m.readiness)), [includedMetrics]);
+  const overallReadiness = useMemo(() => {
+    const ready = includedMetrics.filter(({ readiness }) => readiness.ready);
+    const blockedRooms = includedMetrics.filter(({ readiness }) => !readiness.ready).map(({ room }) => room.id);
+    return { approved: ready.length > 0, blockedRooms, totalRooms: includedMetrics.length, readyRooms: ready.length };
+  }, [includedMetrics]);
 
   // ── Canvas projection ──
   const view = useMemo(() => {
@@ -551,7 +555,7 @@ export function SpacesWorkspace() {
 
   async function openLayoutStudio() {
     if (!overallReadiness.approved) {
-      setSaveState('All included rooms need saved requirements and valid geometry before opening Layout Studio.');
+      setSaveState('Select and prepare at least one room before opening Layout Studio. Other rooms can be completed later.');
       return;
     }
     if (!supabase || !projectId) return;
