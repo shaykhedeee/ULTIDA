@@ -1,4 +1,4 @@
-import { Boxes, CheckCircle2, ChevronRight, LayoutTemplate, Palette, Ruler, Sparkles } from 'lucide-react';
+import { BookOpen, Boxes, CheckCircle2, ChevronRight, LayoutTemplate, Palette, Ruler, Sparkles } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import './room-design.css';
@@ -15,8 +15,8 @@ type Props = {
 };
 
 const TABS: Array<{ id: RoomDesignTab; label: string; help: string; icon: typeof Ruler }> = [
-  { id: 'spaces', label: '1. Room Setup & Layout', help: 'Plan overlay, AI auto-layout & furniture arrangement', icon: LayoutTemplate },
-  { id: 'modules', label: '2. Modules & Finishes', help: 'Wall elevation, door/window alignment & materials', icon: Boxes },
+  { id: 'spaces', label: '1. Room Setup & 2D Layouts', help: 'Plan overlay, AI room boundaries, Vastu compliance & usable walls', icon: LayoutTemplate },
+  { id: 'modules', label: '2. Modules, Wall Elevations & Finishes', help: 'Wall A/B/C/D elevations, System 32 cabinets & material swatches', icon: Boxes },
 ];
 
 function normalizeTab(requested: string | null): RoomDesignTab {
@@ -49,15 +49,38 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
       <header className="room-design-hero">
         <div>
           <small>ROOM DESIGN STUDIO</small>
-          <h1>Set up, arrange, and finish the room in two streamlined stages.</h1>
-          <p>Overlay the measured floor plan, approve AI furniture placement on real wall geometry, then configure exact buildable modules with door/window alignments and finishes.</p>
+          <h1>Set up, arrange, and finish each space with precision.</h1>
+          <p>Overlay the measured floor plan, verify AI layout proposals on real wall geometry, then configure exact buildable modular units with door/window clearances and finishes.</p>
         </div>
-        <div className="room-design-authority">
-          <CheckCircle2 size={16} />
-          <span>
-            <strong>Measured plan linked</strong>
-            <small>Geometry locked · AI proposals reviewable</small>
-          </span>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => navigate('/library')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '10px 16px',
+              borderRadius: 10,
+              background: '#1c1917',
+              color: '#fdfbf7',
+              border: '1px solid #44382e',
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            }}
+          >
+            <BookOpen size={15} style={{ color: 'var(--gold)' }} />
+            <span>Design Catalog</span>
+          </button>
+          <div className="room-design-authority">
+            <CheckCircle2 size={16} />
+            <span>
+              <strong>Measured plan linked</strong>
+              <small>Geometry locked · AI proposals reviewable</small>
+            </span>
+          </div>
         </div>
       </header>
 
@@ -80,50 +103,6 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
         ))}
       </nav>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, #1c1917, #2c1e14)', padding: '12px 18px', borderRadius: 10, margin: '14px 0', border: '1px solid #44382e', flexWrap: 'wrap', gap: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Sparkles size={18} style={{ color: 'var(--gold)', flexShrink: 0 }} />
-          <div>
-            <strong style={{ color: '#fff', fontSize: 13, display: 'block' }}>Full AI Automated Pipeline Active</strong>
-            <small style={{ color: '#d6d3d1', fontSize: 11 }}>AI generates all 2D floorplan layouts, wall picks, and 3D scenes automatically without manual drafting.</small>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            type="button"
-            onClick={() => selectTab('spaces')}
-            style={{
-              padding: '6px 12px',
-              borderRadius: 6,
-              border: 0,
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: 'pointer',
-              background: activeTab === 'spaces' ? 'var(--gold)' : 'rgba(255,255,255,0.1)',
-              color: activeTab === 'spaces' ? '#1c1917' : '#fff',
-            }}
-          >
-            1. AI Plan Enhancer
-          </button>
-          <button
-            type="button"
-            onClick={() => selectTab('modules')}
-            style={{
-              padding: '6px 12px',
-              borderRadius: 6,
-              border: 0,
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: 'pointer',
-              background: activeTab === 'modules' ? 'var(--gold)' : 'rgba(255,255,255,0.1)',
-              color: activeTab === 'modules' ? '#1c1917' : '#fff',
-            }}
-          >
-            2. AI Wall Picker &amp; Setup
-          </button>
-        </div>
-      </div>
-
       <div className="room-design-current">
         <Sparkles size={15} />
         <span>
@@ -139,10 +118,10 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
       <div style={{ marginTop: 24, padding: '16px 20px', background: '#1c1917', borderRadius: 12, border: '1px solid #332d29', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <strong style={{ color: '#fff', fontSize: 13, display: 'block' }}>
-            {activeTab === 'spaces' ? 'Step 2 Complete: Room Geometry & 2D Layouts Ready' : 'Step 3 Complete: Modular Wall Elevations & Materials Configured'}
+            {activeTab === 'spaces' ? 'Step 3: Room Setup & 2D Layouts Complete' : 'Step 4: Modular Units, Elevations & Finishes Configured'}
           </strong>
           <small style={{ color: '#a8a29e', fontSize: 11 }}>
-            {activeTab === 'spaces' ? 'Continue to configure modular walls, System 32 cabinet units, and laminate finishes.' : 'Compile scene.v1 to generate 3D views, AI photorealistic renders, and interactive hotspots.'}
+            {activeTab === 'spaces' ? 'Proceed to configure modular wall runs, elevations, cabinet modules, and laminate swatches.' : 'Compile scene.v1 to generate 3D solid geometry, AI photorealistic renders, and technical CAD blueprints.'}
           </small>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
@@ -165,7 +144,7 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
                 boxShadow: '0 4px 14px rgba(197,156,45,0.3)',
               }}
             >
-              Continue to Step 3: Modules &amp; Wall Elevations <ChevronRight size={16} />
+              Continue to Step 4: Modules &amp; Wall Elevations <ChevronRight size={16} />
             </button>
           ) : (
             <button
@@ -190,7 +169,7 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
                 boxShadow: '0 4px 14px rgba(52,211,153,0.3)',
               }}
             >
-              Proceed to Step 4: 3D Visualization &amp; AI Renders <ChevronRight size={16} />
+              Proceed to Step 5: 3D Visualization &amp; AI Renders <ChevronRight size={16} />
             </button>
           )}
         </div>
