@@ -107,6 +107,9 @@ export interface TvUnitParameters {
   fingerGrooveGapMm?: number;
   shutterCount?: number;
   loftFillerMm?: number;
+  sideFillerMm?: number;
+  sideFillerLeft?: boolean;
+  sideFillerRight?: boolean;
 }
 
 export interface TemplateCompileInput {

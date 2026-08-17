@@ -37,7 +37,9 @@ const CommercialWorkspace = lazy(() => import('./components/commercial/Commercia
 const DeliveryWorkspace = lazy(() => import('./components/delivery/DeliveryWorkspace').then((module) => ({ default: module.DeliveryWorkspace })));
 const ReferenceLibraryWorkspace = lazy(() => import('./components/library/ReferenceLibraryWorkspace').then((module) => ({ default: module.ReferenceLibraryWorkspace })));
 const SpacesWorkspace = lazy(() => import('./features/spaces/SpacesWorkspace').then((module) => ({ default: module.SpacesWorkspace })));
+const RoomDesignStudio = lazy(() => import('./features/room-design/RoomDesignStudio').then((module) => ({ default: module.RoomDesignStudio })));
 const SceneStudio = lazy(() => import('./features/scene/SceneStudio').then((module) => ({ default: module.SceneStudio })));
+const VisualizeStudio = lazy(() => import('./features/visualize/VisualizeStudio').then((module) => ({ default: module.VisualizeStudio })));
 const ProductionWorkspace = lazy(() => import('./features/production/ProductionWorkspace').then((module) => ({ default: module.ProductionWorkspace })));
 const TeamWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.TeamWorkspace })));
 const RulesWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.RulesWorkspace })));
@@ -64,6 +66,12 @@ function toLayoutRoomCategory(roomType: unknown): import('./components/layout/La
   const normalized = String(roomType ?? '').toLowerCase();
   if (normalized === 'kitchen') return 'kitchen';
   if (normalized === 'living') return 'living';
+  if (normalized === 'dining' || normalized === 'dining_room') return 'dining';
+  if (normalized === 'study' || normalized === 'office') return 'study';
+  if (normalized === 'pooja' || normalized === 'prayer') return 'pooja';
+  if (normalized === 'utility' || normalized === 'laundry') return 'utility';
+  if (normalized === 'foyer' || normalized === 'entry') return 'foyer';
+  if (normalized === 'bathroom' || normalized === 'toilet' || normalized === 'washroom') return 'bathroom';
   if (normalized === 'tv_unit' || normalized === 'tv unit' || normalized === 'entertainment') return 'tv_unit';
   if (normalized === 'wardrobe' || normalized === 'storage') return 'wardrobe';
   if (normalized === 'bedroom' || normalized === 'master_bedroom' || normalized === 'kids_bedroom') return 'bedroom';
@@ -1250,31 +1258,22 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             onAnalysisGuidesChange={setAnalysisGuides}
           />
         } />
-        <Route path="spaces" element={<SpacesWorkspace />} />
-        <Route path="layouts" element={
-          <LayoutConfigWorkspace
-            initialConfig={layoutConfig ?? undefined}
-            detectedDimensions={layoutRooms.find((room) => room.id === selectedLayoutSpaceId)?.dimensions ?? null}
-            roomCategory={layoutRooms.find((room) => room.id === selectedLayoutSpaceId)?.roomType ?? 'other'}
-            roomRequirements={layoutRooms.find((room) => room.id === selectedLayoutSpaceId)?.requirements ?? {}}
-            rooms={layoutRooms}
-            selectedSpaceId={selectedLayoutSpaceId}
-            onSpaceChange={(spaceId) => setSelectedLayoutSpaceId(spaceId)}
-            onGenerateCandidates={handleLayoutCandidates}
-            onLoadDrafts={handleLoadLayoutDrafts}
-            onGenerate={handleLayoutGenerate}
-            onApproveCandidate={handleLayoutApprove}
-            onEditSpace={() => navigate(`/projects/${projectId}/spaces`)}
+        <Route path="spaces" element={
+          <RoomDesignStudio
+            spaces={<SpacesWorkspace />}
+            modules={<DesignFlowWorkspace stage="Design" focus="all" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />}
           />
         } />
-        <Route path="modules" element={<DesignFlowWorkspace stage="Design" focus="modules" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
+        <Route path="layouts" element={<Navigate to={`/projects/${projectId}/spaces?tab=spaces`} replace />} />
+        <Route path="modules" element={<Navigate to={`/projects/${projectId}/spaces?tab=modules`} replace />} />
         <Route path="modules-legacy" element={<Navigate to="../modules" replace />} />
-        <Route path="materials" element={<DesignFlowWorkspace stage="Design" focus="materials" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
+        <Route path="materials" element={<Navigate to={`/projects/${projectId}/spaces?tab=modules`} replace />} />
         <Route path="materials-legacy" element={<Navigate to="../materials" replace />} />
         <Route path="3d" element={
-          <>
-            <SceneStudio sceneVersionId={sceneVersionId} />
-            <DesignFlowWorkspace
+          <VisualizeStudio
+            sceneReady={Boolean(sceneVersionId)}
+            sceneApproved={sceneApproved}
+            review={<><SceneStudio sceneVersionId={sceneVersionId} /><DesignFlowWorkspace
               stage="Design"
               projectId={projectId ?? null}
               planApproved={planApproved}
@@ -1285,25 +1284,14 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
               materials={sceneMaterials}
               onSceneCreated={saveScene}
               onSceneApproved={approveScene}
-            />
-          </>
+            /></>}
+            render={<DesignFlowWorkspace stage="Visualize" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />}
+            laminate={<DesignFlowWorkspace stage="Visualize" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />}
+          />
         } />
         <Route path="design" element={<DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
         <Route path="design-legacy" element={<Navigate to="../design" replace />} />
-        <Route path="renders" element={
-          <DesignFlowWorkspace
-            stage="Visualize"
-            projectId={projectId ?? null}
-            planApproved={planApproved}
-            briefComplete={briefSaved}
-            sceneVersionId={sceneVersionId}
-            sceneApproved={sceneApproved}
-            modules={sceneModules}
-            materials={sceneMaterials}
-            onSceneCreated={saveScene}
-            onSceneApproved={approveScene}
-          />
-        } />
+        <Route path="renders" element={<Navigate to={`/projects/${projectId}/3d?tab=render`} replace />} />
         <Route path="production" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} />} />
         <Route path="drawings" element={
           <DesignFlowWorkspace

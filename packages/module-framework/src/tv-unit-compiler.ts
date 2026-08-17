@@ -2,6 +2,7 @@ import { Part, SemanticType, TemplateCompileInput, TemplateCompileResult, TvUnit
 import {
   FINGER_GROOVE_GAP_MM,
   LOFT_FILLER_MM,
+  WALL_SIDE_FILLER_MM,
   FLOATING_TV_BASE_CLEARANCE_MM,
   TARGET_SHUTTER_WIDTH_MM,
   DEFAULT_CARCASS_THICKNESS_MM,
@@ -204,6 +205,8 @@ export function compileTvUnit(input: TemplateCompileInput): TemplateCompileResul
     });
   }
 
+  addWallSideFillers(parts, input, params, instanceId, matCarcass, baseClearance);
+
   // 6. Optional Internal Shelves
   if (params.shelfOption) {
     parts.push({
@@ -369,5 +372,18 @@ function compileTvWallComposition(
   }
   if (params.overheadStorage) add('top-filler', 'Top Filler / Loft Closure', 0, 0, baseClearance + totalHeight - 50, totalWidth, totalDepth, 50, 'filler', materials.carcass, 'A-MOD-FILLER', 'TV-TOP-FILLER');
 
+  addWallSideFillers(parts, input, params, instanceId, materials.carcass, baseClearance);
   return { templateVersionId: input.templateVersionId, instanceId, valid: blockingViolations.length === 0, blockingViolations, warningViolations, parts };
+}
+
+function addWallSideFillers(parts: Part[], input: TemplateCompileInput, params: TvUnitParameters, instanceId: string, materialId: string, baseClearance: number) {
+  const filler = params.sideFillerMm ?? WALL_SIDE_FILLER_MM;
+  const add = (side: 'left' | 'right', xMm: number) => parts.push({
+    id: `${instanceId}-${side}-wall-filler`, templateVersionId: input.templateVersionId, instanceId,
+    name: `${side === 'left' ? 'Left' : 'Right'} Wall Filler`, transform: { xMm, yMm: 0, zMm: baseClearance, rotationDeg: 0 },
+    size: { widthMm: filler, depthMm: params.totalDepthMm, heightMm: params.totalHeightMm }, anchor: { face: side },
+    meta: { semanticType: 'filler', parentId: null, materialSlot: { id: materialId, code: materialId, name: 'Wall Side Filler' }, drawing: { layer: 'A-MOD-FILLER', sortOrder: parts.length + 1 }, bom: { sku: `FILLER-${filler}MM`, qty: 1, unit: 'pc', lengthMm: params.totalHeightMm, widthMm: params.totalDepthMm, thicknessMm: filler } },
+  });
+  if (params.sideFillerLeft) add('left', 0);
+  if (params.sideFillerRight) add('right', Math.max(0, params.totalWidthMm - filler));
 }

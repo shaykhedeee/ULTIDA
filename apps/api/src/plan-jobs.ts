@@ -291,6 +291,13 @@ function supplementSparseVisionProposals(
     const reversed = Math.max(Math.hypot(x1 - candidate.x2, y1 - candidate.y2), Math.hypot(x2 - candidate.x1, y2 - candidate.y1));
     return Math.min(direct, reversed) <= tolerancePx;
   });
+  const matchesExistingOpening = (candidate: { approxCenterPx: { x: number; y: number } }) => supplemented.some((proposal) => {
+    if (proposal.kind !== 'opening') return false;
+    const geometry = proposal.geometry as Record<string, unknown>;
+    const x = (Number(geometry.x) / 1000) * source.widthPx;
+    const y = (Number(geometry.y) / 1000) * source.heightPx;
+    return Math.hypot(x - candidate.approxCenterPx.x, y - candidate.approxCenterPx.y) <= tolerancePx * 2;
+  });
   const hasRoom = supplemented.some((p) => p.kind === 'room');
   const walls = cv.walls.filter((w) => Number(w.lengthPx) >= 20);
   if (!hasRoom && walls.length >= 2) {
@@ -311,19 +318,17 @@ function supplementSparseVisionProposals(
       });
     }
   }
-  const hasOpening = supplemented.some((p) => p.kind === 'opening');
-  if (!hasOpening) {
-    for (const opening of (cv as CvTraceResult & { openings?: Array<{ approxCenterPx: { x: number; y: number }; approxWidthPx: number; kindHint?: 'door' | 'window' | 'unknown'; confidence?: number; note?: string }> }).openings ?? []) {
+  for (const opening of (cv as CvTraceResult & { openings?: Array<{ approxCenterPx: { x: number; y: number }; approxWidthPx: number; kindHint?: 'door' | 'window' | 'unknown'; confidence?: number; note?: string }> }).openings ?? []) {
+      // An unclassified gap remains review evidence; it must never silently
+      // become a door merely because the compact proposal format uses 0/1.
+      if (opening.kindHint === 'unknown' || matchesExistingOpening(opening)) continue;
       const kind = opening.kindHint === 'window' ? 1 : 0;
       supplemented.push({
         kind: 'opening',
         confidence: Number(opening.confidence ?? 0.45),
         geometry: { x: Math.round((opening.approxCenterPx.x / cv.sourceImageSize.widthPx) * 1000), y: Math.round((opening.approxCenterPx.y / cv.sourceImageSize.heightPx) * 1000), width: Math.round((opening.approxWidthPx / cv.sourceImageSize.widthPx) * 1000), kind },
-        note: opening.kindHint === 'unknown'
-          ? `${opening.note ?? 'Derived from a collinear wall gap.'} Classify as door or window during review.`
-          : `${opening.note ?? 'Derived from a collinear wall gap.'} CV hint: ${opening.kindHint}.`,
+        note: `${opening.note ?? 'Derived from a collinear wall gap.'} CV hint: ${opening.kindHint}.`,
       });
-    }
   }
   // One vision wall is not an adequate representation of a multi-room plan.
   // Keep semantic candidates, then add each traced wall that is not already

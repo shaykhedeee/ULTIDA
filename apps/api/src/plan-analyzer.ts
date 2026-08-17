@@ -78,6 +78,11 @@ export function buildPlanPrompt(brief?: Record<string, unknown>, analysisGuides:
 
 Extract only visible evidence: walls, room zones, doors/windows/passages, room labels, written dimensions, and existing plan symbols. A fixture proposal may represent a fixed fixture (toilet, sink, bathtub, shower, stove, refrigerator) or a clearly drawn existing furniture symbol (bed, sofa, dining table, wardrobe, desk). Label it exactly as visible evidence, for example "Existing bed symbol". These are review-only context; never turn them into modular furniture, manufacturing geometry, or inferred dimensions. Never invent a dimension, wall, opening or fixture. Preserve uncertainty.
 
+OPENING DETECTION (CRITICAL):
+- Doors: Every doorway, swing arc, sliding track, pocket frame, or entry opening must be extracted as an opening with kind=0.
+- Windows: Every window, double/triple parallel line on exterior/interior walls, or sill glazing marker must be extracted as an opening with kind=1.
+- Openings must sit directly on or interrupt their parent wall.
+
 COORDINATES
 - Return every coordinate on a source-relative 0..1000 grid: x=0 left, x=1000 right, y=0 top, y=1000 bottom.
 - Walls use x1,y1,x2,y2. Rooms use x,y,width,height. Openings use x,y,width,kind where kind 0=door and 1=window. Dimensions use x1,y1,x2,y2,valueMm. Fixtures use x,y,width,depth only when their outline is visible.
@@ -89,14 +94,15 @@ SELF CHECK
 1. All coordinates are finite and within 0..1000.
 2. Walls have non-zero length.
 3. Rooms have positive width and height.
-4. Notes state the visible evidence or uncertainty.
-5. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
-6. Do not split a straight wall into redundant collinear fragments and never repeat the same wall candidate. Prefer fewer, well-evidenced candidates over guessed completeness.
-7. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
-8. Start with every clearly enclosed room zone and its enclosing walls. Then add internal partitions, doors/windows, legible dimensions and only clearly drawn existing symbols. Do not sacrifice a whole room merely to describe a minor fixture or furniture symbol. For a multi-room plan, returning one wall or one room is incomplete evidence, not a valid result. Return at most 48 proposals.
-9. A wall must contain exactly numeric x1,y1,x2,y2. A room must contain exactly numeric x,y,width,height. Do not use numbered keys, arrays, prose, units, or nested objects inside geometry.
-10. Output one JSON object only, with no markdown and no explanatory text:
-{"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"}]}`;
+4. Doors (kind=0) and windows (kind=1) are captured with their true location and width.
+5. Notes state the visible evidence or uncertainty.
+6. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
+7. Do not split a straight wall into redundant collinear fragments and never repeat the same wall candidate. Prefer fewer, well-evidenced candidates over guessed completeness.
+8. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
+9. Start with every clearly enclosed room zone and its enclosing walls. Then add internal partitions, doors/windows, legible dimensions and only clearly drawn existing symbols. Do not sacrifice a whole room merely to describe a minor fixture or furniture symbol. For a multi-room plan, returning one wall or one room is incomplete evidence, not a valid result. Return at most 48 proposals.
+10. A wall must contain exactly numeric x1,y1,x2,y2. A room must contain exactly numeric x,y,width,height. Do not use numbered keys, arrays, prose, units, or nested objects inside geometry.
+11. Output one JSON object only, with no markdown and no explanatory text:
+{"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"},{"kind":"opening","confidence":0.88,"geometry":{"x":340,"y":180,"width":40,"kind":0},"note":"Door with swing arc"}]}`;
 
   const briefContext = compileBriefContext(brief);
   const guideContext = analysisGuides.length

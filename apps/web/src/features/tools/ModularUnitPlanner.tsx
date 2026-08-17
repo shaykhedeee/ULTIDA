@@ -1,7 +1,8 @@
-import { Box, CheckCircle2, Clipboard, Download, FilePlus2, Loader2, Search, SlidersHorizontal, TriangleAlert } from 'lucide-react';
+import { Box, CheckCircle2, Clipboard, Download, FilePlus2, Loader2, Search, SlidersHorizontal, TriangleAlert, Layers, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ModulePreview } from '../../components/library/ModulePreview';
+import ModularCabinetBuilder from '../../components/modular/ModularCabinetBuilder';
 import './modular-unit-planner.css';
 
 type CatalogModule = {
@@ -31,6 +32,7 @@ function label(value: string) { return value.replaceAll('-', ' ').replace(/\b\w/
 
 export function ModularUnitPlanner() {
   const navigate = useNavigate();
+  const [viewMode, setViewMode] = useState<'configurator' | 'elevation'>('configurator');
   const [modules, setModules] = useState<CatalogModule[]>([]);
   const [query, setQuery] = useState('');
   const [family, setFamily] = useState('all');
@@ -93,10 +95,76 @@ export function ModularUnitPlanner() {
   return <main className="module-planner">
     <header className="module-planner-hero"><div><p>MODULAR UNIT PLANNER</p><h1>Choose, size and prepare a real modular unit.</h1><span>Standalone planning for ULTIDA TV walls, crockery, wardrobes, kitchens, pooja, study and storage. No brands, prices or shopping cart—only configurable interior modules.</span></div><button onClick={() => navigate('/projects')}><FilePlus2 size={16} /> Start a project</button></header>
     <p className="module-planner-status" role="status">{modules.length ? <CheckCircle2 size={15} /> : <Loader2 className="ultida-spinner" size={15} />}{status}</p>
-    <div className="module-planner-layout">
-      <aside className="module-family-rail"><strong><Box size={16} /> Module families</strong><button className={family === 'all' ? 'active' : ''} onClick={() => setFamily('all')}>All templates <span>{modules.length}</span></button>{families.map((item) => <button key={item} className={family === item ? 'active' : ''} onClick={() => setFamily(item)}>{label(item)} <span>{modules.filter((module) => module.family === item).length}</span></button>)}</aside>
-      <section className="module-catalog"><label className="module-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search TV walls, crockery, wardrobes…" /></label><div className="module-card-grid">{visible.map((item) => <button key={item.id} className={`module-catalog-card ${selectedId === item.id ? 'selected' : ''}`} onClick={() => setSelectedId(item.id)}><ModulePreview module={item} compact /><span className="module-card-family">{label(item.family)}</span><strong>{item.name}</strong><small>{item.widthMm}W × {item.depthMm}D × {item.heightMm}H mm</small><em>{item.roomTypes.join(' · ')}</em></button>)}</div>{!visible.length && <div className="module-empty">No modules match this search. Clear a filter or try a different room or unit name.</div>}</section>
-      <aside className="module-config">{selected ? <><div className="module-config-heading"><span><SlidersHorizontal size={17} /> CONFIGURE</span><h2>{selected.name}</h2><p>{selected.description ?? 'A production-aware modular template.'}</p></div><ModulePreview module={{ ...selected, widthMm: width || selected.widthMm, depthMm: depth || selected.depthMm, heightMm: height || selected.heightMm }} /><div className="module-input-grid"><label>Width (mm)<input type="number" min="300" value={width} onChange={(event) => setWidth(Number(event.target.value))} /></label><label>Depth (mm)<input type="number" min="250" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /></label><label>Height (mm)<input type="number" min="300" value={height} onChange={(event) => setHeight(Number(event.target.value))} /></label><label>Available wall (mm)<input type="number" min="300" value={wallWidth} onChange={(event) => setWallWidth(Number(event.target.value))} /></label><label>Clear circulation (mm)<input type="number" min="0" value={clearance} onChange={(event) => setClearance(Number(event.target.value))} /></label></div><div className={`module-fit ${ready ? 'ready' : 'blocked'}`}><strong>{ready ? <><CheckCircle2 size={15} /> Fits the entered planning envelope</> : <><TriangleAlert size={15} /> Needs adjustment</>}</strong><ul>{ready ? <li>Initial Design specification can be prepared. Site verification remains required for production.</li> : issues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div><div className="module-production"><strong>Production notes</strong><ul>{(selected.manufacturingRules ?? ['Confirm wall, opening and service geometry in the project before production.']).map((rule) => <li key={rule}>{rule}</li>)}</ul></div><div className="module-actions"><button disabled={!ready} onClick={copySpecification}><Clipboard size={15} /> Copy specification</button><button disabled={!ready} onClick={downloadSpecification}><Download size={15} /> Download initial brief</button><button className="project" disabled={!ready} onClick={prepareProjectPlacement}><FilePlus2 size={15} /> Place in a project</button></div></> : <div className="module-empty">Choose a template to configure it.</div>}</aside>
+    <div style={{ display: 'flex', gap: 8, margin: '14px 0 20px', background: '#e7e5e4', padding: 4, borderRadius: 8, width: 'fit-content' }}>
+      <button
+        type="button"
+        onClick={() => setViewMode('configurator')}
+        style={{
+          padding: '6px 14px',
+          borderRadius: 6,
+          border: 0,
+          fontSize: 12.5,
+          fontWeight: 700,
+          cursor: 'pointer',
+          background: viewMode === 'configurator' ? '#fff' : 'transparent',
+          color: viewMode === 'configurator' ? '#1c1917' : '#78716c',
+          boxShadow: viewMode === 'configurator' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+        }}
+      >
+        📏 Parametric Configurator
+      </button>
+      <button
+        type="button"
+        onClick={() => setViewMode('elevation')}
+        style={{
+          padding: '6px 14px',
+          borderRadius: 6,
+          border: 0,
+          fontSize: 12.5,
+          fontWeight: 700,
+          cursor: 'pointer',
+          background: viewMode === 'elevation' ? '#3d2a1a' : 'transparent',
+          color: viewMode === 'elevation' ? '#fff' : '#78716c',
+          boxShadow: viewMode === 'elevation' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+        }}
+      >
+        🚀 System 32 Elevation Canvas (Anti-Gravity Z)
+      </button>
     </div>
+
+    {viewMode === 'elevation' ? (
+      <ModularCabinetBuilder
+        initialWall={{
+          lengthMm: wallWidth || 3000,
+          heightMm: 2700,
+        }}
+        initialModules={selected ? [{
+          id: selected.id,
+          name: selected.name,
+          category: 'base_drawer',
+          posX: 200,
+          elevationMm: 150,
+          widthMm: (([300, 450, 600, 900].includes(width || selected.widthMm) ? (width || selected.widthMm) : 600) as 300 | 450 | 600 | 900),
+          heightMm: height || selected.heightMm,
+          depthMm: depth || selected.depthMm,
+          carcassCore: 'HDHMR',
+          shutterFinish: 'fluted_pu',
+          hardware: {
+            hinges: 0,
+            drawerChannels: 2,
+            hangingBrackets: 2,
+          },
+        }] : undefined}
+        onGenerateRender={(payload) => {
+          setStatus(`Generated ControlNet depth & wireframe maps for ${payload.modules.length} modules. Total estimated BOM: $${payload.totalCost.toFixed(2)}.`);
+        }}
+      />
+    ) : (
+      <div className="module-planner-layout">
+        <aside className="module-family-rail"><strong><Box size={16} /> Module families</strong><button className={family === 'all' ? 'active' : ''} onClick={() => setFamily('all')}>All templates <span>{modules.length}</span></button>{families.map((item) => <button key={item} className={family === item ? 'active' : ''} onClick={() => setFamily(item)}>{label(item)} <span>{modules.filter((module) => module.family === item).length}</span></button>)}</aside>
+        <section className="module-catalog"><label className="module-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search TV walls, crockery, wardrobes…" /></label><div className="module-card-grid">{visible.map((item) => <button key={item.id} className={`module-catalog-card ${selectedId === item.id ? 'selected' : ''}`} onClick={() => setSelectedId(item.id)}><ModulePreview module={item} compact /><span className="module-card-family">{label(item.family)}</span><strong>{item.name}</strong><small>{item.widthMm}W × {item.depthMm}D × {item.heightMm}H mm</small><em>{item.roomTypes.join(' · ')}</em></button>)}</div>{!visible.length && <div className="module-empty">No modules match this search. Clear a filter or try a different room or unit name.</div>}</section>
+        <aside className="module-config">{selected ? <><div className="module-config-heading"><span><SlidersHorizontal size={17} /> CONFIGURE</span><h2>{selected.name}</h2><p>{selected.description ?? 'A production-aware modular template.'}</p></div><ModulePreview module={{ ...selected, widthMm: width || selected.widthMm, depthMm: depth || selected.depthMm, heightMm: height || selected.heightMm }} /><div className="module-input-grid"><label>Width (mm)<input type="number" min="300" value={width} onChange={(event) => setWidth(Number(event.target.value))} /></label><label>Depth (mm)<input type="number" min="250" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /></label><label>Height (mm)<input type="number" min="300" value={height} onChange={(event) => setHeight(Number(event.target.value))} /></label><label>Available wall (mm)<input type="number" min="300" value={wallWidth} onChange={(event) => setWallWidth(Number(event.target.value))} /></label><label>Clear circulation (mm)<input type="number" min="0" value={clearance} onChange={(event) => setClearance(Number(event.target.value))} /></label></div><div className={`module-fit ${ready ? 'ready' : 'blocked'}`}><strong>{ready ? <><CheckCircle2 size={15} /> Fits the entered planning envelope</> : <><TriangleAlert size={15} /> Needs adjustment</>}</strong><ul>{ready ? <li>Initial Design specification can be prepared. Site verification remains required for production.</li> : issues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div><div className="module-production"><strong>Production notes</strong><ul>{(selected.manufacturingRules ?? ['Confirm wall, opening and service geometry in the project before production.']).map((rule) => <li key={rule}>{rule}</li>)}</ul></div><div className="module-actions"><button disabled={!ready} onClick={copySpecification}><Clipboard size={15} /> Copy specification</button><button disabled={!ready} onClick={downloadSpecification}><Download size={15} /> Download initial brief</button><button className="project" disabled={!ready} onClick={prepareProjectPlacement}><FilePlus2 size={15} /> Place in a project</button></div></> : <div className="module-empty">Choose a template to configure it.</div>}</aside>
+      </div>
+    )}
   </main>;
 }

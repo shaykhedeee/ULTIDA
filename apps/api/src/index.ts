@@ -2053,12 +2053,23 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
   const client = getRequestSupabaseClient(request);
   const version = await client
     .from('floor_plan_versions')
-    .select('id,canonical_model,scale_state,verification_state,approved_at,active_version')
+    .select('id,canonical_model,scale_state,verification_state,approved_at,active_version,source_asset_id')
     .eq('project_id', request.params.projectId)
     .eq('active_version', true)
     .maybeSingle();
   if (version.error) return response.status(500).json({ success: false, code: 'PLAN_READ_FAILED', message: version.error.message });
   if (!version.data || !version.data.approved_at) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'An approved floor plan is required before configuring spaces.' });
+  
+  let previewUrl: string | null = null;
+  const sourceAssetId = (version.data as any)?.source_asset_id ?? null;
+  if (sourceAssetId) {
+    const asset = await client.from('project_assets').select('storage_path,mime_type').eq('id', sourceAssetId).maybeSingle();
+    if (asset.data?.storage_path) {
+      const signed = await client.storage.from('project-assets').createSignedUrl(asset.data.storage_path, 3600);
+      previewUrl = signed.data?.signedUrl ?? null;
+    }
+  }
+
   const savedSpaces = await client
     .from('spaces')
     .select('id,space_id,name,room_type,ceiling_height_mm,requirements_json,settings_json,verification_status,status')
@@ -2132,6 +2143,9 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
   return response.json({
     success: true,
     floorPlanVersionId: version.data.id,
+    sourceAssetId,
+    previewUrl,
+    source: plan.source ?? null,
     // Initial Design is allowed to use a designer-trusted two-point
     // calibration without claiming site-verification.  The previous check
     // treated the JSON scale-state column as a string and therefore showed a
@@ -2368,10 +2382,16 @@ app.post('/api/projects/:projectId/layout-candidates', requireProjectUser, async
     return { id: String(opening.id), wallId: opening.wallId ? String(opening.wallId) : undefined, type: opening.kind === 'window' ? 'window' : 'door', xMm, yMm, widthMm: Math.max(300, Number(opening.widthMm ?? 900)), heightMm: Math.max(300, Number(opening.heightMm ?? (opening.kind === 'window' ? 1200 : 2100))), swingDeg: opening.swingDeg == null ? undefined : Number(opening.swingDeg) };
   }).filter((opening: any) => (opening.wallId && usableWallIds.has(opening.wallId)) || (opening.xMm >= minX - 250 && opening.xMm <= maxX + 250 && opening.yMm >= minY - 250 && opening.yMm <= maxY + 250));
   const servicePoints = (Array.isArray(plan.servicePoints) ? plan.servicePoints : []).map((point: any) => ({ id: String(point.id), xMm: Number(point.position?.xMm ?? point.xMm ?? 0), yMm: Number(point.position?.yMm ?? point.yMm ?? 0), type: String(point.kind ?? point.type ?? 'service') })).filter((point: any) => point.xMm >= minX && point.xMm <= maxX && point.yMm >= minY && point.yMm <= maxY);
+  const structuralElements = [
+    ...(Array.isArray(plan.columns) ? plan.columns : []),
+    ...(Array.isArray(plan.beams) ? plan.beams : []),
+  ].map((item: any) => ({ id: String(item.id), type: String(item.kind ?? item.type ?? 'structure'), xMm: Number(item.position?.xMm ?? item.start?.xMm ?? item.xMm ?? 0), yMm: Number(item.position?.yMm ?? item.start?.yMm ?? item.yMm ?? 0), widthMm: Math.max(1, Number(item.widthMm ?? item.sizeMm ?? 300)), depthMm: Math.max(1, Number(item.depthMm ?? item.sizeMm ?? 300)) })).filter((item: any) => item.xMm >= minX - 250 && item.xMm <= maxX + 250 && item.yMm >= minY - 250 && item.yMm <= maxY + 250);
   try {
     const savedRequirements = spaceResult.data.requirements_json && typeof spaceResult.data.requirements_json === 'object' ? spaceResult.data.requirements_json : {};
-    const candidates = generateCandidates({ projectId: request.params.projectId, spaceId, roomCategory, floorPlanVersionId: project.data.active_floor_plan_version_id, shape: String(shape ?? 'balanced'), candidateTypes: Array.isArray(candidateTypes) ? candidateTypes : ['maximum_storage', 'best_circulation', 'balanced', 'cost_efficient'], requirements: { ...savedRequirements, ...(requirements && typeof requirements === 'object' ? requirements : {}) }, roomBoundingBoxMm: { minX, minY, maxX, maxY }, usableWalls, openings, servicePoints, structuralElements: [], companyRules: {} } as any);
-    return response.json({ success: true, floorPlanVersionId: project.data.active_floor_plan_version_id, spaceId, candidates });
+    const generated = generateCandidates({ projectId: request.params.projectId, spaceId, roomCategory, floorPlanVersionId: project.data.active_floor_plan_version_id, shape: String(shape ?? 'balanced'), candidateTypes: Array.isArray(candidateTypes) ? candidateTypes : ['maximum_storage', 'best_circulation', 'balanced', 'cost_efficient'], requirements: { ...savedRequirements, ...(requirements && typeof requirements === 'object' ? requirements : {}) }, roomBoundingBoxMm: { minX, minY, maxX, maxY }, usableWalls, openings, servicePoints, structuralElements, companyRules: {} } as any);
+    const previewContext = { roomPolygon: points.map((point: any) => ({ xMm: point.x, yMm: point.y })), walls: usableWalls, openings, servicePoints, structuralElements };
+    const candidates = generated.map((candidate) => ({ ...candidate, previewContext }));
+    return response.json({ success: true, floorPlanVersionId: project.data.active_floor_plan_version_id, spaceId, previewContext, candidates });
   } catch (error) {
     return response.status(422).json({ success: false, code: 'LAYOUT_CANDIDATE_GENERATION_FAILED', message: error instanceof Error ? error.message : 'The canonical room geometry could not generate candidates.' });
   }

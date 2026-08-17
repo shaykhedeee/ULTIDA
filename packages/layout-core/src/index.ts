@@ -6,6 +6,10 @@ import {
   WardrobeShapeSchema,
   LivingShapeSchema,
   BedroomShapeSchema,
+  DiningShapeSchema,
+  StudyShapeSchema,
+  PoojaShapeSchema,
+  UtilityShapeSchema,
   PlacementAnchorSchema,
   PlacementSchema,
   LayoutCandidateSchema,
@@ -29,6 +33,10 @@ export type TvUnitShape = z.infer<typeof TvUnitShapeSchema>;
 export type WardrobeShape = z.infer<typeof WardrobeShapeSchema>;
 export type LivingShape = z.infer<typeof LivingShapeSchema>;
 export type BedroomShape = z.infer<typeof BedroomShapeSchema>;
+export type DiningShape = z.infer<typeof DiningShapeSchema>;
+export type StudyShape = z.infer<typeof StudyShapeSchema>;
+export type PoojaShape = z.infer<typeof PoojaShapeSchema>;
+export type UtilityShape = z.infer<typeof UtilityShapeSchema>;
 export type PlacementAnchor = z.infer<typeof PlacementAnchorSchema>;
 export type Placement = z.infer<typeof PlacementSchema>;
 export type LayoutCandidate = z.infer<typeof LayoutCandidateSchema>;
@@ -130,6 +138,12 @@ export const SHAPE_CATALOG: Record<RoomCategory, string[]> = {
   wardrobe: WardrobeShapeSchema.options,
   living: LivingShapeSchema.options,
   bedroom: BedroomShapeSchema.options,
+  dining: DiningShapeSchema.options,
+  study: StudyShapeSchema.options,
+  pooja: PoojaShapeSchema.options,
+  utility: UtilityShapeSchema.options,
+  foyer: ['console_wall', 'shoe_storage_wall'],
+  bathroom: ['vanity_wall', 'storage_wall'],
   other: [],
 };
 
@@ -266,6 +280,25 @@ function derivePlacements(input: LayoutInput & { shape: string; candidateType: C
   if (roomCategory === 'bedroom') {
     return bedroomPlacements(shape as BedroomShape, widthMm, depthMm, baseClearance, candidateType);
   }
+  if (roomCategory === 'dining') {
+    const tableWidth = Math.min(widthMm * 0.55, candidateType === 'best_circulation' ? 1600 : 2100);
+    const dining = roomPlacement('dining-table', tableWidth, Math.min(1000, depthMm * 0.35), 760, baseClearance, []);
+    if (shape === 'crockery_focused') return [dining, wallPlacement('crockery-unit', usableWalls[0], Math.min(widthMm * 0.45, 2400), 450, 2400, baseClearance, ['power'])];
+    if (shape === 'wall_side_dining') return [wallPlacement('dining-bench', usableWalls[0], tableWidth, 500, 900, baseClearance, []), dining];
+    return [dining];
+  }
+  if (roomCategory === 'study') {
+    return [wallPlacement(shape === 'study_plus_storage' ? 'study-storage' : 'study-unit', usableWalls[0], Math.min(widthMm * 0.65, 2400), 600, shape === 'full_wall_study' ? 2400 : 750, baseClearance, ['power', 'natural_light'])];
+  }
+  if (roomCategory === 'pooja') {
+    return [wallPlacement('pooja-unit', usableWalls[0], Math.min(widthMm * 0.55, 1800), 450, shape === 'wall_mounted' ? 1500 : 2400, baseClearance, ['power'])];
+  }
+  if (roomCategory === 'utility') {
+    const first = wallPlacement('utility-unit', usableWalls[0], Math.min(widthMm * 0.7, 2400), 600, 2100, baseClearance, ['plumbing', 'power']);
+    return shape === 'parallel_utility' ? [first, wallPlacement('utility-storage', usableWalls[1], Math.min(widthMm * 0.5, 1800), 450, 2100, baseClearance, [])] : [first];
+  }
+  if (roomCategory === 'foyer') return [wallPlacement('foyer-console', usableWalls[0], Math.min(widthMm * 0.5, 1800), 350, 900, baseClearance, [])];
+  if (roomCategory === 'bathroom') return [wallPlacement('vanity-unit', usableWalls[0], Math.min(widthMm * 0.45, 1500), 500, 850, baseClearance, ['plumbing'])];
 
   return [
     PlacementSchema.parse({
@@ -420,10 +453,16 @@ function roomPlacement(templateFamily: string, widthMm: number, depthMm: number,
 
 function inferCategory(templateFamily: string): LayoutCandidate['category'] {
   if (templateFamily.startsWith('kitchen')) return 'kitchen';
-  if (templateFamily.startsWith('tv') || templateFamily.startsWith('crockery')) return 'tv_unit';
+  if (templateFamily.startsWith('tv')) return 'tv_unit';
   if (templateFamily.startsWith('wardrobe') || templateFamily.startsWith('walk-in') || templateFamily.startsWith('dresser')) return 'wardrobe';
-  if (templateFamily.startsWith('sofa') || templateFamily.startsWith('partition') || templateFamily.startsWith('dining')) return 'living';
-  if (templateFamily.startsWith('bed') || templateFamily.startsWith('study')) return 'bedroom';
+  if (templateFamily.startsWith('sofa') || templateFamily.startsWith('partition')) return 'living';
+  if (templateFamily.startsWith('dining') || templateFamily.startsWith('crockery')) return 'dining';
+  if (templateFamily.startsWith('bed')) return 'bedroom';
+  if (templateFamily.startsWith('study')) return 'study';
+  if (templateFamily.startsWith('pooja')) return 'pooja';
+  if (templateFamily.startsWith('utility')) return 'utility';
+  if (templateFamily.startsWith('foyer') || templateFamily.startsWith('shoe')) return 'foyer';
+  if (templateFamily.startsWith('vanity')) return 'bathroom';
   return 'other';
 }
 

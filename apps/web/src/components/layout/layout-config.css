@@ -386,11 +386,16 @@
 }
 
 .candidate-room-shell { fill: #fffdf8; stroke: var(--brown-mid); stroke-width: 3; }
+.candidate-wall { stroke:#3c3027; stroke-width:3.5; stroke-linecap:round; }
+.candidate-wall-label { font-size:6px; font-weight:900; fill:#7a5a2d; paint-order:stroke; stroke:#fff; stroke-width:2px; }
+.candidate-opening { stroke-width:5; stroke-linecap:round; }.candidate-door { stroke:#bf6c45; }.candidate-window { stroke:#4384a6; }
+.candidate-structure { fill:#5f5b55; stroke:#2d2925; stroke-width:1; }
 .candidate-placement { stroke: rgba(45,31,18,.65); stroke-width: 1; fill: #c59c2d; }
 .candidate-placement-1 { fill: #82654a; }
 .candidate-placement-2 { fill: #789284; }
 .candidate-placement-3 { fill: #a87567; }
 .candidate-plan-label { font-size: 7px; font-weight: 800; fill: var(--brown-mid); }
+.candidate-placement-label { font-size:5px; font-weight:800; fill:#fff; pointer-events:none; text-transform:uppercase; }
 
 /* ─── Responsive ────────────────────────────────── */
 @media (max-width: 900px) {

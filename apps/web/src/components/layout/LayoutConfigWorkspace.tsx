@@ -5,7 +5,7 @@ import { shapeCatalogFor, generateCandidates, validatePlacements, approveLayout,
 
 // ─── Types ───────────────────────────────────────────────────────
 export type RoomShape = string;
-export type FurnitureTemplate = 'tv-unit' | 'kitchen-l' | 'kitchen-u' | 'kitchen-straight' | 'wardrobe' | 'dining' | 'study';
+export type FurnitureTemplate = 'tv-unit' | 'kitchen-l' | 'kitchen-u' | 'kitchen-straight' | 'wardrobe' | 'dining' | 'crockery' | 'bed' | 'study' | 'pooja' | 'utility';
 export type StylePreset = 'japandi' | 'contemporary-indian' | 'industrial' | 'parisian' | 'coastal';
 export type WallOrientation = 'north' | 'south' | 'east' | 'west';
 
@@ -19,7 +19,7 @@ export type LayoutConfig = {
   wallOrientation: WallOrientation;
 };
 
-export type RoomCategory = 'kitchen' | 'tv_unit' | 'wardrobe' | 'living' | 'bedroom' | 'other';
+export type RoomCategory = 'kitchen' | 'tv_unit' | 'wardrobe' | 'living' | 'bedroom' | 'dining' | 'study' | 'pooja' | 'utility' | 'foyer' | 'bathroom' | 'other';
 
 // ─── Existing room shape + template catalog ──────────────────────
 const ROOM_SHAPES: Array<{ id: RoomShape; label: string; sub: string; svgPath: string }> = [
@@ -134,9 +134,15 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
     if (cat === 'kitchen') return TEMPLATES.filter((t) => ['kitchen-l', 'kitchen-u'].includes(t.id));
     if (cat === 'tv_unit') return TEMPLATES.filter((t) => ['tv-unit'].includes(t.id));
     if (cat === 'wardrobe') return TEMPLATES.filter((t) => ['wardrobe'].includes(t.id));
-    if (cat === 'living') return TEMPLATES.filter((t) => ['tv-unit', 'dining'].includes(t.id));
+    if (cat === 'living') return TEMPLATES.filter((t) => ['tv-unit'].includes(t.id));
     if (cat === 'bedroom') return TEMPLATES.filter((t) => ['wardrobe', 'study'].includes(t.id));
-    return TEMPLATES;
+    if (cat === 'dining') return TEMPLATES.filter((t) => ['dining'].includes(t.id));
+    if (cat === 'study') return TEMPLATES.filter((t) => ['study'].includes(t.id));
+    if (cat === 'pooja') return TEMPLATES.filter((t) => ['tv-unit'].includes(t.id));
+    if (cat === 'utility') return TEMPLATES.filter((t) => ['wardrobe'].includes(t.id));
+    if (cat === 'foyer') return TEMPLATES.filter((t) => ['wardrobe'].includes(t.id));
+    if (cat === 'bathroom') return TEMPLATES.filter((t) => ['study'].includes(t.id));
+    return [];
   }
 
   async function generateLayoutCandidates() {
@@ -280,8 +286,8 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
           <div className="layout-section-header">
             <div className="section-icon"><LayoutGrid size={16} /></div>
             <div>
-              <strong style={{ fontSize: '14px' }}>Room Layout Shape</strong>
-              <p style={{ margin: 0, fontSize: '12px' }}>Pick the layout shape for {roomCategory || 'this room'} before generating candidates.</p>
+              <strong style={{ fontSize: '14px' }}>Furniture arrangement strategy</strong>
+              <p style={{ margin: 0, fontSize: '12px' }}>The measured room polygon stays unchanged. Choose how furniture should be arranged inside this {roomCategory || 'room'}.</p>
             </div>
           </div>
           <div className="layout-section-body">
@@ -526,8 +532,11 @@ function inferCategoryFromTemplate(template: FurnitureTemplate): RoomCategory {
   if (template.startsWith('kitchen')) return 'kitchen';
   if (template === 'tv-unit') return 'tv_unit';
   if (template === 'wardrobe') return 'wardrobe';
-  if (template === 'dining') return 'living';
-  if (template === 'study') return 'bedroom';
+  if (template === 'dining' || template === 'crockery') return 'dining';
+  if (template === 'bed') return 'bedroom';
+  if (template === 'study') return 'study';
+  if (template === 'pooja') return 'pooja';
+  if (template === 'utility') return 'utility';
   return 'other';
 }
 
@@ -592,28 +601,41 @@ function CandidateCard({ candidate, roomLengthMm, roomWidthMm, selected, showCle
 }
 
 function CandidatePlanPreview({ candidate, roomLengthMm, roomWidthMm }: { candidate: LayoutCandidate; roomLengthMm: number; roomWidthMm: number }) {
-  const width = Math.max(1, roomLengthMm);
-  const depth = Math.max(1, roomWidthMm);
+  type PreviewContext = { roomPolygon?: Array<{ xMm: number; yMm: number }>; walls?: Array<{ id: string; minX: number; minY: number; maxX: number; maxY: number }>; openings?: Array<{ id: string; type: 'door' | 'window'; xMm: number; yMm: number; widthMm: number }>; structuralElements?: Array<{ id: string; xMm: number; yMm: number; widthMm: number; depthMm: number }> };
+  const context = (candidate as LayoutCandidate & { previewContext?: PreviewContext }).previewContext;
+  const polygon = context?.roomPolygon ?? [];
+  const xs = polygon.length ? polygon.map((point) => point.xMm) : candidate.placements.map((placement) => placement.positionMm[0]);
+  const ys = polygon.length ? polygon.map((point) => point.yMm) : candidate.placements.map((placement) => placement.positionMm[1]);
+  const minX = xs.length ? Math.min(...xs) : 0;
+  const minY = ys.length ? Math.min(...ys) : 0;
+  const maxX = polygon.length ? Math.max(...xs) : minX + Math.max(1, roomLengthMm);
+  const maxY = polygon.length ? Math.max(...ys) : minY + Math.max(1, roomWidthMm);
+  const width = Math.max(1, maxX - minX);
+  const depth = Math.max(1, maxY - minY);
   const inset = 8;
   const drawW = 224 - inset * 2;
   const drawH = 132 - inset * 2;
   const scale = Math.min(drawW / width, drawH / depth);
   const originX = (224 - width * scale) / 2;
   const originY = (132 - depth * scale) / 2;
-  const planMinX = Math.min(0, ...candidate.placements.map((placement) => placement.positionMm[0]));
-  const planMinY = Math.min(0, ...candidate.placements.map((placement) => placement.positionMm[1]));
+  const projectX = (value: number) => originX + (value - minX) * scale;
+  const projectY = (value: number) => originY + (value - minY) * scale;
   return (
     <svg className="candidate-plan-preview" viewBox="0 0 224 132" role="img" aria-label={`${candidate.candidateType.replace(/_/g, ' ')} top view`}>
-      <rect x={originX} y={originY} width={width * scale} height={depth * scale} className="candidate-room-shell" />
+      {polygon.length >= 3 ? <polygon points={polygon.map((point) => `${projectX(point.xMm)},${projectY(point.yMm)}`).join(' ')} className="candidate-room-shell" /> : <rect x={originX} y={originY} width={width * scale} height={depth * scale} className="candidate-room-shell" />}
+      {context?.walls?.map((wall, index) => <g key={wall.id}><line x1={projectX(wall.minX)} y1={projectY(wall.minY)} x2={projectX(wall.maxX)} y2={projectY(wall.maxY)} className="candidate-wall"/><text x={projectX((wall.minX + wall.maxX) / 2)} y={projectY((wall.minY + wall.maxY) / 2) - 3} className="candidate-wall-label">Wall {String.fromCharCode(65 + index)}</text></g>)}
+      {context?.openings?.map((opening) => <line key={opening.id} x1={projectX(opening.xMm)} y1={projectY(opening.yMm)} x2={projectX(opening.xMm + opening.widthMm)} y2={projectY(opening.yMm)} className={`candidate-opening candidate-${opening.type}`}><title>{opening.type} · {opening.widthMm} mm</title></line>)}
+      {context?.structuralElements?.map((item) => <rect key={item.id} x={projectX(item.xMm)} y={projectY(item.yMm)} width={Math.max(3,item.widthMm*scale)} height={Math.max(3,item.depthMm*scale)} className="candidate-structure"/>)}
       {candidate.placements.map((placement, index) => {
         const quarterTurn = Math.abs(Math.round(placement.rotationYawDeg / 90)) % 2 === 1;
         const placementWidth = quarterTurn ? placement.depthMm : placement.widthMm;
         const placementDepth = quarterTurn ? placement.widthMm : placement.depthMm;
-        const x = originX + Math.max(0, placement.positionMm[0] - planMinX) * scale;
-        const y = originY + Math.max(0, placement.positionMm[1] - planMinY) * scale;
+        const x = projectX(placement.positionMm[0]);
+        const y = projectY(placement.positionMm[1]);
         return (
           <g key={placement.id}>
             <rect x={x} y={y} width={Math.max(3, placementWidth * scale)} height={Math.max(3, placementDepth * scale)} rx="2" className={`candidate-placement candidate-placement-${index % 4}`} />
+            <text x={x + 3} y={y + 9} className="candidate-placement-label">{placement.templateFamily.replaceAll('-', ' ')}</text>
             <title>{placement.templateFamily}: {placement.widthMm} × {placement.depthMm} mm</title>
           </g>
         );

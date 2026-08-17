@@ -23,7 +23,7 @@ export type DesignMode = 'builder' | 'ai_auto' | 'manual';
 export const SymbolicPlacementSchema = z.object({
   id: z.string().min(1),
   spaceId: z.string().min(1),
-  category: z.enum(['kitchen', 'tv_unit', 'wardrobe', 'living', 'bedroom', 'other']),
+  category: z.enum(['kitchen', 'tv_unit', 'wardrobe', 'living', 'bedroom', 'dining', 'study', 'pooja', 'utility', 'foyer', 'bathroom', 'other']),
   templateFamily: z.string().min(1),
   anchor: z.enum(['wall', 'room', 'corner']).default('wall'),
   wallId: z.string().optional(),

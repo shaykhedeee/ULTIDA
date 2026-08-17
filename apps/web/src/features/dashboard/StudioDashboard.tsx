@@ -1,4 +1,4 @@
-import { ArrowRight, Box, CalendarDays, FileOutput, FileText, Image, LayoutTemplate, Layers3, PackageCheck, Plus, Ruler, Wand2, Workflow, Home } from 'lucide-react';
+import { ArrowRight, Box, CalendarDays, FileOutput, FileText, Image, LayoutTemplate, Layers3, PackageCheck, Plus, Ruler, Sparkles, Wand2, Workflow, Home } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -74,16 +74,274 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         </div>
       </section>
 
+      {/* 100% AI-Powered Canonical Pipeline Flow */}
+      <section style={{ margin: '20px 0', padding: '24px', borderRadius: 16, background: 'linear-gradient(135deg, #1c1917, #2c1e14)', color: '#fff', border: '1px solid #44382e', boxShadow: '0 8px 30px rgba(0,0,0,0.25)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <span style={{ fontSize: 11, fontWeight: 800, color: '#c59c2d', letterSpacing: '0.12em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Sparkles size={14} /> 100% AI-POWERED DESIGN PIPELINE
+            </span>
+            <h2 style={{ margin: '4px 0 0', fontSize: 20, color: '#fff' }}>Automated End-to-End Workflow</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#d6d3d1' }}>Zero manual CAD or 3D modeling required. The AI extracts the plan, enhances the layout, configures the walls, and renders photorealistic 3D.</p>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+          <div
+            onClick={() => openTool('/plan')}
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              padding: '16px',
+              borderRadius: 12,
+              border: '1px solid rgba(255,255,255,0.1)',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#c59c2d' }}>STEP 1</span>
+                <Sparkles size={15} style={{ color: '#c59c2d' }} />
+              </div>
+              <strong style={{ fontSize: 15, color: '#fff', display: 'block', marginBottom: 4 }}>AI Floorplan Analyser</strong>
+              <p style={{ fontSize: 12, color: '#a8a29e', margin: 0 }}>Auto-detects rooms, walls, doors, windows &amp; scale instantly.</p>
+            </div>
+            <div style={{ marginTop: 14, fontSize: 12, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
+              Launch Analyser <ArrowRight size={13} />
+            </div>
+          </div>
+
+          <div
+            onClick={() => openTool('/spaces')}
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              padding: '16px',
+              borderRadius: 12,
+              border: '1px solid rgba(255,255,255,0.1)',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#c59c2d' }}>STEP 2</span>
+                <Sparkles size={15} style={{ color: '#c59c2d' }} />
+              </div>
+              <strong style={{ fontSize: 15, color: '#fff', display: 'block', marginBottom: 4 }}>AI Plan Enhancer</strong>
+              <p style={{ fontSize: 12, color: '#a8a29e', margin: 0 }}>Procedural flooring, furniture staging &amp; 3D top-view render.</p>
+            </div>
+            <div style={{ marginTop: 14, fontSize: 12, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
+              Launch Stager <ArrowRight size={13} />
+            </div>
+          </div>
+
+          <div
+            onClick={() => openTool('/spaces?tab=modules')}
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              padding: '16px',
+              borderRadius: 12,
+              border: '1px solid rgba(255,255,255,0.1)',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#c59c2d' }}>STEP 3</span>
+                <Sparkles size={15} style={{ color: '#c59c2d' }} />
+              </div>
+              <strong style={{ fontSize: 15, color: '#fff', display: 'block', marginBottom: 4 }}>AI Wall Picker &amp; Setup</strong>
+              <p style={{ fontSize: 12, color: '#a8a29e', margin: 0 }}>System 32 modular units, anti-gravity float &amp; finishes.</p>
+            </div>
+            <div style={{ marginTop: 14, fontSize: 12, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
+              Configure Walls <ArrowRight size={13} />
+            </div>
+          </div>
+
+          <div
+            onClick={() => openTool('/3d')}
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              padding: '16px',
+              borderRadius: 12,
+              border: '1px solid rgba(255,255,255,0.1)',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#c59c2d' }}>STEP 4</span>
+                <Sparkles size={15} style={{ color: '#c59c2d' }} />
+              </div>
+              <strong style={{ fontSize: 15, color: '#fff', display: 'block', marginBottom: 4 }}>AI 3D Renderer</strong>
+              <p style={{ fontSize: 12, color: '#a8a29e', margin: 0 }}>Photorealistic renders, interactive hotspots &amp; dynamic BOM.</p>
+            </div>
+            <div style={{ marginTop: 14, fontSize: 12, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
+              Generate Renders <ArrowRight size={13} />
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="studio-launchpad" aria-label="Start a task">
-        <div className="studio-launchpad-copy"><p className="studio-kicker">START A TASK</p><h2>Design tools, ready when you are.</h2><span>Use planning tools directly, then place validated work into a project when it is ready.</span></div>
+        <div className="studio-launchpad-copy">
+          <p className="studio-kicker">PARAMETRIC ARCHITECTURE ENGINES</p>
+          <h2>Design tools, ready when you are.</h2>
+          <span>Instant access to System 32 vertical modular elevations, top-view procedural floorplan stagers, and interactive quotation viewers.</span>
+        </div>
         <div className="studio-launchpad-actions">
-          <button onClick={() => openTool('/tools/modules')}><Box size={17} /><span><strong>Plan a modular unit</strong><small>TV, crockery, wardrobe, kitchen</small></span><ArrowRight size={15} /></button>
-          <button onClick={() => openTool('/tools/room-builder')}><Home size={17} /><span><strong>Build a measured room</strong><small>Offline room shell and openings</small></span><ArrowRight size={15} /></button>
-          <button onClick={() => openTool('/tools/cnc')}><LayoutTemplate size={17} /><span><strong>Create a CNC pattern</strong><small>Size a reviewed DXF template</small></span><ArrowRight size={15} /></button>
-          <button onClick={() => openTool('/tools/measurements')}><Ruler size={17} /><span><strong>Convert measurements</strong><small>mm, metres, feet and inches</small></span><ArrowRight size={15} /></button>
-          <button onClick={() => openTool('/library')}><Image size={17} /><span><strong>Browse references</strong><small>Module families and studio vault</small></span><ArrowRight size={15} /></button>
-          <button onClick={() => openTool('/tools/calendar')}><CalendarDays size={17} /><span><strong>Plan studio dates</strong><small>Visits, reviews and milestones</small></span><ArrowRight size={15} /></button>
-          <button onClick={() => openTool('/tools/invoices')}><FileText size={17} /><span><strong>Manage invoices</strong><small>Project-linked finance records</small></span><ArrowRight size={15} /></button>
+          <button onClick={() => openTool('/tools/modules')}>
+            <Box size={17} />
+            <span>
+              <strong>🚀 System 32 Elevation Canvas</strong>
+              <small>Anti-Gravity Z-float &amp; live BOM</small>
+            </span>
+            <ArrowRight size={15} />
+          </button>
+          <button onClick={() => openTool('/library')}>
+            <Image size={17} />
+            <span>
+              <strong>📚 Design Vault &amp; Moodboard</strong>
+              <small>60 production renders &amp; lightbox</small>
+            </span>
+            <ArrowRight size={15} />
+          </button>
+          <button onClick={() => openTool('/tools/room-builder')}>
+            <Home size={17} />
+            <span>
+              <strong>📐 Measured Room Builder</strong>
+              <small>Offline shell, doors &amp; windows</small>
+            </span>
+            <ArrowRight size={15} />
+          </button>
+          <button onClick={() => openTool('/tools/render')}>
+            <Wand2 size={17} />
+            <span>
+              <strong>✨ Interactive Hotspot BOM</strong>
+              <small>Detect modules &amp; sync quotation</small>
+            </span>
+            <ArrowRight size={15} />
+          </button>
+          <button onClick={() => openTool('/tools/cnc')}>
+            <LayoutTemplate size={17} />
+            <span>
+              <strong>⚙️ CNC Pattern Studio</strong>
+              <small>Size vetted DXF templates</small>
+            </span>
+            <ArrowRight size={15} />
+          </button>
+          <button onClick={() => openTool('/tools/measurements')}>
+            <Ruler size={17} />
+            <span>
+              <strong>📏 Unit Converter</strong>
+              <small>mm, metres, feet &amp; inches</small>
+            </span>
+            <ArrowRight size={15} />
+          </button>
+        </div>
+      </section>
+
+      {/* Featured Masterclass Design Showcase Strip */}
+      <section style={{ margin: '24px 0', padding: '20px', borderRadius: 16, background: '#1c1917', color: '#fff', border: '1px solid #292524' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div>
+            <span style={{ fontSize: 10.5, fontWeight: 800, color: '#c59c2d', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+              ✦ PRODUCTION REFERENCE VAULT
+            </span>
+            <h2 style={{ margin: '4px 0 0', fontSize: 18, color: '#fff' }}>Curated Masterclass Design Renders</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => openTool('/library')}
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              color: '#fff',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 8,
+              padding: '6px 12px',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            Explore All 60 Images <ArrowRight size={13} />
+          </button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
+          {[
+            { img: '/reference-vault/001-ddc1891636f7.png', tag: 'LIVING · FLUTED PU', title: '2400mm Fluted TV Wall' },
+            { img: '/reference-vault/002-3ea44274c538.png', tag: 'LIVING · BOUCLÉ', title: 'Curved Bouclé Sectional' },
+            { img: '/reference-vault/003-8d380eef5385.png', tag: 'BEDROOM · JAPANDI', title: 'Floating LED King Bed' },
+            { img: '/reference-vault/004-cb7223b53c15.png', tag: 'WARDROBE · GLASS', title: 'Profile-Glass Walk-In' },
+            { img: '/reference-vault/005-ecaa68e0965e.png', tag: 'KITCHEN · ACRYLIC', title: 'Handleless Island Kitchen' },
+            { img: '/reference-vault/006-eb108e42f9b8.png', tag: 'DINING · CALACATTA', title: 'Calacatta Marble Dining' },
+          ].map((item) => (
+            <div
+              key={item.img}
+              onClick={() => openTool('/library')}
+              style={{
+                background: '#292524',
+                borderRadius: 10,
+                overflow: 'hidden',
+                border: '1px solid #44403c',
+                cursor: 'pointer',
+                transition: 'transform 0.2s ease, border-color 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-3px)';
+                e.currentTarget.style.borderColor = '#c59c2d';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.borderColor = '#44403c';
+              }}
+            >
+              <div style={{ position: 'relative', height: 115, overflow: 'hidden' }}>
+                <img
+                  src={item.img}
+                  alt={item.title}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 6,
+                    left: 6,
+                    fontSize: 8.5,
+                    fontWeight: 800,
+                    padding: '2px 5px',
+                    borderRadius: 4,
+                    background: 'rgba(0,0,0,0.7)',
+                    color: '#c59c2d',
+                    backdropFilter: 'blur(4px)',
+                  }}
+                >
+                  {item.tag}
+                </span>
+              </div>
+              <div style={{ padding: '8px 10px' }}>
+                <strong style={{ display: 'block', fontSize: 11.5, color: '#f5f5f4', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {item.title}
+                </strong>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 

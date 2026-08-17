@@ -18,6 +18,7 @@ export type WorkflowStageConfig = {
   path: string;
   status: WorkflowStageStatus;
   lockReason?: string;
+  icon?: any;
 };
 
 type Props = {
@@ -58,17 +59,13 @@ const TOOL_NAV = [
 
 // ─── Default workflow stages ──────────────────────────────────────
 export const DEFAULT_WORKFLOW_STAGES: WorkflowStageConfig[] = [
-  { id: 'brief',        label: 'Brief',         path: 'brief',        status: 'not_started' },
-  { id: 'plan',         label: 'Floor Plan',    path: 'plan',         status: 'locked', lockReason: 'Complete brief first' },
-  { id: 'spaces',       label: 'Spaces',        path: 'spaces',       status: 'locked', lockReason: 'Approve floor plan first' },
-  { id: 'layouts',      label: 'Layouts',       path: 'layouts',      status: 'locked', lockReason: 'Configure spaces first' },
-  { id: 'modules',      label: 'Modules',       path: 'modules',      status: 'locked', lockReason: 'Approve layout first' },
-  { id: 'materials',    label: 'Materials',     path: 'materials',    status: 'locked', lockReason: 'Place modules first' },
-  { id: '3d',           label: '3D Scene',      path: '3d',           status: 'locked', lockReason: 'Apply materials first' },
-  { id: 'renders',      label: 'Renders',       path: 'renders',      status: 'locked', lockReason: 'Approve 3D scene first' },
-  { id: 'drawings',     label: 'Drawings',      path: 'drawings',     status: 'locked', lockReason: 'Approve renders first' },
-  { id: 'estimate',     label: 'Estimate',      path: 'estimate',     status: 'locked', lockReason: 'Approve drawings first' },
-  { id: 'presentation', label: 'Presentation',  path: 'presentation', status: 'locked', lockReason: 'Complete estimate first' },
+  { id: 'brief',        label: 'Brief',         path: 'brief',        icon: BookOpen, status: 'not_started' },
+  { id: 'plan',         label: 'Floor Plan',    path: 'plan',         icon: Compass, status: 'locked', lockReason: 'Complete brief first' },
+  { id: 'spaces',       label: 'Room Design',   path: 'spaces',       icon: Home, status: 'locked', lockReason: 'Approve floor plan first' },
+  { id: '3d',           label: 'Visualize',     path: '3d',           icon: Wand2, status: 'locked', lockReason: 'Approve a room design first' },
+  { id: 'drawings',     label: 'Drawings',      path: 'drawings',     icon: Ruler, status: 'locked', lockReason: 'Approve renders first' },
+  { id: 'estimate',     label: 'Estimate',      path: 'estimate',     icon: Receipt, status: 'locked', lockReason: 'Approve drawings first' },
+  { id: 'presentation', label: 'Presentation',  path: 'presentation', icon: Palette, status: 'locked', lockReason: 'Complete estimate first' },
 ];
 
 // ─── Stage status icon ─────────────────────────────────────────────
@@ -167,6 +164,7 @@ export function Shell({
             {workflowStages.map((stage, i) => {
               const isActive = location.pathname.includes(`/${stage.path}`);
               const isLocked = stage.status === 'locked';
+              const StageItemIcon = stage.icon ?? Home;
               return (
                 <button
                   key={stage.id}
@@ -182,9 +180,9 @@ export function Shell({
                   }}
                   title={isLocked ? stage.lockReason : stage.label}
                 >
-                  <span className="stage-num"><StageIcon status={stage.status} /></span>
+                  <span className="stage-nav-icon"><StageItemIcon size={14} /></span>
                   <span className="stage-label-text">{stage.label}</span>
-                  <span className="stage-status-dot" />
+                  <span className="stage-num"><StageIcon status={stage.status} /></span>
                 </button>
               );
             })}

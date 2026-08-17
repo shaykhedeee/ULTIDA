@@ -26,3 +26,17 @@
 .module-card-copy > span { margin-top: 2px; color: #8a6244; font-size: 11px; font-weight: 700; text-transform: capitalize; }
 .module-card-copy p { min-height: 34px; margin: 8px 0; color: #57534e; font-size: 11px; line-height: 1.45; }
 .module-card-copy > small { color: #a8a29e; font-size: 10px; }
+
+/* The library shares the module preview with the planner. Keep the two card
+   layouts isolated so planner flex rules cannot collapse library cards. */
+.library-grid .module-catalog-card {
+  display: block;
+  align-items: initial;
+  text-align: initial;
+  cursor: default;
+  padding: 0;
+}
+.library-grid .module-catalog-card:hover { border-color: #e7e5e4; box-shadow: 0 8px 24px rgba(28,25,23,.07); }
+.library-grid .module-catalog-card .module-preview { width: 100%; margin-bottom: 0; }
+.library-grid .module-catalog-card .module-technical-strip .module-preview { width: 68px; margin-bottom: 0; }
+.library-grid .module-catalog-card strong { margin: 0; line-height: normal; }
