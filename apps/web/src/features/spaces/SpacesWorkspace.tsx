@@ -341,7 +341,27 @@ export function SpacesWorkspace() {
 
   // ── Derive room metrics ──
   function roomBoundaryWalls(room: PlanRoom): PlanWall[] {
-    return room.polygon.map((start, index) => ({ id: `${room.id}:edge:${index + 1}`, start, end: room.polygon[(index + 1) % room.polygon.length], isExterior: false }));
+    const raw = room.polygon;
+    if (!raw || raw.length < 3) return [];
+    // If the last point closes onto the first point, strip the redundant duplicate point
+    const poly = (raw.length > 3 && Math.hypot(raw[raw.length - 1].xMm - raw[0].xMm, raw[raw.length - 1].yMm - raw[0].yMm) < 25)
+      ? raw.slice(0, -1)
+      : raw;
+    const edges: PlanWall[] = [];
+    for (let i = 0; i < poly.length; i++) {
+      const start = poly[i];
+      const end = poly[(i + 1) % poly.length];
+      const len = Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm);
+      if (len >= 50) {
+        edges.push({
+          id: `${room.id}:edge:${edges.length + 1}`,
+          start,
+          end,
+          isExterior: false,
+        });
+      }
+    }
+    return edges;
   }
   function wallsForRoom(room: PlanRoom) {
     const boundary = roomBoundaryWalls(room);
@@ -1813,9 +1833,9 @@ export function SpacesWorkspace() {
                           >
                             <div className="wpc-header">
                               <span className="wpc-badge">{label}</span>
-                              <strong>{wLen} mm</strong>
+                              <span className="wpc-len">{wLen.toLocaleString()} mm</span>
                             </div>
-                            {assignedRole && <span className="wpc-role-tag">{assignedRole.replaceAll('_', ' ')}</span>}
+                            {assignedRole && <span className="wpc-role-tag">✨ {assignedRole.replaceAll('_', ' ')}</span>}
                           </div>
                         );
                       })}

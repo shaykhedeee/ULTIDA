@@ -1,4 +1,4 @@
-.room-design-studio { width:100%; min-width:0; display:flex; flex-direction:column; gap:20px; }
+.room-design-studio { width:100%; min-width:0; display:flex; flex-direction:column; gap:20px; padding-bottom:40px; margin-bottom:40px; }
 .room-design-hero { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:22px 26px; border:1px solid #e8decb; border-radius:16px; background:linear-gradient(135deg,#fffefc,#f9f4ea); box-shadow:0 4px 20px -2px rgba(197,156,45,0.06); }
 .room-design-hero small { color:var(--gold-dim); font-size:10px; font-weight:900; letter-spacing:.14em; text-transform:uppercase; }
 .room-design-hero h1 { margin:6px 0 8px; color:var(--text-primary); font-size:clamp(20px,2.5vw,28px); font-weight:800; line-height:1.2; letter-spacing:-0.01em; }

@@ -219,10 +219,10 @@
 .layers-region, .ai-region, .issues-region, .readiness-region { min-height: 0; }
 .layer-controls { display: flex; flex-wrap: wrap; gap: 5px; }
 .layer-row { display: inline-flex; align-items: center; gap: 5px; text-align: left; font-size: 11px; padding: 6px 7px; border: 1px solid var(--line); border-radius: 6px; background: #fbfaf7; cursor: pointer; color: var(--text-secondary); }
-.layer-row:hover { background: rgba(0,0,0,.03); }
-.props-region { grid-area: props; position: static; max-height: none; overflow: visible; padding: 16px; padding-bottom: 36px; }
-.props-body { display: flex; flex-direction: column; gap: 10px; width: min(100%, 920px); }
-.room-save-actions { display: flex; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.props-region { grid-area: props; position: static; max-height: none; overflow: visible; padding: 20px; padding-bottom: 48px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.props-body { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 920px; }
+.room-save-actions { display: flex; gap: 12px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.room-save-actions button { min-height: 38px; }
 .room-workflow-summary { display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px solid #e5d8c9; border-radius: 9px; background: #fffaf2; }
 .room-workflow-summary > span { display: grid; place-items: center; width: 23px; height: 23px; flex: 0 0 auto; border-radius: 50%; background: var(--gold); color: #fff; font-size: 11px; font-weight: 800; }
 .room-workflow-summary strong, .room-workflow-summary small { display: block; }
@@ -1040,76 +1040,131 @@
 }
 
 /* ─── Interactive Wall Picker & 2D Elevation Panel ─── */
-.wall-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  margin-top: 6px;
-}
-.wall-picker-card {
-  padding: 8px 10px;
-  border: 1px solid #e2d9cd;
-  border-radius: 8px;
-  background: #ffffff;
-  cursor: pointer;
-  transition: all 0.2s ease;
+.wall-verification-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e7ded2;
+  border-radius: 12px;
+  background: #fdfcf9;
+  margin-top: 6px;
+}
+.wall-verification-list > strong {
+  font-size: 12px;
+  font-weight: 800;
+  color: #2c251e;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.wall-verification-list > p {
+  margin: 0;
+  color: #786f66;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.wall-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+.wall-picker-card {
+  padding: 10px 12px;
+  border: 1.5px solid #e2d7c5;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 .wall-picker-card:hover {
   border-color: #c59c2d;
-  background: #fdfaf3;
+  background: #fffdf9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(197, 156, 45, 0.12);
 }
 .wall-picker-card.selected {
   border-color: #c59c2d;
-  background: #fbf5e5;
-  box-shadow: 0 0 0 2px rgba(197, 156, 45, 0.2);
+  background: linear-gradient(135deg, #fdfbf4, #fbf4e2);
+  box-shadow: 0 0 0 2px rgba(197, 156, 45, 0.25), 0 4px 12px rgba(197, 156, 45, 0.15);
 }
 .wpc-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 11px;
+  gap: 6px;
 }
 .wpc-badge {
   font-weight: 800;
-  color: #5c4635;
-  background: #ede6dc;
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-size: 11px;
+  color: #1c1917;
+  background: #f1ebd8;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid #dfd2b5;
+  white-space: nowrap;
+}
+.wall-picker-card.selected .wpc-badge {
+  background: #c59c2d;
+  color: #1c1917;
+  border-color: #a88220;
+}
+.wpc-len {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #44403c;
+  white-space: nowrap;
 }
 .wpc-role-tag {
-  font-size: 9px;
-  color: #8c6818;
-  font-weight: 600;
+  font-size: 10px;
+  color: #9a6f08;
+  font-weight: 700;
+  background: rgba(197, 156, 45, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(197, 156, 45, 0.2);
   text-transform: capitalize;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
 .wall-elevation-panel {
-  margin-top: 10px;
-  padding: 12px;
-  background: #182028;
-  border-radius: 10px;
+  margin-top: 8px;
+  padding: 14px;
+  background: #141b22;
+  border-radius: 12px;
   border: 1px solid #2d3b4a;
   color: #e5edf5;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 .wep-title {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 12px;
-  font-weight: 700;
-  margin-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #ffffff;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #243140;
 }
 .wep-title small {
-  color: #9cb0c4;
-  font-weight: normal;
+  color: #c59c2d;
+  font-weight: 700;
+  font-size: 11px;
 }
 .wep-canvas-box {
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #334455;
-  margin-bottom: 10px;
+  border: 1px solid #2d3b4a;
+  margin-bottom: 12px;
+  background: #0d1117;
 }
 .wep-elevation-svg {
   width: 100%;
@@ -1119,35 +1174,39 @@
 .wep-feature-actions {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 .wep-feature-actions label {
-  font-size: 10px;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: #d4af37;
-  font-weight: 700;
+  font-weight: 800;
   margin: 0;
 }
 .wep-feature-buttons {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
 }
 .wep-treatment-btn {
-  padding: 6px 8px;
-  background: #24303d;
-  border: 1px solid #3b4d5e;
-  border-radius: 6px;
-  color: #f0f4f8;
-  font-size: 10px;
+  padding: 8px 10px;
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  color: #f3f4f6;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   text-align: left;
   transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .wep-treatment-btn:hover {
-  background: #314254;
-  border-color: #d4af37;
+  background: #2b384c;
+  border-color: #c59c2d;
   color: #ffffff;
+  transform: translateY(-1px);
 }
