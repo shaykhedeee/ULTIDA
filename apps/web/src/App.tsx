@@ -1275,18 +1275,15 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           <VisualizeStudio
             sceneReady={Boolean(sceneVersionId)}
             sceneApproved={sceneApproved}
-            review={<><SceneStudio sceneVersionId={sceneVersionId} /><DesignFlowWorkspace
-              stage="Design"
-              projectId={projectId ?? null}
-              planApproved={planApproved}
-              briefComplete={briefSaved}
-              sceneVersionId={sceneVersionId}
-              sceneApproved={sceneApproved}
-              modules={sceneModules}
-              materials={sceneMaterials}
-              onSceneCreated={saveScene}
-              onSceneApproved={approveScene}
-            /></>}
+            review={
+              <SceneStudio
+                sceneVersionId={sceneVersionId}
+                projectId={projectId ?? null}
+                onCompileScene={async () => {
+                  await saveScene('spaces.v1', sceneModules, sceneMaterials);
+                }}
+              />
+            }
             render={<DesignFlowWorkspace stage="Visualize" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />}
             laminate={<DesignFlowWorkspace stage="Visualize" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />}
           />
@@ -1295,20 +1292,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         <Route path="design-legacy" element={<Navigate to="../design" replace />} />
         <Route path="renders" element={<Navigate to={`/projects/${projectId}/3d?tab=render`} replace />} />
         <Route path="production" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} />} />
-        <Route path="drawings" element={
-          <DesignFlowWorkspace
-            stage="Document"
-            projectId={projectId ?? null}
-            planApproved={planApproved}
-            briefComplete={briefSaved}
-            sceneVersionId={sceneVersionId}
-            sceneApproved={sceneApproved}
-            modules={sceneModules}
-            materials={sceneMaterials}
-            onSceneCreated={saveScene}
-            onSceneApproved={approveScene}
-          />
-        } />
+        <Route path="drawings" element={<DesignFlowWorkspace stage="Document" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
         <Route path="estimate" element={
           <CommercialWorkspace
             projectId={projectId ?? null}

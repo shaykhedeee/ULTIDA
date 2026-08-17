@@ -18,7 +18,11 @@ type Scene = {
   cameras: Array<{ id: string; name: string; position: { xMm: number; yMm: number; zMm: number }; target: { xMm: number; yMm: number; zMm: number }; lensMm: number }>;
 };
 
-type Props = { sceneVersionId: string | null };
+type Props = {
+  sceneVersionId: string | null;
+  projectId?: string | null;
+  onCompileScene?: () => Promise<void>;
+};
 type Preset = 'perspective' | 'front' | 'top';
 
 function materialColor(materialId: string | undefined) {
@@ -62,7 +66,7 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
   }
 }
 
-export function SceneStudio({ sceneVersionId }: Props) {
+export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [scene, setScene] = useState<Scene | null>(null);
   const [status, setStatus] = useState('Select an approved scene to inspect its geometry.');
@@ -70,19 +74,49 @@ export function SceneStudio({ sceneVersionId }: Props) {
   const [ceilingVisible, setCeilingVisible] = useState(false);
   const [preset, setPreset] = useState<Preset>('perspective');
   const [selected, setSelected] = useState<string | null>(null);
+  const [compiling, setCompiling] = useState(false);
 
   useEffect(() => {
-    if (!sceneVersionId || !supabase) { setScene(null); return; }
-    setStatus('Loading persisted scene geometry...');
-    void supabase.from('scene_versions').select('scene,status').eq('id', sceneVersionId).single().then(({ data, error }) => {
-      if (error || !data?.scene) { setScene(null); setStatus(error?.message ?? 'Scene data is unavailable.'); return; }
-      if (data.status !== 'approved' && data.status !== 'draft') { setScene(null); setStatus('This scene version is not available for preview.'); return; }
+    const sb = supabase;
+    if (!sb) { setScene(null); return; }
+
+    const loadScene = async () => {
+      setStatus('Loading persisted scene geometry...');
+      let query = sb.from('scene_versions').select('id,scene,status');
+      if (sceneVersionId) {
+        query = query.eq('id', sceneVersionId);
+      } else if (projectId) {
+        query = query.eq('project_id', projectId).order('version_number', { ascending: false }).limit(1);
+      } else {
+        setScene(null);
+        setStatus('Select an approved scene to inspect its geometry.');
+        return;
+      }
+
+      const { data, error } = await (sceneVersionId ? query.single() : query.maybeSingle());
+      if (error || !data?.scene) {
+        setScene(null);
+        setStatus(error?.message ?? 'No active 3D scene compiled yet. Click Auto-Compile below.');
+        return;
+      }
+      if (data.status !== 'approved' && data.status !== 'draft') {
+        setScene(null);
+        setStatus('This scene version is not available for preview.');
+        return;
+      }
       const candidate = data.scene as Scene;
-      if (candidate.schema !== 'scene.v1' || candidate.units !== 'mm') { setScene(null); setStatus('This stored scene does not use the required scene.v1 millimetre contract.'); return; }
+      if (candidate.schema !== 'scene.v1' || candidate.units !== 'mm') {
+        setScene(null);
+        setStatus('This stored scene does not use the required scene.v1 millimetre contract.');
+        return;
+      }
       const normalized = { ...candidate, moduleParts: candidate.moduleParts ?? [] };
-      setScene(normalized); setStatus(`Scene loaded: ${normalized.rooms.length} rooms, ${normalized.walls.length} walls, ${normalized.modules.length} modules, ${normalized.moduleParts.length} exact parts.`);
-    });
-  }, [sceneVersionId]);
+      setScene(normalized);
+      setStatus(`Scene loaded: ${normalized.rooms.length} rooms, ${normalized.walls.length} walls, ${normalized.modules.length} modules, ${normalized.moduleParts.length} exact parts.`);
+    };
+
+    void loadScene();
+  }, [sceneVersionId, projectId]);
 
   useEffect(() => {
     const host = canvasRef.current;
@@ -169,6 +203,23 @@ export function SceneStudio({ sceneVersionId }: Props) {
       <Button variant={preset === 'top' ? 'default' : 'outline'} onClick={() => setPreset('top')}><Layers3 size={16} /> Top</Button>
       <Button variant={wallsVisible ? 'default' : 'outline'} onClick={() => setWallsVisible((value) => !value)}><Box size={16} /> Walls</Button>
       <Button variant={ceilingVisible ? 'default' : 'outline'} onClick={() => setCeilingVisible((value) => !value)}><Rotate3D size={16} /> Ceiling</Button>
+      {onCompileScene && (
+        <Button
+          variant="default"
+          disabled={compiling}
+          onClick={async () => {
+            setCompiling(true);
+            try {
+              await onCompileScene();
+            } finally {
+              setCompiling(false);
+            }
+          }}
+          style={{ marginLeft: 'auto', background: 'linear-gradient(135deg, #c59c2d, #a88220)', color: '#1c1917', fontWeight: 800 }}
+        >
+          {compiling ? 'Compiling 3D Scene...' : '✨ Compile 3D Scene'}
+        </Button>
+      )}
     </div>
     <div className="scene-grid"><Card className="scene-viewport"><CardContent><div ref={canvasRef} className="scene-canvas" aria-label="Interactive three dimensional scene preview" /></CardContent></Card><Card className="scene-inspector"><CardHeader><div><small>SELECTION</small><h3>{selected ?? 'Nothing selected'}</h3></div><MousePointer2 size={18} /></CardHeader><CardContent><p>{selected ? 'Selected geometry comes directly from the stored scene.v1 graph.' : 'Select a room, wall segment, or module in the preview.'}</p><p>{scene ? `${scene.openings.length} anchored openings • ${scene.materials.length} material records` : 'Create a scene from an approved floor plan to begin.'}</p></CardContent></Card></div>
   </section>;
