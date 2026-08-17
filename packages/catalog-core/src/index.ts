@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const RoomTypeSchema = z.enum(['kitchen', 'living', 'bedroom', 'bathroom', 'dining', 'study', 'pooja', 'utility', 'foyer', 'balcony', 'other']);
+export const RoomTypeSchema = z.enum(['kitchen', 'living', 'bedroom', 'master_bedroom', 'kids_bedroom', 'bathroom', 'dining', 'study', 'pooja', 'utility', 'foyer', 'balcony', 'other']);
 export const ModuleFamilySchema = z.enum(['kitchen-base', 'kitchen-wall', 'kitchen-tall', 'kitchen-corner', 'wardrobe', 'tv-unit', 'crockery', 'pooja', 'sofa', 'bed', 'study', 'utility', 'dining', 'false-ceiling', 'storage', 'feature-wall']);
 export const MaterialSlotSchema = z.enum(['carcass', 'shutter', 'countertop', 'back-panel', 'hardware', 'fabric', 'metal', 'glass', 'lighting']);
 export const ModuleElementKindSchema = z.enum(['carcass', 'shutter', 'drawer', 'shelf', 'loft', 'dummy_filler', 'profile_glass', 'back_panel', 'countertop', 'plinth_skirting', 'lighting_anchor', 'service_void', 'hardware', 'cnc_panel', 'appliance_void']);
@@ -63,14 +63,22 @@ export type IndianModularDesignPreset = z.infer<typeof IndianModularDesignPreset
 export const IndianModularDesignPresets: IndianModularDesignPreset[] = [
   { id: 'preset-tv-profile-glass', name: 'Floating TV wall with profile-glass display', family: 'tv-unit', roomTypes: ['living'], referenceStyle: ['warm wood', 'off-white shutters', 'profile glass', 'vertical LED'], elevationViews: ['external', 'internal'], renderRules: ['Preserve TV wall proportions', 'Use warm 3000K profile lighting only in the display cabinet', 'Keep a visible ceiling gap unless loft is specified'], productionRules: ['Include glass aluminium profile shutter', 'Include cable-management back panel', 'Generate floating-base clearance'] },
   { id: 'preset-kitchen-l-shape', name: 'L-shaped modular kitchen with lofts', family: 'kitchen-base', roomTypes: ['kitchen'], referenceStyle: ['matte laminate', '20mm granite', 'dado tiles', 'under-cabinet light'], elevationViews: ['external', 'internal', 'top'], renderRules: ['Preserve appliance and service locations', 'Use 20mm countertop', 'Do not invent lighting outside specified zones'], productionRules: ['Separate base, wall, tall and blind-corner units', 'Schedule granite and edge bands', 'Record sink, hob and appliance cutouts'] },
-  { id: 'preset-wardrobe-equal-shutters', name: 'Equal-shutter wardrobe with loft and profile bay', family: 'wardrobe', roomTypes: ['bedroom'], referenceStyle: ['equal shutters', 'loft', 'long handles', 'profile-glass bay'], elevationViews: ['external', 'internal'], renderRules: ['Use 560mm carcass plus 20mm back as 580mm total depth', 'Keep shutter widths equal unless explicitly overridden'], productionRules: ['Use 18mm panels', 'Include 30mm dummy or filler where specified', 'Separate hanger, shelf and drawer parts'] },
-  { id: 'preset-study-whiteboard', name: 'Study desk with marker-safe back panel', family: 'study', roomTypes: ['study', 'bedroom'], referenceStyle: ['floating desk', 'open shelf', 'marker-safe whiteboard laminate'], elevationViews: ['external', 'internal'], renderRules: ['Remove drawers when requested', 'Keep task lighting directional and restrained'], productionRules: ['Mark whiteboard laminate as a dedicated back-panel material', 'Generate desk, shelf and support parts'] },
+  { id: 'preset-wardrobe-equal-shutters', name: 'Equal-shutter wardrobe with loft and profile bay', family: 'wardrobe', roomTypes: ['bedroom', 'master_bedroom'], referenceStyle: ['equal shutters', 'loft', 'long handles', 'profile-glass bay'], elevationViews: ['external', 'internal'], renderRules: ['Use 560mm carcass plus 20mm back as 580mm total depth', 'Keep shutter widths equal unless explicitly overridden'], productionRules: ['Use 18mm panels', 'Include 30mm dummy or filler where specified', 'Separate hanger, shelf and drawer parts'] },
+  { id: 'preset-study-whiteboard', name: 'Study desk with marker-safe back panel', family: 'study', roomTypes: ['study', 'bedroom', 'master_bedroom'], referenceStyle: ['floating desk', 'open shelf', 'marker-safe whiteboard laminate'], elevationViews: ['external', 'internal'], renderRules: ['Remove drawers when requested', 'Keep task lighting directional and restrained'], productionRules: ['Mark whiteboard laminate as a dedicated back-panel material', 'Generate desk, shelf and support parts'] },
   { id: 'preset-pooja-tray-jaali', name: 'Pooja unit with tray, fluted glass and jaali', family: 'pooja', roomTypes: ['pooja', 'living'], referenceStyle: ['fluted glass', 'jaali', 'bells', 'warm concealed lighting'], elevationViews: ['external', 'internal', 'section'], renderRules: ['Keep two drawers below the pooja tray', 'Use a single main tray', 'Keep bells and jaali as explicit accessories'], productionRules: ['Separate tray, drawers, shutters and CNC jaali panel', 'Validate cutout vector before release'] },
-  { id: 'preset-bed-storage-headboard', name: 'Hydraulic storage bed with layered headboard', family: 'bed', roomTypes: ['bedroom'], referenceStyle: ['upholstered headboard', 'warm wood', 'floating bedside ledge', 'soft 3000K lighting'], elevationViews: ['external', 'top', 'section'], renderRules: ['Preserve approved mattress and circulation dimensions', 'Keep hydraulic base and headboard proportions tied to scene geometry', 'Do not add bedside units unless placed in the layout'], productionRules: ['Separate side rails, foot rail, head rail, centre partition and deck panels', 'Schedule hydraulic lift hardware separately', 'Keep headboard finish separate from carcass material'] }
+  { id: 'preset-bed-storage-headboard', name: 'Hydraulic storage bed with layered headboard', family: 'bed', roomTypes: ['bedroom', 'master_bedroom'], referenceStyle: ['upholstered headboard', 'warm wood', 'floating bedside ledge', 'soft 3000K lighting'], elevationViews: ['external', 'top', 'section'], renderRules: ['Preserve approved mattress and circulation dimensions', 'Keep hydraulic base and headboard proportions tied to scene geometry', 'Do not add bedside units unless placed in the layout'], productionRules: ['Separate side rails, foot rail, head rail, centre partition and deck panels', 'Schedule hydraulic lift hardware separately', 'Keep headboard finish separate from carcass material'] }
 ];
 
 export function listDesignPresets(roomType?: z.infer<typeof RoomTypeSchema>, family?: z.infer<typeof ModuleFamilySchema>) {
-  return IndianModularDesignPresets.filter((preset) => (!roomType || preset.roomTypes.includes(roomType)) && (!family || preset.family === family));
+  return IndianModularDesignPresets.filter((preset) => {
+    if (roomType) {
+      const matchRoom = (roomType === 'master_bedroom' || roomType === 'kids_bedroom')
+        ? (preset.roomTypes.includes('bedroom') || preset.roomTypes.includes(roomType))
+        : preset.roomTypes.includes(roomType);
+      if (!matchRoom) return false;
+    }
+    return !family || preset.family === family;
+  });
 }
 
 export const IndianModularCatalog: CatalogModule[] = [
@@ -138,7 +146,15 @@ export const IndianModularCatalog: CatalogModule[] = [
 
 export function listCatalog(roomType?: z.infer<typeof RoomTypeSchema>, query?: string) {
   const normalized = query?.trim().toLowerCase();
-  return IndianModularCatalog.filter((item) => (!roomType || item.roomTypes.includes(roomType)) && (!normalized || `${item.name} ${item.tags.join(' ')}`.toLowerCase().includes(normalized)));
+  return IndianModularCatalog.filter((item) => {
+    if (roomType) {
+      const matchRoom = (roomType === 'master_bedroom' || roomType === 'kids_bedroom')
+        ? (item.roomTypes.includes('bedroom') || item.roomTypes.includes(roomType))
+        : item.roomTypes.includes(roomType);
+      if (!matchRoom) return false;
+    }
+    return !normalized || `${item.name} ${item.tags.join(' ')}`.toLowerCase().includes(normalized);
+  });
 }
 
 const FAMILY_ELEMENTS: Record<z.infer<typeof ModuleFamilySchema>, z.input<typeof ModuleElementSchema>[]> = {

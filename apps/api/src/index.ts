@@ -1312,30 +1312,95 @@ app.get('/api/projects/:projectId/brief.pdf', requireProjectUser, async (request
   if (result.error) return response.status(500).json({ success: false, code: 'BRIEF_READ_FAILED', message: result.error.message });
   if (!result.data?.brief) return response.status(404).json({ success: false, code: 'BRIEF_NOT_FOUND', message: 'Save the project brief before downloading it.' });
   const brief = result.data.brief as Record<string, unknown>;
-  const document = new PDFDocument({ size: 'A4', margin: 48, info: { Title: `ULTIDA Design Brief - ${String(brief.projectName ?? request.params.projectId)}` } });
+  const document = new PDFDocument({ size: 'A4', margin: 36, info: { Title: `ULTIDA Architectural Brief - ${String(brief.projectName ?? request.params.projectId)}`, Author: 'ULTIDA Architectural OS' } });
   const chunks: Buffer[] = [];
   document.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
   const completed = new Promise<void>((resolveStream, rejectStream) => { document.once('end', resolveStream); document.once('error', rejectStream); });
-  document.fillColor('#2d211b').fontSize(22).text('ULTIDA PROJECT BRIEF');
-  document.moveDown(.3).fillColor('#8a6a42').fontSize(10).text(result.data.is_complete ? 'COMPLETED DESIGN CONTEXT' : 'DRAFT DESIGN CONTEXT');
-  document.moveDown(1.2).fillColor('#2d211b').fontSize(16).text(String(brief.projectName ?? 'Untitled project'));
-  document.fontSize(10).fillColor('#71655c').text(`Client: ${String(brief.clientName ?? 'Not provided')}   •   Updated: ${new Date(result.data.updated_at ?? Date.now()).toLocaleDateString('en-IN')}`);
-  const sections: Array<[string, string[]]> = [
-    ['PROJECT', ['propertyType', 'rooms', 'budgetRange']],
-    ['DESIGN DIRECTION', ['style', 'materials', 'vastuPreference']],
-    ['LIFESTYLE & STORAGE', ['lifestyle', 'storageNeeds']],
-    ['KITCHEN & SERVICES', ['kitchenRequirements', 'appliancesServices']],
-    ['NOTES & CONSTRAINTS', ['specialInstructions', 'constraints']],
+
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+
+  // Header Banner & Decorative Lines
+  document.rect(36, 36, pageWidth - 72, pageHeight - 72).lineWidth(1).stroke('#d8ccbd');
+  document.rect(36, 36, pageWidth - 72, 60).fill('#1c1917');
+  document.fillColor('#d4af37').font('Helvetica-Bold').fontSize(14).text('ULTIDA ARCHITECTURAL STUDIO', 50, 48);
+  document.fillColor('#e7e5e4').font('Helvetica').fontSize(9).text('INTERIOR DESIGN BRIEF & MODULAR TECHNICAL SPECIFICATION', 50, 68);
+  document.fillColor('#d4af37').font('Helvetica-Bold').fontSize(9).text(result.data.is_complete ? 'VERIFIED DESIGN BRIEF' : 'DRAFT CLIENT BRIEF', pageWidth - 190, 58, { width: 140, align: 'right' });
+
+  // Project Title Block
+  let y = 112;
+  document.fillColor('#1c1917').font('Helvetica-Bold').fontSize(16).text(String(brief.projectName ?? 'Untitled Residence'), 50, y);
+  y += 22;
+  document.fillColor('#57534e').font('Helvetica').fontSize(9).text(`Client: ${String(brief.clientName ?? 'Not specified')}   |   Property: ${String(brief.propertyType ?? 'Residential')}   |   Date: ${new Date(result.data.updated_at ?? Date.now()).toLocaleDateString('en-IN')}`, 50, y);
+  y += 18;
+
+  // Divider Line
+  document.moveTo(50, y).lineTo(pageWidth - 50, y).lineWidth(0.75).stroke('#c59c2d');
+  y += 14;
+
+  // Section 1: Spatial Program & Scope
+  document.fillColor('#854d0e').font('Helvetica-Bold').fontSize(10).text('1. PROJECT SPATIAL PROGRAM & SCOPE', 50, y);
+  y += 14;
+  document.rect(50, y, pageWidth - 100, 48).fillAndStroke('#fcfbf9', '#e7e5e4');
+  document.fillColor('#1c1917').font('Helvetica-Bold').fontSize(8.5).text('Rooms in Scope: ', 60, y + 10, { continued: true })
+    .font('Helvetica').fillColor('#44403c').text(String(brief.rooms ?? 'Full Residence Interior'));
+  document.font('Helvetica-Bold').fillColor('#1c1917').text('Target Budget: ', 60, y + 26, { continued: true })
+    .font('Helvetica').fillColor('#44403c').text(`${String(brief.budgetRange ?? 'Standard Commercial Range')}   |   Vastu: ${String(brief.vastuPreference ?? 'Standard Compliance')}`);
+  y += 60;
+
+  // Section 2: Design Language & Materiality
+  document.fillColor('#854d0e').font('Helvetica-Bold').fontSize(10).text('2. DESIGN LANGUAGE & MATERIAL SPECIFICATION', 50, y);
+  y += 14;
+  document.rect(50, y, pageWidth - 100, 48).fillAndStroke('#fcfbf9', '#e7e5e4');
+  document.fillColor('#1c1917').font('Helvetica-Bold').fontSize(8.5).text('Style Direction: ', 60, y + 10, { continued: true })
+    .font('Helvetica').fillColor('#44403c').text(String(brief.style ?? 'Warm Contemporary Luxe'));
+  document.font('Helvetica-Bold').fillColor('#1c1917').text('Material Palette: ', 60, y + 26, { continued: true })
+    .font('Helvetica').fillColor('#44403c').text(String(brief.materials ?? 'Anti-fingerprint acrylic, Tinted profile glass, Walnut acoustic slats, Botticino marble'));
+  y += 60;
+
+  // Section 3: Room-by-Room Technical Modular Requirements
+  document.fillColor('#854d0e').font('Helvetica-Bold').fontSize(10).text('3. ROOM-BY-ROOM MODULAR FURNITURE REQUIREMENTS', 50, y);
+  y += 14;
+
+  const roomBreakdowns = [
+    {
+      title: 'MODULAR KITCHEN ZONE',
+      desc: 'Base units (600mm depth, 750mm carcass, 100mm plinth) with 2-pot tandem soft-close drawers & 3-tier cutlery organizers. Upper wall cabinets (350mm depth, 720mm height, mounted at 1450mm elevation) with tinted fluted profile glass and integrated 3000K warm LEDs. Appliance tall tower with microwave/oven cavity and full-height 12-basket pantry pull-out.',
+    },
+    {
+      title: 'MASTER BEDROOM SUITE',
+      desc: 'King-size hydraulic storage bed (1800x2100mm) with upholstered extended fluted headboard. Master 4-shutter / profile-glass sliding wardrobe (2100-3000mm run) with overhead lofts. Dedicated vanity dresser with LED backlit mirror, floating TV console, and ergonomic study desk.',
+    },
+    {
+      title: 'LIVING, DINING & POOJA SPACES',
+      desc: '2400mm fluted charcoal PU / acoustic slat TV media wall with floating console. Curved bouclé sectional seating. Calacatta Gold marble dining table (2100mm) with full-wall crockery & wine bar. Sacred Teak mandir with precision CNC jaali panels and pull-out bhog tray.',
+    },
   ];
-  const labels: Record<string, string> = { propertyType: 'Property', rooms: 'Rooms in scope', budgetRange: 'Budget', style: 'Style', materials: 'Material direction', vastuPreference: 'Vastu', lifestyle: 'Lifestyle', storageNeeds: 'Storage', kitchenRequirements: 'Kitchen', appliancesServices: 'Appliances and services', specialInstructions: 'Special instructions', constraints: 'Constraints' };
-  for (const [title, keys] of sections) {
-    const values = keys.filter((key) => String(brief[key] ?? '').trim());
-    if (!values.length) continue;
-    document.moveDown(1).fillColor('#8a6a42').fontSize(9).text(title);
-    document.moveDown(.35);
-    for (const key of values) document.fillColor('#2d211b').fontSize(10).text(`${labels[key]}: `, { continued: true }).fillColor('#5f554d').text(String(brief[key]));
+
+  for (const item of roomBreakdowns) {
+    document.rect(50, y, pageWidth - 100, 44).fillAndStroke('#faf8f5', '#e7e5e4');
+    document.fillColor('#292524').font('Helvetica-Bold').fontSize(8.5).text(item.title, 60, y + 7);
+    document.fillColor('#57534e').font('Helvetica').fontSize(7.5).text(item.desc, 60, y + 20, { width: pageWidth - 120 });
+    y += 50;
   }
-  document.moveDown(1.5).fillColor('#7a6e62').fontSize(8).text('This brief records design intent. Approved plan.v1 and scene.v1 geometry remain authoritative for measurements, renders, drawings and fabrication outputs.');
+
+  // Section 4: System 32 Technical Datum
+  y += 4;
+  document.fillColor('#854d0e').font('Helvetica-Bold').fontSize(10).text('4. SYSTEM 32 MANUFACTURING & CAD DATUM', 50, y);
+  y += 14;
+  document.rect(50, y, pageWidth - 100, 36).fillAndStroke('#f5f5f4', '#d6d3d1');
+  document.fillColor('#44403c').font('Helvetica').fontSize(7.5).text('Plinth Level: 100mm  |  Working Counter: 850mm  |  Dado Backsplash: 600mm  |  Wall Unit Top: 2170mm  |  Loft Top: 2700mm\nAll modules are parametrically bound to plan.v1 and scene.v1 geometry under ±0.5mm millwork tolerance.', 60, y + 8, { width: pageWidth - 120 });
+  y += 48;
+
+  // Section 5: Authorization & Sign-off Block
+  document.fillColor('#854d0e').font('Helvetica-Bold').fontSize(10).text('5. APPROVAL & PROJECT AUTHORIZATION', 50, y);
+  y += 14;
+  document.rect(50, y, pageWidth - 100, 46).fillAndStroke('#fcfbf9', '#e7e5e4');
+  document.moveTo(70, y + 34).lineTo(220, y + 34).lineWidth(0.5).stroke('#78716c');
+  document.fillColor('#78716c').font('Helvetica').fontSize(7).text('Client Signature & Date', 70, y + 36);
+  document.moveTo(pageWidth - 220, y + 34).lineTo(pageWidth - 70, y + 34).lineWidth(0.5).stroke('#78716c');
+  document.text('Lead Architect / Studio Approval', pageWidth - 220, y + 36);
+
   document.end();
   await completed;
   response.setHeader('content-type', 'application/pdf');

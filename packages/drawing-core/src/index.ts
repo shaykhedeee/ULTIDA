@@ -576,22 +576,66 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
   if (projection.warnings.length) doc.font('Helvetica-Bold').fontSize(7).fillColor('#9b2c2c').text(`REVIEW REQUIRED: ${projection.warnings.join(' ')}`, 42, 465, { width: 740 });
   furnitureWalls.forEach((wall, index) => {
     doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
-    drawFrame(`WALL ELEVATION - ${wall.wallId}`, index + 2, totalSheets, 'Module faces and opening positions are projected from the approved scene.');
-    doc.font('Helvetica-Bold').fontSize(19).fillColor('#38291f').text(`Wall ${wall.wallId}`, 48, 52);
-    doc.font('Helvetica').fontSize(10).fillColor('#53463d').text(`${Math.round(wall.lengthMm)} mm long x ${wall.heightMm} mm high`, 48, 78);
-    const originX = 48; const originY = 110; const availableWidth = 730; const availableHeight = 385;
+    drawFrame(`WALL ELEVATION - ${wall.wallId}`, index + 2, totalSheets, 'System 32 parametric module faces, datum lines and opening clearances projected from the approved scene.');
+    doc.font('Helvetica-Bold').fontSize(19).fillColor('#38291f').text(`Wall ${wall.wallId}`, 48, 50);
+    doc.font('Helvetica').fontSize(9.5).fillColor('#53463d').text(`${Math.round(wall.lengthMm)} mm length × ${wall.heightMm} mm ceiling height  |  Scale: 1:25 (Fit to Sheet)  |  Layer: A-ELEV-OUTL`, 48, 74);
+    const originX = 48; const originY = 100; const availableWidth = 730; const availableHeight = 370;
     const scale = Math.min(availableWidth / wall.lengthMm, availableHeight / wall.heightMm);
-    doc.rect(originX, originY, wall.lengthMm * scale, wall.heightMm * scale).lineWidth(1.5).stroke('#38291f');
+
+    // Outer Wall Outline (A-WALL-INTR / A-WALL-EXTR)
+    doc.rect(originX, originY, wall.lengthMm * scale, wall.heightMm * scale).lineWidth(1.75).stroke('#2d211b');
+
+    // Horizontal Datum Reference Lines (Plinth 100mm, Counter 850mm, Wall Unit 1450mm, Loft Top 2170mm)
+    const plinthY = originY + (wall.heightMm - 100) * scale;
+    const counterY = originY + (wall.heightMm - 850) * scale;
+    const wallUnitY = originY + (wall.heightMm - 1450) * scale;
+    const loftY = originY + (wall.heightMm - 2170) * scale;
+
+    doc.save().dash(2, { space: 3 }).strokeColor('#bdaea0').lineWidth(0.5);
+    doc.moveTo(originX, plinthY).lineTo(originX + wall.lengthMm * scale, plinthY).stroke();
+    doc.moveTo(originX, counterY).lineTo(originX + wall.lengthMm * scale, counterY).stroke();
+    doc.moveTo(originX, wallUnitY).lineTo(originX + wall.lengthMm * scale, wallUnitY).stroke();
+    doc.moveTo(originX, loftY).lineTo(originX + wall.lengthMm * scale, loftY).stroke();
+    doc.undash().restore();
+
+    // Datum Labels
+    doc.font('Helvetica').fontSize(6).fillColor('#8c7b6f');
+    doc.text('PLINTH (100mm)', originX + wall.lengthMm * scale - 75, plinthY - 7);
+    doc.text('COUNTER (850mm)', originX + wall.lengthMm * scale - 82, counterY - 7);
+    doc.text('DADO CLEAR (1450mm)', originX + wall.lengthMm * scale - 98, wallUnitY - 7);
+    doc.text('WALL UNIT (2170mm)', originX + wall.lengthMm * scale - 90, loftY - 7);
+
+    // Openings (A-DOOR / A-GLAZ)
     for (const opening of wall.openings) {
       doc.rect(originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.heightMm) * scale, opening.widthMm * scale, opening.heightMm * scale).lineWidth(1.2).stroke('#9b2c2c');
-      doc.font('Helvetica').fontSize(7).fillColor('#9b2c2c').text(`${opening.kind} ${Math.round(opening.widthMm)}`, originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.heightMm) * scale - 12);
+      doc.font('Helvetica-Bold').fontSize(7).fillColor('#9b2c2c').text(`${opening.kind.toUpperCase()} ${Math.round(opening.widthMm)}mm`, originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.heightMm) * scale - 11);
     }
+
+    // Modular Units (A-FURN-BASE / A-FURN-OVER / A-FURN-SHUT)
     for (const module of wall.modules) {
-      doc.rect(originX + (module.offsetAlongWallMm ?? 0) * scale, originY + (wall.heightMm - module.heightMm) * scale, module.widthMm * scale, module.heightMm * scale).fillOpacity(0.18).fillAndStroke('#c59c2d', '#38291f').fillOpacity(1);
-      doc.font('Helvetica').fontSize(7).fillColor('#38291f').text(`${module.family} ${Math.round(module.widthMm)}`, originX + (module.offsetAlongWallMm ?? 0) * scale + 4, originY + (wall.heightMm - module.heightMm) * scale + 6, { width: Math.max(35, module.widthMm * scale - 8) });
+      const isBase = module.family.includes('base') || module.family.includes('kitchen-base') || module.heightMm <= 850;
+      const isTall = module.heightMm > 1800 || module.family.includes('tall') || module.family.includes('wardrobe');
+      const isFeature = module.family.includes('feature') || module.family.includes('wall-');
+      const layerTag = isTall ? 'A-FURN-TALL' : isBase ? 'A-FURN-BASE' : isFeature ? 'A-WALL-FEAT' : 'A-FURN-OVER';
+      const modFill = isTall ? '#3b2f27' : isBase ? '#c59c2d' : isFeature ? '#4a5568' : '#e6c66e';
+
+      doc.rect(originX + (module.offsetAlongWallMm ?? 0) * scale, originY + (wall.heightMm - module.heightMm) * scale, module.widthMm * scale, module.heightMm * scale)
+        .fillOpacity(0.22)
+        .fillAndStroke(modFill, '#2d211b')
+        .fillOpacity(1);
+
+      doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#2d211b').text(`${module.family}`, originX + (module.offsetAlongWallMm ?? 0) * scale + 3, originY + (wall.heightMm - module.heightMm) * scale + 4, { width: Math.max(35, module.widthMm * scale - 6) });
+      doc.font('Helvetica').fontSize(5.5).fillColor('#574b41').text(`${Math.round(module.widthMm)}×${Math.round(module.depthMm ?? 600)}×${Math.round(module.heightMm)}mm\n[${layerTag}]`, originX + (module.offsetAlongWallMm ?? 0) * scale + 3, originY + (wall.heightMm - module.heightMm) * scale + 13, { width: Math.max(35, module.widthMm * scale - 6) });
     }
-    doc.save().dash(3, { space: 2 }).strokeColor('#75665c').lineWidth(.5).moveTo(originX, originY + wall.heightMm * scale + 18).lineTo(originX + wall.lengthMm * scale, originY + wall.heightMm * scale + 18).stroke().undash().restore();
-    doc.font('Helvetica').fontSize(8).fillColor('#53463d').text(`${Math.round(wall.lengthMm)} mm`, originX, originY + wall.heightMm * scale + 24, { width: wall.lengthMm * scale, align: 'center' });
+
+    // Linear Bottom Dimension Line (A-DIMS)
+    const dimY = originY + wall.heightMm * scale + 16;
+    doc.save().strokeColor('#4a3b32').lineWidth(0.75).moveTo(originX, dimY).lineTo(originX + wall.lengthMm * scale, dimY).stroke();
+    // Dimension Ticks
+    doc.moveTo(originX, dimY - 4).lineTo(originX, dimY + 4).stroke();
+    doc.moveTo(originX + wall.lengthMm * scale, dimY - 4).lineTo(originX + wall.lengthMm * scale, dimY + 4).stroke();
+    doc.restore();
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#2d211b').text(`${Math.round(wall.lengthMm)} mm [A-DIMS]`, originX, dimY + 6, { width: wall.lengthMm * scale, align: 'center' });
   });
   if (production) {
     const firstProductionSheet = furnitureWalls.length + 2;

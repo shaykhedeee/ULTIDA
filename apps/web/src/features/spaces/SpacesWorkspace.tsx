@@ -102,52 +102,62 @@ function needsScaleReview(room: PlanRoom, widthMm: number, depthMm: number) {
 
 const FURNITURE_OPTIONS: Record<string, Array<{ id: string; label: string; defaultModuleId?: string }>> = {
   living: [
-    { id: 'tv_unit', label: 'TV unit', defaultModuleId: 'tv-profile-2400' },
-    { id: 'crockery_unit', label: 'Crockery unit', defaultModuleId: 'crockery-1800' },
-    { id: 'sofa', label: 'Seating / Sectional', defaultModuleId: 'sofa-l-2800' },
-    { id: 'pooja_unit', label: 'Pooja unit', defaultModuleId: 'pooja-1200-jaali' }
+    { id: 'tv_unit', label: 'TV Feature Media Wall', defaultModuleId: 'tv-fluted-2400' },
+    { id: 'crockery_unit', label: 'Crockery Display & Wine Bar', defaultModuleId: 'crockery-1800' },
+    { id: 'sofa', label: 'Curved Bouclé Sectional Seating', defaultModuleId: 'sofa-curved-boucle-2800' },
+    { id: 'pooja_unit', label: 'Sacred Mandir with CNC Jaali', defaultModuleId: 'pooja-mandir-mandapa-1500' }
+  ],
+  master_bedroom: [
+    { id: 'master_wardrobe', label: 'Master 4-Shutter / Walk-in Wardrobe & Lofts', defaultModuleId: 'wardrobe-2100-four-shutter' },
+    { id: 'master_bed', label: 'King Hydraulic Storage Bed & Extended Headboard', defaultModuleId: 'bed-1800-extended-headboard' },
+    { id: 'master_vanity', label: 'Dresser & Backlit Vanity Mirror Unit', defaultModuleId: 'vanity-900' },
+    { id: 'master_tv', label: 'Master Bedroom Floating TV Console', defaultModuleId: 'tv-floating-1600' },
+    { id: 'master_study', label: 'Executive Bedroom Study Desk & Workstation', defaultModuleId: 'study-1500' }
   ],
   bedroom: [
-    { id: 'wardrobe', label: 'Wardrobe & Loft', defaultModuleId: 'wardrobe-2100-four-shutter' },
-    { id: 'bed', label: 'Storage Bed & Headboard', defaultModuleId: 'bed-1800-extended-headboard' },
-    { id: 'study_unit', label: 'Study unit / Desk', defaultModuleId: 'study-1500' },
-    { id: 'tv_unit', label: 'Bedroom TV console', defaultModuleId: 'tv-floating-1600' }
+    { id: 'wardrobe', label: 'Wardrobe & Overhead Lofts', defaultModuleId: 'wardrobe-2100-four-shutter' },
+    { id: 'bed', label: 'Queen Storage Bed & Headboard', defaultModuleId: 'bed-1800-extended-headboard' },
+    { id: 'vanity_unit', label: 'Dresser & Mirror Unit', defaultModuleId: 'vanity-900' },
+    { id: 'study_unit', label: 'Study Desk & Shelving', defaultModuleId: 'study-1500' },
+    { id: 'tv_unit', label: 'Bedroom TV Console', defaultModuleId: 'tv-floating-1600' }
   ],
   kitchen: [
-    { id: 'kitchen_base', label: 'Base cabinets & Tandem drawers', defaultModuleId: 'kit-base-600' },
-    { id: 'kitchen_wall', label: 'Upper wall cabinets & Lofts', defaultModuleId: 'kit-wall-600' },
-    { id: 'kitchen_tall', label: 'Appliance / Pantry tall unit', defaultModuleId: 'kit-tall-600' },
-    { id: 'utility_unit', label: 'Utility & Sink base', defaultModuleId: 'kit-sink-900' }
+    { id: 'kitchen_base', label: 'Kitchen Base (2-Pot Tandems, Cutlery & Hob)', defaultModuleId: 'kit-base-tandem-2pot-600' },
+    { id: 'kitchen_wall', label: 'Upper Wall Units (Profile Glass + LED / Solid)', defaultModuleId: 'kit-wall-profile-glass-600' },
+    { id: 'kitchen_tall', label: 'Tall Units (Microwave & Oven Tower / Pantry)', defaultModuleId: 'kit-tall-microwave-600' },
+    { id: 'kitchen_corner', label: 'LeMans II Blind Corner Carousel Base', defaultModuleId: 'kit-corner-lemans-1050' },
+    { id: 'bottle_pullout', label: '200mm SS Bottle Pull-Out Base', defaultModuleId: 'kit-base-bottle-200' },
+    { id: 'kitchen_sink', label: 'Sink Base & Waste Bin Module', defaultModuleId: 'kit-base-sink-900' }
   ],
   dining: [
-    { id: 'dining_table', label: 'Dining table set', defaultModuleId: 'dining-1600' },
-    { id: 'crockery_unit', label: 'Crockery display & Bar', defaultModuleId: 'crockery-1800' },
-    { id: 'storage_unit', label: 'Dining sideboard', defaultModuleId: 'crockery-sideboard-1600' }
+    { id: 'dining_table', label: 'Dining Table Set', defaultModuleId: 'dining-calacatta-gold-2100' },
+    { id: 'crockery_unit', label: 'Crockery Display & Bar', defaultModuleId: 'crockery-1800' },
+    { id: 'storage_unit', label: 'Dining Sideboard', defaultModuleId: 'crockery-sideboard-1600' }
   ],
   utility: [
-    { id: 'utility_unit', label: 'Laundry & Washer tower', defaultModuleId: 'utility-laundry-1500' },
-    { id: 'storage_unit', label: 'Utility storage tower', defaultModuleId: 'utility-900' }
+    { id: 'utility_unit', label: 'Laundry & Washer Tower', defaultModuleId: 'utility-laundry-1500' },
+    { id: 'storage_unit', label: 'Utility Storage Tower', defaultModuleId: 'utility-900' }
   ],
   pooja: [
-    { id: 'pooja_unit', label: 'Pooja unit with jaali & tray', defaultModuleId: 'pooja-1200-jaali' },
-    { id: 'storage_unit', label: 'Pooja storage', defaultModuleId: 'pooja-900' }
+    { id: 'pooja_unit', label: 'Pooja Unit with Jaali & Drawer', defaultModuleId: 'pooja-mandir-mandapa-1500' },
+    { id: 'storage_unit', label: 'Pooja Storage Unit', defaultModuleId: 'pooja-900' }
   ],
   bathroom: [
-    { id: 'vanity_unit', label: 'Vanity cabinet & Basin', defaultModuleId: 'vanity-900' },
-    { id: 'storage_unit', label: 'Storage ledge', defaultModuleId: 'storage-shoe-1200' }
+    { id: 'vanity_unit', label: 'Vanity Cabinet & Basin', defaultModuleId: 'vanity-900' },
+    { id: 'storage_unit', label: 'Storage Ledge', defaultModuleId: 'storage-shoe-1200' }
   ],
   study: [
-    { id: 'study_unit', label: 'Study desk & Library wall', defaultModuleId: 'study-library-1800' },
-    { id: 'storage_unit', label: 'Bookshelf / Storage', defaultModuleId: 'study-1200' }
+    { id: 'study_unit', label: 'Study Desk & Library Wall', defaultModuleId: 'study-library-1800' },
+    { id: 'storage_unit', label: 'Bookshelf & Storage', defaultModuleId: 'study-1500' }
   ],
   foyer: [
-    { id: 'foyer_console', label: 'Floating foyer console', defaultModuleId: 'foyer-console-1200' },
-    { id: 'shoe_unit', label: 'Shoe & Entry storage', defaultModuleId: 'storage-shoe-1200' }
+    { id: 'foyer_console', label: 'Floating Foyer Console', defaultModuleId: 'foyer-console-1200' },
+    { id: 'shoe_unit', label: 'Shoe & Entryway Storage', defaultModuleId: 'storage-shoe-1200' }
   ],
   other: [
-    { id: 'storage_unit', label: 'Storage unit', defaultModuleId: 'storage-shoe-1200' },
-    { id: 'study_unit', label: 'Study unit', defaultModuleId: 'study-1500' },
-    { id: 'tv_unit', label: 'TV unit', defaultModuleId: 'tv-1800' }
+    { id: 'storage_unit', label: 'Storage Unit', defaultModuleId: 'storage-shoe-1200' },
+    { id: 'study_unit', label: 'Study Unit', defaultModuleId: 'study-1500' },
+    { id: 'tv_unit', label: 'TV Unit', defaultModuleId: 'tv-1800' }
   ],
 };
 
@@ -165,7 +175,8 @@ const PALETTE_PRESETS = [
 ];
 
 function furnitureOptionsFor(roomType: string) {
-  if (roomType === 'master_bedroom' || roomType === 'kids_bedroom') return FURNITURE_OPTIONS.bedroom;
+  if (roomType === 'master_bedroom') return FURNITURE_OPTIONS.master_bedroom;
+  if (roomType === 'kids_bedroom' || roomType === 'bedroom') return FURNITURE_OPTIONS.bedroom;
   return FURNITURE_OPTIONS[roomType] ?? FURNITURE_OPTIONS.other;
 }
 
@@ -2069,15 +2080,20 @@ export function SpacesWorkspace() {
 }
 
 function defaultCategoriesForRoom(roomType: string, priority: 'circulation' | 'balanced' | 'storage'): string[] {
-  if (['bedroom', 'master_bedroom', 'kids_bedroom'].includes(roomType)) {
+  if (roomType === 'master_bedroom') {
+    if (priority === 'circulation') return ['master_bed', 'master_wardrobe'];
+    if (priority === 'storage') return ['master_bed', 'master_wardrobe', 'master_vanity', 'master_tv', 'master_study'];
+    return ['master_bed', 'master_wardrobe', 'master_vanity', 'master_tv'];
+  }
+  if (['bedroom', 'kids_bedroom'].includes(roomType)) {
     if (priority === 'circulation') return ['bed', 'wardrobe'];
-    if (priority === 'storage') return ['bed', 'wardrobe', 'study_unit', 'tv_unit'];
-    return ['bed', 'wardrobe', 'study_unit'];
+    if (priority === 'storage') return ['bed', 'wardrobe', 'study_unit', 'tv_unit', 'vanity_unit'];
+    return ['bed', 'wardrobe', 'study_unit', 'vanity_unit'];
   }
   if (roomType === 'living') {
     if (priority === 'circulation') return ['tv_unit', 'sofa'];
-    if (priority === 'storage') return ['tv_unit', 'sofa', 'crockery_unit'];
-    return ['tv_unit', 'sofa'];
+    if (priority === 'storage') return ['tv_unit', 'sofa', 'crockery_unit', 'pooja_unit'];
+    return ['tv_unit', 'sofa', 'crockery_unit'];
   }
   if (roomType === 'dining') {
     if (priority === 'circulation') return ['dining_table'];
@@ -2085,7 +2101,8 @@ function defaultCategoriesForRoom(roomType: string, priority: 'circulation' | 'b
   }
   if (roomType === 'kitchen') {
     if (priority === 'circulation') return ['kitchen_base', 'kitchen_wall'];
-    return ['kitchen_base', 'kitchen_wall', 'kitchen_tall'];
+    if (priority === 'storage') return ['kitchen_base', 'kitchen_wall', 'kitchen_tall', 'kitchen_corner', 'bottle_pullout'];
+    return ['kitchen_base', 'kitchen_wall', 'kitchen_tall', 'kitchen_sink'];
   }
   if (roomType === 'study') {
     return ['study_unit', 'storage_unit'];
