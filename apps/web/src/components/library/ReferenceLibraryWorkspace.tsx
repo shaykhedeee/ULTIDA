@@ -764,40 +764,81 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                         <p>{module.description ?? 'Configurable modular assembly with editable dimensions and component-level finishes.'}</p>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
                           <small>{module.sku} · {module.roomTypes.join(', ')}</small>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newItem: MoodboardItem = {
-                                id: `mb-${Date.now()}`,
-                                type: 'module',
-                                title: module.name,
-                                subtitle: `${module.widthMm}×${module.heightMm}mm`,
-                                x: 100 + Math.random() * 60,
-                                y: 100 + Math.random() * 60,
-                                width: 260,
-                                height: 160,
-                                zIndex: moodboardItems.length + 1,
-                                module,
-                              };
-                              setMoodboardItems((prev) => [...prev, newItem]);
-                              setActiveTab('moodboard');
-                            }}
-                            style={{
-                              border: '1px solid var(--gold)',
-                              background: 'rgba(197,156,45,0.1)',
-                              color: 'var(--gold-dim)',
-                              borderRadius: 6,
-                              padding: '5px 10px',
-                              fontSize: 11,
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                            }}
-                          >
-                            <Plus size={12} /> Add to Board
-                          </button>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newItem: MoodboardItem = {
+                                  id: `mb-${Date.now()}`,
+                                  type: 'module',
+                                  title: module.name,
+                                  subtitle: `${module.widthMm}×${module.heightMm}mm`,
+                                  x: 100 + Math.random() * 60,
+                                  y: 100 + Math.random() * 60,
+                                  width: 260,
+                                  height: 160,
+                                  zIndex: moodboardItems.length + 1,
+                                  module,
+                                };
+                                setMoodboardItems((prev) => [...prev, newItem]);
+                                setActiveTab('moodboard');
+                              }}
+                              style={{
+                                border: '1px solid var(--gold)',
+                                background: 'rgba(197,156,45,0.1)',
+                                color: 'var(--gold-dim)',
+                                borderRadius: 6,
+                                padding: '5px 8px',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <Plus size={12} /> Board
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                try {
+                                  window.localStorage.setItem('ultida.pendingModulePlan.v1', JSON.stringify({
+                                    schema: 'ultida.module-plan.v1',
+                                    templateId: module.id,
+                                    family: module.family,
+                                    name: module.name,
+                                    dimensionsMm: { width: module.widthMm, depth: module.depthMm, height: module.heightMm },
+                                    wallWidthMm: module.widthMm,
+                                    clearanceMm: 50,
+                                  }));
+                                } catch {
+                                  // ignore
+                                }
+                                if (projectId) {
+                                  navigate(`/projects/${projectId}/spaces?tab=modules&pendingModule=1`);
+                                } else {
+                                  navigate('/projects');
+                                }
+                              }}
+                              style={{
+                                border: '1px solid #16a34a',
+                                background: 'rgba(22,163,74,0.1)',
+                                color: '#15803d',
+                                borderRadius: 6,
+                                padding: '5px 8px',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                              title="Place this module directly on measured space wall elevation"
+                            >
+                              <Home size={12} /> Use in Room
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </article>
