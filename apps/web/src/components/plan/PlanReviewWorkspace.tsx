@@ -360,124 +360,17 @@ export function PlanReviewWorkspace({
     });
   };
 
-  const handleAiAutoExtractAll = () => {
-    const autoScale: ScaleCalibration = scale ?? {
-      pointA: { x: 80, y: 80 },
-      pointB: { x: 180, y: 80 },
-      pixelDistance: 100,
-      realDistanceMm: 1000,
-      mmPerPixel: 10,
-    };
-    setScale(autoScale);
-
-    const autoRooms: PlanElement[] = [
-      {
-        id: 'room-living',
-        kind: 'room',
-        label: 'Living & Dining Room',
-        roomType: 'living',
-        confidence: 0.96,
-        status: 'accepted',
-        color: 'rgba(197,156,45,0.18)',
-        geometry: {
-          x: 80,
-          y: 80,
-          width: 500,
-          height: 380,
-          polygon: [
-            { x: 80, y: 80 },
-            { x: 580, y: 80 },
-            { x: 580, y: 460 },
-            { x: 80, y: 460 },
-          ],
-        },
-      },
-      {
-        id: 'room-master-bed',
-        kind: 'room',
-        label: 'Master Bedroom',
-        roomType: 'master_bedroom',
-        confidence: 0.95,
-        status: 'accepted',
-        color: 'rgba(197,156,45,0.18)',
-        geometry: {
-          x: 590,
-          y: 80,
-          width: 320,
-          height: 380,
-          polygon: [
-            { x: 590, y: 80 },
-            { x: 910, y: 80 },
-            { x: 910, y: 460 },
-            { x: 590, y: 460 },
-          ],
-        },
-      },
-      {
-        id: 'room-kitchen',
-        kind: 'room',
-        label: 'Modular Kitchen',
-        roomType: 'kitchen',
-        confidence: 0.94,
-        status: 'accepted',
-        color: 'rgba(197,156,45,0.18)',
-        geometry: {
-          x: 80,
-          y: 470,
-          width: 340,
-          height: 280,
-          polygon: [
-            { x: 80, y: 470 },
-            { x: 420, y: 470 },
-            { x: 420, y: 750 },
-            { x: 80, y: 750 },
-          ],
-        },
-      },
-      {
-        id: 'room-kids-bed',
-        kind: 'room',
-        label: 'Kids Bedroom / Study',
-        roomType: 'kids_bedroom',
-        confidence: 0.92,
-        status: 'accepted',
-        color: 'rgba(197,156,45,0.18)',
-        geometry: {
-          x: 430,
-          y: 470,
-          width: 480,
-          height: 280,
-          polygon: [
-            { x: 430, y: 470 },
-            { x: 910, y: 470 },
-            { x: 910, y: 750 },
-            { x: 430, y: 750 },
-          ],
-        },
-      },
-    ];
-
-    const autoWalls: PlanElement[] = [
-      { id: 'wall-north', kind: 'wall', label: 'North Exterior Wall', confidence: 0.98, status: 'accepted', color: '#2563eb', thicknessMm: 230, heightMm: 2700, geometry: { x1: 80, y1: 80, x2: 910, y2: 80 } },
-      { id: 'wall-east', kind: 'wall', label: 'East Exterior Wall', confidence: 0.98, status: 'accepted', color: '#2563eb', thicknessMm: 230, heightMm: 2700, geometry: { x1: 910, y1: 80, x2: 910, y2: 750 } },
-      { id: 'wall-south', kind: 'wall', label: 'South Exterior Wall', confidence: 0.98, status: 'accepted', color: '#2563eb', thicknessMm: 230, heightMm: 2700, geometry: { x1: 910, y1: 750, x2: 80, y2: 750 } },
-      { id: 'wall-west', kind: 'wall', label: 'West Exterior Wall', confidence: 0.98, status: 'accepted', color: '#2563eb', thicknessMm: 230, heightMm: 2700, geometry: { x1: 80, y1: 750, x2: 80, y2: 80 } },
-      { id: 'wall-mid-vert', kind: 'wall', label: 'Living-Bedroom Partition Wall', confidence: 0.95, status: 'accepted', color: '#2563eb', thicknessMm: 115, heightMm: 2700, geometry: { x1: 585, y1: 80, x2: 585, y2: 460 } },
-      { id: 'wall-mid-horiz', kind: 'wall', label: 'Living-Kitchen Partition Wall', confidence: 0.95, status: 'accepted', color: '#2563eb', thicknessMm: 115, heightMm: 2700, geometry: { x1: 80, y1: 465, x2: 910, y2: 465 } },
-      { id: 'wall-kitchen-kids', kind: 'wall', label: 'Kitchen-Kids Partition Wall', confidence: 0.95, status: 'accepted', color: '#2563eb', thicknessMm: 115, heightMm: 2700, geometry: { x1: 425, y1: 465, x2: 425, y2: 750 } },
-    ];
-
-    const autoOpenings: PlanElement[] = [
-      { id: 'door-main', kind: 'door', label: 'Main Entrance Door', confidence: 0.96, status: 'accepted', color: '#059669', wallId: 'wall-west', offsetAlongWallMm: 1200, widthMm: 1000, heightMm: 2100, geometry: { x: 80, y: 200, width: 30, height: 30 } },
-      { id: 'door-master', kind: 'door', label: 'Master Bedroom Door', confidence: 0.95, status: 'accepted', color: '#059669', wallId: 'wall-mid-vert', offsetAlongWallMm: 2200, widthMm: 900, heightMm: 2100, geometry: { x: 585, y: 300, width: 30, height: 30 } },
-      { id: 'door-kitchen', kind: 'door', label: 'Kitchen Opening', confidence: 0.95, status: 'accepted', color: '#059669', wallId: 'wall-mid-horiz', offsetAlongWallMm: 1800, widthMm: 900, heightMm: 2100, geometry: { x: 260, y: 465, width: 30, height: 30 } },
-      { id: 'window-living', kind: 'window', label: 'Living Room French Window', confidence: 0.96, status: 'accepted', color: '#059669', wallId: 'wall-north', offsetAlongWallMm: 2400, widthMm: 1800, heightMm: 1500, sillMm: 600, headMm: 2100, geometry: { x: 320, y: 80, width: 60, height: 10 } },
-      { id: 'window-master', kind: 'window', label: 'Master Bedroom Window', confidence: 0.96, status: 'accepted', color: '#059669', wallId: 'wall-east', offsetAlongWallMm: 1500, widthMm: 1500, heightMm: 1500, sillMm: 600, headMm: 2100, geometry: { x: 910, y: 230, width: 10, height: 50 } },
-    ];
-
-    setElements([...autoRooms, ...autoWalls, ...autoOpenings]);
-    setIssues([]);
-    setContinuationHint('AI auto-extracted all rooms, walls, doors and windows. Ready to continue to Spaces!');
+  const handleAiAutoExtractAll = async () => {
+    if (onAnalyze) {
+      setContinuationHint('Running AI Vision Analysis on uploaded floor plan...');
+      try {
+        await onAnalyze();
+      } catch (err) {
+        setContinuationHint(err instanceof Error ? err.message : 'AI Plan Analysis encountered an issue.');
+      }
+    } else {
+      setContinuationHint('Upload an architectural plan file to run AI Vision Analysis.');
+    }
   };
   const undo = () => {
     setUndoStack((stack) => {
@@ -980,32 +873,26 @@ export function PlanReviewWorkspace({
             <button
               type="button"
               onClick={handleAiAutoExtractAll}
+              disabled={!fileName || analysisInFlight}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
-                padding: '7px 16px',
+                gap: 7,
+                padding: '7px 18px',
                 background: 'linear-gradient(135deg, #1c1917, #3d2a1a)',
                 color: '#fff',
                 border: '1px solid var(--gold)',
                 borderRadius: 7,
                 fontSize: 13,
                 fontWeight: 800,
-                cursor: 'pointer',
+                cursor: (!fileName || analysisInFlight) ? 'not-allowed' : 'pointer',
                 boxShadow: '0 2px 8px rgba(197,156,45,0.25)',
+                opacity: (!fileName || analysisInFlight) ? 0.6 : 1,
               }}
             >
-              <Sparkles size={14} style={{ color: 'var(--gold)' }} /> AI Instant Extract Entire Plan
+              {analysisInFlight ? <Loader2 size={14} className="ultida-spinner" /> : <Sparkles size={14} style={{ color: 'var(--gold)' }} />}
+              {analysisInFlight ? 'AI Analysing Floor Plan...' : 'AI Vision Extract & Analyse Plan'}
             </button>
-            {onAnalyze && (
-              <button
-                onClick={() => void onAnalyze()}
-                disabled={!fileName || analysisInFlight}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'var(--brown-mid)', color: '#fff', border: 0, borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
-              >
-                {analysisInFlight ? <Loader2 size={14} className="ultida-spinner" /> : <Sparkles size={14} />} {analysisInFlight ? 'Analysing source' : 'Run AI Analysis'}
-              </button>
-            )}
             {onStartManualReview && !analysed && (
               <button
                 type="button"
