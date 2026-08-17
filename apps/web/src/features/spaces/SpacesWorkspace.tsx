@@ -1912,21 +1912,134 @@ export function SpacesWorkspace() {
                   </div>
                 </>}
 
-                {spacePanel === 'scene' && <>
-                  <p className="panel-help">Select a wall on the canvas, then assign its role. This configures camera focal points and 3D scene lighting.</p>
-                  <label>Selected wall role</label>
-                  <select disabled={!selectedWall} value={selectedWall ? (sel.room.wallRoles?.[selectedWall] ?? '') : ''} onChange={(e) => selectedWall && patchRoom(sel.room.id, { wallRoles: { ...(sel.room.wallRoles ?? {}), [selectedWall]: e.target.value } })}>
-                    <option value="">Select a role</option>
-                    <option value="tv_wall">TV feature wall</option>
-                    <option value="wardrobe_wall">Wardrobe wall</option>
-                    <option value="bed_headboard_wall">Bed headboard wall</option>
-                    <option value="kitchen_working_wall">Kitchen working wall</option>
-                    <option value="crockery_wall">Crockery display wall</option>
-                    <option value="restricted_wall">Restricted wall</option>
-                  </select>
-                  <label>Preferred camera view</label>
-                  <select value={sel.room.preferredCamera ?? ''} onChange={(e) => patchRoom(sel.room.id, { preferredCamera: e.target.value })}><option value="">Let the scene compiler choose</option><option value="entry_to_feature">Entry to feature wall</option><option value="corner_wide">Wide corner overview</option><option value="feature_to_entry">Feature wall to entry</option><option value="elevation">Straight technical elevation</option></select>
-                </>}
+                {spacePanel === 'scene' && (() => {
+                  const currentWall = selectedWall ? walls.find((w) => w.id === selectedWall) : null;
+                  const wallOpenings = selectedWall ? openings.filter((o) => o.wallId === selectedWall) : [];
+                  const totalCutoutMm = wallOpenings.reduce((sum, o) => sum + (o.widthMm || 900), 0);
+                  const wallLengthMm = currentWall ? wallLen(currentWall) : 3000;
+                  const usableRunMm = Math.max(0, wallLengthMm - totalCutoutMm);
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <p className="panel-help" style={{ margin: 0 }}>
+                        Click a wall on the canvas or select below to configure its architectural role, feature panelling, and 3D camera focal point.
+                      </p>
+
+                      {/* Wall Selector Chips */}
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {walls.slice(0, 8).map((w, idx) => (
+                          <button
+                            key={w.id}
+                            type="button"
+                            onClick={() => setSelectedWall(w.id)}
+                            style={{
+                              padding: '5px 10px',
+                              borderRadius: 6,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              border: selectedWall === w.id ? '1px solid var(--gold)' : '1px solid var(--line)',
+                              background: selectedWall === w.id ? 'var(--gold-dim, #ebdccb)' : 'var(--surface, #fff)',
+                              color: selectedWall === w.id ? '#1c1917' : 'var(--text-secondary)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Wall {String.fromCharCode(65 + idx)} ({Math.round(wallLen(w))}mm)
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Wall Dimension & Clearance Card */}
+                      {currentWall && (
+                        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 10 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>
+                            <span>Wall Geometry</span>
+                            <span>{Math.round(wallLengthMm)} mm</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: '#64748b' }}>
+                            <span>Openings Deducted ({wallOpenings.length}):</span>
+                            <span>-{totalCutoutMm} mm</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 800, color: '#059669', marginTop: 4, paddingTop: 4, borderTop: '1px dashed #cbd5e1' }}>
+                            <span>Net Usable Run:</span>
+                            <span>{Math.round(usableRunMm)} mm</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <label style={{ fontSize: 11, fontWeight: 700 }}>Assigned Wall Role</label>
+                      <select
+                        disabled={!selectedWall}
+                        value={selectedWall ? (sel.room.wallRoles?.[selectedWall] ?? '') : ''}
+                        onChange={(e) => selectedWall && patchRoom(sel.room.id, { wallRoles: { ...(sel.room.wallRoles ?? {}), [selectedWall]: e.target.value } })}
+                        style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--line)' }}
+                      >
+                        <option value="">Select a wall role</option>
+                        <option value="tv_wall">TV Feature Wall</option>
+                        <option value="wardrobe_wall">Wardrobe &amp; Storage Wall</option>
+                        <option value="bed_headboard_wall">Bed Headboard Wall</option>
+                        <option value="kitchen_working_wall">Kitchen Working Wall</option>
+                        <option value="crockery_wall">Crockery &amp; Bar Wall</option>
+                        <option value="pooja_wall">Sacred Pooja Wall</option>
+                        <option value="restricted_wall">Restricted Wall (No Mounting)</option>
+                      </select>
+
+                      {/* 1-Click Design Feature Wall Treatments */}
+                      <label style={{ fontSize: 11, fontWeight: 700, marginTop: 4 }}>✦ 1-Click Design Feature Wall Cladding</label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {[
+                          { id: 'fluted-pu', name: '2400 Fluted Charcoal PU Cladding', role: 'tv_wall' },
+                          { id: 'walnut-slats', name: '2400 Vertical Walnut Acoustic Slats', role: 'tv_wall' },
+                          { id: 'boiserie', name: '3000 French Boiserie Mouldings', role: 'bed_headboard_wall' },
+                          { id: 'calacatta-stone', name: '2400 Calacatta Sintered Stone Slab', role: 'tv_wall' },
+                        ].map((feat) => (
+                          <button
+                            key={feat.id}
+                            type="button"
+                            onClick={() => {
+                              if (!selectedWall) return;
+                              patchRoom(sel.room.id, {
+                                wallRoles: { ...(sel.room.wallRoles ?? {}), [selectedWall]: feat.role },
+                                styleDirection: 'luxury_modern',
+                              });
+                              setSaveState(`Applied ${feat.name} to selected wall.`);
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '7px 10px',
+                              borderRadius: 6,
+                              border: '1px solid #ebdccb',
+                              background: '#fffdf9',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: 'var(--text-primary)',
+                              cursor: selectedWall ? 'pointer' : 'not-allowed',
+                              opacity: selectedWall ? 1 : 0.6,
+                              textAlign: 'left',
+                            }}
+                          >
+                            <span>{feat.name}</span>
+                            <Sparkles size={12} style={{ color: 'var(--gold)' }} />
+                          </button>
+                        ))}
+                      </div>
+
+                      <label style={{ fontSize: 11, fontWeight: 700, marginTop: 4 }}>Preferred 3D Camera View</label>
+                      <select
+                        value={sel.room.preferredCamera ?? ''}
+                        onChange={(e) => patchRoom(sel.room.id, { preferredCamera: e.target.value })}
+                        style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--line)' }}
+                      >
+                        <option value="">Let the scene compiler choose</option>
+                        <option value="entry_to_feature">Entry to feature wall</option>
+                        <option value="corner_wide">Wide corner overview</option>
+                        <option value="feature_to_entry">Feature wall to entry</option>
+                        <option value="elevation">Straight technical elevation</option>
+                      </select>
+                    </div>
+                  );
+                })()}
 
                 {spacePanel === 'advisor' && (() => {
                   const audit = evaluateSeniorDesignerAudit(sel.room, walls, openings);
