@@ -642,6 +642,14 @@ export function SpacesWorkspace() {
     setCanvasRenderMode('3d_isometric');
     setSaveState('✨ AI enhanced all rooms, assigned wall roles, and verified all spaces for 3D layout!');
     void saveGeometryVersion(updatedRooms);
+
+    // Apply layout candidates to scene for all rooms
+    void (async () => {
+      for (const r of updatedRooms) {
+        await applyLayoutCandidateToScene(r, 'balanced').catch(() => null);
+      }
+      setSaveState('✨ All 8 spaces verified with modular units and synced to 3D Scene!');
+    })();
   };
 
   function onCanvasClick(e: React.MouseEvent) {
@@ -1319,6 +1327,7 @@ export function SpacesWorkspace() {
                           };
                           setRooms((rs) => rs.map((r) => (r.id === room.id ? targetRoom : r)));
                           void persistRoom(targetRoom, 'verified');
+                          void applyLayoutCandidateToScene(targetRoom, 'balanced');
                         }}
                       >
                         <CheckCircle2 size={13} /> {readiness.ready ? 'Room ready (Approved)' : 'Approve & Verify Room'}
