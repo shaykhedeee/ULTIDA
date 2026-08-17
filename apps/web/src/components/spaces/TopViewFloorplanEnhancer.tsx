@@ -228,7 +228,184 @@ export default function TopViewFloorplanEnhancer({
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id ?? null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [showVastuOverlay, setShowVastuOverlay] = useState<boolean>(true);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // ------------------------------------------
+  // VASTU SHASTRA DIRECTIONAL ANALYSIS
+  // ------------------------------------------
+  const vastuAnalysis = useMemo(() => {
+    const findings: Array<{ title: string; zone: string; status: 'auspicious' | 'neutral' | 'remedy'; advice: string }> = [];
+    let compliantPoints = 0;
+    let totalEvaluated = 0;
+
+    items.forEach((item) => {
+      totalEvaluated += 1;
+      const normX = (item.xMm + item.widthMm / 2) / room.widthMm; // 0 (West) -> 1 (East)
+      const normY = (item.yMm + item.depthMm / 2) / room.lengthMm; // 0 (North) -> 1 (South)
+
+      // Determine Zone:
+      // Top-Right = NE (Ishanya), Bottom-Right = SE (Agneya)
+      // Bottom-Left = SW (Nairutya), Top-Left = NW (Vayavya)
+      // Top-Center = N (Kubera), Bottom-Center = S (Yama)
+      // Left-Center = W (Varuna), Right-Center = E (Indra)
+      const isNorth = normY < 0.4;
+      const isSouth = normY > 0.6;
+      const isEast = normX > 0.6;
+      const isWest = normX < 0.4;
+
+      let zoneName = 'Central Brahmasthan';
+      if (isNorth && isEast) zoneName = 'North-East (Ishanya)';
+      else if (isSouth && isEast) zoneName = 'South-East (Agneya)';
+      else if (isSouth && isWest) zoneName = 'South-West (Nairutya)';
+      else if (isNorth && isWest) zoneName = 'North-West (Vayavya)';
+      else if (isNorth) zoneName = 'North (Kubera)';
+      else if (isSouth) zoneName = 'South (Yama)';
+      else if (isEast) zoneName = 'East (Indra / Surya)';
+      else if (isWest) zoneName = 'West (Varuna)';
+
+      if (item.category === 'bed') {
+        if (zoneName.includes('South-West') || zoneName.includes('South')) {
+          compliantPoints += 1;
+          findings.push({
+            title: `${item.name} in ${zoneName}`,
+            zone: zoneName,
+            status: 'auspicious',
+            advice: 'Auspicious: Master bed in SW/South zone promotes leadership, health, and grounding stability.',
+          });
+        } else {
+          findings.push({
+            title: `${item.name} in ${zoneName}`,
+            zone: zoneName,
+            status: 'remedy',
+            advice: 'Vastu Recommendation: Shift bed towards South-West (Nairutya) for maximum energetic harmony.',
+          });
+        }
+      } else if (item.name.toLowerCase().includes('mandir') || item.name.toLowerCase().includes('pooja')) {
+        if (zoneName.includes('North-East') || zoneName.includes('East')) {
+          compliantPoints += 1;
+          findings.push({
+            title: `${item.name} in ${zoneName}`,
+            zone: zoneName,
+            status: 'auspicious',
+            advice: 'Highly Auspicious: Sacred Mandir in Ishanya (NE) channels divine spiritual vibrations and clarity.',
+          });
+        } else {
+          findings.push({
+            title: `${item.name} in ${zoneName}`,
+            zone: zoneName,
+            status: 'remedy',
+            advice: 'Vastu Recommendation: Position Mandir in North-East corner for divine alignment.',
+          });
+        }
+      } else if (item.category === 'modular_storage' && item.name.toLowerCase().includes('kitchen')) {
+        if (zoneName.includes('South-East') || zoneName.includes('East')) {
+          compliantPoints += 1;
+          findings.push({
+            title: `${item.name} in ${zoneName}`,
+            zone: zoneName,
+            status: 'auspicious',
+            advice: 'Auspicious: Cooking zone in Agneya (SE) governs the fire element (Agni), bestowing prosperity.',
+          });
+        } else {
+          findings.push({
+            title: `${item.name} in ${zoneName}`,
+            zone: zoneName,
+            status: 'remedy',
+            advice: 'Vastu Recommendation: Align cooking hob and kitchen base towards South-East.',
+          });
+        }
+      } else if (item.category === 'seating' || item.category === 'modular_storage') {
+        if (zoneName.includes('North') || zoneName.includes('East') || zoneName.includes('West')) {
+          compliantPoints += 1;
+          findings.push({
+            title: `${item.name} in ${zoneName}`,
+            zone: zoneName,
+            status: 'auspicious',
+            advice: 'Auspicious: Entertainment & social seating welcomes positive Kubera/Indra prana energy.',
+          });
+        } else {
+          compliantPoints += 0.5;
+          findings.push({
+            title: `${item.name} in ${zoneName}`,
+            zone: zoneName,
+            status: 'neutral',
+            advice: 'Harmonious placement.',
+          });
+        }
+      } else {
+        compliantPoints += 0.8;
+      }
+    });
+
+    const score = totalEvaluated > 0 ? Math.min(100, Math.round((compliantPoints / totalEvaluated) * 100)) : 92;
+
+    return {
+      score,
+      findings,
+    };
+  }, [items, room]);
+
+  const handleAutoAlignVastu = () => {
+    const updated = items.map((item) => {
+      if (item.category === 'bed') {
+        // SW (Nairutya)
+        return {
+          ...item,
+          xMm: Math.round(room.widthMm * 0.1),
+          yMm: Math.round(room.lengthMm * 0.55),
+          rotationDeg: 0,
+        };
+      }
+      if (item.name.toLowerCase().includes('mandir') || item.name.toLowerCase().includes('pooja')) {
+        // NE (Ishanya)
+        return {
+          ...item,
+          xMm: Math.round(room.widthMm * 0.72),
+          yMm: Math.round(room.lengthMm * 0.08),
+          rotationDeg: 0,
+        };
+      }
+      if (item.category === 'modular_storage' && (item.name.toLowerCase().includes('tv') || item.name.toLowerCase().includes('console'))) {
+        // North wall (Kubera)
+        return {
+          ...item,
+          xMm: Math.round(room.widthMm * 0.28),
+          yMm: Math.round(room.lengthMm * 0.05),
+          rotationDeg: 0,
+        };
+      }
+      if (item.category === 'seating') {
+        // Facing North/East in Center-West
+        return {
+          ...item,
+          xMm: Math.round(room.widthMm * 0.22),
+          yMm: Math.round(room.lengthMm * 0.35),
+          rotationDeg: 0,
+        };
+      }
+      if (item.category === 'dining') {
+        // West (Varuna)
+        return {
+          ...item,
+          xMm: Math.round(room.widthMm * 0.55),
+          yMm: Math.round(room.lengthMm * 0.52),
+          rotationDeg: 0,
+        };
+      }
+      if (item.category === 'table') {
+        return {
+          ...item,
+          xMm: Math.round(room.widthMm * 0.34),
+          yMm: Math.round(room.lengthMm * 0.48),
+          rotationDeg: 0,
+        };
+      }
+      return item;
+    });
+
+    setItems(updated);
+  };
 
   // ------------------------------------------
   // CALCULATED METRICS & DYNAMIC BOM
@@ -367,7 +544,50 @@ export default function TopViewFloorplanEnhancer({
 
       ctx.restore();
     });
-  }, [room, items, selectedId]);
+
+    // 4. Draw Vastu Shastra Sacred Compass & Directional Grid Overlay
+    if (showVastuOverlay) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.25)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+
+      // 3x3 Vastu Purusha Mandala Grid Lines
+      const w3 = width / 3;
+      const h3 = height / 3;
+      ctx.beginPath();
+      ctx.moveTo(w3, 0); ctx.lineTo(w3, height);
+      ctx.moveTo(w3 * 2, 0); ctx.lineTo(w3 * 2, height);
+      ctx.moveTo(0, h3); ctx.lineTo(width, h3);
+      ctx.moveTo(0, h3 * 2); ctx.lineTo(width, h3 * 2);
+      ctx.stroke();
+
+      // Zone Badges & Sacred Sanskrit Annotations
+      ctx.setLineDash([]);
+      ctx.font = 'bold 9px sans-serif';
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.65)';
+      ctx.textAlign = 'center';
+
+      // Top Row (North zones)
+      ctx.fillText('NW · Vayavya (Air)', w3 * 0.5, 20);
+      ctx.fillText('N · Kubera (Wealth)', w3 * 1.5, 20);
+      ctx.fillText('NE · Ishanya (Pooja/Sacred)', w3 * 2.5, 20);
+
+      // Middle Row
+      ctx.fillText('W · Varuna', w3 * 0.5, h3 * 1.5);
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.35)';
+      ctx.fillText('Brahmasthan (Open Space)', w3 * 1.5, h3 * 1.5);
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.65)';
+      ctx.fillText('E · Indra / Surya', w3 * 2.5, h3 * 1.5);
+
+      // Bottom Row (South zones)
+      ctx.fillText('SW · Nairutya (Master Bed)', w3 * 0.5, height - 12);
+      ctx.fillText('S · Yama (Stability)', w3 * 1.5, height - 12);
+      ctx.fillText('SE · Agneya (Fire/Kitchen)', w3 * 2.5, height - 12);
+
+      ctx.restore();
+    }
+  }, [room, items, selectedId, showVastuOverlay]);
 
   useEffect(() => {
     drawCanvas();
@@ -517,7 +737,48 @@ export default function TopViewFloorplanEnhancer({
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => setShowVastuOverlay(!showVastuOverlay)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                background: showVastuOverlay ? 'rgba(245, 158, 11, 0.15)' : '#292524',
+                border: showVastuOverlay ? '1px solid #f59e0b' : '1px solid #44403c',
+                color: showVastuOverlay ? '#f59e0b' : '#a8a29e',
+                padding: '6px 12px',
+                borderRadius: 8,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Compass size={13} /> {showVastuOverlay ? 'Vastu Grid Active' : 'Show Vastu Grid'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleAutoAlignVastu}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                border: 'none',
+                color: '#000',
+                padding: '6px 12px',
+                borderRadius: 8,
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(245, 158, 11, 0.25)',
+              }}
+            >
+              <Sparkles size={13} /> ✨ Align to Vastu
+            </button>
+
             {selectedItem && (
               <>
                 <button
@@ -648,6 +909,38 @@ export default function TopViewFloorplanEnhancer({
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        {/* Vastu Shastra Directional Audit Card */}
+        <div style={{ background: '#1c1917', border: '1px solid #332d29', borderRadius: 16, padding: 18, color: '#f5f0e8', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #332d29', paddingBottom: 10 }}>
+            <h3 style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 6, margin: 0 }}>
+              <Compass size={16} /> Vastu Shastra Compliance
+            </h3>
+            <span style={{ fontSize: 11, background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '2px 8px', borderRadius: 999, fontWeight: 700, fontFamily: 'monospace' }}>
+              {vastuAnalysis.score}% Compliant
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
+            {vastuAnalysis.findings.map((f, i) => (
+              <div
+                key={i}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: f.status === 'auspicious' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+                  border: `1px solid ${f.status === 'auspicious' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)'}`,
+                  fontSize: 11,
+                }}
+              >
+                <strong style={{ color: f.status === 'auspicious' ? '#34d399' : '#fbbf24', display: 'block', marginBottom: 2 }}>
+                  {f.title}
+                </strong>
+                <span style={{ color: '#a8a29e', lineHeight: 1.4 }}>{f.advice}</span>
+              </div>
+            ))}
           </div>
         </div>
 

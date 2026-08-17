@@ -73,6 +73,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const [reviewVisualJobId, setReviewVisualJobId] = useState<string | null>(null);
   const [visualBusy, setVisualBusy] = useState(false);
   const [compiledSceneId, setCompiledSceneId] = useState<string | null>(sceneVersionId);
+  const [structuralReferenceImage, setStructuralReferenceImage] = useState<string | null>(null);
+  const [structuralImageName, setStructuralImageName] = useState<string | null>(null);
   const [materialLibrary, setMaterialLibrary] = useState<any[]>([]);
   const [materialAssignmentsSaved, setMaterialAssignmentsSaved] = useState(materials.length > 0);
   const [starterMaterialsState, setStarterMaterialsState] = useState('');
@@ -642,7 +644,10 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     if (!projectId) { setVisualState('Select a project before generating a render.'); return; }
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
-      const renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
+      let renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
+      if (structuralImageName) {
+        renderStyle += `; [Structural Context: Site reference elevation '${structuralImageName}' active — strictly integrate existing ceiling beams, structural columns/pillars, and soffit drops into the room architecture and lighting]`;
+      }
       // A normal room render follows the room selected in Visual Studio. A
       // material swap is intentionally narrower and follows the selected
       // module, because its source mask is bound to that module in scene.v1.
@@ -885,7 +890,52 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   Direction & Prompt
                   <input value={style} onChange={(event) => setStyle(event.target.value)} />
                 </label>
-                <label>
+
+                {/* SIDE / STRUCTURAL REFERENCE IMAGE (BEAMS & PILLARS) */}
+                <div style={{ marginTop: '6px', background: '#fafaf9', padding: '8px', borderRadius: '6px', border: '1px dashed #d6d3d1' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <small style={{ fontWeight: 'bold', color: '#78350f', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Layers3 size={13} /> Side / Beam &amp; Pillar Reference
+                    </small>
+                    {structuralImageName && (
+                      <button
+                        type="button"
+                        onClick={() => { setStructuralReferenceImage(null); setStructuralImageName(null); }}
+                        style={{ fontSize: '10px', color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <label style={{ display: 'block', cursor: 'pointer', margin: 0 }}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setStructuralImageName(file.name);
+                        const reader = new FileReader();
+                        reader.onload = () => setStructuralReferenceImage(String(reader.result));
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: structuralImageName ? '#15803d' : '#78716c' }}>
+                      <Image size={14} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {structuralImageName ? `Attached: ${structuralImageName}` : 'Attach photo for site beams/pillars…'}
+                      </span>
+                    </div>
+                  </label>
+                  {structuralImageName && (
+                    <small style={{ fontSize: '9px', color: '#16a34a', display: 'block', marginTop: '3px' }}>
+                      ✓ AI render will condition on site beams, columns and soffit drops.
+                    </small>
+                  )}
+                </div>
+
+                <label style={{ marginTop: '6px' }}>
                   Quality
                   <select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}>
                     <option value="draft">Draft</option>

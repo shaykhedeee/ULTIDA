@@ -238,6 +238,14 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
             </span>
             <ArrowRight size={15} />
           </button>
+          <button onClick={() => openTool('/tools/skp')}>
+            <Box size={17} />
+            <span>
+              <strong>💎 SketchUp Ruby Generator</strong>
+              <small>Photo &amp; specs to .rb 3D script</small>
+            </span>
+            <ArrowRight size={15} />
+          </button>
           <button onClick={() => openTool('/library')}>
             <Image size={17} />
             <span>

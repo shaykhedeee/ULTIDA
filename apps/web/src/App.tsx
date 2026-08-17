@@ -25,6 +25,7 @@ const AuraChat = lazy(() => import('./features/tools/AuraChat').then((module) =>
 const RenderLauncher = lazy(() => import('./features/tools/RenderLauncher').then((module) => ({ default: module.RenderLauncher })));
 const MeasurementConverter = lazy(() => import('./features/tools/MeasurementConverter').then((module) => ({ default: module.MeasurementConverter })));
 const RoomBuilder = lazy(() => import('./features/tools/RoomBuilder').then((module) => ({ default: module.RoomBuilder })));
+const SketchupCodeStudio = lazy(() => import('./features/tools/SketchupCodeStudio').then((module) => ({ default: module.SketchupCodeStudio })));
 
 // Existing feature components — preserved
 import { type ClientBrief, emptyBrief } from './features/project-types';
@@ -1350,6 +1351,8 @@ function DashboardShell({ sessionEmail, orgName, onStudioIdentitySaved }: { sess
         <Route path="tools/render" element={<RenderLauncher />} />
         <Route path="tools/measurements" element={<MeasurementConverter />} />
         <Route path="tools/room-builder" element={<RoomBuilder />} />
+        <Route path="tools/skp" element={<SketchupCodeStudio />} />
+        <Route path="tools/sketchup-generator" element={<SketchupCodeStudio />} />
         <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={null} />} />
         <Route path="templates" element={<Navigate to="/library" replace />} />
         <Route path="modules" element={<Navigate to="/library" replace />} />
