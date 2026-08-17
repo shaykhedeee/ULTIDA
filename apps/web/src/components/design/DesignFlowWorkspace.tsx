@@ -1019,6 +1019,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               </div>
               <Badge>CSV</Badge>
             </div>
+            <div style={{ marginTop: '0.75rem', marginBottom: '0.75rem', padding: '12px 14px', background: '#fafaf9', borderRadius: '8px', border: '1px solid #e7e5e4', fontSize: '11px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
+              <div><span style={{ color: '#78716c', display: 'block' }}>DRAWING SHEET:</span><strong>ULT-DWG-001 (Rev 1)</strong></div>
+              <div><span style={{ color: '#78716c', display: 'block' }}>SCALE:</span><strong>1:20 &amp; 1:50 Metric</strong></div>
+              <div><span style={{ color: '#78716c', display: 'block' }}>PROVENANCE:</span><strong>scene.v1 ({sceneVersionId ? sceneVersionId.slice(0, 8) : 'draft'})</strong></div>
+              <div><span style={{ color: '#78716c', display: 'block' }}>STATUS:</span><strong style={{ color: sceneApproved ? '#15803d' : '#b45309' }}>{sceneApproved ? '✓ Ready for CNC / Millwork' : 'Approval Required'}</strong></div>
+            </div>
             <div className="drawing-actions">
               <Button onClick={() => { void onSceneApproved(); }} disabled={!sceneVersionId || sceneApproved}>
                 {' '}
@@ -1117,6 +1123,40 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 Search templates
                 <input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="TV wall, glass crockery, loft wardrobe" />
               </label>
+              <div style={{ marginTop: '0.5rem', marginBottom: '0.25rem' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>MODULAR CATEGORIES</span>
+                <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                  {[
+                    { id: 'all', label: '🌟 All' },
+                    { id: 'kitchen', label: '🍳 Kitchen' },
+                    { id: 'wardrobe', label: '🚪 Wardrobes' },
+                    { id: 'tv-unit', label: '📺 TV Units' },
+                    { id: 'crockery', label: '🍷 Crockery' },
+                    { id: 'pooja', label: '🪔 Mandir' },
+                    { id: 'study', label: '📚 Study' },
+                    { id: 'utility', label: '🪞 Vanity' },
+                  ].map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setFamilyFilter(cat.id)}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '11px',
+                        fontWeight: familyFilter === cat.id ? 700 : 500,
+                        borderRadius: '16px',
+                        border: familyFilter === cat.id ? '1.5px solid #c59c2d' : '1px solid #d8ccbd',
+                        background: familyFilter === cat.id ? '#fef3c7' : '#fff',
+                        color: familyFilter === cat.id ? '#92400e' : '#57534e',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <label>
                 Module family
                 <select value={familyFilter} onChange={(event) => setFamilyFilter(event.target.value)}>
