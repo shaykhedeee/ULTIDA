@@ -469,7 +469,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     const newModules: Module[] = [];
     
     spaces.forEach((s) => {
-      const targetWall = walls[0];
+      const targetWall = walls.find((w) => w.id.startsWith(s.id) || w.id.includes(s.id)) ?? walls[0];
       const wId = targetWall?.id ?? `wall-${s.id}-1`;
 
       if (s.roomType === 'living' || s.roomType === 'other') {
@@ -592,31 +592,32 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
     const finalModules: Module[] = newModules.length ? newModules : [
       {
-        id: 'mod-tv-default',
-        roomId: spaceId ?? 'room-living',
-        family: 'tv-unit',
-        label: '2400 mm Fluted TV Console Wall',
-        widthMm: 2400,
-        depthMm: 400,
+        id: 'mod-kitchen-default',
+        roomId: spaceId ?? 'room-kitchen',
+        family: 'kitchen',
+        label: '2700 mm Base Drawer & Overhead Kitchen Wall',
+        widthMm: 2700,
+        depthMm: 600,
         heightMm: 2100,
         wallId: wallId ?? 'wall-1',
-        offsetMm: 200,
+        offsetMm: 100,
         configuration: {
           archetype: 'full_wall_storage',
           shutterStyle: 'swing' as const,
-          drawerCount: 3,
-          includeLoft: false,
+          drawerCount: 4,
+          includeLoft: true,
           glassProfile: false,
           sideFillerLeft: false,
           sideFillerRight: false,
-          handleStyle: 'long-profile' as const,
+          handleStyle: 'gola' as const,
           lighting: 'shelf-led' as const,
         },
       }
     ];
 
     setDraftModules(finalModules);
-    setSelectedModuleId(finalModules[0]?.id ?? null);
+    const activeMatch = finalModules.find((m) => m.roomId === spaceId) ?? finalModules[0];
+    setSelectedModuleId(activeMatch?.id ?? null);
     setPlacementNotice(`✨ AI auto-picked feature walls and fitted ${finalModules.length} modular units across all rooms.`);
   };
 
@@ -1342,39 +1343,52 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
             <Badge>{draftModules.length} moodboard modules</Badge>
           </CardHeader>
           <CardContent>
-            <div className="scene-canvas">
-              <div className="scene-room-label">{room.toUpperCase()}</div>
-              {draftModules.map((item, index) => (
-                <button type="button" aria-pressed={item.id === selectedModule?.id} onClick={() => setSelectedModuleId(item.id)} className={`scene-module module-${item.family}${item.id === selectedModule?.id ? ' scene-module-selected' : ''}`} key={item.id} style={{ left: `${12 + (index % 4) * 22}%`, top: `${20 + Math.floor(index / 4) * 24}%` }}>
-                  <Check size={13} />
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            
-            {materials.length > 0 && (
-              <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#fafaf9', borderRadius: '0.375rem', border: '1px dashed #e5e7eb' }}>
-                <small style={{ fontWeight: 'bold', color: '#c59c2d', display: 'block', marginBottom: '0.25rem' }}>ACTIVE MOODBOARD MATERIALS</small>
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  {materials.map((m) => (
-                    <Badge key={m.id} tone="success">{m.name}</Badge>
-                  ))}
-                </div>
-              </div>
-            )}
+            {(() => {
+              const roomModules = draftModules.filter((m) => !spaceId || m.roomId === spaceId);
+              return (
+                <>
+                  <div className="scene-canvas">
+                    <div className="scene-room-label">{room.toUpperCase()}</div>
+                    {roomModules.length ? (
+                      roomModules.map((item, index) => (
+                        <button type="button" aria-pressed={item.id === selectedModule?.id} onClick={() => setSelectedModuleId(item.id)} className={`scene-module module-${item.family}${item.id === selectedModule?.id ? ' scene-module-selected' : ''}`} key={item.id} style={{ left: `${12 + (index % 4) * 22}%`, top: `${20 + Math.floor(index / 4) * 24}%` }}>
+                          <Check size={13} />
+                          {item.label}
+                        </button>
+                      ))
+                    ) : (
+                      <div style={{ display: 'grid', placeItems: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        No modules placed in {room.toUpperCase()} yet. Choose a catalogue module or click "AI Auto-Pick Feature Walls".
+                      </div>
+                    )}
+                  </div>
+                  
+                  {materials.length > 0 && (
+                    <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#fafaf9', borderRadius: '0.375rem', border: '1px dashed #e5e7eb' }}>
+                      <small style={{ fontWeight: 'bold', color: '#c59c2d', display: 'block', marginBottom: '0.25rem' }}>ACTIVE MOODBOARD MATERIALS</small>
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        {materials.map((m) => (
+                          <Badge key={m.id} tone="success">{m.name}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-            <div className="module-list">
-              {draftModules.length ? (
-                draftModules.map((item) => (
-                  <button type="button" key={item.id} className={item.id === selectedModule?.id ? 'module-list-selected' : ''} aria-pressed={item.id === selectedModule?.id} onClick={() => setSelectedModuleId(item.id)}>
-                    <span>{item.label}</span>
-                    <small>{item.widthMm} mm · {item.id === selectedModule?.id ? 'selected' : 'select'}</small>
-                  </button>
-                ))
-              ) : (
-                <p>Add a module to begin the scene.</p>
-              )}
-            </div>
+                  <div className="module-list">
+                    {roomModules.length ? (
+                      roomModules.map((item) => (
+                        <button type="button" key={item.id} className={item.id === selectedModule?.id ? 'module-list-selected' : ''} aria-pressed={item.id === selectedModule?.id} onClick={() => setSelectedModuleId(item.id)}>
+                          <span>{item.label}</span>
+                          <small>{item.widthMm} mm · {item.id === selectedModule?.id ? 'selected' : 'select'}</small>
+                        </button>
+                      ))
+                    ) : (
+                      <p>Add a module to begin the scene for {room}.</p>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>
