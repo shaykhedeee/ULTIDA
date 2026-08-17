@@ -882,6 +882,248 @@ export function SpacesWorkspace() {
     } else setSaveState(p?.message ?? 'Save failed.');
   }
 
+  async function applyFeatureWallToSelectedWall(room: PlanRoom, targetWallId: string, wallTreatmentId: string) {
+    if (!supabase || !projectId) return;
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) { setSaveState('Session expired.'); return; }
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const wallObj = walls.find(w => w.id === targetWallId) ?? roomBoundaryWalls(room).find(w => w.id === targetWallId);
+    const wallLength = wallObj ? wallLen(wallObj) : 2400;
+
+    let templateId = 'wall-fluted-pu-2400';
+    let label = '2400 Fluted Charcoal PU Feature Wall';
+    let widthMm = Math.min(2400, Math.max(1200, Math.round(wallLength - 100)));
+
+    if (wallTreatmentId === 'acoustic-slat') {
+      templateId = 'wall-slat-acoustic-2400';
+      label = '2400 Vertical Walnut Acoustic Slat Wall';
+    } else if (wallTreatmentId === 'french-wainscot') {
+      templateId = 'wall-wainscot-french-3000';
+      label = '3000 French Classical Moulding & Wainscoting';
+      widthMm = Math.min(3000, Math.max(1200, Math.round(wallLength - 100)));
+    } else if (wallTreatmentId === 'calacatta-sintered') {
+      templateId = 'wall-sintered-calacatta-2400';
+      label = '2400 Calacatta Sintered Stone Feature Wall';
+    }
+
+    setSaveState(`Applying ${label} to Wall…`);
+    try {
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` };
+      const postRes = await fetch(`${apiBase}/projects/${projectId}/module-instances`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          spaceId: room.id,
+          templateId,
+          category: 'feature-wall',
+          label,
+          config: {
+            family: 'feature-wall',
+            widthMm,
+            depthMm: 50,
+            heightMm: room.ceilingHeightMm ?? 2700,
+            zOffsetMm: 0,
+          },
+          position: {
+            wallId: targetWallId,
+            offsetMm: Math.max(0, Math.round((wallLength - widthMm) / 2)),
+          },
+        }),
+      });
+      if (postRes.ok) {
+        await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, { method: 'POST', headers });
+        setSaveState(`✨ Added ${label} to Wall (${widthMm}mm run). 3D Scene updated!`);
+      }
+    } catch {
+      setSaveState('Feature wall placement could not be saved.');
+    }
+  }
+
+  async function applyLayoutCandidateToScene(room: PlanRoom, candidateType: 'circulation' | 'balanced' | 'storage') {
+    const cats = defaultCategoriesForRoom(room.roomType, candidateType);
+    patchRoom(room.id, { requiredFurniture: cats, designPriority: candidateType });
+    await persistRoom({ ...room, requiredFurniture: cats, designPriority: candidateType }, 'verified');
+
+    if (!supabase || !projectId) return;
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) return;
+    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` };
+
+    const rWalls = wallsForRoom(room);
+    const wallA = rWalls[0];
+    const wallB = rWalls[1] ?? rWalls[0];
+
+    const modulesToPlace: Array<{
+      templateId: string;
+      category: string;
+      label: string;
+      config: {
+        family: string;
+        widthMm: number;
+        depthMm: number;
+        heightMm: number;
+        zOffsetMm?: number;
+      };
+      position: {
+        wallId?: string;
+        offsetMm?: number;
+        xMm?: number;
+        yMm?: number;
+      };
+    }> = [];
+
+    if (room.roomType === 'kitchen') {
+      modulesToPlace.push({
+        templateId: 'kit-base-tandem-2pot-600',
+        category: 'kitchen-base',
+        label: '600 2-Pot Deep Tandem Base',
+        config: { family: 'kitchen-base', widthMm: 600, depthMm: 600, heightMm: 750, zOffsetMm: 0 },
+        position: { wallId: wallA?.id, offsetMm: 0 },
+      });
+      modulesToPlace.push({
+        templateId: 'kit-base-cutlery-600',
+        category: 'kitchen-base',
+        label: '600 3-Drawer Cutlery Base',
+        config: { family: 'kitchen-base', widthMm: 600, depthMm: 600, heightMm: 750, zOffsetMm: 0 },
+        position: { wallId: wallA?.id, offsetMm: 600 },
+      });
+      modulesToPlace.push({
+        templateId: 'kit-base-sink-900',
+        category: 'kitchen-base',
+        label: '900 Sink Base Unit',
+        config: { family: 'kitchen-base', widthMm: 900, depthMm: 600, heightMm: 750, zOffsetMm: 0 },
+        position: { wallId: wallA?.id, offsetMm: 1200 },
+      });
+      modulesToPlace.push({
+        templateId: 'kit-base-bottle-200',
+        category: 'kitchen-base',
+        label: '200 Bottle Pull-Out Base',
+        config: { family: 'kitchen-base', widthMm: 200, depthMm: 600, heightMm: 750, zOffsetMm: 0 },
+        position: { wallId: wallA?.id, offsetMm: 2100 },
+      });
+      modulesToPlace.push({
+        templateId: candidateType === 'circulation' ? 'kit-wall-normal-600' : 'kit-wall-profile-glass-600',
+        category: 'kitchen-wall',
+        label: candidateType === 'circulation' ? '600 Solid Shutter Wall Unit' : '600 Profile-Glass Wall Cabinet',
+        config: { family: 'kitchen-wall', widthMm: 600, depthMm: 350, heightMm: 720, zOffsetMm: 1450 },
+        position: { wallId: wallA?.id, offsetMm: 0 },
+      });
+      modulesToPlace.push({
+        templateId: 'kit-wall-bifold-900',
+        category: 'kitchen-wall',
+        label: '900 Bi-Fold Lift-Up Wall Unit',
+        config: { family: 'kitchen-wall', widthMm: 900, depthMm: 350, heightMm: 720, zOffsetMm: 1450 },
+        position: { wallId: wallA?.id, offsetMm: 600 },
+      });
+      if (candidateType !== 'circulation') {
+        modulesToPlace.push({
+          templateId: 'kit-tall-microwave-600',
+          category: 'kitchen-tall',
+          label: '600 Built-in Microwave & Oven Tower',
+          config: { family: 'kitchen-tall', widthMm: 600, depthMm: 600, heightMm: 2100, zOffsetMm: 0 },
+          position: { wallId: wallB?.id, offsetMm: 0 },
+        });
+        modulesToPlace.push({
+          templateId: 'kit-tall-pantry-600',
+          category: 'kitchen-tall',
+          label: '600 12-Basket Pantry Pull-Out Tower',
+          config: { family: 'kitchen-tall', widthMm: 600, depthMm: 600, heightMm: 2100, zOffsetMm: 0 },
+          position: { wallId: wallB?.id, offsetMm: 600 },
+        });
+      }
+    } else if (room.roomType === 'living') {
+      modulesToPlace.push({
+        templateId: 'tv-fluted-2400',
+        category: 'tv-unit',
+        label: '2400 Fluted Media Wall Console',
+        config: { family: 'tv-unit', widthMm: 2400, depthMm: 400, heightMm: 2400, zOffsetMm: 200 },
+        position: { wallId: wallA?.id, offsetMm: 100 },
+      });
+      modulesToPlace.push({
+        templateId: 'wall-fluted-pu-2400',
+        category: 'feature-wall',
+        label: '2400 Fluted Charcoal PU Feature Wall',
+        config: { family: 'feature-wall', widthMm: 2400, depthMm: 50, heightMm: 2700, zOffsetMm: 0 },
+        position: { wallId: wallA?.id, offsetMm: 100 },
+      });
+      modulesToPlace.push({
+        templateId: 'sofa-curved-boucle-2800',
+        category: 'sofa',
+        label: '2800 Curved Bouclé Sectional Sofa',
+        config: { family: 'sofa', widthMm: 2800, depthMm: 1600, heightMm: 800, zOffsetMm: 0 },
+        position: { wallId: wallB?.id, offsetMm: 200 },
+      });
+    } else if (room.roomType === 'bedroom' || room.roomType === 'master_bedroom') {
+      modulesToPlace.push({
+        templateId: 'bed-floating-led-1800',
+        category: 'bed',
+        label: '1800 Floating King Bed with LED',
+        config: { family: 'bed', widthMm: 1800, depthMm: 2100, heightMm: 1100, zOffsetMm: 0 },
+        position: { wallId: wallA?.id, offsetMm: 200 },
+      });
+      modulesToPlace.push({
+        templateId: candidateType === 'storage' ? 'wardrobe-6-shutter-vanity-3200' : 'wardrobe-2100-four-shutter',
+        category: 'wardrobe',
+        label: candidateType === 'storage' ? '3200 6-Shutter Wardrobe with Vanity' : '2100 Four-Shutter Wardrobe with Loft',
+        config: { family: 'wardrobe', widthMm: candidateType === 'storage' ? 3200 : 2100, depthMm: 600, heightMm: 2700, zOffsetMm: 0 },
+        position: { wallId: wallB?.id, offsetMm: 0 },
+      });
+    } else if (room.roomType === 'dining') {
+      modulesToPlace.push({
+        templateId: 'dining-calacatta-gold-2100',
+        category: 'dining',
+        label: '2100 Calacatta Gold Marble Dining Table',
+        config: { family: 'dining', widthMm: 2100, depthMm: 1000, heightMm: 750, zOffsetMm: 0 },
+        position: { wallId: wallA?.id, offsetMm: 200 },
+      });
+      modulesToPlace.push({
+        templateId: 'crockery-1800',
+        category: 'crockery',
+        label: '1800 Full-Wall Crockery & Wine Bar',
+        config: { family: 'crockery', widthMm: 1800, depthMm: 450, heightMm: 2400, zOffsetMm: 0 },
+        position: { wallId: wallB?.id, offsetMm: 0 },
+      });
+    } else if (room.roomType === 'pooja') {
+      modulesToPlace.push({
+        templateId: 'pooja-mandir-mandapa-1500',
+        category: 'pooja',
+        label: '1500 Sacred Teak Mandir with CNC Jaali',
+        config: { family: 'pooja', widthMm: 1500, depthMm: 450, heightMm: 2300, zOffsetMm: 0 },
+        position: { wallId: wallA?.id, offsetMm: 100 },
+      });
+    } else if (room.roomType === 'study') {
+      modulesToPlace.push({
+        templateId: 'study-1500',
+        category: 'study',
+        label: '1500 Study Desk with Overhead Storage',
+        config: { family: 'study', widthMm: 1500, depthMm: 600, heightMm: 2400, zOffsetMm: 0 },
+        position: { wallId: wallA?.id, offsetMm: 100 },
+      });
+    }
+
+    try {
+      await Promise.all(modulesToPlace.map((mod) =>
+        fetch(`${apiBase}/projects/${projectId}/module-instances`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            spaceId: room.id,
+            templateId: mod.templateId,
+            category: mod.category,
+            label: mod.label,
+            config: mod.config,
+            position: mod.position,
+          }),
+        })
+      ));
+      await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, { method: 'POST', headers });
+      setSaveState(`✨ Applied ${candidateType.toUpperCase()} layout to ${room.name} (${modulesToPlace.length} units created). Scene updated!`);
+    } catch {
+      setSaveState(`Applied layout preference to ${room.name}.`);
+    }
+  }
+
   async function openLayoutStudio() {
     if (!overallReadiness.approved) {
       setSaveState('Select and prepare at least one room before opening Layout Studio. Other rooms can be completed later.');
@@ -1356,10 +1598,7 @@ export function SpacesWorkspace() {
                           className="cand-apply-btn"
                           onClick={(e) => {
                             e.stopPropagation();
-                            const cats = defaultCategoriesForRoom(sel.room.roomType, 'circulation');
-                            patchRoom(sel.room.id, { requiredFurniture: cats, designPriority: 'circulation' });
-                            void persistRoom({ ...sel.room, requiredFurniture: cats, designPriority: 'circulation' }, 'verified');
-                            setSaveState(`Applied Best Circulation layout to ${sel.room.name}.`);
+                            void applyLayoutCandidateToScene(sel.room, 'circulation');
                           }}
                         >
                           <CheckCircle2 size={13} /> Select &amp; Apply Layout
@@ -1390,10 +1629,7 @@ export function SpacesWorkspace() {
                           className="cand-apply-btn"
                           onClick={(e) => {
                             e.stopPropagation();
-                            const cats = defaultCategoriesForRoom(sel.room.roomType, 'balanced');
-                            patchRoom(sel.room.id, { requiredFurniture: cats, designPriority: 'balanced' });
-                            void persistRoom({ ...sel.room, requiredFurniture: cats, designPriority: 'balanced' }, 'verified');
-                            setSaveState(`Applied Balanced layout to ${sel.room.name}.`);
+                            void applyLayoutCandidateToScene(sel.room, 'balanced');
                           }}
                         >
                           <CheckCircle2 size={13} /> Select &amp; Apply Layout
@@ -1424,10 +1660,7 @@ export function SpacesWorkspace() {
                           className="cand-apply-btn"
                           onClick={(e) => {
                             e.stopPropagation();
-                            const cats = defaultCategoriesForRoom(sel.room.roomType, 'storage');
-                            patchRoom(sel.room.id, { requiredFurniture: cats, designPriority: 'storage' });
-                            void persistRoom({ ...sel.room, requiredFurniture: cats, designPriority: 'storage' }, 'verified');
-                            setSaveState(`Applied Maximum Storage layout to ${sel.room.name}.`);
+                            void applyLayoutCandidateToScene(sel.room, 'storage');
                           }}
                         >
                           <CheckCircle2 size={13} /> Select &amp; Apply Layout
@@ -1451,9 +1684,94 @@ export function SpacesWorkspace() {
                     <div><span>Deductions</span><strong>{sel.usable.deductionsMm} mm</strong></div>
                   </div>
                   <div className="wall-verification-list">
-                    <strong>Confirm room walls &amp; openings</strong>
-                    <p>Select a wall on the canvas to inspect 2D elevation, door swings, and window restrictions.</p>
-                    {roomBoundaryWalls(sel.room).map((wall, index) => <div key={wall.id}><span>Wall {String.fromCharCode(65 + index)}</span><strong>{Math.round(wallLen(wall))} mm</strong></div>)}
+                    <strong>Interactive Wall Picker &amp; Elevation Setup</strong>
+                    <p>Click a wall to inspect technical 2D elevation, door/window clearances, or apply Design Feature Walls.</p>
+                    <div className="wall-picker-grid">
+                      {roomBoundaryWalls(sel.room).map((wall, index) => {
+                        const isSelected = selectedWall === wall.id;
+                        const wLen = Math.round(wallLen(wall));
+                        const label = `Wall ${String.fromCharCode(65 + index)}`;
+                        const assignedRole = sel.room.wallRoles?.[wall.id];
+                        return (
+                          <div
+                            key={wall.id}
+                            className={`wall-picker-card ${isSelected ? 'selected' : ''}`}
+                            onClick={() => setSelectedWall(isSelected ? null : wall.id)}
+                          >
+                            <div className="wpc-header">
+                              <span className="wpc-badge">{label}</span>
+                              <strong>{wLen} mm</strong>
+                            </div>
+                            {assignedRole && <span className="wpc-role-tag">{assignedRole.replaceAll('_', ' ')}</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {selectedWall && (
+                      <div className="wall-elevation-panel">
+                        <div className="wep-title">
+                          <span>Technical Elevation — {roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall) >= 0 ? `Wall ${String.fromCharCode(65 + roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall))}` : 'Selected Wall'}</span>
+                          <small>Standard Height: {sel.room.ceilingHeightMm ?? ceilingHeightMm} mm</small>
+                        </div>
+                        {/* 2D Technical Elevation Blueprint Vector */}
+                        <div className="wep-canvas-box">
+                          <svg viewBox="0 0 320 120" className="wep-elevation-svg">
+                            <defs>
+                              <pattern id="wep-grid" width="10" height="10" patternUnits="userSpaceOnUse">
+                                <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#2a333d" strokeWidth="0.5" />
+                              </pattern>
+                            </defs>
+                            <rect width="320" height="120" fill="#0f1419" />
+                            <rect x="20" y="15" width="280" height="90" fill="url(#wep-grid)" stroke="#4a5a6a" strokeWidth="1.5" />
+                            {/* Base Zone (0-850mm) */}
+                            <rect x="20" y="75" width="280" height="30" fill="#1b242e" opacity="0.7" stroke="#3b4856" strokeDasharray="3 3" />
+                            <text x="25" y="95" fill="#7a8d9f" fontSize="7" fontWeight="bold">BASE ZONE (850mm)</text>
+                            {/* Counter / Dado Zone (850-1450mm) */}
+                            <rect x="20" y="55" width="280" height="20" fill="#141c24" opacity="0.5" />
+                            <text x="25" y="68" fill="#586b7d" fontSize="6">DADO / CLEARANCE (600mm)</text>
+                            {/* Wall Unit Zone (1450-2170mm) */}
+                            <rect x="20" y="27" width="280" height="28" fill="#222e3a" opacity="0.8" stroke="#485c70" />
+                            <text x="25" y="45" fill="#9ab0c5" fontSize="7" fontWeight="bold">WALL UNIT / LOFT (1450-2700mm)</text>
+                            <line x1="20" y1="105" x2="300" y2="105" stroke="#d4af37" strokeWidth="2" />
+                          </svg>
+                        </div>
+
+                        <div className="wep-feature-actions">
+                          <label>Apply Design Feature Wall Treatment:</label>
+                          <div className="wep-feature-buttons">
+                            <button
+                              type="button"
+                              className="wep-treatment-btn"
+                              onClick={() => void applyFeatureWallToSelectedWall(sel.room, selectedWall, 'fluted-pu')}
+                            >
+                              <span>🎨 Fluted Charcoal PU (2400mm)</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="wep-treatment-btn"
+                              onClick={() => void applyFeatureWallToSelectedWall(sel.room, selectedWall, 'acoustic-slat')}
+                            >
+                              <span>🪵 Walnut Acoustic Slat (2400mm)</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="wep-treatment-btn"
+                              onClick={() => void applyFeatureWallToSelectedWall(sel.room, selectedWall, 'french-wainscot')}
+                            >
+                              <span>🏛️ French Wainscot (3000mm)</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="wep-treatment-btn"
+                              onClick={() => void applyFeatureWallToSelectedWall(sel.room, selectedWall, 'calacatta-sintered')}
+                            >
+                              <span>💎 Calacatta Sintered Stone</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </>}
 

@@ -911,5 +911,115 @@
   background: #fdfbf7;
 }
 
-
-
+/* ─── Interactive Wall Picker & 2D Elevation Panel ─── */
+.wall-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+.wall-picker-card {
+  padding: 8px 10px;
+  border: 1px solid #e2d9cd;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wall-picker-card:hover {
+  border-color: #c59c2d;
+  background: #fdfaf3;
+}
+.wall-picker-card.selected {
+  border-color: #c59c2d;
+  background: #fbf5e5;
+  box-shadow: 0 0 0 2px rgba(197, 156, 45, 0.2);
+}
+.wpc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+.wpc-badge {
+  font-weight: 800;
+  color: #5c4635;
+  background: #ede6dc;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.wpc-role-tag {
+  font-size: 9px;
+  color: #8c6818;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.wall-elevation-panel {
+  margin-top: 10px;
+  padding: 12px;
+  background: #182028;
+  border-radius: 10px;
+  border: 1px solid #2d3b4a;
+  color: #e5edf5;
+}
+.wep-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.wep-title small {
+  color: #9cb0c4;
+  font-weight: normal;
+}
+.wep-canvas-box {
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #334455;
+  margin-bottom: 10px;
+}
+.wep-elevation-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.wep-feature-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wep-feature-actions label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #d4af37;
+  font-weight: 700;
+  margin: 0;
+}
+.wep-feature-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.wep-treatment-btn {
+  padding: 6px 8px;
+  background: #24303d;
+  border: 1px solid #3b4d5e;
+  border-radius: 6px;
+  color: #f0f4f8;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+.wep-treatment-btn:hover {
+  background: #314254;
+  border-color: #d4af37;
+  color: #ffffff;
+}

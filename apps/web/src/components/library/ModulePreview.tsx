@@ -29,6 +29,7 @@ const paletteByFamily: Record<string, { front: string; side: string; top: string
   sofa: { front: '#aeb8af', side: '#7e8d82', top: '#dbe0da', accent: '#4f6255' },
   dining: { front: '#c39e76', side: '#8e684c', top: '#ead7c2', accent: '#63452f' },
   'false-ceiling': { front: '#e9e7e2', side: '#bcb9b1', top: '#ffffff', accent: '#b18a42' },
+  'feature-wall': { front: '#2e3338', side: '#1f2327', top: '#454c52', accent: '#d4af37' },
 };
 
 function Cabinet({ module, colours }: { module: ModulePreviewData; colours: { front: string; side: string; top: string; accent: string } }) {

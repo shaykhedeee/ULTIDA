@@ -1080,55 +1080,57 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     <option value="full_wall_storage">Full wall storage</option>
                     <option value="minimal_floating">Minimal floating</option>
                     <option value="asymmetric_profile_glass">Asymmetric profile glass</option>
+                    <option value="kitchen_tandem_base">Kitchen Tandem &amp; Cutlery Base</option>
+                    <option value="kitchen_microwave_tower">Built-in Microwave &amp; Oven Tower</option>
+                    <option value="kitchen_pantry_tower">12-Basket Pantry Pull-Out Tower</option>
+                    <option value="kitchen_lemans_corner">LeMans II Blind Corner Base</option>
                     <option value="tv_plus_study">TV plus study and library</option>
                     <option value="tv_plus_crockery">TV plus crockery</option>
-                    <option value="tv_plus_partition">TV plus slatted partition</option>
-                    <option value="french_beading_panel">French beading feature wall</option>
-                    <option value="curved_contemporary">Curved contemporary return</option>
+                    <option value="french_beading_panel">French boiserie feature wall</option>
+                    <option value="fluted_pu_panel">Fluted Charcoal PU feature wall</option>
+                    <option value="acoustic_slat_panel">Walnut Acoustic Slat wall</option>
                     <option value="profile_glass_display">Profile glass display</option>
-                    <option value="open_niche_storage">Open niche storage</option>
                   </select>
                 </label>
                 <label>
-                  Front style
+                  Shutter &amp; Front Style
                   <select value={moduleConfiguration.shutterStyle} onChange={(event) => setModuleConfiguration((current) => ({ ...current, shutterStyle: event.target.value as ModuleConfiguration['shutterStyle'], glassProfile: event.target.value === 'profile-glass' }))}>
-                    <option value="swing">Swing shutters</option>
-                    <option value="sliding">Sliding shutters</option>
-                    <option value="profile-glass">Aluminium profile glass</option>
-                    <option value="open">Open shelving</option>
+                    <option value="swing">Normal Solid Shutter (Acrylic / Laminate)</option>
+                    <option value="profile-glass">Tinted Fluted Profile-Glass Shutter (Graphite Aluminium + LED)</option>
+                    <option value="sliding">Sliding Shutter System</option>
+                    <option value="open">Open Niche Shelving</option>
                   </select>
                 </label>
                 <label>
-                  Drawer count
+                  Drawer &amp; Tandem Configuration
                   <select value={moduleConfiguration.drawerCount} onChange={(event) => setModuleConfiguration((current) => ({ ...current, drawerCount: Number(event.target.value) }))}>
-                    <option value={0}>No drawers</option>
-                    <option value={2}>2 drawers</option>
-                    <option value={3}>3 drawers</option>
-                    <option value={4}>4 drawers</option>
+                    <option value={0}>Standard Single Door (No drawers)</option>
+                    <option value={2}>2-Pot Deep Tandem Drawers (65kg Soft-Close)</option>
+                    <option value={3}>3-Drawer Cutlery, Cup-Saucer &amp; Pot Tandems</option>
+                    <option value={4}>4 Shallow Utility Drawers</option>
                   </select>
                 </label>
                 <label>
-                  Handle/profile
+                  Handle / Profile Style
                   <select value={moduleConfiguration.handleStyle} onChange={(event) => setModuleConfiguration((current) => ({ ...current, handleStyle: event.target.value as ModuleConfiguration['handleStyle'] }))}>
-                    <option value="long-profile">Long profile handle</option>
-                    <option value="gola">Gola / finger groove</option>
-                    <option value="knob">Knob handle</option>
-                    <option value="none">Handleless</option>
+                    <option value="long-profile">Long edge aluminium profile handle</option>
+                    <option value="gola">J-Pull / C-Gola seamless groove</option>
+                    <option value="knob">Minimal brushed brass / matte black knob</option>
+                    <option value="none">Tip-on push release (Handleless)</option>
                   </select>
                 </label>
                 <label>
-                  Lighting
+                  Integrated Lighting
                   <select value={moduleConfiguration.lighting} onChange={(event) => setModuleConfiguration((current) => ({ ...current, lighting: event.target.value as ModuleConfiguration['lighting'] }))}>
                     <option value="none">No integrated lighting</option>
-                    <option value="shelf-led">Shelf LED</option>
-                    <option value="vertical-led">Vertical LED</option>
+                    <option value="shelf-led">Concealed under-cabinet warm 3000K LED</option>
+                    <option value="vertical-led">Vertical sensor-activated profile LED</option>
                   </select>
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
                   <input type="checkbox" checked={moduleConfiguration.includeLoft} onChange={(event) => setModuleConfiguration((current) => ({ ...current, includeLoft: event.target.checked }))} />
-                  Include loft where the verified ceiling clearance allows it
+                  Include loft unit with 50 mm ceiling closure filler
                 </label>
-                {moduleConfiguration.includeLoft && <small style={{ color: 'var(--text-muted)' }}>A 50 mm loft closure filler is included in the production parts.</small>}
                 <div className="side-filler-options">
                   <label><input type="checkbox" checked={moduleConfiguration.sideFillerLeft} onChange={(event) => setModuleConfiguration((current) => ({ ...current, sideFillerLeft: event.target.checked }))} /> 30 mm left wall filler</label>
                   <label><input type="checkbox" checked={moduleConfiguration.sideFillerRight} onChange={(event) => setModuleConfiguration((current) => ({ ...current, sideFillerRight: event.target.checked }))} /> 30 mm right wall filler</label>
