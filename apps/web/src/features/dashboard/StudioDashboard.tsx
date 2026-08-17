@@ -193,6 +193,33 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
               Generate Renders <ArrowRight size={13} />
             </div>
           </div>
+
+          <div
+            onClick={() => openTool('/tools/render')}
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              padding: '16px',
+              borderRadius: 12,
+              border: '1px solid rgba(255,255,255,0.1)',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#c59c2d' }}>STEP 5</span>
+                <Sparkles size={15} style={{ color: '#c59c2d' }} />
+              </div>
+              <strong style={{ fontSize: 15, color: '#fff', display: 'block', marginBottom: 4 }}>CAD Drawings &amp; Brief</strong>
+              <p style={{ fontSize: 12, color: '#a8a29e', margin: 0 }}>System 32 technical elevations, executive PDF brief &amp; cutlist.</p>
+            </div>
+            <div style={{ marginTop: 14, fontSize: 12, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
+              Export Package <ArrowRight size={13} />
+            </div>
+          </div>
         </div>
       </section>
 
