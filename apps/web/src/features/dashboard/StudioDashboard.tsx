@@ -285,12 +285,12 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
           {[
-            { img: '/reference-vault/001-ddc1891636f7.png', tag: 'LIVING · FLUTED PU', title: '2400mm Fluted TV Wall' },
-            { img: '/reference-vault/002-3ea44274c538.png', tag: 'LIVING · BOUCLÉ', title: 'Curved Bouclé Sectional' },
-            { img: '/reference-vault/003-8d380eef5385.png', tag: 'BEDROOM · JAPANDI', title: 'Floating LED King Bed' },
-            { img: '/reference-vault/004-cb7223b53c15.png', tag: 'WARDROBE · GLASS', title: 'Profile-Glass Walk-In' },
-            { img: '/reference-vault/005-ecaa68e0965e.png', tag: 'KITCHEN · ACRYLIC', title: 'Handleless Island Kitchen' },
-            { img: '/reference-vault/006-eb108e42f9b8.png', tag: 'DINING · CALACATTA', title: 'Calacatta Marble Dining' },
+            { img: '/reference-vault/001-ddc1891636f7.png', tag: 'KITCHEN · ACRYLIC', title: 'Modular Kitchen Run' },
+            { img: '/reference-vault/002-cab37cfa0bb2.png', tag: 'KITCHEN · OVERHEAD', title: 'Fluted Overhead Cabinets' },
+            { img: '/reference-vault/003-1f61a8aabde4.png', tag: 'KITCHEN · APPLIANCE', title: 'Tall Appliance Tower' },
+            { img: '/reference-vault/007-2b9d568ff444.png', tag: 'WARDROBE · GLASS', title: 'Profile-Glass Walk-In' },
+            { img: '/reference-vault/013-52a29a1053dc.png', tag: 'LIVING · FLUTED PU', title: '2400mm Fluted TV Wall' },
+            { img: '/reference-vault/028-a8f62ab3d392.png', tag: 'DINING · CALACATTA', title: 'Calacatta Marble Dining' },
           ].map((item) => (
             <div
               key={item.img}
