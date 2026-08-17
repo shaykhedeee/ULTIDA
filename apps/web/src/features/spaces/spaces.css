@@ -767,6 +767,132 @@
 }
 
 /* ═══════════════════════════════════════════════
+   10-YEAR SENIOR INTERIOR DESIGNER ADVISOR
+═══════════════════════════════════════════════ */
+.advisor-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.advisor-hero-card {
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #1c1917 0%, #291e14 100%);
+  color: #ffffff;
+  border: 1px solid #44382e;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+.advisor-hero-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.advisor-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--gold);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.advisor-score-badge {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+.advisor-hero-card h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: #ffffff;
+}
+.advisor-hero-card p {
+  margin: 0;
+  font-size: 11px;
+  color: #d6d3d1;
+  line-height: 1.45;
+}
+
+.advisor-rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.advisor-rule-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #ebdccb;
+  background: #fffdf9;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.advisor-rule-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+.advisor-rule-card p {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.advisor-prescriptions {
+  padding: 12px;
+  border-radius: 10px;
+  background: #f7f3eb;
+  border: 1px solid #e5d8c9;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.advisor-presc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  font-size: 11px;
+  gap: 8px;
+}
+.advisor-presc-row span {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.advisor-presc-row strong {
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.advisor-apply-btn {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  border: 1px solid var(--gold);
+  background: linear-gradient(180deg, var(--gold-light), var(--gold));
+  color: #ffffff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 10px rgba(197, 156, 45, 0.3);
+}
+.advisor-apply-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(197, 156, 45, 0.4);
+}
+
+/* ═══════════════════════════════════════════════
    FLOOR PLAN ENHANCER & 3D ISOMETRIC VIEW
 ═══════════════════════════════════════════════ */
 .canvas-mode-toggle {
