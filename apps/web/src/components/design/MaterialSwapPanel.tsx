@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Layers3, RefreshCcw, Wand2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 
 type MaterialSlot = 'carcass' | 'shutter' | 'back_panel' | 'countertop' | 'profile' | 'glass' | 'hardware' | 'flooring' | 'wall' | 'ceiling' | 'lighting';
 type Material = {
@@ -15,7 +16,7 @@ type Props = {
   onPreviewCatalogSwap?: (payload: { entityId: string; materialId: string; laminate: string; semanticSlot: MaterialSlot }) => Promise<void> | void;
 };
 
-const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+const apiBase = getApiBase();
 const slots: Array<{ id: MaterialSlot; label: string }> = [
   { id: 'shutter', label: 'Shutters' }, { id: 'carcass', label: 'Carcass' }, { id: 'back_panel', label: 'Back panel' },
   { id: 'countertop', label: 'Countertop' }, { id: 'profile', label: 'Profile' }, { id: 'glass', label: 'Glass' },

@@ -14,6 +14,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { X, Plus, ChevronRight } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
+import { getApiBase } from './lib/api-base';
 import { Shell, DEFAULT_WORKFLOW_STAGES, type WorkflowStageConfig } from './Shell';
 const ProjectDashboard = lazy(() => import('./features/projects/ProjectDashboard').then((module) => ({ default: module.ProjectDashboard })));
 const StudioDashboard = lazy(() => import('./features/dashboard/StudioDashboard').then((module) => ({ default: module.StudioDashboard })));
@@ -434,7 +435,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void (async () => {
       const accessToken = await getValidToken();
       if (!accessToken) return;
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/plan-draft`, { headers: { Authorization: `Bearer ${accessToken}` } });
       const payload = await response.json().catch(() => null);
       if (!cancelled && response.ok && payload?.draft) setDemoSnapshot(payload.draft);
@@ -457,7 +458,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (!supabase) return;
     const accessToken = await getValidToken();
     if (!accessToken) return;
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     // Persist the editable review draft produced by the real pipeline.
     await fetch(`${apiBase}/projects/${projectId}/plan-analysis/draft`, {
       method: 'PUT',
@@ -472,7 +473,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void (async () => {
       const accessToken = await getValidToken();
       if (!accessToken) return;
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/brief`, { headers: { Authorization: `Bearer ${accessToken}` } });
       const payload = await response.json().catch(() => null);
       if (cancelled || !response.ok || !payload?.brief) return;
@@ -489,7 +490,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void (async () => {
       const accessToken = await getValidToken();
       if (!accessToken) return;
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/plan-analysis/draft`, { headers: { Authorization: `Bearer ${accessToken}` } });
       const payload = await response.json().catch(() => null);
       if (cancelled || !response.ok || !payload?.draft) return;
@@ -540,7 +541,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
 
   // Provider status
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api'}/providers`)
+    fetch(`${getApiBase()}/providers`)
       .then((r) => r.json())
       .then((p) => setProviderStatuses(Array.isArray(p.providers) ? p.providers : []))
       .catch(() => setProviderStatuses([]));
@@ -550,7 +551,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [serverStages, setServerStages] = useState<Record<string, boolean> | null>(null);
   const fetchProjectStatus = async () => {
     if (!projectId) return;
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     try {
       const token = await getValidToken();
       if (!token) return;
@@ -591,7 +592,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     let stopped = false;
     const poll = async () => {
       try {
-        const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+        const apiBase = getApiBase();
         const token = supabase ? (await getValidToken() ?? '') : '';
         const response = await fetch(`${apiBase}/plan/analyze/${analysisJobId}?projectId=${encodeURIComponent(projectId)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         const payload = await response.json();
@@ -730,7 +731,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     }
     if (!supabase) return setPlanStatus('Supabase is required for professional plan analysis. Sign in and try again.');
     setPlanStatus(startAnalysis ? 'Uploading and preparing review...' : 'Uploading plan for guided review...');
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     let uploadedAssetId: string | null = null;
     let accessToken: string | null = null;
 
@@ -849,7 +850,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     setAnalysisRetryAvailable(false);
     setPlanStatus('Re-dispatching the existing floor-plan analysis…');
     try {
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/plan/analyze/${analysisJobId}/retry`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -875,7 +876,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     setReviewSnapshot(snapshot);
     setPlanStatus('Saving the reviewed plan model…');
     let serverVersionId = approvedPlanVersionId;
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       const accessToken = supabase ? (await getValidToken() ?? '') : '';
@@ -921,7 +922,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     }
     setPlanStatus('Preparing calibrated plan DXF…');
     try {
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/drawings/plan.dxf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -967,7 +968,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (projectId && supabase) {
       const accessToken = await getValidToken();
       if (!accessToken) throw new Error('Your session expired. Sign in again before saving the brief.');
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/brief`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
@@ -1001,7 +1002,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (!accessToken) throw new Error('Sign in before approving a layout.');
     const spaceId = selectedLayoutSpaceId;
     if (!spaceId || !layoutRooms.some((room) => room.id === spaceId)) throw new Error('Select a configured room before approving a layout.');
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
     const created = await fetch(`${apiBase}/projects/${projectId}/layouts`, {
       method: 'POST', headers,
@@ -1022,7 +1023,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void (async () => {
       const token = await getValidToken();
       if (!token) return;
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const [spacesResponse, planResponse] = await Promise.all([
         fetch(`${apiBase}/projects/${projectId}/spaces`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${apiBase}/projects/${projectId}/floor-plan/active`, { headers: { Authorization: `Bearer ${token}` } }),
@@ -1059,7 +1060,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (!projectId) throw new Error('Open a project before generating layout candidates.');
     const accessToken = await getValidToken();
     if (!accessToken) throw new Error('Sign in before generating layout candidates.');
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     const requirements = {
       ...roomRequirements,
       selectedTemplate: config.template,
@@ -1077,7 +1078,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (!projectId) return [];
     const accessToken = await getValidToken();
     if (!accessToken) return [];
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     const response = await fetch(`${apiBase}/projects/${projectId}/layouts`, { headers: { Authorization: `Bearer ${accessToken}` } });
     const payload = await response.json().catch(() => null);
     if (!response.ok || !Array.isArray(payload?.layouts)) return [];
@@ -1094,7 +1095,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       setPlanStatus('Sign in before compiling a scene.');
       throw new Error('Authenticated session required.');
     }
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     try {
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, {
         method: 'POST',
@@ -1194,7 +1195,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (!sceneToApprove || !projectId) return false;
     const accessToken = await getValidToken();
     if (!accessToken) { setPlanStatus('Sign in again before approving a scene.'); return false; }
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     try {
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneToApprove}/approve`, {
         method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },

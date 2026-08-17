@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FolderKanban, Package, AlertTriangle, CheckCircle2, Download, ChevronLeft, ChevronRight, Maximize2, PanelRightClose, ClipboardList, Settings, SlidersHorizontal } from 'lucide-react';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 import './production-workspace.css';
 
 type TabId = 'parts' | 'edges' | 'hardware' | 'operations' | 'nesting' | 'cnc' | 'exports' | 'release';
@@ -57,7 +58,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
       setExportState('Sign in before exporting production data.');
       return null;
     }
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}`, { headers: { Authorization: `Bearer ${token}` } });
     const payload = await response.json().catch(() => null);
     if (!response.ok || !payload?.success || payload?.sceneVersion?.status !== 'approved' || !payload?.sceneVersion?.scene) {
@@ -124,7 +125,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
     void (async () => {
       const token = (await supabase?.auth.getSession())?.data.session?.access_token;
       if (!token) return;
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production-snapshot`, { headers: { Authorization: `Bearer ${token}` } });
       const payload = await response.json().catch(() => null);
       const authoritative = response.ok && payload?.success ? payload.cutlist as ProductionCutlist : null;

@@ -21,6 +21,7 @@ import {
 import { IndianModularCatalog, listCatalog, CuratedLaminateCatalog, type CatalogModule } from '@ultida/catalog-core';
 import { ModulePreview } from '../../components/library/ModulePreview';
 import TopViewFloorplanEnhancer from '../../components/spaces/TopViewFloorplanEnhancer';
+import { getApiBase } from '../../lib/api-base';
 import './spaces.css';
 
 type Pt = { xMm: number; yMm: number };
@@ -298,7 +299,7 @@ export function SpacesWorkspace() {
       setLoadState('loading');
       const session = (await supabase.auth.getSession()).data.session;
       if (!session?.access_token) { if (live) { setLoadState('error'); setSaveState('Your session expired. Sign in again.'); } return; }
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/floor-plan/active`, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => null);
       if (!live) return;
@@ -613,7 +614,7 @@ export function SpacesWorkspace() {
 
   const autoEnhanceAllRoomsAndFloorplan = () => {
     snapshot();
-    const updatedRooms = rooms.map((room) => {
+    const updatedRooms: PlanRoom[] = rooms.map((room) => {
       const rWalls = wallsForRoom(room);
       const wallRoles = { ...(room.wallRoles ?? {}) };
       const categories = [...room.requiredFurniture];
@@ -622,7 +623,7 @@ export function SpacesWorkspace() {
         if (rWalls[0]) wallRoles[rWalls[0].id] = 'tv_wall';
         if (!categories.includes('tv_unit')) categories.push('tv_unit');
         if (!categories.includes('sofa')) categories.push('sofa');
-      } else if (room.roomType === 'bedroom' || room.roomType === 'master_bedroom') {
+      } else if (room.roomType === 'bedroom' || room.roomType === 'master_bedroom' || room.roomType === 'kids_bedroom') {
         if (rWalls[0]) wallRoles[rWalls[0].id] = 'bed_headboard_wall';
         if (rWalls[1]) wallRoles[rWalls[1].id] = 'wardrobe_wall';
         if (!categories.includes('bed')) categories.push('bed');
@@ -642,7 +643,7 @@ export function SpacesWorkspace() {
 
       return {
         ...room,
-        requiredFurniture: Array.from(new Set(categories)),
+        requiredFurniture: Array.from(new Set(categories.length ? categories : ['tv_unit', 'sofa'])),
         wallRoles,
         verificationStatus: 'verified',
         floorFinish: room.floorFinish || (room.roomType === 'living' ? 'French Light Oak Herringbone' : room.roomType === 'kitchen' ? 'Roman Travertine' : 'Calacatta Gold'),
@@ -650,8 +651,9 @@ export function SpacesWorkspace() {
     });
 
     setRooms(updatedRooms);
-    setCanvasRenderMode('stager');
-    setSaveState('✨ AI enhanced all rooms, assigned feature wall roles, and staged the 3D top-view floor plan!');
+    setCanvasRenderMode('3d_isometric');
+    setSaveState('✨ AI enhanced all rooms, assigned wall roles, and verified all spaces for 3D layout!');
+    void saveGeometryVersion(updatedRooms);
   };
 
   function onCanvasClick(e: React.MouseEvent) {
@@ -735,7 +737,7 @@ export function SpacesWorkspace() {
     }
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return; }
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     try {
       const response = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}/scope`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ included })
@@ -860,7 +862,7 @@ export function SpacesWorkspace() {
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return null; }
     setSaveState('Saving a new plan geometry version…');
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     const response = await fetch(`${apiBase}/projects/${projectId}/spaces/commit-geometry`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
       body: JSON.stringify({ geometry: { rooms: roomsOverride, walls, openings, columns, beams, services, annotations, ceilingHeightMm } }),
@@ -880,7 +882,7 @@ export function SpacesWorkspace() {
     }
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) { setSaveState('Session expired.'); return; }
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     if (!room.spaceRecordId) {
       const roomsToCommit = rooms.map((candidate) => candidate.id === room.id
         ? { ...candidate, verificationStatus: verificationStatus === 'verified' ? 'verified' : candidate.verificationStatus }
@@ -912,7 +914,7 @@ export function SpacesWorkspace() {
     if (!supabase || !projectId) return;
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) { setSaveState('Session expired.'); return; }
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     const wallObj = walls.find(w => w.id === targetWallId) ?? roomBoundaryWalls(room).find(w => w.id === targetWallId);
     const wallLength = wallObj ? wallLen(wallObj) : 2400;
 
@@ -1150,7 +1152,7 @@ export function SpacesWorkspace() {
         setSaveState('Your session expired. Sign in again.');
         return;
       }
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/spaces/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
@@ -1280,8 +1282,25 @@ export function SpacesWorkspace() {
                   </div>
                   {room.included !== false && (
                     <div className="rc-actions-row">
-                      <button type="button" className={`room-quick-approve ${readiness.ready ? 'ready' : ''}`} onClick={(event) => { event.stopPropagation(); setSelectedRoom(room.id); if (readiness.ready) { setSpacePanel('geometry'); return; } if (!room.requiredFurniture.length) { setSpacePanel('brief'); setSaveState(`Choose the required furniture for ${room.name}, then verify it.`); return; } void persistRoom(room, 'verified'); }}>
-                        <CheckCircle2 size={13} /> {readiness.ready ? 'Room ready' : room.requiredFurniture.length ? 'Verify room' : 'Complete brief'}
+                      <button
+                        type="button"
+                        className={`room-quick-approve ${readiness.ready ? 'ready' : ''}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedRoom(room.id);
+                          const cats = room.requiredFurniture.length
+                            ? room.requiredFurniture
+                            : defaultCategoriesForRoom(room.roomType, 'balanced');
+                          const targetRoom: PlanRoom = {
+                            ...room,
+                            requiredFurniture: cats,
+                            verificationStatus: 'verified',
+                          };
+                          setRooms((rs) => rs.map((r) => (r.id === room.id ? targetRoom : r)));
+                          void persistRoom(targetRoom, 'verified');
+                        }}
+                      >
+                        <CheckCircle2 size={13} /> {readiness.ready ? 'Room ready (Approved)' : 'Approve & Verify Room'}
                       </button>
                       <button type="button" className="room-ai-btn" title="AI Auto-Detect Layout" onClick={(e) => { e.stopPropagation(); setSelectedRoom(room.id); detectAiLayout(room); }}>
                         <Sparkles size={12} /> AI Layout

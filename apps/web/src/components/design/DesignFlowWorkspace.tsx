@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 import MaterialSwapPanel from './MaterialSwapPanel';
+import { getApiBase } from '../../lib/api-base';
 import './visual-studio.css';
 import { ModulePreview } from '../library/ModulePreview';
 
@@ -18,7 +19,7 @@ type StoredRender = { id: string; scene_version_id: string; status: string; stal
 type DesignFocus = 'all' | 'modules' | 'materials';
 type MaterialSlot = 'carcass' | 'shutter' | 'back_panel' | 'countertop' | 'profile' | 'glass';
 type Props = { stage: Stage; focus?: DesignFocus; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
-const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+const apiBase = getApiBase();
 
 function roundToModuleIncrement(valueMm: number, incrementMm = 50) {
   return Math.round(valueMm / incrementMm) * incrementMm;

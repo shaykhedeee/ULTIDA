@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { getSupabaseBrowserClient } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 
 type Props = { projectId: string | null; briefSaved: boolean; planApproved: boolean; sceneVersionId: string | null; moduleCount: number };
 type Totals = { grandTotalInr: number; subtotalInr: number; gstInr: number };
@@ -21,7 +22,7 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
       const session = await browserClient.auth.getSession();
       const token = session.data.session?.access_token;
       if (!token) return setQuoteState('Sign in again before calculating an estimate.');
-      const response = await fetch(`${import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api'}/commercial/estimates`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ projectId, sceneVersionId, lines: [{ id: 'scene-modules', description: 'Approved modular scene scope', category: 'modular_unit', quantity: moduleCount, unit: 'module', unitRateInr: Number(unitRate), labourInr: Number(labour) }], gstRate: Number(gstRate), marginRate: Number(marginRate) }) });
+      const response = await fetch(`${getApiBase()}/commercial/estimates`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ projectId, sceneVersionId, lines: [{ id: 'scene-modules', description: 'Approved modular scene scope', category: 'modular_unit', quantity: moduleCount, unit: 'module', unitRateInr: Number(unitRate), labourInr: Number(labour) }], gstRate: Number(gstRate), marginRate: Number(marginRate) }) });
       const payload = await response.json(); if (!response.ok) return setQuoteState(payload.message ?? 'Estimate could not be calculated.');
       setQuote(payload.estimate.totals); setQuoteState('Draft estimate calculated. Review rates before issuing.');
     } catch { setQuoteState('Commercial service unavailable. The scene is unchanged.'); }

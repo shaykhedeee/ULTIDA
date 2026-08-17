@@ -5,6 +5,7 @@ import {
   type SymbolicPlacement, type DesignMode, type DesignValidationContext,
 } from '@ultida/design-core';
 import { Layers, Sparkles, MousePointer2, CheckCircle2, AlertTriangle, Save } from 'lucide-react';
+import { getApiBase } from '../../lib/api-base';
 import './design.css';
 
 const DESIGN_MODES: { id: DesignMode; label: string; icon: typeof Layers; hint: string }[] = [
@@ -65,7 +66,7 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
     (async () => {
       const { session } = await loadDesignSession();
       if (!session) return;
-      const base = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8800/api';
+      const base = getApiBase();
       const res = await fetch(`${base}/projects/${projectId}/floor-plan/active`, { headers: { authorization: `Bearer ${session.access_token}` } });
       if (!res.ok) return;
       const data = await res.json();
