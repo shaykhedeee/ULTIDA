@@ -6,10 +6,11 @@ import {
   Layers, MousePointer, Hand, ZoomIn, ZoomOut, Maximize2,
   Ruler, Crosshair, PenTool, Plus, Split, Combine, Move,
   Home, DoorOpen, LayoutGrid, Columns, AlertTriangle,
-  CheckCircle2, XCircle, Trash2, Edit3, Save, ArrowRight,
+  CheckCircle2, XCircle, Trash2, Edit3, Save, ArrowRight, ArrowLeft,
   Eye, EyeOff, FileText, FileDown, Loader2, Sparkles, RefreshCw, Upload, FileUp, Undo2, Redo2
 } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import './plan-review.css';
 
@@ -173,6 +174,7 @@ export function PlanReviewWorkspace({
   onSaveDraft,
   onAnalysisGuidesChange,
 }: Props) {
+  const navigate = useNavigate();
   // State
   const [layers, setLayers] = useState(INITIAL_LAYERS);
   const [elements, setElements] = useState<PlanElement[]>([]);
@@ -1585,6 +1587,69 @@ export function PlanReviewWorkspace({
               ))}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Bottom Stage Progression Bar */}
+      <div style={{ marginTop: 24, padding: '16px 20px', background: '#1c1917', borderRadius: 12, border: '1px solid #332d29', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <strong style={{ color: '#fff', fontSize: 13, display: 'block' }}>
+            Step 2 of 8: Floor Plan Analysis &amp; Vector Calibration
+          </strong>
+          <small style={{ color: '#a8a29e', fontSize: 11 }}>
+            Review detected architectural walls and room boundaries, calibrate scale, and proceed to configured spaces.
+          </small>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            type="button"
+            onClick={() => {
+              navigate(-1);
+            }}
+            style={{
+              background: '#2b2622',
+              color: '#e7e5e4',
+              border: '1px solid #44403c',
+              borderRadius: 8,
+              padding: '10px 16px',
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <ArrowLeft size={15} /> Back to Brief
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await handleApprovePlan();
+              } catch {
+                // if approve failed or already approved, navigate forward
+                const pathname = window.location.pathname;
+                const projectPrefix = pathname.split('/plan')[0];
+                navigate(`${projectPrefix}/spaces`);
+              }
+            }}
+            style={{
+              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+              color: '#1c1917',
+              border: 0,
+              borderRadius: 8,
+              padding: '10px 18px',
+              fontWeight: 800,
+              fontSize: 13,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            Proceed to Step 3: Spaces <ArrowRight size={15} />
+          </button>
         </div>
       </div>
     </div>
