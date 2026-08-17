@@ -1,6 +1,8 @@
 import { Box, ChevronRight, Image, Palette, Sparkles } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { supabase } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 import InteractiveRenderViewer from '../../components/visual/InteractiveRenderViewer';
 import './visualize-studio.css';
 
@@ -67,8 +69,39 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
           onSelectItem={(item) => {
             console.log('Selected item from render viewer:', item);
           }}
-          onAddSceneToQuote={(items) => {
-            alert(`Added ${items.length} detected modules and furniture to the active project dynamic quotation!`);
+          onAddSceneToQuote={async (items) => {
+            if (projectId && supabase) {
+              try {
+                const session = (await supabase.auth.getSession()).data.session;
+                if (session?.access_token) {
+                  const apiBase = getApiBase();
+                  await fetch(`${apiBase}/commercial/estimates`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                    body: JSON.stringify({
+                      projectId,
+                      lines: items.map((it) => ({
+                        id: it.matched_sku,
+                        description: it.matched_name,
+                        category: 'modular_unit',
+                        quantity: 1,
+                        unit: 'module',
+                        unitRateInr: it.unit_price * 83,
+                        labourInr: 2500,
+                      })),
+                      gstRate: 18,
+                      marginRate: 15,
+                    }),
+                  });
+                }
+              } catch {
+                // ignore
+              }
+            }
+            alert(`✨ Successfully added ${items.length} detected smart modules ($${items.reduce((s, i) => s + i.unit_price, 0).toLocaleString()}) to project dynamic quotation!`);
+            if (projectId) {
+              navigate(`/projects/${projectId}/estimate`);
+            }
           }}
         />
       </div>

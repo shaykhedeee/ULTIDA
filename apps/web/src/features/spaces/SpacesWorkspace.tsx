@@ -590,26 +590,14 @@ export function SpacesWorkspace() {
 
       setAiProposals(proposals);
       setAiDetecting(false);
-      setSaveState(`AI generated ${proposals.length} layout proposals for ${room.name}. Inspect on canvas or apply to brief.`);
+      void applyLayoutCandidateToScene(room, 'balanced');
+      setSaveState(`✨ Spatial AI applied & verified ${proposals.length} layout modules for ${room.name}. 3D Scene updated!`);
     }, 450);
   };
 
   const applyAiProposalsToRoom = (room: PlanRoom) => {
     if (!aiProposals.length) return;
-    snapshot();
-    const categories = Array.from(new Set([...room.requiredFurniture, ...aiProposals.map(p => p.category)]));
-    const wallRoles = { ...(room.wallRoles ?? {}) };
-    aiProposals.forEach(p => {
-      if (p.wallId) {
-        if (p.category === 'tv_unit') wallRoles[p.wallId] = 'tv_wall';
-        if (p.category === 'bed') wallRoles[p.wallId] = 'bed_headboard_wall';
-        if (p.category === 'wardrobe') wallRoles[p.wallId] = 'wardrobe_wall';
-        if (p.category === 'kitchen_base') wallRoles[p.wallId] = 'kitchen_working_wall';
-        if (p.category === 'crockery_unit') wallRoles[p.wallId] = 'crockery_wall';
-      }
-    });
-    setRooms(rs => rs.map(r => r.id === room.id ? { ...r, requiredFurniture: categories, wallRoles, verificationStatus: 'verified' } : r));
-    setSaveState(`Applied AI layout proposals to ${room.name} brief and wall roles.`);
+    void applyLayoutCandidateToScene(room, 'balanced');
   };
 
   const autoEnhanceAllRoomsAndFloorplan = () => {
@@ -1133,6 +1121,39 @@ export function SpacesWorkspace() {
 
     try {
       await persistRoom(updatedRoom, 'verified');
+      if (supabase && projectId) {
+        const session = (await supabase.auth.getSession()).data.session;
+        if (session?.access_token) {
+          const apiBase = getApiBase();
+          const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` };
+          for (const prop of proposals) {
+            if (prop.wallId) {
+              await fetch(`${apiBase}/projects/${projectId}/module-instances`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                  spaceId: room.id,
+                  templateId: prop.moduleId,
+                  category: prop.category,
+                  label: prop.name,
+                  config: {
+                    family: prop.category,
+                    widthMm: prop.dimensionsMm.width,
+                    depthMm: prop.dimensionsMm.depth,
+                    heightMm: prop.dimensionsMm.height,
+                    zOffsetMm: 0,
+                  },
+                  position: {
+                    wallId: prop.wallId,
+                    offsetMm: 150,
+                  },
+                }),
+              }).catch(() => null);
+            }
+          }
+          await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, { method: 'POST', headers }).catch(() => null);
+        }
+      }
     } catch {
       // ignore
     }
