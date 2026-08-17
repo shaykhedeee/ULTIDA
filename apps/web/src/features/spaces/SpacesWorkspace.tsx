@@ -318,6 +318,21 @@ export function SpacesWorkspace() {
     return () => { live = false; };
   }, [projectId, reloadKey]);
 
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('ultida.pendingModulePlan.v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.name) {
+          setSaveState(`✨ Loaded modular template "${parsed.name}" (${parsed.dimensionsMm?.width ?? 0}×${parsed.dimensionsMm?.height ?? 0}mm) for active space.`);
+          window.localStorage.removeItem('ultida.pendingModulePlan.v1');
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // ── History helpers (undo/redo) ──
   function snapshot() { setHistory(h => [...h, { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm }]); setFuture([]); }
   function undo() { setHistory(h => { if (!h.length) return h; const prev = h[h.length - 1]; const cur = { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm }; setFuture(f => [cur, ...f]); setRooms(prev.rooms); setWalls(prev.walls); setOpenings(prev.openings); setColumns(prev.columns); setBeams(prev.beams); setServices(prev.services); setAnnotations(prev.annotations); setCeilingHeightMm(prev.ceilingHeightMm); return h.slice(0, -1); }); }

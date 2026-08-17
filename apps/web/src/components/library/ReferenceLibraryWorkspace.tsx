@@ -1,5 +1,6 @@
-import { BookOpen, Library as LibraryIcon, Loader2, Palette, Search, Upload, Sparkles, Plus, Trash2, Layers, Move, Download, Layout, Check } from 'lucide-react';
+import { BookOpen, Library as LibraryIcon, Loader2, Palette, Search, Upload, Sparkles, Plus, Trash2, Layers, Move, Download, Layout, Check, ArrowRight, Home } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 import { ModulePreview } from './ModulePreview';
@@ -209,6 +210,10 @@ function materialColour(material: Material) {
 }
 
 export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { organizationId?: string | null; projectId?: string | null }) {
+  const navigate = useNavigate();
+  const { projectId: urlProjectId } = useParams<{ projectId?: string }>();
+  const activeProjectId = projectId ?? urlProjectId ?? null;
+
   const [activeTab, setActiveTab] = useState<'templates' | 'modules' | 'moodboard' | 'materials'>('modules');
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [modules, setModules] = useState<CatalogModule[]>([]);
@@ -239,6 +244,24 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     sku?: string;
     module?: CatalogModule;
   } | null>(null);
+
+  function placeModuleInProjectWallPicker(mod: CatalogModule) {
+    const prepared = {
+      schema: 'ultida.module-plan.v1',
+      templateId: mod.id,
+      family: mod.family,
+      name: mod.name,
+      dimensionsMm: { width: mod.widthMm, depth: mod.depthMm, height: mod.heightMm },
+      wallWidthMm: 3000,
+      clearanceMm: 900,
+    };
+    window.localStorage.setItem('ultida.pendingModulePlan.v1', JSON.stringify(prepared));
+    if (activeProjectId) {
+      navigate(`/projects/${activeProjectId}/spaces?tab=modules`);
+    } else {
+      navigate('/projects?placeModule=1');
+    }
+  }
 
   useEffect(() => {
     let live = true;
@@ -470,43 +493,70 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {previewModalItem.module && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const mod = previewModalItem.module!;
-                      const newItem: MoodboardItem = {
-                        id: `mb-${Date.now()}`,
-                        type: 'module',
-                        title: mod.name,
-                        subtitle: `${mod.widthMm}×${mod.heightMm}mm`,
-                        x: 80 + Math.random() * 80,
-                        y: 80 + Math.random() * 80,
-                        width: 260,
-                        height: 160,
-                        zIndex: moodboardItems.length + 1,
-                        module: mod,
-                      };
-                      setMoodboardItems((prev) => [...prev, newItem]);
-                      setPreviewModalItem(null);
-                      setActiveTab('moodboard');
-                    }}
-                    style={{
-                      padding: '12px 16px',
-                      borderRadius: 10,
-                      background: 'linear-gradient(135deg, #10b981, #059669)',
-                      color: '#000',
-                      fontWeight: 800,
-                      fontSize: 12,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      border: 0,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <Plus size={15} /> Add to Active Moodboard
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const mod = previewModalItem.module!;
+                        const newItem: MoodboardItem = {
+                          id: `mb-${Date.now()}`,
+                          type: 'module',
+                          title: mod.name,
+                          subtitle: `${mod.widthMm}×${mod.heightMm}mm`,
+                          x: 80 + Math.random() * 80,
+                          y: 80 + Math.random() * 80,
+                          width: 260,
+                          height: 160,
+                          zIndex: moodboardItems.length + 1,
+                          module: mod,
+                        };
+                        setMoodboardItems((prev) => [...prev, newItem]);
+                        setPreviewModalItem(null);
+                        setActiveTab('moodboard');
+                      }}
+                      style={{
+                        padding: '12px 16px',
+                        borderRadius: 10,
+                        background: 'linear-gradient(135deg, #10b981, #059669)',
+                        color: '#000',
+                        fontWeight: 800,
+                        fontSize: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        border: 0,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Plus size={15} /> Add to Active Moodboard
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const mod = previewModalItem.module!;
+                        setPreviewModalItem(null);
+                        placeModuleInProjectWallPicker(mod);
+                      }}
+                      style={{
+                        padding: '12px 16px',
+                        borderRadius: 10,
+                        background: 'linear-gradient(135deg, #c59c2d, #a0782c)',
+                        color: '#fff',
+                        fontWeight: 800,
+                        fontSize: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        border: 0,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Home size={15} /> 📐 Place in Room &amp; Wall Picker
+                    </button>
+                  </>
                 )}
                 <button
                   type="button"
