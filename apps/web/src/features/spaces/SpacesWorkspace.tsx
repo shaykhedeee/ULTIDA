@@ -20,7 +20,7 @@ import {
 } from '@ultida/spaces-core';
 import { IndianModularCatalog, listCatalog, CuratedLaminateCatalog, type CatalogModule } from '@ultida/catalog-core';
 import { ModulePreview } from '../../components/library/ModulePreview';
-import TopViewFloorplanEnhancer from '../../components/spaces/TopViewFloorplanEnhancer';
+import TopViewFloorplanEnhancer, { type TopViewFurniture } from '../../components/spaces/TopViewFloorplanEnhancer';
 import { getApiBase } from '../../lib/api-base';
 import './spaces.css';
 
@@ -425,6 +425,62 @@ export function SpacesWorkspace() {
   }
 
   const sel = roomMetrics.find(m => m.room.id === selectedRoom);
+
+  const stagerItems = useMemo<TopViewFurniture[] | undefined>(() => {
+    if (!sel?.room) return undefined;
+    const rType = sel.room.roomType;
+    const roomW = Math.round(sel.widthMm || 6000);
+    const roomL = Math.round(sel.depthMm || 4500);
+
+    if (aiProposals.length > 0) {
+      return aiProposals.map((prop, idx) => {
+        let category: TopViewFurniture['category'] = 'modular_storage';
+        let semanticColor = '#ff9900';
+        if (prop.category.includes('bed')) { category = 'bed'; semanticColor = '#cc0000'; }
+        else if (prop.category.includes('sofa') || prop.category.includes('seating')) { category = 'seating'; semanticColor = '#3366cc'; }
+        else if (prop.category.includes('dining')) { category = 'dining'; semanticColor = '#990099'; }
+        else if (prop.category.includes('table')) { category = 'table'; semanticColor = '#990099'; }
+
+        return {
+          id: prop.id || `stg-${idx}`,
+          name: prop.name,
+          category,
+          widthMm: prop.dimensionsMm.width,
+          depthMm: prop.dimensionsMm.depth,
+          xMm: Math.max(100, Math.min(roomW - prop.dimensionsMm.width, Math.round(prop.position.xMm % roomW))),
+          yMm: Math.max(100, Math.min(roomL - prop.dimensionsMm.depth, Math.round(prop.position.yMm % roomL))),
+          rotationDeg: 0,
+          unitPrice: prop.category.includes('bed') ? 2100 : prop.category.includes('tv') ? 950 : 1200,
+          isFloating: prop.category.includes('tv') || prop.category.includes('wall'),
+          semanticColor,
+        };
+      });
+    }
+
+    if (rType === 'bedroom' || rType === 'master_bedroom') {
+      return [
+        { id: 'stg-bed', name: 'King Storage Bed with Headboard', category: 'bed', widthMm: 1800, depthMm: 2100, xMm: Math.round((roomW - 1800) / 2), yMm: 200, rotationDeg: 0, unitPrice: 2100, isFloating: false, semanticColor: '#cc0000' },
+        { id: 'stg-wd', name: 'Profile-Glass Wardrobe Run', category: 'modular_storage', widthMm: Math.min(2400, roomW - 400), depthMm: 600, xMm: 200, yMm: Math.max(200, roomL - 800), rotationDeg: 0, unitPrice: 1600, isFloating: false, semanticColor: '#ff9900' },
+      ];
+    }
+    if (rType === 'kitchen') {
+      return [
+        { id: 'stg-k-base', name: 'L-Shape Kitchen Base Run with Hob', category: 'modular_storage', widthMm: Math.min(3000, roomW - 400), depthMm: 600, xMm: 200, yMm: 200, rotationDeg: 0, unitPrice: 2800, isFloating: false, semanticColor: '#ff9900' },
+        { id: 'stg-k-tall', name: 'Pantry Tower with Built-In Microwave', category: 'modular_storage', widthMm: 600, depthMm: 600, xMm: Math.min(3200, roomW - 800), yMm: 200, rotationDeg: 0, unitPrice: 950, isFloating: false, semanticColor: '#ff9900' },
+      ];
+    }
+    if (rType === 'dining') {
+      return [
+        { id: 'stg-din-tbl', name: '6-Seater Calacatta Dining Table', category: 'dining', widthMm: 2100, depthMm: 1000, xMm: Math.round((roomW - 2100) / 2), yMm: Math.round((roomL - 1000) / 2), rotationDeg: 0, unitPrice: 1400, isFloating: false, semanticColor: '#990099' },
+        { id: 'stg-crk', name: 'Full-Wall Crockery & Wine Bar', category: 'modular_storage', widthMm: 1800, depthMm: 450, xMm: 200, yMm: 200, rotationDeg: 0, unitPrice: 1100, isFloating: false, semanticColor: '#ff9900' },
+      ];
+    }
+    return [
+      { id: 'stg-sofa', name: 'Curved Bouclé Sectional Sofa', category: 'seating', widthMm: 2800, depthMm: 1600, xMm: 300, yMm: Math.round(roomL * 0.4), rotationDeg: 0, unitPrice: 1850, isFloating: false, semanticColor: '#3366cc' },
+      { id: 'stg-coffee', name: 'Travertine Coffee Table', category: 'table', widthMm: 1200, depthMm: 800, xMm: 1200, yMm: Math.round(roomL * 0.5), rotationDeg: 15, unitPrice: 650, isFloating: false, semanticColor: '#990099' },
+      { id: 'stg-tv', name: 'Floating Fluted TV Console Wall', category: 'modular_storage', widthMm: Math.min(2400, roomW - 600), depthMm: 450, xMm: 300, yMm: 150, rotationDeg: 0, unitPrice: 920, isFloating: true, semanticColor: '#ff9900' },
+    ];
+  }, [sel, aiProposals]);
 
   // ── AI Furniture Layout Detection Engine ──
   const detectAiLayout = (room: PlanRoom) => {
@@ -1430,13 +1486,15 @@ export function SpacesWorkspace() {
             {canvasRenderMode === 'stager' ? (
               <div style={{ padding: 12, width: '100%', minHeight: 600, background: '#1c1917', borderRadius: 12, overflowY: 'auto' }}>
                 <TopViewFloorplanEnhancer
+                  key={sel?.room.id ?? 'default-stager'}
                   initialRoom={{
                     id: sel?.room.id ?? 'zone-1',
                     name: sel?.room.name ?? 'Living & Dining Room',
-                    widthMm: 6500,
-                    lengthMm: 5000,
-                    flooring: 'herringbone_oak',
+                    widthMm: Math.round(sel?.widthMm || 6500),
+                    lengthMm: Math.round(sel?.depthMm || 5000),
+                    flooring: ((sel?.room as any)?.finishSchedule?.floor as any) || 'herringbone_oak',
                   }}
+                  initialItems={stagerItems}
                   onGenerateRender={(payload) => {
                     setSaveState(`Generating top-down floor plan render with ${payload.stylePrompt.slice(0, 40)}…`);
                     setShowFloorPlanRenderModal(true);
