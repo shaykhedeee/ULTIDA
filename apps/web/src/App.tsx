@@ -679,14 +679,9 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (s.id === 'spaces' && !(useServerStages ? serverStageMap['plan'] : planApproved)) { status = 'locked'; lockReason = 'Approve floor plan first'; }
     if (s.id === 'layouts' && !(useServerStages ? serverStageMap['spaces'] : planApproved)) { status = 'locked'; lockReason = 'Configure and approve spaces first'; }
     if (s.id === 'modules' && !(useServerStages ? serverStageMap['layouts'] : layoutApproved)) { status = 'locked'; lockReason = 'Approve a layout first'; }
-    if (['materials','3d','renders','drawings','estimate','presentation'].includes(s.id) && !(useServerStages ? (serverStageMap['3d'] || serverStageMap['layouts'] || serverStageMap['modules']) : sceneVersionId)) {
-      status = 'locked'; lockReason = s.lockReason;
-    }
-
     return { ...s, status, lockReason };
   });
 
-  // Plan file selection
   function selectPlan(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;

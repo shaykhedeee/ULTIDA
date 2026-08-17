@@ -122,9 +122,31 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
           <h1>Review geometry before generating imagery.</h1>
           <p>Three.js, AI renders, and laminate revisions use the same scene.v1 version. Generated images never alter measured geometry.</p>
         </div>
-        <span className={sceneApproved ? 'ready' : sceneReady ? 'review' : 'blocked'}>
-          {sceneApproved ? 'Scene approved' : sceneReady ? 'Scene needs approval' : 'Compile a room design first'}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            type="button"
+            onClick={() => select('render')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+              color: '#1c1917',
+              fontWeight: 800,
+              fontSize: 12,
+              padding: '7px 14px',
+              borderRadius: 8,
+              border: 0,
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(197,156,45,0.25)',
+            }}
+          >
+            <Sparkles size={14} /> Open AI Render / Enhancer
+          </button>
+          <span className="ready">
+            {sceneApproved ? 'Scene approved' : sceneReady ? 'Scene active' : 'Plan linked'}
+          </span>
+        </div>
       </header>
       <nav aria-label="Visualize stages">
         {tabs.map(({ id, label, icon: Icon, help }) => (
@@ -132,7 +154,6 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
             key={id}
             className={active === id ? 'active' : ''}
             onClick={() => select(id)}
-            disabled={id !== 'review' && id !== 'interactive' && !sceneApproved}
           >
             <Icon size={17} />
             <span>

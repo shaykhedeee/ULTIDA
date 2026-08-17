@@ -1,8 +1,9 @@
-import { Box, Camera, Eye, Layers3, MousePointer2, Rotate3D } from 'lucide-react';
+import { Box, Camera, Eye, Layers3, MousePointer2, Rotate3D, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { supabase } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import './scene-studio.css';
 
@@ -95,8 +96,31 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
 
       const { data, error } = await (sceneVersionId ? query.single() : query.maybeSingle());
       if (error || !data?.scene) {
+        if (projectId) {
+          try {
+            setStatus('Auto-compiling 3D scene from approved spaces and plan geometry...');
+            const session = (await sb.auth.getSession()).data.session;
+            if (session?.access_token) {
+              const apiBase = getApiBase();
+              const compileRes = await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+              });
+              const compilePayload = await compileRes.json().catch(() => null);
+              if (compilePayload?.success && compilePayload?.scene) {
+                const compiledScene = compilePayload.scene as Scene;
+                const normalized = { ...compiledScene, moduleParts: compiledScene.moduleParts ?? [] };
+                setScene(normalized);
+                setStatus(`✨ 3D Scene compiled: ${normalized.rooms?.length ?? 0} rooms, ${normalized.walls?.length ?? 0} walls, ${normalized.modules?.length ?? 0} modules.`);
+                return;
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
         setScene(null);
-        setStatus(error?.message ?? 'No active 3D scene compiled yet. Click Auto-Compile below.');
+        setStatus('No 3D scene compiled yet. Click ✨ Compile 3D Scene to generate from approved plan.');
         return;
       }
       if (data.status !== 'approved' && data.status !== 'draft') {
@@ -221,6 +245,58 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         </Button>
       )}
     </div>
-    <div className="scene-grid"><Card className="scene-viewport"><CardContent><div ref={canvasRef} className="scene-canvas" aria-label="Interactive three dimensional scene preview" /></CardContent></Card><Card className="scene-inspector"><CardHeader><div><small>SELECTION</small><h3>{selected ?? 'Nothing selected'}</h3></div><MousePointer2 size={18} /></CardHeader><CardContent><p>{selected ? 'Selected geometry comes directly from the stored scene.v1 graph.' : 'Select a room, wall segment, or module in the preview.'}</p><p>{scene ? `${scene.openings.length} anchored openings • ${scene.materials.length} material records` : 'Create a scene from an approved floor plan to begin.'}</p></CardContent></Card></div>
+    <div className="scene-grid">
+      <Card className="scene-viewport">
+        <CardContent style={{ position: 'relative' }}>
+          <div ref={canvasRef} className="scene-canvas" aria-label="Interactive three dimensional scene preview" />
+          {!scene && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(250, 248, 244, 0.96)', padding: 24, textAlign: 'center', gap: 14 }}>
+              <Box size={44} style={{ color: 'var(--gold)' }} />
+              <h3 style={{ margin: 0, fontSize: 17, color: 'var(--text-primary)' }}>3D Scene Ready to Compile</h3>
+              <p style={{ margin: 0, maxWidth: 440, fontSize: 12.5, color: 'var(--text-muted)' }}>
+                Your approved floor plan and configured modular units are ready. Click below to compile the 3D scene.
+              </p>
+              <Button
+                variant="default"
+                disabled={compiling}
+                onClick={async () => {
+                  setCompiling(true);
+                  setStatus('Compiling 3D scene from approved spaces...');
+                  try {
+                    if (onCompileScene) {
+                      await onCompileScene();
+                    } else if (projectId) {
+                      const sb = supabase;
+                      if (sb) {
+                        const session = (await sb.auth.getSession()).data.session;
+                        if (session?.access_token) {
+                          const apiBase = getApiBase();
+                          const res = await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                          });
+                          const payload = await res.json().catch(() => null);
+                          if (payload?.success && payload?.scene) {
+                            const norm = { ...payload.scene, moduleParts: payload.scene.moduleParts ?? [] };
+                            setScene(norm);
+                            setStatus(`✨ Scene compiled: ${norm.rooms?.length ?? 0} rooms, ${norm.modules?.length ?? 0} modules.`);
+                          }
+                        }
+                      }
+                    }
+                  } finally {
+                    setCompiling(false);
+                  }
+                }}
+                style={{ background: 'linear-gradient(135deg, #c59c2d, #a88220)', color: '#1c1917', fontWeight: 800, padding: '10px 20px', fontSize: 13 }}
+              >
+                <Sparkles size={15} /> {compiling ? 'Compiling 3D Scene...' : '✨ Generate & Compile 3D Scene'}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <Card className="scene-inspector"><CardHeader><div><small>SELECTION</small><h3>{selected ?? 'Nothing selected'}</h3></div><MousePointer2 size={18} /></CardHeader><CardContent><p>{selected ? 'Selected geometry comes directly from the stored scene.v1 graph.' : 'Select a room, wall segment, or module in the preview.'}</p><p>{scene ? `${scene.openings.length} anchored openings • ${scene.materials.length} material records` : 'Create a scene from an approved floor plan to begin.'}</p></CardContent></Card>
+    </div>
   </section>;
 }
