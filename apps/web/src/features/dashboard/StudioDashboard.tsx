@@ -278,6 +278,22 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
             </span>
             <ArrowRight size={15} />
           </button>
+          <button onClick={() => openTool('/tools/aura')}>
+            <Sparkles size={17} />
+            <span>
+              <strong>🤖 AURA Design Agent</strong>
+              <small>Supervised AI assistant &amp; audits</small>
+            </span>
+            <ArrowRight size={15} />
+          </button>
+          <button onClick={() => openTool('/tools/operations')}>
+            <CalendarDays size={17} />
+            <span>
+              <strong>📊 Studio Operations</strong>
+              <small>Calendar milestones &amp; invoices</small>
+            </span>
+            <ArrowRight size={15} />
+          </button>
         </div>
       </section>
 

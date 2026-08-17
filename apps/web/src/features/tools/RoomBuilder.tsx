@@ -1,6 +1,7 @@
-import { ArrowRight, Download, DoorOpen, Save, Sparkles, Upload, PanelsTopLeft } from 'lucide-react';
+import { ArrowRight, Download, DoorOpen, Save, Sparkles, Upload, PanelsTopLeft, Compass } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
 import './room-builder.css';
 
 type OpeningKind = 'door' | 'window';
@@ -27,6 +28,8 @@ function safeNumber(value: number, fallback: number) { return Number.isFinite(va
 /** A local-first measured room draft. It never creates production geometry by itself. */
 export function RoomBuilder() {
   const navigate = useNavigate();
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [name, setName] = useState('New room');
   const [roomType, setRoomType] = useState('Living room');
   const [widthMm, setWidthMm] = useState(4200);
@@ -37,6 +40,16 @@ export function RoomBuilder() {
   const [camera, setCamera] = useState('Wide corner from entry');
   const [openings, setOpenings] = useState<Opening[]>([]);
   const [message, setMessage] = useState('This local room draft is ready to measure and save.');
+
+  useEffect(() => {
+    void (async () => {
+      if (!supabase) return;
+      const res = await supabase.from('projects').select('id,name').neq('project_status', 'archived').order('updated_at', { ascending: false });
+      const list = (res?.data ?? []) as Array<{ id: string; name: string }>;
+      setProjects(list);
+      if (list[0]?.id) setSelectedProjectId(list[0].id);
+    })();
+  }, []);
 
   useEffect(() => {
     try {
@@ -78,7 +91,11 @@ export function RoomBuilder() {
   function continueToProject() {
     if (!valid) { setMessage('Complete the measured room first.'); return; }
     window.localStorage.setItem('ultida.pendingRoomDraft.v1', JSON.stringify(draft));
-    navigate('/projects?attachRoom=1');
+    if (selectedProjectId) {
+      navigate(`/projects/${selectedProjectId}/spaces?roomDraft=1`);
+    } else {
+      navigate('/projects?attachRoom=1');
+    }
   }
 
   return <main className="room-builder">
@@ -102,7 +119,38 @@ export function RoomBuilder() {
         <div className="room-builder-step"><span>3</span><div><strong>Scene intent</strong><small>These guide later layouts and renders; they do not change the measured shell.</small></div></div>
         <div className="room-builder-grid"><label>Floor finish<input value={floorFinish} onChange={(event) => setFloorFinish(event.target.value)} /></label><label>Ceiling intent<input value={ceilingIntent} onChange={(event) => setCeilingIntent(event.target.value)} /></label><label className="span-2">Preferred camera<input value={camera} onChange={(event) => setCamera(event.target.value)} /></label></div>
       </section>
-      <aside className="room-builder-card room-builder-preview"><div className="preview-heading"><div><p>DETERMINISTIC SHELL PREVIEW</p><h2>{draft.name}</h2></div><Sparkles size={19} /></div><svg viewBox="0 0 420 300" role="img" aria-label="Measured room shell preview"><polygon points="54,95 255,35 370,96 160,167" className="shell-ceiling" /><polygon points="54,95 160,167 160,270 54,195" className="shell-left" /><polygon points="160,167 370,96 370,195 160,270" className="shell-right" /><polygon points="54,195 160,270 370,195 255,135" className="shell-floor" /><line x1="54" y1="195" x2="370" y2="195" className="shell-line" />{openings.filter((opening) => opening.kind === 'door').slice(0, 2).map((opening, index) => <rect key={opening.id} x={190 + index * 55} y={185} width="36" height="60" className="shell-door" />)}{openings.filter((opening) => opening.kind === 'window').slice(0, 2).map((opening, index) => <rect key={opening.id} x={266 + index * 40} y={134} width="30" height="25" className="shell-window" />)}<text x="210" y="288" textAnchor="middle">{draft.widthMm} W × {draft.depthMm} D × {draft.ceilingHeightMm} H mm</text></svg><div className="preview-notes"><span>Floor: {draft.floorFinish || 'Not selected'}</span><span>Ceiling: {draft.ceilingIntent || 'Not selected'}</span><span>Camera: {draft.camera || 'Not selected'}</span></div><div className="room-builder-actions"><button type="button" onClick={saveLocal} disabled={!valid}><Save size={15} /> Save offline draft</button><button type="button" onClick={download} disabled={!valid}><Download size={15} /> Download JSON</button><button type="button" className="primary" onClick={continueToProject} disabled={!valid}><Upload size={15} /> Choose project <ArrowRight size={15} /></button></div><p role="status" className="room-builder-message">{message}</p></aside>
+      <aside className="room-builder-card room-builder-preview">
+        <div className="preview-heading"><div><p>DETERMINISTIC SHELL PREVIEW</p><h2>{draft.name}</h2></div><Sparkles size={19} /></div>
+        <svg viewBox="0 0 420 300" role="img" aria-label="Measured room shell preview">
+          <polygon points="54,95 255,35 370,96 160,167" className="shell-ceiling" />
+          <polygon points="54,95 160,167 160,270 54,195" className="shell-left" />
+          <polygon points="160,167 370,96 370,195 160,270" className="shell-right" />
+          <polygon points="54,195 160,270 370,195 255,135" className="shell-floor" />
+          <line x1="54" y1="195" x2="370" y2="195" className="shell-line" />
+          {openings.filter((opening) => opening.kind === 'door').slice(0, 2).map((opening, index) => <rect key={opening.id} x={190 + index * 55} y={185} width="36" height="60" className="shell-door" />)}
+          {openings.filter((opening) => opening.kind === 'window').slice(0, 2).map((opening, index) => <rect key={opening.id} x={266 + index * 40} y={134} width="30" height="25" className="shell-window" />)}
+          <text x="210" y="288" textAnchor="middle">{draft.widthMm} W × {draft.depthMm} D × {draft.ceilingHeightMm} H mm</text>
+        </svg>
+        <div className="preview-notes"><span>Floor: {draft.floorFinish || 'Not selected'}</span><span>Ceiling: {draft.ceilingIntent || 'Not selected'}</span><span>Camera: {draft.camera || 'Not selected'}</span></div>
+        {projects.length > 0 && (
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 700 }}>
+            <label style={{ color: 'var(--text-muted)' }}>Target Project</label>
+            <select
+              value={selectedProjectId}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+              style={{ padding: '7px 10px', borderRadius: 7, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 600 }}
+            >
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+        )}
+        <div className="room-builder-actions">
+          <button type="button" onClick={saveLocal} disabled={!valid}><Save size={15} /> Save offline draft</button>
+          <button type="button" onClick={download} disabled={!valid}><Download size={15} /> Download JSON</button>
+          <button type="button" className="primary" onClick={continueToProject} disabled={!valid}><Upload size={15} /> Open in {selectedProjectId ? 'Project' : 'Projects'} <ArrowRight size={15} /></button>
+        </div>
+        <p role="status" className="room-builder-message">{message}</p>
+      </aside>
     </div>
   </main>;
 }
