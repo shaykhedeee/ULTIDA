@@ -1,5 +1,5 @@
-import { Box, Image, Palette, Sparkles } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { Box, ChevronRight, Image, Palette, Sparkles } from 'lucide-react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import InteractiveRenderViewer from '../../components/visual/InteractiveRenderViewer';
 import './visualize-studio.css';
@@ -41,12 +41,14 @@ const SAMPLE_INTERACTIVE_ITEMS = [
 ];
 
 export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApproved }: Props) {
+  const navigate = useNavigate();
+  const { projectId } = useParams<{ projectId?: string }>();
   const [params, setParams] = useSearchParams();
   const requested = params.get('tab');
   const active: VisualizeTab = requested === 'render' || requested === 'laminate' || requested === 'interactive' ? requested : 'review';
   
   const tabs = [
-    { id: 'review' as const, label: '3D Review', icon: Box, help: 'Inspect deterministic scene geometry' },
+    { id: 'review' as const, label: '3D Scene Review', icon: Box, help: 'Measured Three.js scene verification' },
     { id: 'render' as const, label: 'AI Render', icon: Image, help: 'Generate from the approved scene' },
     { id: 'laminate' as const, label: 'Laminate Revision', icon: Palette, help: 'Change one named component only' },
     { id: 'interactive' as const, label: 'Interactive Hotspots & BOM', icon: Sparkles, help: 'Hover & inspect detected modules, materials and dynamic quotation' },
@@ -108,6 +110,67 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
         ))}
       </nav>
       <div className="visualize-panel">{panels[active]}</div>
+
+      {/* Bottom Stage Progression Bar */}
+      <div style={{ marginTop: 24, padding: '16px 20px', background: '#1c1917', borderRadius: 12, border: '1px solid #332d29', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <strong style={{ color: '#fff', fontSize: 13, display: 'block' }}>
+            Step 4 Complete: 3D Scene Geometry &amp; Renders Verified
+          </strong>
+          <small style={{ color: '#a8a29e', fontSize: 11 }}>
+            Proceed to the dynamic commercial estimate to generate line-item bill of materials (BOM), hardware costs, and client proposals.
+          </small>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (projectId) {
+                navigate(`/projects/${projectId}/estimate`);
+              }
+            }}
+            style={{
+              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+              color: '#1c1917',
+              border: 0,
+              borderRadius: 8,
+              padding: '10px 18px',
+              fontWeight: 800,
+              fontSize: 13,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              boxShadow: '0 4px 14px rgba(197,156,45,0.3)',
+            }}
+          >
+            Proceed to Dynamic Commercial Estimate <ChevronRight size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (projectId) {
+                navigate(`/projects/${projectId}/drawings`);
+              }
+            }}
+            style={{
+              background: 'rgba(255, 255, 255, 0.08)',
+              color: '#f5f5f4',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: 8,
+              padding: '10px 16px',
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            Production Drawings &amp; Cutlists ➔
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
