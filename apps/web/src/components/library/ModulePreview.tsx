@@ -125,15 +125,12 @@ export function ModulePreview({ module, compact = false, style }: Props) {
   const isFurniture = ['tv-unit', 'bed', 'sofa', 'dining'].includes(module.family);
   const label = `${module.name}: dimensional 3D preview`;
   return <div className={`module-preview${compact ? ' compact' : ''}`} style={style} aria-label={label} role="img">
-    <svg viewBox="0 0 168 138" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <svg viewBox="0 0 168 138" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style={{ background: 'transparent' }}>
       <defs>
-        <filter id={`shadow-${module.id}`} x="-20%" y="-20%" width="150%" height="150%"><feDropShadow dx="0" dy="5" stdDeviation="4" floodColor="#5c4635" floodOpacity=".24" /></filter>
-        <linearGradient id={`floor-${module.id}`} x1="0" x2="1"><stop stopColor="#faf8f4" /><stop offset="1" stopColor="#eee9e0" /></linearGradient>
+        <filter id={`shadow-${module.id}`} x="-20%" y="-20%" width="150%" height="150%"><feDropShadow dx="0" dy="4" stdDeviation="3" floodColor="#3d2a1a" floodOpacity=".20" /></filter>
       </defs>
-      <rect width="168" height="138" rx="10" fill={`url(#floor-${module.id})`} />
-      <path d="M20 119 H148" stroke="#cfc5b9" strokeWidth="1.5" />
       <g filter={`url(#shadow-${module.id})`}>{isFurniture ? <LivingPreview module={module} colours={colours} /> : <Cabinet module={module} colours={colours} />}</g>
-      <text x="14" y="19" fill="#796f64" fontSize="8" fontWeight="700" letterSpacing=".8">{module.family.replaceAll('-', ' ').toUpperCase()}</text>
+      <text x="12" y="16" fill="#8c7a6b" fontSize="8" fontWeight="800" letterSpacing=".9">{module.family.replaceAll('-', ' ').toUpperCase()}</text>
     </svg>
   </div>;
 }
