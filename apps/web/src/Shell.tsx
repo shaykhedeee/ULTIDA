@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, FolderKanban, Library, BookOpen,
   Palette, Settings, Users, Ruler, ChevronRight, Box, Home, Wand2, CalendarDays, Receipt, Compass,
-  PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut,
+  PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut, Sparkles, Layers,
   CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -42,16 +42,18 @@ const PRIMARY_NAV = [
 ];
 
 const TOOL_NAV = [
-  { label: 'Design tools', items: [
+  { label: 'AI & Design Tools', items: [
+    { id: 'aura-ai', label: 'AURA Design AI', path: '/tools/aura', icon: Sparkles },
+    { id: 'skp-generator', label: 'SketchUp Studio', path: '/tools/skp', icon: Layers },
     { id: 'room-builder', label: 'Room Builder', path: '/tools/room-builder', icon: Home },
     { id: 'module-planner', label: 'Module Planner', path: '/tools/modules', icon: Box },
     { id: 'render-studio', label: 'Render Studio', path: '/tools/render', icon: Wand2 },
   ] },
-  { label: 'Production tools', items: [
+  { label: 'Production & CNC', items: [
     { id: 'cnc-studio', label: 'CNC Patterns', path: '/tools/cnc', icon: Compass },
     { id: 'measurements', label: 'Measurements', path: '/tools/measurements', icon: Ruler },
   ] },
-  { label: 'Studio operations', items: [
+  { label: 'Studio Operations', items: [
     { id: 'calendar', label: 'Calendar', path: '/tools/calendar', icon: CalendarDays },
     { id: 'invoices', label: 'Invoices', path: '/tools/invoices', icon: Receipt },
   ] },

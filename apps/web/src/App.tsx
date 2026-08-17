@@ -1329,6 +1329,7 @@ function DashboardShell({ sessionEmail, orgName, onStudioIdentitySaved }: { sess
         <Route path="tools/aura" element={<AuraChat />} />
         <Route path="tools/render" element={<RenderLauncher />} />
         <Route path="tools/measurements" element={<MeasurementConverter />} />
+        <Route path="tools/converter" element={<MeasurementConverter />} />
         <Route path="tools/room-builder" element={<RoomBuilder />} />
         <Route path="tools/skp" element={<SketchupCodeStudio />} />
         <Route path="tools/sketchup-generator" element={<SketchupCodeStudio />} />
