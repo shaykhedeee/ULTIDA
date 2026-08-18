@@ -1344,7 +1344,7 @@ function RouteLoading({ label }: { label: string }) {
 // ─── Root App ──────────────────────────────────────────────────────
 export function App() {
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
-  const [orgName, setOrgName] = useState<string>('');
+  const [orgName, setOrgName] = useState<string>(() => window.localStorage.getItem('ultida_studio_name') || '');
   const navigate = useNavigate();
 
   // Server-validated access token. Unlike getSession() (which reads a possibly
@@ -1368,33 +1368,26 @@ export function App() {
   // Supabase auth listener
   useEffect(() => {
     if (!supabase) return;
-    let active = true;
-    // getSession() only reads localStorage and may return a STALE/expired
-    // token. getUser() is server-validated, so use it as the source of truth
-    // and self-heal expired sessions instead of getting stuck on a hard error.
-    supabase.auth.getUser().then(({ data, error }) => {
-      if (!active) return;
-      if (error || !data.user) {
-        // Expired or corrupt session. Clear local state and require sign-in.
-        void supabase!.auth.signOut().catch(() => {});
-        setSessionEmail(null);
-        return;
+
+    // Check existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.email) {
+        setSessionEmail(session.user.email);
+        void fetchOrgName(session.user.id);
       }
-      setSessionEmail(data.user.email ?? null);
-      if (data.user.email) loadOrg(data.user.id);
     });
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
-      if (_event === 'SIGNED_OUT') {
-        setSessionEmail(null);
-        return;
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSessionEmail(session?.user?.email ?? null);
+      if (session?.user?.id) {
+        void fetchOrgName(session.user.id);
       }
-      setSessionEmail(next?.user.email ?? null);
-      if (next?.user) loadOrg(next.user.id);
     });
-    return () => { active = false; data.subscription.unsubscribe(); };
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  async function loadOrg(userId: string) {
+  async function fetchOrgName(userId: string) {
     if (!supabase) return;
     const { data } = await supabase
       .from('organization_members')
@@ -1404,7 +1397,10 @@ export function App() {
       .single();
     if (data) {
       const orgData = data.organizations as any;
-      setOrgName(Array.isArray(orgData) ? orgData[0]?.name : orgData?.name ?? '');
+      const fetchedName = Array.isArray(orgData) ? orgData[0]?.name : orgData?.name;
+      if (fetchedName && !window.localStorage.getItem('ultida_studio_name')) {
+        setOrgName(fetchedName);
+      }
     }
   }
 
