@@ -1212,21 +1212,57 @@ export function PlanReviewWorkspace({
                         />
                       ));
                     })()}
-                    {/* Room Label */}
-                    {room.geometry.polygon && room.geometry.polygon[0] && (
-                      <text
-                        x={(room.geometry.polygon[0].x + room.geometry.polygon[1].x) / 2}
-                        y={(room.geometry.polygon[0].y + room.geometry.polygon[2].y) / 2}
-                        textAnchor="middle"
-                        dominantBaseline="middle"
-                        fill="#1a1208"
-                        fontSize="14"
-                        fontWeight="800"
-                        style={{ pointerEvents: 'none', userSelect: 'none' }}
-                      >
-                        {room.label}{typeof room.areaSqm === 'number' ? ` (${room.areaSqm.toFixed(1)} m²)` : ''}
-                      </text>
-                    )}
+                    {/* Room Centroid & Clear Architectural Label Badge */}
+                    {(() => {
+                      const poly = room.geometry.polygon;
+                      const cx = poly && poly.length > 0
+                        ? poly.reduce((sum, p) => sum + p.x, 0) / poly.length
+                        : (room.geometry.x ?? 0) + (room.geometry.width ?? 120) / 2;
+                      const cy = poly && poly.length > 0
+                        ? poly.reduce((sum, p) => sum + p.y, 0) / poly.length
+                        : (room.geometry.y ?? 0) + (room.geometry.height ?? 100) / 2;
+                      const labelText = room.label;
+                      const areaText = typeof room.areaSqm === 'number' ? `${room.areaSqm.toFixed(1)} m²` : null;
+                      const badgeWidth = Math.max(110, Math.min(180, labelText.length * 8.5 + 24));
+                      const badgeHeight = areaText ? 32 : 22;
+
+                      return (
+                        <g transform={`translate(${cx}, ${cy})`} style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                          <rect
+                            x={-badgeWidth / 2}
+                            y={-badgeHeight / 2}
+                            width={badgeWidth}
+                            height={badgeHeight}
+                            rx={7}
+                            fill="rgba(255, 253, 248, 0.95)"
+                            stroke={isSelected ? '#c59c2d' : 'rgba(110, 80, 50, 0.28)'}
+                            strokeWidth={isSelected ? 1.75 : 1}
+                            filter="drop-shadow(0 2px 5px rgba(0,0,0,0.08))"
+                          />
+                          <text
+                            textAnchor="middle"
+                            y={areaText ? -2 : 4}
+                            fill="#1c1917"
+                            fontSize="11.5"
+                            fontWeight="800"
+                            letterSpacing="0.01em"
+                          >
+                            {labelText}
+                          </text>
+                          {areaText && (
+                            <text
+                              textAnchor="middle"
+                              y={10}
+                              fill="#9a7322"
+                              fontSize="9.5"
+                              fontWeight="700"
+                            >
+                              {areaText}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })()}
                   </g>
                 );
               })}
@@ -1235,6 +1271,7 @@ export function PlanReviewWorkspace({
               {layers.walls.visible && elements.filter((e) => e.kind === 'wall').map((wall) => {
                 const isSelected = wall.id === selectedId;
                 const { x1 = 0, y1 = 0, x2 = 0, y2 = 0 } = wall.geometry;
+                const len = Math.hypot(x2 - x1, y2 - y1);
                 return (
                   <g
                     key={wall.id}
@@ -1253,65 +1290,123 @@ export function PlanReviewWorkspace({
                     <line
                       x1={x1} y1={y1} x2={x2} y2={y2}
                       stroke={isSelected ? '#c59c2d' : wall.color}
-                      strokeWidth={isSelected ? 8 : 6}
+                      strokeWidth={isSelected ? 7 : 5}
                       strokeLinecap="round"
                       style={{ cursor: 'pointer' }}
                     />
-                    {/* Wall dimension text */}
-                    <text
-                      x={(x1 + x2) / 2}
-                      y={(y1 + y2) / 2 - 8}
-                      textAnchor="middle"
-                      fill="#1e293b"
-                      fontSize="10"
-                      fontWeight="700"
-                    >
-                      {wall.dimensionMm} mm
+                    {/* Wall dimension text with backdrop pill */}
+                    {len > 30 && wall.dimensionMm && (
+                      <g transform={`translate(${(x1 + x2) / 2}, ${(y1 + y2) / 2 - 9})`} style={{ pointerEvents: 'none' }}>
+                        <rect
+                          x={-28} y={-8} width={56} height={15} rx={4}
+                          fill="rgba(255, 255, 255, 0.9)"
+                          stroke="rgba(30, 41, 59, 0.2)"
+                          strokeWidth={0.75}
+                        />
+                        <text
+                          y={3}
+                          textAnchor="middle"
+                          fill="#1e293b"
+                          fontSize="9"
+                          fontWeight="700"
+                        >
+                          {wall.dimensionMm} mm
+                        </text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+
+              {/* Render Doors (Architectural Wall-Oriented Swing Arc) */}
+              {layers.doors.visible && elements.filter((e) => e.kind === 'door').map((door) => {
+                const isSelected = door.id === selectedId;
+                const { x = 0, y = 0 } = door.geometry;
+                const hostWall = door.wallId ? elements.find((e) => e.id === door.wallId && e.kind === 'wall') : null;
+                let angle = 0;
+                if (hostWall && hostWall.geometry.x1 !== undefined && hostWall.geometry.y1 !== undefined && hostWall.geometry.x2 !== undefined && hostWall.geometry.y2 !== undefined) {
+                  angle = Math.atan2(hostWall.geometry.y2 - hostWall.geometry.y1, hostWall.geometry.x2 - hostWall.geometry.x1) * (180 / Math.PI);
+                }
+                const widthPx = door.geometry.width || (scale && door.widthMm ? door.widthMm / scale.mmPerPixel : 26);
+                const r = Math.max(16, widthPx);
+
+                return (
+                  <g
+                    key={door.id}
+                    transform={`translate(${x}, ${y}) rotate(${angle})`}
+                    onMouseDown={(event) => {
+                      if (activeTool !== 'move') return;
+                      const point = canvasPoint(event);
+                      if (point) setDragging({ id: door.id, point, snapshot: cloneElements(elements) });
+                      event.stopPropagation();
+                    }}
+                    onClick={(e) => { e.stopPropagation(); setSelectedId(door.id); }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {/* Clear wall opening gap */}
+                    <line x1={0} y1={0} x2={r} y2={0} stroke="#faf7f2" strokeWidth={6} strokeLinecap="butt" />
+                    {/* Door Hinge */}
+                    <circle cx={0} cy={0} r={3.5} fill={isSelected ? '#c59c2d' : '#059669'} stroke="#fff" strokeWidth={1} />
+                    {/* Door Leaf */}
+                    <line x1={0} y1={0} x2={0} y2={-r} stroke={isSelected ? '#c59c2d' : '#059669'} strokeWidth={2.5} strokeLinecap="round" />
+                    {/* Swing arc */}
+                    <path d={`M 0 ${-r} A ${r} ${r} 0 0 1 ${r} 0`} fill="none" stroke={isSelected ? '#c59c2d' : '#10b981'} strokeWidth={1.5} strokeDasharray="3,3" />
+                    {/* Door tag */}
+                    <rect x={r / 2 - 18} y={-r / 2 - 14} width={36} height={13} rx={3} fill="rgba(255,255,255,0.92)" stroke="rgba(5,150,105,0.3)" strokeWidth={0.75} pointerEvents="none" />
+                    <text x={r / 2} y={-r / 2 - 5} textAnchor="middle" fill="#047857" fontSize="8.5" fontWeight="800" style={{ pointerEvents: 'none' }}>
+                      {door.widthMm ? `${door.widthMm}mm` : 'Door'}
                     </text>
                   </g>
                 );
               })}
 
-              {/* Render Doors */}
-              {layers.doors.visible && elements.filter((e) => e.kind === 'door').map((door) => {
-                const isSelected = door.id === selectedId;
-                const { x = 0, y = 0 } = door.geometry;
+              {/* Render Windows (Architectural Double-Glazed Wall-Aligned Frame) */}
+              {layers.windows.visible && elements.filter((e) => e.kind === 'window').map((win) => {
+                const isSelected = win.id === selectedId;
+                const { x = 0, y = 0 } = win.geometry;
+                const hostWall = win.wallId ? elements.find((e) => e.id === win.wallId && e.kind === 'wall') : null;
+                let angle = 0;
+                if (hostWall && hostWall.geometry.x1 !== undefined && hostWall.geometry.y1 !== undefined && hostWall.geometry.x2 !== undefined && hostWall.geometry.y2 !== undefined) {
+                  angle = Math.atan2(hostWall.geometry.y2 - hostWall.geometry.y1, hostWall.geometry.x2 - hostWall.geometry.x1) * (180 / Math.PI);
+                }
+                const widthPx = win.geometry.width || (scale && win.widthMm ? win.widthMm / scale.mmPerPixel : 34);
+                const halfW = Math.max(16, widthPx / 2);
+
                 return (
-                <g
-                  key={door.id}
-                  onMouseDown={(event) => {
-                    if (activeTool !== 'move') return;
-                    const point = canvasPoint(event);
-                    if (point) setDragging({ id: door.id, point, snapshot: cloneElements(elements) });
-                    event.stopPropagation();
-                  }}
-                  onClick={(e) => { e.stopPropagation(); setSelectedId(door.id); }}
-                >
-                    <circle cx={x} cy={y} r={12} fill="#059669" stroke={isSelected ? '#c59c2d' : '#fff'} strokeWidth={2} style={{ cursor: 'pointer' }} />
-                    <path d={`M ${x} ${y} A 30 30 0 0 1 ${x + 30} ${y + 30}`} fill="none" stroke="#059669" strokeWidth="2" strokeDasharray="3,3" />
+                  <g
+                    key={win.id}
+                    transform={`translate(${x}, ${y}) rotate(${angle})`}
+                    onClick={(e) => { e.stopPropagation(); setSelectedId(win.id); }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {/* Clear wall opening */}
+                    <rect x={-halfW} y={-4.5} width={halfW * 2} height={9} fill="#faf7f2" stroke="none" />
+                    {/* Window Frame */}
+                    <rect
+                      x={-halfW} y={-4.5} width={halfW * 2} height={9}
+                      fill="rgba(56, 189, 248, 0.22)"
+                      stroke={isSelected ? '#c59c2d' : '#0284c7'}
+                      strokeWidth={isSelected ? 2.5 : 1.5}
+                      rx={1}
+                    />
+                    {/* Double glass panes */}
+                    <line x1={-halfW + 2} y1={-1.5} x2={halfW - 2} y2={-1.5} stroke="#0284c7" strokeWidth={1} />
+                    <line x1={-halfW + 2} y1={1.5} x2={halfW - 2} y2={1.5} stroke="#0284c7" strokeWidth={1} />
+                    {/* End Jambs */}
+                    <line x1={-halfW} y1={-5} x2={-halfW} y2={5} stroke="#0369a1" strokeWidth={2} />
+                    <line x1={halfW} y1={-5} x2={halfW} y2={5} stroke="#0369a1" strokeWidth={2} />
+                    {/* Window tag */}
+                    <g transform="translate(0, -10)" style={{ pointerEvents: 'none' }}>
+                      <rect x={-22} y={-7} width={44} height={13} rx={3} fill="rgba(255,255,255,0.92)" stroke="rgba(2,132,199,0.3)" strokeWidth={0.75} />
+                      <text textAnchor="middle" y={3} fill="#0369a1" fontSize="8.5" fontWeight="800">
+                        {win.widthMm ? `${win.widthMm}mm` : 'Window'}
+                      </text>
+                    </g>
                   </g>
                 );
               })}
 
-              {/* Render Windows */}
-              {layers.windows.visible && elements.filter((e) => e.kind === 'window').map((win) => {
-                const isSelected = win.id === selectedId;
-                const { x = 0, y = 0 } = win.geometry;
-                return (
-                  <rect
-                    key={win.id}
-                    x={x - 20} y={y - 6} width={40} height={12}
-                    fill="#d97706" stroke={isSelected ? '#c59c2d' : '#fff'}
-                    strokeWidth={2} rx={2}
-                    onClick={(e) => { e.stopPropagation(); setSelectedId(win.id); }}
-                    style={{ cursor: 'pointer' }}
-                  />
-                );
-              })}
-
-              {/* Existing source fixtures and furniture symbols are deliberately
-                  review-only. They inform Space requirements; they never become
-                  modular units or production geometry without designer action. */}
+              {/* Existing source fixtures and furniture symbols */}
               {layers.fixtures.visible && elements.filter((e) => e.kind === 'fixture').map((fixture) => {
                 const isSelected = fixture.id === selectedId;
                 const { x = 0, y = 0, width = 34, height: depth = 34 } = fixture.geometry;
