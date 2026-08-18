@@ -336,6 +336,7 @@ app.post('/api/catalog/validate-placement', (request, response) => {
   const { moduleId, roomType, clearanceMm, adjacentFamily } = request.body ?? {};
   if (!moduleId || !roomType || typeof clearanceMm !== 'number') return response.status(400).json({ success: false, code: 'INVALID_PLACEMENT_REQUEST', message: 'moduleId, roomType and clearanceMm are required.' });
   const moduleItem = listCatalog().find((item) => item.id === moduleId);
+  if (!moduleItem) return response.status(404).json({ success: false, code: 'MODULE_NOT_FOUND', message: 'Module not found in catalog.' });
   const result = validatePlacement(moduleItem, RoomTypeSchema.parse(roomType), clearanceMm);
   const ruleViolations: Array<{ code: string; message: string }> = [];
   if (adjacentFamily === 'kitchen-corner' && (moduleItem.tags.includes('drawer') || moduleItem.family === 'kitchen-base' || moduleItem.tags.includes('base'))) {
