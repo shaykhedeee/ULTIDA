@@ -177,6 +177,38 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
         </div>
 
         <form onSubmit={handleSubmit}>
+          {/* Quick-Start Templates */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>
+              ✨ Quick-Start Project Templates
+            </label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[
+                { name: 'Sharma Residence (3BHK)', client: 'Rohit & Ananya Sharma', loc: 'Pali Hill, Bandra West, Mumbai', type: 'apartment' },
+                { name: 'Skyline Penthouse (4BHK)', client: 'Dr. Sameer Roy', loc: 'Indiranagar, Bengaluru', type: 'penthouse' },
+                { name: 'Japandi Villa Minimalist', client: 'Ayesha Mehta', loc: 'Golf Links, New Delhi', type: 'villa' },
+              ].map((tmpl, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setForm({ name: tmpl.name, client_name: tmpl.client, location: tmpl.loc, property_type: tmpl.type })}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 6,
+                    border: '1px solid #e7e5e4',
+                    background: '#fafaf9',
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    color: '#44403c',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {tmpl.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="form-grid-2">
             <div className="form-field" style={{ gridColumn: '1 / -1' }}>
               <label>Project Name *</label>
@@ -537,12 +569,20 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
                   : 'Create your first project to start designing with AI-assisted modular interior design.'}
               </p>
               {!search && statusFilter === 'all' && (
-                <button
-                  onClick={() => setShowNew(true)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'var(--brown-mid)', color: '#fff', border: 0, borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 8 }}
-                >
-                  <Plus size={15} /> Create First Project
-                </button>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', marginTop: 12 }}>
+                  <button
+                    onClick={() => setShowNew(true)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'var(--brown-mid)', color: '#fff', border: 0, borderRadius: 8, fontSize: 13.5, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    <Plus size={15} /> Create Custom Project
+                  </button>
+                  <button
+                    onClick={() => setShowNew(true)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'linear-gradient(135deg, #c59c2d, #a88220)', color: '#1c1917', border: 0, borderRadius: 8, fontSize: 13.5, fontWeight: 800, cursor: 'pointer', boxShadow: '0 2px 8px rgba(197,156,45,0.3)' }}
+                  >
+                    <Sparkles size={15} /> Load Sample 3BHK Residence
+                  </button>
+                </div>
               )}
             </div>
           ) : (
