@@ -209,15 +209,54 @@ function materialColour(material: Material) {
   return /^#[0-9a-f]{6}$/i.test(candidate ?? '') ? candidate! : '#d6c1a7';
 }
 
+const DEFAULT_MODULAR_CATALOG: CatalogModule[] = [
+  // KITCHEN
+  { id: 'kit-base-600', family: 'kitchen-base', name: '600 Base Single-Door Cabinet', roomTypes: ['kitchen'], widthMm: 600, depthMm: 600, heightMm: 750, sku: 'ULT-KB-600', tags: ['kitchen', 'base'], description: 'Standard 600mm base unit with single soft-close shutter and one adjustable shelf.', production: { cutlistSupported: true } },
+  { id: 'kit-base-cutlery-600', family: 'kitchen-base', name: '600 3-Drawer Cutlery & Tandem Base', roomTypes: ['kitchen'], widthMm: 600, depthMm: 600, heightMm: 750, sku: 'ULT-KB-DR3-600', tags: ['kitchen', 'base', 'cutlery', 'tandem'], description: 'Triple drawer stack with top cutlery tray, middle utensil drawer, and deep lower pot drawer.', production: { cutlistSupported: true } },
+  { id: 'kit-base-tandem-2pot-600', family: 'kitchen-base', name: '600 2-Pot Deep Tandem Base', roomTypes: ['kitchen'], widthMm: 600, depthMm: 600, heightMm: 750, sku: 'ULT-KB-TDM2-600', tags: ['kitchen', 'base', 'pots'], description: 'Dual heavy-duty soft-close tandem drawers (65kg rating) for heavy pots.', production: { cutlistSupported: true } },
+  { id: 'kit-base-sink-900', family: 'kitchen-base', name: '900 Waterproof Sink Base with Drip Tray', roomTypes: ['kitchen', 'utility'], widthMm: 900, depthMm: 600, heightMm: 750, sku: 'ULT-KS-900', tags: ['kitchen', 'sink'], description: 'Sink unit with marine-grade core and waterproof bottom tray.', production: { cutlistSupported: true } },
+  { id: 'kit-corner-lemans-1050', family: 'kitchen-corner', name: '1050 LeMans II Blind Corner Carousel', roomTypes: ['kitchen'], widthMm: 1050, depthMm: 600, heightMm: 750, sku: 'ULT-KC-LEM-1050', tags: ['kitchen', 'corner', 'lemans'], description: 'Blind corner unit equipped with smooth double LeMans articulating trays.', production: { cutlistSupported: true } },
+  { id: 'kit-wall-600', family: 'kitchen-wall', name: '600 Single Overhead Shutter Unit', roomTypes: ['kitchen'], widthMm: 600, depthMm: 350, heightMm: 720, sku: 'ULT-KW-600', tags: ['kitchen', 'wall', 'overhead'], description: 'Wall-mounted 600mm overhead cabinet with two adjustable shelves.', production: { cutlistSupported: true } },
+  { id: 'kit-wall-liftup-900', family: 'kitchen-wall', name: '900 Bi-Fold Lift-Up Glass Unit', roomTypes: ['kitchen'], widthMm: 900, depthMm: 350, heightMm: 720, sku: 'ULT-KW-LFT-900', tags: ['kitchen', 'wall', 'lift-up', 'glass'], description: 'Modern bi-fold lift-up overhead unit with tinted glass shutter.', production: { cutlistSupported: true } },
+  { id: 'kit-tall-pantry-600', family: 'kitchen-tall', name: '600 Full-Height Pull-Out Pantry Tower', roomTypes: ['kitchen'], widthMm: 600, depthMm: 600, heightMm: 2100, sku: 'ULT-KT-PNT-600', tags: ['kitchen', 'tall', 'pantry'], description: '6-tier internal pull-out chrome basket pantry tower.', production: { cutlistSupported: true } },
+  { id: 'kit-tall-appliance-600', family: 'kitchen-tall', name: '600 Built-In Oven & Microwave Tall Unit', roomTypes: ['kitchen'], widthMm: 600, depthMm: 600, heightMm: 2100, sku: 'ULT-KT-APP-600', tags: ['kitchen', 'tall', 'oven'], description: 'Dedicated appliance tower with built-in oven and microwave cavities.', production: { cutlistSupported: true } },
+
+  // LIVING & TV UNITS
+  { id: 'tv-profile-2400', family: 'tv-unit', name: '2400 Floating TV Wall with Profile Glass & Warm LED', roomTypes: ['living'], widthMm: 2400, depthMm: 400, heightMm: 2400, sku: 'ULT-TV-PRF-2400', tags: ['tv-wall', 'floating', 'led', 'profile-glass'], description: 'Feature TV media wall with floating console, profile-glass display, and fluted paneling.', production: { cutlistSupported: true } },
+  { id: 'tv-fluted-2100', family: 'tv-unit', name: '2100 Fluted-Panel Floating TV Console', roomTypes: ['living'], widthMm: 2100, depthMm: 400, heightMm: 2300, sku: 'ULT-TV-FLUTE-2100', tags: ['tv-wall', 'fluted'], description: 'Contemporary TV wall with vertical fluted texture and dual push-to-open drawers.', production: { cutlistSupported: true } },
+  { id: 'sofa-curved-boucle-2800', family: 'sofa', name: '2800 Curved Bouclé Sectional Sofa', roomTypes: ['living'], widthMm: 2800, depthMm: 1600, heightMm: 800, sku: 'ULT-SF-CRV-2800', tags: ['sofa', 'sectional', 'boucle'], description: 'Sculptural organic contours in soft cream bouclé fabric with high-density core.', production: { cutlistSupported: false } },
+  { id: 'sofa-l-2800', family: 'sofa', name: '2800 L-Shaped Sectional Cloud Couch', roomTypes: ['living'], widthMm: 2800, depthMm: 1700, heightMm: 850, sku: 'ULT-SF-L2800', tags: ['sofa', 'sectional'], description: 'Deep conversational sectional with feather-blend cushions and hardwood frame.', production: { cutlistSupported: false } },
+
+  // BEDROOM & WARDROBES
+  { id: 'wardrobe-2100-four-shutter', family: 'wardrobe', name: '2100 Four-Shutter Wardrobe with Overhead Loft', roomTypes: ['bedroom', 'master_bedroom'], widthMm: 2100, depthMm: 600, heightMm: 2700, sku: 'ULT-WD-4S-2100', tags: ['wardrobe', 'swing', 'loft'], description: 'Floor-to-ceiling 4-shutter wardrobe with 600mm overhead loft and internal drawers.', production: { cutlistSupported: true } },
+  { id: 'wardrobe-sliding-2400', family: 'wardrobe', name: '2400 2-Door Soft-Close Sliding Wardrobe', roomTypes: ['bedroom', 'master_bedroom'], widthMm: 2400, depthMm: 650, heightMm: 2400, sku: 'ULT-WD-SLD-2400', tags: ['wardrobe', 'sliding'], description: 'Smooth bottom-running sliding wardrobe with anti-jump rollers and full-length mirror.', production: { cutlistSupported: true } },
+  { id: 'wardrobe-walkin-glass-3000', family: 'wardrobe', name: '3000 Luxury Profile-Glass Walk-In Closet', roomTypes: ['bedroom', 'master_bedroom'], widthMm: 3000, depthMm: 600, heightMm: 2700, sku: 'ULT-WD-WIK-3000', tags: ['wardrobe', 'walk-in', 'glass'], description: 'Tinted glass shutters with integrated vertical LED profiles and leatherette shelving.', production: { cutlistSupported: true } },
+  { id: 'bed-floating-led-1800', family: 'bed', name: '1800 King Floating Bed with Concealed Underglow', roomTypes: ['bedroom', 'master_bedroom'], widthMm: 1800, depthMm: 2100, heightMm: 1100, sku: 'ULT-BD-FLT-1800', tags: ['bed', 'floating', 'hydraulic'], description: 'Anti-gravity cantilevered frame with warm LED ground wash and hydraulic storage base.', production: { cutlistSupported: true } },
+  { id: 'bed-1800-extended-headboard', family: 'bed', name: '1800 King Bed with Extended Fluted Headboard & Nightstands', roomTypes: ['bedroom', 'master_bedroom'], widthMm: 2800, depthMm: 2100, heightMm: 1200, sku: 'ULT-BD-EXT-1800', tags: ['bed', 'headboard', 'fluted'], description: 'Full-wall upholstered headboard panel with integrated floating bedside ledges.', production: { cutlistSupported: true } },
+
+  // DINING & CROCKERY
+  { id: 'dining-calacatta-gold-2100', family: 'dining', name: '2100 Calacatta Gold Marble Dining Table', roomTypes: ['dining'], widthMm: 2100, depthMm: 1000, heightMm: 750, sku: 'ULT-DN-CAL-2100', tags: ['dining', 'marble'], description: '20mm sintered marble slab table with rounded bullnose edges on dual fluted pedestals.', production: { cutlistSupported: false } },
+  { id: 'dining-1600', family: 'dining', name: '1600 Solid Oak Six-Seat Dining Ensemble', roomTypes: ['dining'], widthMm: 1600, depthMm: 900, heightMm: 750, sku: 'ULT-DN-OAK-1600', tags: ['dining', 'oak'], description: 'Mid-century solid oak table with 6 matching bucket dining chairs.', production: { cutlistSupported: false } },
+  { id: 'crockery-1800', family: 'crockery', name: '1800 Full-Wall Crockery & Wine Bar Unit', roomTypes: ['dining', 'living'], widthMm: 1800, depthMm: 450, heightMm: 2400, sku: 'ULT-CR-1800', tags: ['crockery', 'bar', 'wine'], description: 'Fluted glass display cabinet with stemware racks and bottle drawers below.', production: { cutlistSupported: true } },
+
+  // POOJA & MANDIR
+  { id: 'pooja-jaali-1200', family: 'pooja', name: '1200 CNC Jaali Teakwood Pooja Mandir', roomTypes: ['pooja', 'living'], widthMm: 1200, depthMm: 600, heightMm: 2100, sku: 'ULT-PJ-JAL-1200', tags: ['pooja', 'mandir', 'jaali'], description: 'Sacred mandir with CNC back-lit jaali panel, brass bell inlays, and pull-out diya tray.', production: { cutlistSupported: true } },
+
+  // STUDY & FOYER
+  { id: 'study-1500', family: 'study', name: '1500 Floating Wall-Mounted Study Desk & Shelf', roomTypes: ['study', 'bedroom'], widthMm: 1500, depthMm: 600, heightMm: 2400, sku: 'ULT-ST-FLT-1500', tags: ['study', 'desk', 'floating'], description: 'Heavy-duty wall mounted study workstation with wire grommets and pinboard niche.', production: { cutlistSupported: true } },
+  { id: 'foyer-shoe-1200', family: 'storage', name: '1200 Foyer Shoe Storage Bench with Cushion', roomTypes: ['foyer', 'living'], widthMm: 1200, depthMm: 400, heightMm: 1800, sku: 'ULT-ST-FOY-1200', tags: ['storage', 'shoe-rack', 'foyer'], description: 'Entryway console with 16-pair ventilated shoe cabinet and coat hooks.', production: { cutlistSupported: true } },
+];
+
 export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { organizationId?: string | null; projectId?: string | null }) {
   const navigate = useNavigate();
   const { projectId: urlProjectId } = useParams<{ projectId?: string }>();
   const activeProjectId = projectId ?? urlProjectId ?? null;
 
   const [activeTab, setActiveTab] = useState<'templates' | 'modules' | 'moodboard' | 'materials'>('modules');
+  const [moduleImageMode, setModuleImageMode] = useState<'photo' | 'nobg'>('photo');
   const [items, setItems] = useState<LibraryItem[]>([]);
-  const [modules, setModules] = useState<CatalogModule[]>([]);
-  const [materials, setMaterials] = useState<Material[]>([]);
+  const [modules, setModules] = useState<CatalogModule[]>(DEFAULT_MODULAR_CATALOG);
+  const [materials, setMaterials] = useState<Material[]>(DEFAULT_PROJECT_MATERIALS);
   const [moodboardItems, setMoodboardItems] = useState<MoodboardItem[]>(MOODBOARD_PRESETS.living);
   const [moodboardBg, setMoodboardBg] = useState<'linen' | 'clay' | 'dark' | 'white'>('linen');
   const [selectedMbItem, setSelectedMbItem] = useState<string | null>(null);
@@ -225,8 +264,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referenceTags, setReferenceTags] = useState('');
   const [uploadingReference, setUploadingReference] = useState(false);
-  const [libraryLoading, setLibraryLoading] = useState(true);
-  const [status, setStatus] = useState('Loading modular catalog…');
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [status, setStatus] = useState('Modular catalog loaded.');
   const [vault, setVault] = useState<VaultEntry[]>([]);
   const [vaultRoom, setVaultRoom] = useState('all');
   const [vaultFamily, setVaultFamily] = useState('all');
@@ -701,10 +740,48 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
               <small>PARAMETRIC MODULES + PRODUCTION GEOMETRY</small>
               <h2>Professional furniture catalog backed by System 32 standards</h2>
               <p style={{ margin: '5px 0 0', fontSize: 12, color: '#78716c' }}>
-                Click any render reference for high-resolution inspection. Dimensions and panel cutlists are guaranteed.
+                Click any render reference for high-resolution inspection. Switch between photorealistic renders and transparent isolated schematics.
               </p>
             </div>
-            <Badge tone="success">{visibleModules.filter((module) => module.production.cutlistSupported).length} cutlist-ready</Badge>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ display: 'inline-flex', background: '#f5f5f4', padding: 3, borderRadius: 8, border: '1px solid #e7e5e4' }}>
+                <button
+                  type="button"
+                  onClick={() => setModuleImageMode('photo')}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: moduleImageMode === 'photo' ? '#fff' : 'transparent',
+                    color: moduleImageMode === 'photo' ? '#1c1917' : '#78716c',
+                    fontWeight: moduleImageMode === 'photo' ? 700 : 500,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    boxShadow: moduleImageMode === 'photo' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  }}
+                >
+                  🖼️ Photorealistic Renders
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModuleImageMode('nobg')}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: moduleImageMode === 'nobg' ? '#fff' : 'transparent',
+                    color: moduleImageMode === 'nobg' ? '#1c1917' : '#78716c',
+                    fontWeight: moduleImageMode === 'nobg' ? 700 : 500,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    boxShadow: moduleImageMode === 'nobg' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  }}
+                >
+                  📐 Isolated 3D Modules (No BG)
+                </button>
+              </div>
+              <Badge tone="success">{visibleModules.filter((module) => module.production.cutlistSupported).length} cutlist-ready</Badge>
+            </div>
           </CardHeader>
 
           <CardContent>
@@ -716,7 +793,10 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                     <article key={module.id} className="library-item module-catalog-card">
                       <div
                         className="module-reference-frame"
-                        style={{ cursor: referenceImage ? 'pointer' : 'default' }}
+                        style={{
+                          cursor: referenceImage ? 'pointer' : 'default',
+                          background: moduleImageMode === 'nobg' ? 'radial-gradient(circle at center, #ffffff 0%, #f4f2ee 100%)' : undefined,
+                        }}
                         onClick={() => {
                           if (referenceImage) {
                             setPreviewModalItem({
@@ -731,7 +811,11 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                           }
                         }}
                       >
-                        {referenceImage ? (
+                        {moduleImageMode === 'nobg' || !referenceImage ? (
+                          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+                            <ModulePreview module={module} />
+                          </div>
+                        ) : (
                           <img
                             src={referenceImage}
                             alt={`${module.name} approved visual reference`}
@@ -739,16 +823,14 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                             onError={(e) => {
                               e.currentTarget.style.display = 'none';
                               const sibling = e.currentTarget.parentElement?.querySelector('.module-preview-fallback') as HTMLElement | null;
-                              if (sibling) sibling.style.display = 'block';
+                              if (sibling) sibling.style.display = 'flex';
                             }}
                           />
-                        ) : (
-                          <ModulePreview module={module} />
                         )}
-                        <div className="module-preview-fallback" style={{ display: 'none', width: '100%', height: '100%' }}>
+                        <div className="module-preview-fallback" style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
                           <ModulePreview module={module} />
                         </div>
-                        <span>Approved style reference (click to inspect)</span>
+                        <span>{moduleImageMode === 'nobg' ? '📐 3D Parametric CAD Schematic (No BG)' : 'Approved style reference (click to inspect)'}</span>
                       </div>
                       <div className="module-technical-strip">
                         <ModulePreview module={module} compact />
