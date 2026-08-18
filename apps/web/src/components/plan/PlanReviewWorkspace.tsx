@@ -1955,17 +1955,38 @@ export function PlanReviewWorkspace({
         </div>
       </div>
 
-      {/* Bottom Stage Progression Bar */}
-      <div style={{ marginTop: 24, padding: '16px 20px', background: '#1c1917', borderRadius: 12, border: '1px solid #332d29', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <strong style={{ color: '#fff', fontSize: 13, display: 'block' }}>
-            Step 2 of 8: Floor Plan Analysis &amp; Vector Calibration
-          </strong>
-          <small style={{ color: '#a8a29e', fontSize: 11 }}>
-            Review detected architectural walls and room boundaries, calibrate scale, and proceed to configured spaces.
-          </small>
+      {/* Sleek Fixed Bottom Stage Progression Bar */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 90,
+          height: 54,
+          padding: '0 24px',
+          background: 'rgba(20, 18, 16, 0.94)',
+          backdropFilter: 'blur(16px)',
+          borderTop: '1px solid rgba(197, 156, 45, 0.3)',
+          boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 16,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#c59c2d', boxShadow: '0 0 8px #c59c2d' }} />
+          <div>
+            <strong style={{ color: '#fff', fontSize: 12.5, display: 'inline', marginRight: 8 }}>
+              Stage 2 of 8: Floor Plan Analysis &amp; Vector Calibration
+            </strong>
+            <span style={{ color: '#a8a29e', fontSize: 11.5 }}>
+              • Review architectural walls and room boundaries, then proceed to Spaces.
+            </span>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             type="button"
             onClick={() => {
@@ -1975,17 +1996,18 @@ export function PlanReviewWorkspace({
               background: '#2b2622',
               color: '#e7e5e4',
               border: '1px solid #44403c',
-              borderRadius: 8,
-              padding: '10px 16px',
+              borderRadius: 7,
+              padding: '6px 14px',
               fontWeight: 600,
-              fontSize: 13,
+              fontSize: 12,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
+              gap: 6,
+              height: 34,
             }}
           >
-            <ArrowLeft size={15} /> Back to Brief
+            <ArrowLeft size={13} /> Back to Brief
           </button>
           <button
             type="button"
@@ -1993,7 +2015,6 @@ export function PlanReviewWorkspace({
               try {
                 await handleApprovePlan();
               } catch {
-                // if approve failed or already approved, navigate forward
                 const pathname = window.location.pathname;
                 const projectPrefix = pathname.split('/plan')[0];
                 navigate(`${projectPrefix}/spaces`);
@@ -2003,17 +2024,19 @@ export function PlanReviewWorkspace({
               background: 'linear-gradient(135deg, #c59c2d, #a88220)',
               color: '#1c1917',
               border: 0,
-              borderRadius: 8,
-              padding: '10px 18px',
+              borderRadius: 7,
+              padding: '6px 16px',
               fontWeight: 800,
-              fontSize: 13,
+              fontSize: 12.5,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
+              gap: 6,
+              height: 34,
+              boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
             }}
           >
-            Proceed to Step 3: Spaces <ArrowRight size={15} />
+            Proceed to Step 3: Spaces <ArrowRight size={14} />
           </button>
         </div>
       </div>

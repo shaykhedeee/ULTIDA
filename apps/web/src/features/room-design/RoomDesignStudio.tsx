@@ -114,17 +114,38 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
         {panels[activeTab]}
       </div>
 
-      {/* Bottom Stage Progression Bar */}
-      <div style={{ marginTop: 24, padding: '16px 20px', background: '#1c1917', borderRadius: 12, border: '1px solid #332d29', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <strong style={{ color: '#fff', fontSize: 13, display: 'block' }}>
-            {activeTab === 'spaces' ? 'Step 3: Room Setup & 2D Layouts Complete' : 'Step 4: Modular Units, Elevations & Finishes Configured'}
-          </strong>
-          <small style={{ color: '#a8a29e', fontSize: 11 }}>
-            {activeTab === 'spaces' ? 'Proceed to configure modular wall runs, elevations, cabinet modules, and laminate swatches.' : 'Compile scene.v1 to generate 3D solid geometry, AI photorealistic renders, and technical CAD blueprints.'}
-          </small>
+      {/* Sleek Fixed Bottom Stage Progression Bar */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 90,
+          height: 54,
+          padding: '0 24px',
+          background: 'rgba(20, 18, 16, 0.94)',
+          backdropFilter: 'blur(16px)',
+          borderTop: '1px solid rgba(197, 156, 45, 0.3)',
+          boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 16,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#c59c2d', boxShadow: '0 0 8px #c59c2d' }} />
+          <div>
+            <strong style={{ color: '#fff', fontSize: 12.5, display: 'inline', marginRight: 8 }}>
+              {activeTab === 'spaces' ? 'Stage 3: Room Setup & 2D Layouts' : 'Stage 4: Modular Units, Elevations & Finishes'}
+            </strong>
+            <span style={{ color: '#a8a29e', fontSize: 11.5 }}>
+              • {activeTab === 'spaces' ? 'Proceed to configure modular runs and elevations.' : 'Compile scene.v1 to generate 3D solid geometry and AI photorealistic renders.'}
+            </span>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {activeTab === 'spaces' ? (
             <button
               type="button"
@@ -133,18 +154,19 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
                 background: 'linear-gradient(135deg, #c59c2d, #a88220)',
                 color: '#1c1917',
                 border: 0,
-                borderRadius: 8,
-                padding: '10px 18px',
+                borderRadius: 7,
+                padding: '6px 16px',
                 fontWeight: 800,
-                fontSize: 13,
+                fontSize: 12.5,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                boxShadow: '0 4px 14px rgba(197,156,45,0.3)',
+                gap: 6,
+                height: 34,
+                boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
               }}
             >
-              Continue to Step 4: Modules &amp; Wall Elevations <ChevronRight size={16} />
+              Continue to Step 4: Modules &amp; Wall Elevations <ChevronRight size={14} />
             </button>
           ) : (
             <button
@@ -158,18 +180,19 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
                 background: 'linear-gradient(135deg, #34d399, #059669)',
                 color: '#062817',
                 border: 0,
-                borderRadius: 8,
-                padding: '10px 18px',
+                borderRadius: 7,
+                padding: '6px 16px',
                 fontWeight: 800,
-                fontSize: 13,
+                fontSize: 12.5,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                boxShadow: '0 4px 14px rgba(52,211,153,0.3)',
+                gap: 6,
+                height: 34,
+                boxShadow: '0 2px 8px rgba(52,211,153,0.3)',
               }}
             >
-              Proceed to Step 5: 3D Visualization &amp; AI Renders <ChevronRight size={16} />
+              Proceed to Step 5: 3D Visualization &amp; AI Renders <ChevronRight size={14} />
             </button>
           )}
         </div>

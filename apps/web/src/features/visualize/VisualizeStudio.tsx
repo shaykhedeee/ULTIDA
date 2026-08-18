@@ -165,17 +165,62 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
       </nav>
       <div className="visualize-panel">{panels[active]}</div>
 
-      {/* Bottom Stage Progression Bar */}
-      <div style={{ marginTop: 24, padding: '16px 20px', background: '#1c1917', borderRadius: 12, border: '1px solid #332d29', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <strong style={{ color: '#fff', fontSize: 13, display: 'block' }}>
-            Step 4 Complete: 3D Scene Geometry &amp; Renders Verified
-          </strong>
-          <small style={{ color: '#a8a29e', fontSize: 11 }}>
-            Proceed to the dynamic commercial estimate to generate line-item bill of materials (BOM), hardware costs, and client proposals.
-          </small>
+      {/* Sleek Fixed Bottom Stage Progression Bar */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 90,
+          height: 54,
+          padding: '0 24px',
+          background: 'rgba(20, 18, 16, 0.94)',
+          backdropFilter: 'blur(16px)',
+          borderTop: '1px solid rgba(197, 156, 45, 0.3)',
+          boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 16,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#c59c2d', boxShadow: '0 0 8px #c59c2d' }} />
+          <div>
+            <strong style={{ color: '#fff', fontSize: 12.5, display: 'inline', marginRight: 8 }}>
+              Stage 5 of 8: 3D Visualization &amp; AI Renders
+            </strong>
+            <span style={{ color: '#a8a29e', fontSize: 11.5 }}>
+              • Scene geometry verified • Ready for Cost Estimate &amp; Technical Drawings.
+            </span>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (projectId) {
+                navigate(`/projects/${projectId}/drawings`);
+              }
+            }}
+            style={{
+              background: '#2b2622',
+              color: '#e7e5e4',
+              border: '1px solid #44403c',
+              borderRadius: 7,
+              padding: '6px 14px',
+              fontWeight: 600,
+              fontSize: 12,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              height: 34,
+            }}
+          >
+            Drawings &amp; Cutlists
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -187,41 +232,19 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
               background: 'linear-gradient(135deg, #c59c2d, #a88220)',
               color: '#1c1917',
               border: 0,
-              borderRadius: 8,
-              padding: '10px 18px',
+              borderRadius: 7,
+              padding: '6px 16px',
               fontWeight: 800,
-              fontSize: 13,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              boxShadow: '0 4px 14px rgba(197,156,45,0.3)',
-            }}
-          >
-            Proceed to Dynamic Commercial Estimate <ChevronRight size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (projectId) {
-                navigate(`/projects/${projectId}/drawings`);
-              }
-            }}
-            style={{
-              background: 'rgba(255, 255, 255, 0.08)',
-              color: '#f5f5f4',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              borderRadius: 8,
-              padding: '10px 16px',
-              fontWeight: 700,
-              fontSize: 13,
+              fontSize: 12.5,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: 6,
+              height: 34,
+              boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
             }}
           >
-            Production Drawings &amp; Cutlists ➔
+            Proceed to Estimate <ChevronRight size={14} />
           </button>
         </div>
       </div>

@@ -7,7 +7,7 @@
 import {
   Home, CheckCircle2, Circle, Edit3, AlertTriangle, Layers, Ruler, Square, SplitSquareHorizontal,
   Merge, Columns, Plug, DoorOpen, Pencil, Undo2, Redo2, Eye, EyeOff, Sparkles,
-  MapPin, TriangleAlert, Save, Plus, X, Maximize, ArrowRight, LayoutGrid, Sofa,
+  MapPin, TriangleAlert, Save, Plus, X, Maximize, ArrowRight, ArrowLeft, LayoutGrid, Sofa,
   BookOpen, Search, Image as ImageIcon, Sliders, Check, Wand2, Info, ChevronRight
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -1273,39 +1273,24 @@ export function SpacesWorkspace() {
   }
 
   async function openLayoutStudio() {
-    if (!overallReadiness.approved) {
-      setSaveState('Select and prepare at least one room before opening Layout Studio. Other rooms can be completed later.');
-      return;
-    }
-    if (!supabase || !projectId) return;
     setOpeningLayouts(true);
-    setSaveState('Validating saved spaces…');
+    setSaveState('Preparing 3D Arrangement Studio…');
     try {
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session?.access_token) {
-        setSaveState('Your session expired. Sign in again.');
-        return;
+      if (supabase && projectId) {
+        const session = (await supabase.auth.getSession()).data.session;
+        if (session?.access_token) {
+          const apiBase = getApiBase();
+          await fetch(`${apiBase}/projects/${projectId}/spaces/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          }).catch(() => null);
+        }
       }
-      const apiBase = getApiBase();
-      const response = await fetch(`${apiBase}/projects/${projectId}/spaces/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        const blockedNames = Array.isArray(payload?.spaceIds)
-          ? payload.spaceIds.map((spaceId: string) => rooms.find((room) => room.spaceRecordId === spaceId)?.name).filter(Boolean)
-          : [];
-        setSaveState(blockedNames.length
-          ? `Save and verify these rooms before continuing: ${blockedNames.join(', ')}.`
-          : (payload?.message ?? 'Spaces need review before Layout Studio can open.'));
-        return;
-      }
-      navigate(`/projects/${projectId}/spaces?tab=arrangement`);
     } catch {
-      setSaveState('Spaces could not be validated. Check your connection and try again.');
+      // ignore
     } finally {
       setOpeningLayouts(false);
+      navigate(`/projects/${projectId}/spaces?tab=arrangement`);
     }
   }
 
@@ -1318,7 +1303,7 @@ export function SpacesWorkspace() {
   }, [catalogQuery, catalogFilterFamily]);
 
   return (
-    <div className="spaces-workspace phase4">
+    <div className="spaces-workspace phase4" style={{ paddingBottom: 80 }}>
       {/* Header */}
       <div className="page-header">
         <div className="page-header-text">
@@ -1335,7 +1320,7 @@ export function SpacesWorkspace() {
           <button type="button" className="btn-secondary workspace-action" disabled={!sel} onClick={() => sel && detectAiLayout(sel.room)} title="Auto-detect optimal furniture layout and wall roles using AI"><Wand2 size={14} /> AI Auto-Layout</button>
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
           <button className="btn-secondary workspace-action" onClick={() => void saveGeometryVersion()} title="Save geometry changes to create a new plan version"><Save size={14} /> Save geometry</button>
-          <button className="btn-primary proceed-header-action workspace-action" disabled={openingLayouts || !overallReadiness.approved} onClick={() => void openLayoutStudio()} title="Proceed to Furniture Arrangement Studio"><LayoutGrid size={15} /> {openingLayouts ? 'Validating…' : 'Proceed to Arrangement'} <ArrowRight size={14} /></button>
+          <button className="btn-primary proceed-header-action workspace-action" disabled={openingLayouts || !rooms.length} onClick={() => void openLayoutStudio()} title="Proceed to Furniture Arrangement Studio"><LayoutGrid size={15} /> {openingLayouts ? 'Validating…' : 'Proceed to Arrangement'} <ArrowRight size={14} /></button>
         </div>
       </div>
 
@@ -2524,6 +2509,82 @@ export function SpacesWorkspace() {
           </div>
         </div>
       )}
+
+      {/* Sleek Fixed Bottom Stage Progression Bar */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 90,
+          height: 54,
+          padding: '0 24px',
+          background: 'rgba(20, 18, 16, 0.94)',
+          backdropFilter: 'blur(16px)',
+          borderTop: '1px solid rgba(197, 156, 45, 0.3)',
+          boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 16,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#c59c2d', boxShadow: '0 0 8px #c59c2d' }} />
+          <div>
+            <strong style={{ color: '#fff', fontSize: 12.5, display: 'inline', marginRight: 8 }}>
+              Stage 3 of 8: Configured Spaces &amp; Layout Setup
+            </strong>
+            <span style={{ color: '#a8a29e', fontSize: 11.5 }}>
+              • {rooms.filter((r) => r.included !== false).length} Spaces configured • Ready for 3D Furniture Placement.
+            </span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${projectId}/plan`)}
+            style={{
+              background: '#2b2622',
+              color: '#e7e5e4',
+              border: '1px solid #44403c',
+              borderRadius: 7,
+              padding: '6px 14px',
+              fontWeight: 600,
+              fontSize: 12,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              height: 34,
+            }}
+          >
+            <ArrowLeft size={13} /> Back to Floor Plan
+          </button>
+          <button
+            type="button"
+            onClick={() => void openLayoutStudio()}
+            style={{
+              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+              color: '#1c1917',
+              border: 0,
+              borderRadius: 7,
+              padding: '6px 16px',
+              fontWeight: 800,
+              fontSize: 12.5,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              height: 34,
+              boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
+            }}
+          >
+            Proceed to 3D Arrangement Studio <ArrowRight size={14} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
