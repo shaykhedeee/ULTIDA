@@ -2898,20 +2898,21 @@ function CandidateVectorPreview({
   candidateType: 'circulation' | 'balanced' | 'storage' | 'luxury';
 }) {
   const polygon = room.polygon;
-  const xs = polygon.length ? polygon.map((p) => p.xMm) : [0, 3000];
+  const xs = polygon.length ? polygon.map((p) => p.xMm) : [0, 3200];
   const ys = polygon.length ? polygon.map((p) => p.yMm) : [0, 3000];
   const minX = Math.min(...xs);
   const minY = Math.min(...ys);
   const maxX = Math.max(...xs);
   const maxY = Math.max(...ys);
-  const width = Math.max(1, maxX - minX);
-  const depth = Math.max(1, maxY - minY);
+  const width = Math.max(1200, maxX - minX);
+  const depth = Math.max(1200, maxY - minY);
 
-  const svgW = 280;
-  const svgH = 140;
-  const pad = 14;
-  const drawW = svgW - pad * 2;
-  const drawH = svgH - pad * 2;
+  const svgW = 320;
+  const svgH = 175;
+  const padX = 22;
+  const padY = 18;
+  const drawW = svgW - padX * 2;
+  const drawH = svgH - padY * 2;
   const scale = Math.min(drawW / width, drawH / depth);
   const originX = (svgW - width * scale) / 2;
   const originY = (svgH - depth * scale) / 2;
@@ -2919,9 +2920,34 @@ function CandidateVectorPreview({
   const toSvgX = (xMm: number) => originX + (xMm - minX) * scale;
   const toSvgY = (yMm: number) => originY + (yMm - minY) * scale;
 
-  const roomWalls = walls.filter((w) => {
-    return polygon.some((p) => Math.hypot(p.xMm - w.start.xMm, p.yMm - w.start.yMm) < 250) ||
-           polygon.some((p) => Math.hypot(p.xMm - w.end.xMm, p.yMm - w.end.yMm) < 250);
+  // Build room perimeter edges strictly clipped to room polygon
+  const edges: { p1: { x: number; y: number }; p2: { x: number; y: number }; label: string }[] = [];
+  if (polygon.length >= 3) {
+    for (let i = 0; i < polygon.length; i++) {
+      const pt1 = polygon[i];
+      const pt2 = polygon[(i + 1) % polygon.length];
+      edges.push({
+        p1: { x: toSvgX(pt1.xMm), y: toSvgY(pt1.yMm) },
+        p2: { x: toSvgX(pt2.xMm), y: toSvgY(pt2.yMm) },
+        label: String.fromCharCode(65 + i),
+      });
+    }
+  } else {
+    edges.push(
+      { p1: { x: originX, y: originY }, p2: { x: originX + width * scale, y: originY }, label: 'A' },
+      { p1: { x: originX + width * scale, y: originY }, p2: { x: originX + width * scale, y: originY + depth * scale }, label: 'B' },
+      { p1: { x: originX + width * scale, y: originY + depth * scale }, p2: { x: originX, y: originY + depth * scale }, label: 'C' },
+      { p1: { x: originX, y: originY + depth * scale }, p2: { x: originX, y: originY }, label: 'D' },
+    );
+  }
+
+  // Room Openings
+  const roomOpenings = openings.filter((op) => {
+    return polygon.some((p) => {
+      const w = walls.find((wall) => wall.id === op.wallId);
+      if (!w) return false;
+      return Math.hypot(p.xMm - w.start.xMm, p.yMm - w.start.yMm) < 400 || Math.hypot(p.xMm - w.end.xMm, p.yMm - w.end.yMm) < 400;
+    });
   });
 
   const isBedroom = ['bedroom', 'master_bedroom', 'kids_bedroom'].includes(room.roomType);
@@ -2929,16 +2955,61 @@ function CandidateVectorPreview({
   const isDining = room.roomType === 'dining';
   const isKitchen = room.roomType === 'kitchen';
   const isStudy = room.roomType === 'study';
+  const isBath = ['bath', 'bathroom', 'washroom'].includes(room.roomType);
+
+  const uid = room.id.replace(/[^a-zA-Z0-9]/g, '');
 
   return (
-    <svg viewBox={`0 0 ${svgW} ${svgH}`} className="candidate-vector-svg">
-      {/* Room Polygon */}
+    <svg viewBox={`0 0 ${svgW} ${svgH}`} className="candidate-vector-svg" style={{ width: '100%', height: '100%', display: 'block' }}>
+      <defs>
+        {/* Soft Drop Shadow Filter */}
+        <filter id={`shadow-${uid}`} x="-10%" y="-10%" width="130%" height="130%">
+          <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" floodColor="#1e1915" floodOpacity="0.14" />
+        </filter>
+        {/* Luxury Wood Floor Pattern */}
+        <pattern id={`woodPlank-${uid}`} width="28" height="8" patternUnits="userSpaceOnUse">
+          <rect width="28" height="8" fill="#f6f1eb" />
+          <line x1="0" y1="8" x2="28" y2="8" stroke="#e8dfd4" strokeWidth="0.5" />
+          <line x1="14" y1="0" x2="14" y2="8" stroke="#e8dfd4" strokeWidth="0.5" />
+        </pattern>
+        {/* Subtle Area Rug Pattern */}
+        <pattern id={`rugPat-${uid}`} width="8" height="8" patternUnits="userSpaceOnUse">
+          <rect width="8" height="8" fill="#ece4d8" />
+          <path d="M 0 0 L 8 8 M 8 0 L 0 8" stroke="#dfd4c5" strokeWidth="0.5" />
+        </pattern>
+        {/* Luxury Gold/Champagne Gradient */}
+        <linearGradient id={`goldHeadboard-${uid}`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#b88a44" />
+          <stop offset="50%" stopColor="#dfb23b" />
+          <stop offset="100%" stopColor="#9a722c" />
+        </linearGradient>
+        {/* Fluted Wood Gradient */}
+        <linearGradient id={`flutedWood-${uid}`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#4a3728" />
+          <stop offset="10%" stopColor="#674d38" />
+          <stop offset="20%" stopColor="#4a3728" />
+          <stop offset="30%" stopColor="#674d38" />
+          <stop offset="40%" stopColor="#4a3728" />
+          <stop offset="50%" stopColor="#674d38" />
+          <stop offset="60%" stopColor="#4a3728" />
+          <stop offset="70%" stopColor="#674d38" />
+          <stop offset="80%" stopColor="#4a3728" />
+          <stop offset="90%" stopColor="#674d38" />
+          <stop offset="100%" stopColor="#4a3728" />
+        </linearGradient>
+        {/* Mattress Duvet Gradient */}
+        <linearGradient id={`duvetFold-${uid}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="65%" stopColor="#f7f3ee" />
+          <stop offset="100%" stopColor="#e3d9cc" />
+        </linearGradient>
+      </defs>
+
+      {/* 1. Room Floor Surface */}
       {polygon.length >= 3 ? (
         <polygon
           points={polygon.map((p) => `${toSvgX(p.xMm)},${toSvgY(p.yMm)}`).join(' ')}
-          fill="#fbf9f5"
-          stroke="#4a3b2c"
-          strokeWidth={2.5}
+          fill={`url(#woodPlank-${uid})`}
         />
       ) : (
         <rect
@@ -2946,30 +3017,429 @@ function CandidateVectorPreview({
           y={originY}
           width={width * scale}
           height={depth * scale}
-          fill="#fbf9f5"
-          stroke="#4a3b2c"
-          strokeWidth={2.5}
+          fill={`url(#woodPlank-${uid})`}
         />
       )}
 
-      {/* Room Walls & Openings */}
-      {roomWalls.map((w, idx) => {
-        const p1 = { x: toSvgX(w.start.xMm), y: toSvgY(w.start.yMm) };
-        const p2 = { x: toSvgX(w.end.xMm), y: toSvgY(w.end.yMm) };
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
+      {/* 2. Furniture Modules by Room Type */}
+      {isBedroom && (
+        <g filter={`url(#shadow-${uid})`}>
+          {(() => {
+            const bedW = Math.min(width * scale * 0.58, (candidateType === 'luxury' ? 2000 : 1800) * scale);
+            const bedD = (candidateType === 'luxury' ? 2100 : 1950) * scale;
+            const bx = originX + (width * scale - bedW) / 2;
+            const by = originY + 8;
+
+            const rugW = bedW + 500 * scale;
+            const rugD = bedD + 400 * scale;
+            const rx = bx - 250 * scale;
+            const ry = by + 200 * scale;
+
+            const nsW = 420 * scale;
+            const nsD = 380 * scale;
+
+            return (
+              <g>
+                {/* Area Rug */}
+                <rect x={rx} y={ry} width={rugW} height={rugD} fill={`url(#rugPat-${uid})`} stroke="#cfc3b2" strokeWidth={0.75} rx={3} />
+                <rect x={rx + 3} y={ry + 3} width={rugW - 6} height={rugD - 6} fill="none" stroke="#bdaea0" strokeWidth={0.5} strokeDasharray="2 2" />
+
+                {/* Nightstand Left */}
+                <rect x={bx - nsW - 4} y={by + 10} width={nsW} height={nsD} fill="#4a3728" stroke="#2b2017" strokeWidth={0.75} rx={2} />
+                <circle cx={bx - nsW / 2 - 4} cy={by + 10 + nsD / 2} r={nsW * 0.28} fill="#c59c2d" fillOpacity={0.8} />
+                <circle cx={bx - nsW / 2 - 4} cy={by + 10 + nsD / 2} r={nsW * 0.12} fill="#fff" />
+
+                {/* Nightstand Right */}
+                <rect x={bx + bedW + 4} y={by + 10} width={nsW} height={nsD} fill="#4a3728" stroke="#2b2017" strokeWidth={0.75} rx={2} />
+                <circle cx={bx + bedW + 4 + nsW / 2} cy={by + 10 + nsD / 2} r={nsW * 0.28} fill="#c59c2d" fillOpacity={0.8} />
+                <circle cx={bx + bedW + 4 + nsW / 2} cy={by + 10 + nsD / 2} r={nsW * 0.12} fill="#fff" />
+
+                {/* Luxury Tufted Headboard */}
+                <rect
+                  x={bx - 12 * scale}
+                  y={by}
+                  width={bedW + 24 * scale}
+                  height={140 * scale}
+                  fill={candidateType === 'luxury' ? `url(#goldHeadboard-${uid})` : `url(#flutedWood-${uid})`}
+                  stroke="#2b2017"
+                  strokeWidth={0.75}
+                  rx={2}
+                />
+
+                {/* Bed Mattress Base */}
+                <rect x={bx} y={by + 120 * scale} width={bedW} height={bedD} fill="#ffffff" stroke="#c4b5a2" strokeWidth={1} rx={4} />
+
+                {/* Quilted Duvet Sheet */}
+                <rect x={bx + 2} y={by + (120 + 750) * scale} width={bedW - 4} height={bedD - 750 * scale - 2} fill={`url(#duvetFold-${uid})`} rx={3} />
+                <line x1={bx + 2} y1={by + (120 + 750) * scale} x2={bx + bedW - 2} y2={by + (120 + 750) * scale} stroke="#c59c2d" strokeWidth={1.5} />
+                <line x1={bx + 4} y1={by + (120 + 790) * scale} x2={bx + bedW - 4} y2={by + (120 + 790) * scale} stroke="#a89b8d" strokeWidth={0.5} strokeDasharray="3 1.5" />
+
+                {/* Twin Sleeping Pillows */}
+                <rect x={bx + 12 * scale} y={by + 160 * scale} width={(bedW - 36 * scale) / 2} height={420 * scale} fill="#ffffff" stroke="#d5cbbe" strokeWidth={0.75} rx={3} />
+                <rect x={bx + (bedW + 12 * scale) / 2} y={by + 160 * scale} width={(bedW - 36 * scale) / 2} height={420 * scale} fill="#ffffff" stroke="#d5cbbe" strokeWidth={0.75} rx={3} />
+                
+                {/* Decorative Lumbar Accent Pillow */}
+                <rect x={bx + bedW * 0.28} y={by + 480 * scale} width={bedW * 0.44} height={180 * scale} fill={candidateType === 'luxury' ? '#c59c2d' : '#8c6239'} rx={2} />
+
+                {/* Foot of Bed Ottoman / Bench in Luxury Suite */}
+                {candidateType === 'luxury' && (
+                  <g>
+                    <rect x={bx + 10 * scale} y={by + 120 * scale + bedD + 12 * scale} width={bedW - 20 * scale} height={380 * scale} fill="#9a7b1f" stroke="#715510" strokeWidth={0.75} rx={3} />
+                    <line x1={bx + 25 * scale} y1={by + 120 * scale + bedD + 12 * scale + 190 * scale} x2={bx + bedW - 25 * scale} y2={by + 120 * scale + bedD + 12 * scale + 190 * scale} stroke="#fde047" strokeWidth={0.5} strokeOpacity={0.6} />
+                  </g>
+                )}
+              </g>
+            );
+          })()}
+
+          {/* Modular Wardrobe on Side Wall */}
+          {(() => {
+            const wW = 580 * scale;
+            const wH = Math.min(depth * scale - 18, (candidateType === 'storage' ? 2800 : 2100) * scale);
+            const wx = originX + 5;
+            const wy = originY + (depth * scale - wH) / 2;
+            const doors = candidateType === 'storage' ? 4 : 3;
+
+            return (
+              <g>
+                <rect x={wx} y={wy} width={wW} height={wH} fill="#38291e" stroke="#1d140e" strokeWidth={1} rx={2} />
+                {/* Wardrobe Door Segments & Brass Handles */}
+                {Array.from({ length: doors }).map((_, dIdx) => {
+                  const segH = wH / doors;
+                  const sy = wy + dIdx * segH;
+                  return (
+                    <g key={dIdx}>
+                      <line x1={wx} y1={sy} x2={wx + wW} y2={sy} stroke="#543e2e" strokeWidth={0.75} />
+                      {/* Long Profile Handle */}
+                      <rect x={wx + wW - 14 * scale} y={sy + segH * 0.3} width={4 * scale} height={segH * 0.4} fill="#eab308" rx={1} />
+                    </g>
+                  );
+                })}
+                {/* Internal Hanger Rail Line */}
+                <line x1={wx + wW / 2} y1={wy + 8} x2={wx + wW / 2} y2={wy + wH - 8} stroke="#856449" strokeWidth={0.5} strokeDasharray="3 3" />
+                <text x={wx + wW / 2} y={wy + wH / 2} fill="#f5ede3" fontSize={6.5} fontWeight="bold" textAnchor="middle" transform={`rotate(-90 ${wx + wW / 2} ${wy + wH / 2})`}>
+                  {candidateType === 'storage' ? 'FULL RUN WARDROBE + LOFT' : 'MODULAR WARDROBE'}
+                </text>
+              </g>
+            );
+          })()}
+
+          {/* Dressing Vanity / TV Unit on Opposite Wall */}
+          {candidateType === 'luxury' && (
+            <g>
+              <rect x={originX + width * scale - 400 * scale - 6} y={originY + (depth * scale - 1200 * scale) / 2} width={400 * scale} height={1200 * scale} fill="#4a3728" stroke="#2b2017" rx={2} />
+              <circle cx={originX + width * scale - 200 * scale - 6} cy={originY + depth * scale / 2} r={180 * scale} fill="#faf7f2" stroke="#c59c2d" strokeWidth={1.5} />
+              <text x={originX + width * scale - 200 * scale - 6} y={originY + depth * scale / 2 + 2} fill="#543e2e" fontSize={5} fontWeight="bold" textAnchor="middle">VANITY</text>
+            </g>
+          )}
+        </g>
+      )}
+
+      {isLiving && (
+        <g filter={`url(#shadow-${uid})`}>
+          {/* Plush Seating Area Rug */}
+          {(() => {
+            const rw = width * scale * 0.75;
+            const rd = depth * scale * 0.65;
+            const rx = originX + (width * scale - rw) / 2;
+            const ry = originY + depth * scale - rd - 14;
+            return <rect x={rx} y={ry} width={rw} height={rd} fill={`url(#rugPat-${uid})`} stroke="#cfc3b2" strokeWidth={0.75} rx={4} />;
+          })()}
+
+          {/* Luxury Sectional Sofa */}
+          {(() => {
+            const sfW = Math.min(width * scale - 40, (candidateType === 'luxury' ? 2600 : 2200) * scale);
+            const sfD = 850 * scale;
+            const sfx = originX + (width * scale - sfW) / 2;
+            const sfy = originY + depth * scale - sfD - 20;
+            return (
+              <g>
+                <rect x={sfx} y={sfy} width={sfW} height={sfD} fill="#3f3f46" stroke="#27272a" strokeWidth={1} rx={4} />
+                {/* 3 Cushion Seats */}
+                <rect x={sfx + 4} y={sfy + 4} width={(sfW - 12) / 3} height={sfD - 10} fill="#52525b" rx={3} />
+                <rect x={sfx + 6 + (sfW - 12) / 3} y={sfy + 4} width={(sfW - 12) / 3} height={sfD - 10} fill="#52525b" rx={3} />
+                <rect x={sfx + 8 + 2 * (sfW - 12) / 3} y={sfy + 4} width={(sfW - 12) / 3} height={sfD - 10} fill="#52525b" rx={3} />
+                {/* Throw Pillows */}
+                <rect x={sfx + 8} y={sfy + 8} width={120 * scale} height={120 * scale} fill="#c59c2d" rx={1.5} transform={`rotate(15 ${sfx + 8} ${sfy + 8})`} />
+                <rect x={sfx + sfW - 140 * scale} y={sfy + 8} width={120 * scale} height={120 * scale} fill="#c59c2d" rx={1.5} transform={`rotate(-15 ${sfx + sfW - 140 * scale} ${sfy + 8})`} />
+                <text x={sfx + sfW / 2} y={sfy + sfD / 2 + 2} fill="#f4f4f5" fontSize={6.5} fontWeight="bold" textAnchor="middle">SECTIONAL SOFA</text>
+              </g>
+            );
+          })()}
+
+          {/* Marble Coffee Table */}
+          {(() => {
+            const ctw = 1100 * scale;
+            const ctd = 550 * scale;
+            const ctx = originX + (width * scale - ctw) / 2;
+            const cty = originY + depth * scale - 1650 * scale;
+            return (
+              <g>
+                <rect x={ctx} y={cty} width={ctw} height={ctd} fill="#ffffff" stroke="#c59c2d" strokeWidth={1} rx={ctd / 2} />
+                <line x1={ctx + 30 * scale} y1={cty + ctd / 2} x2={ctx + ctw - 30 * scale} y2={cty + ctd / 2} stroke="#e4e4e7" strokeWidth={1} />
+                <text x={ctx + ctw / 2} y={cty + ctd / 2 + 2} fill="#71717a" fontSize={5.5} fontWeight="bold" textAnchor="middle">COFFEE TABLE</text>
+              </g>
+            );
+          })()}
+
+          {/* Acoustic Slatted Feature TV Wall on Top Wall */}
+          {(() => {
+            const tvW = Math.min(width * scale - 24, (candidateType === 'luxury' || candidateType === 'storage' ? 2800 : 2200) * scale);
+            const tvD = 380 * scale;
+            const tx = originX + (width * scale - tvW) / 2;
+            const ty = originY + 6;
+            return (
+              <g>
+                {/* Slatted Acoustic Wood Backdrop */}
+                <rect x={tx - 10 * scale} y={ty} width={tvW + 20 * scale} height={60 * scale} fill={`url(#flutedWood-${uid})`} rx={1} />
+                {/* Floating Console Unit */}
+                <rect x={tx} y={ty + 50 * scale} width={tvW} height={tvD} fill="#27272a" stroke="#18181b" strokeWidth={1} rx={2} />
+                {/* 65" TV Screen Outline */}
+                <rect x={tx + (tvW - 1450 * scale) / 2} y={ty + 15 * scale} width={1450 * scale} height={20 * scale} fill="#09090b" stroke="#eab308" strokeWidth={0.75} rx={1} />
+                <text x={tx + tvW / 2} y={ty + tvD / 2 + 45 * scale} fill="#fafafa" fontSize={6.5} fontWeight="bold" textAnchor="middle">MEDIA WALL &amp; CONSOLE</text>
+              </g>
+            );
+          })()}
+        </g>
+      )}
+
+      {isDining && (
+        <g filter={`url(#shadow-${uid})`}>
+          {(() => {
+            const dtW = Math.min(width * scale * 0.65, 1750 * scale);
+            const dtD = 950 * scale;
+            const dtx = originX + (width * scale - dtW) / 2;
+            const dty = originY + (depth * scale - dtD) / 2;
+            const chairW = 380 * scale;
+            const chairD = 360 * scale;
+
+            return (
+              <g>
+                {/* Dining Chairs Top */}
+                <rect x={dtx + dtW * 0.18} y={dty - chairD - 4} width={chairW} height={chairD} fill="#3f3f46" stroke="#27272a" rx={3} />
+                <rect x={dtx + dtW * 0.62} y={dty - chairD - 4} width={chairW} height={chairD} fill="#3f3f46" stroke="#27272a" rx={3} />
+
+                {/* Dining Chairs Bottom */}
+                <rect x={dtx + dtW * 0.18} y={dty + dtD + 4} width={chairW} height={chairD} fill="#3f3f46" stroke="#27272a" rx={3} />
+                <rect x={dtx + dtW * 0.62} y={dty + dtD + 4} width={chairW} height={chairD} fill="#3f3f46" stroke="#27272a" rx={3} />
+
+                {/* Dining Chairs Left & Right (if large) */}
+                <rect x={dtx - chairD - 4} y={dty + (dtD - chairW) / 2} width={chairD} height={chairW} fill="#3f3f46" stroke="#27272a" rx={3} />
+                <rect x={dtx + dtW + 4} y={dty + (dtD - chairW) / 2} width={chairD} height={chairW} fill="#3f3f46" stroke="#27272a" rx={3} />
+
+                {/* Solid Marble / Teak Dining Table Top */}
+                <rect x={dtx} y={dty} width={dtW} height={dtD} fill="#ffffff" stroke="#c59c2d" strokeWidth={1.5} rx={6} />
+                {/* Center Table Runner */}
+                <rect x={dtx + 10} y={dty + dtD * 0.3} width={dtW - 20} height={dtD * 0.4} fill="#f4ece1" rx={2} />
+                {/* Chandelier / Pendant Light Center Marker */}
+                <circle cx={dtx + dtW / 2} cy={dty + dtD / 2} r={160 * scale} fill="none" stroke="#c59c2d" strokeWidth={1} strokeDasharray="3 2" />
+                <circle cx={dtx + dtW / 2} cy={dty + dtD / 2} r={4} fill="#c59c2d" />
+                <text x={dtx + dtW / 2} y={dty + dtD / 2 + 14} fill="#451a03" fontSize={6.5} fontWeight="bold" textAnchor="middle">6-SEATER DINING</text>
+              </g>
+            );
+          })()}
+
+          {/* Crockery / Bar Credenza along Top Wall */}
+          {(() => {
+            const crW = Math.min(width * scale - 24, 2000 * scale);
+            const crD = 420 * scale;
+            const crx = originX + (width * scale - crW) / 2;
+            const cry = originY + 6;
+            return (
+              <g>
+                <rect x={crx} y={cry} width={crW} height={crD} fill="#451a03" stroke="#290d02" strokeWidth={1} rx={2} />
+                <line x1={crx + crW / 3} y1={cry} x2={crx + crW / 3} y2={cry + crD} stroke="#78350f" />
+                <line x1={crx + (2 * crW) / 3} y1={cry} x2={crx + (2 * crW) / 3} y2={cry + crD} stroke="#78350f" />
+                <text x={crx + crW / 2} y={cry + crD / 2 + 2} fill="#fef3c7" fontSize={6} fontWeight="bold" textAnchor="middle">CROCKERY &amp; BAR CABINET</text>
+              </g>
+            );
+          })()}
+        </g>
+      )}
+
+      {isKitchen && (
+        <g filter={`url(#shadow-${uid})`}>
+          {/* Main Kitchen Counter L-Run */}
+          <rect x={originX + 6} y={originY + 6} width={width * scale - 12} height={600 * scale} fill="#1c1917" stroke="#09090b" strokeWidth={1} rx={2} />
+          {candidateType !== 'circulation' && (
+            <rect x={originX + 6} y={originY + 6} width={600 * scale} height={depth * scale - 12} fill="#1c1917" stroke="#09090b" strokeWidth={1} rx={2} />
+          )}
+
+          {/* 4-Burner Glass Induction Hob */}
+          {(() => {
+            const hx = originX + 700 * scale;
+            const hy = originY + 90 * scale;
+            const hw = 650 * scale;
+            const hd = 440 * scale;
+            return (
+              <g>
+                <rect x={hx} y={hy} width={hw} height={hd} fill="#09090b" stroke="#71717a" strokeWidth={0.75} rx={2} />
+                <circle cx={hx + hw * 0.28} cy={hy + hd * 0.32} r={hw * 0.16} fill="#dc2626" fillOpacity={0.7} />
+                <circle cx={hx + hw * 0.72} cy={hy + hd * 0.32} r={hw * 0.14} fill="#dc2626" fillOpacity={0.7} />
+                <circle cx={hx + hw * 0.28} cy={hy + hd * 0.72} r={hw * 0.14} fill="#dc2626" fillOpacity={0.7} />
+                <circle cx={hx + hw * 0.72} cy={hy + hd * 0.72} r={hw * 0.18} fill="#dc2626" fillOpacity={0.7} />
+                <text x={hx + hw / 2} y={hy + hd / 2 + 2} fill="#fff" fontSize={5} fontWeight="bold" textAnchor="middle">HOB</text>
+              </g>
+            );
+          })()}
+
+          {/* Stainless Steel Double Sink */}
+          {(() => {
+            const sx = originX + width * scale - 1200 * scale;
+            const sy = originY + 90 * scale;
+            const sw = 750 * scale;
+            const sd = 440 * scale;
+            return (
+              <g>
+                <rect x={sx} y={sy} width={sw} height={sd} fill="#71717a" stroke="#3f3f46" rx={2} />
+                <rect x={sx + 15 * scale} y={sy + 20 * scale} width={(sw - 50 * scale) / 2} height={sd - 40 * scale} fill="#27272a" rx={2} />
+                <rect x={sx + (sw + 10 * scale) / 2} y={sy + 20 * scale} width={(sw - 50 * scale) / 2} height={sd - 40 * scale} fill="#27272a" rx={2} />
+                <circle cx={sx + sw / 2} cy={sy + sd / 2} r={3} fill="#e4e4e7" />
+                <text x={sx + sw / 2} y={sy + sd / 2 + 2} fill="#e4e4e7" fontSize={5} fontWeight="bold" textAnchor="middle">SINK</text>
+              </g>
+            );
+          })()}
+
+          {/* Quartz Island / Breakfast Counter in Luxury Suite */}
+          {candidateType === 'luxury' && (
+            <g>
+              {(() => {
+                const iw = 1400 * scale;
+                const id = 750 * scale;
+                const ix = originX + (width * scale - iw) / 2;
+                const iy = originY + depth * scale - id - 16;
+                return (
+                  <g>
+                    <rect x={ix} y={iy} width={iw} height={id} fill="#ffffff" stroke="#c59c2d" strokeWidth={1.5} rx={4} />
+                    {/* 2 Barstools */}
+                    <circle cx={ix + iw * 0.3} cy={iy + id + 16 * scale} r={160 * scale} fill="#3f3f46" stroke="#27272a" />
+                    <circle cx={ix + iw * 0.7} cy={iy + id + 16 * scale} r={160 * scale} fill="#3f3f46" stroke="#27272a" />
+                    <text x={ix + iw / 2} y={iy + id / 2 + 2} fill="#451a03" fontSize={6} fontWeight="bold" textAnchor="middle">QUARTZ ISLAND</text>
+                  </g>
+                );
+              })()}
+            </g>
+          )}
+        </g>
+      )}
+
+      {isBath && (
+        <g filter={`url(#shadow-${uid})`}>
+          {/* Walk-in Shower Enclosure */}
+          {(() => {
+            const shW = Math.min(width * scale * 0.45, 1000 * scale);
+            const shD = 1000 * scale;
+            const shx = originX + 6;
+            const shy = originY + 6;
+            return (
+              <g>
+                <rect x={shx} y={shy} width={shW} height={shD} fill="#e0f2fe" stroke="#38bdf8" strokeWidth={1.5} />
+                <circle cx={shx + shW / 2} cy={shy + shD / 2} r={120 * scale} fill="#0284c7" fillOpacity={0.4} />
+                <circle cx={shx + shW / 2} cy={shy + shD / 2} r={3} fill="#0369a1" />
+                <text x={shx + shW / 2} y={shy + shD / 2 + 2} fill="#0369a1" fontSize={5.5} fontWeight="bold" textAnchor="middle">SHOWER</text>
+              </g>
+            );
+          })()}
+
+          {/* Vanity Unit & Basin */}
+          {(() => {
+            const vw = 900 * scale;
+            const vd = 480 * scale;
+            const vx = originX + width * scale - vw - 6;
+            const vy = originY + 6;
+            return (
+              <g>
+                <rect x={vx} y={vy} width={vw} height={vd} fill="#ffffff" stroke="#c59c2d" strokeWidth={1} rx={2} />
+                <rect x={vx + 60 * scale} y={vy + 60 * scale} width={vw - 120 * scale} height={vd - 120 * scale} fill="#f0fdf4" stroke="#16a34a" rx={vd / 4} />
+                <circle cx={vx + vw / 2} cy={vy + 100 * scale} r={3} fill="#16a34a" />
+                <text x={vx + vw / 2} y={vy + vd / 2 + 2} fill="#15803d" fontSize={5.5} fontWeight="bold" textAnchor="middle">VANITY</text>
+              </g>
+            );
+          })()}
+
+          {/* Wall-hung WC */}
+          {(() => {
+            const wcx = originX + width * scale - 600 * scale;
+            const wcy = originY + depth * scale - 650 * scale;
+            return (
+              <g>
+                <rect x={wcx - 30 * scale} y={wcy + 350 * scale} width={450 * scale} height={140 * scale} fill="#e2e8f0" stroke="#94a3b8" />
+                <rect x={wcx} y={wcy} width={380 * scale} height={500 * scale} fill="#ffffff" stroke="#64748b" strokeWidth={1} rx={180 * scale} />
+                <circle cx={wcx + 190 * scale} cy={wcy + 160 * scale} r={40 * scale} fill="#cbd5e1" />
+              </g>
+            );
+          })()}
+        </g>
+      )}
+
+      {isStudy && (
+        <g filter={`url(#shadow-${uid})`}>
+          {/* Executive Desk */}
+          {(() => {
+            const dw = Math.min(width * scale - 30, 1600 * scale);
+            const dd = 700 * scale;
+            const dx = originX + (width * scale - dw) / 2;
+            const dy = originY + 10;
+            return (
+              <g>
+                <rect x={dx} y={dy} width={dw} height={dd} fill="#451a03" stroke="#1c0a00" strokeWidth={1} rx={3} />
+                {/* Laptop / Monitor Icon */}
+                <rect x={dx + (dw - 450 * scale) / 2} y={dy + 80 * scale} width={450 * scale} height={260 * scale} fill="#09090b" stroke="#a1a1aa" rx={2} />
+                {/* Swivel Chair */}
+                <circle cx={dx + dw / 2} cy={dy + dd + 320 * scale} r={280 * scale} fill="#27272a" stroke="#09090b" />
+                <circle cx={dx + dw / 2} cy={dy + dd + 320 * scale} r={80 * scale} fill="#eab308" />
+                <text x={dx + dw / 2} y={dy + dd / 2 + 2} fill="#fef3c7" fontSize={6.5} fontWeight="bold" textAnchor="middle">EXECUTIVE DESK</text>
+              </g>
+            );
+          })()}
+          {/* Bookshelf along Wall */}
+          <rect x={originX + 6} y={originY + depth * scale - 400 * scale - 6} width={width * scale - 12} height={400 * scale} fill="#78350f" stroke="#451a03" rx={2} />
+          <text x={originX + width * scale / 2} y={originY + depth * scale - 180 * scale} fill="#fef3c7" fontSize={6} fontWeight="bold" textAnchor="middle">BOOKCASE &amp; FILING</text>
+        </g>
+      )}
+
+      {/* 3. Outer Structural Masonry Walls */}
+      {edges.map((edge, idx) => {
+        const dx = edge.p2.x - edge.p1.x;
+        const dy = edge.p2.y - edge.p1.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len;
+        const ny = dx / len;
+        const midX = (edge.p1.x + edge.p2.x) / 2;
+        const midY = (edge.p1.y + edge.p2.y) / 2;
+
         return (
-          <g key={w.id}>
-            <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#2b221b" strokeWidth={3} />
-            <text x={midX} y={midY - 3} fontSize={7} fontWeight="bold" fill="#786c5e" textAnchor="middle">
-              {String.fromCharCode(65 + idx)}
+          <g key={idx}>
+            {/* Thick Structural Wall Line */}
+            <line
+              x1={edge.p1.x}
+              y1={edge.p1.y}
+              x2={edge.p2.x}
+              y2={edge.p2.y}
+              stroke="#292524"
+              strokeWidth={5}
+              strokeLinecap="square"
+            />
+            {/* Inner Wall Face Line */}
+            <line
+              x1={edge.p1.x}
+              y1={edge.p1.y}
+              x2={edge.p2.x}
+              y2={edge.p2.y}
+              stroke="#78716c"
+              strokeWidth={0.75}
+            />
+            {/* Wall ID Badge */}
+            <circle cx={midX + nx * 9} cy={midY + ny * 9} r={5.5} fill="#1c1917" />
+            <text x={midX + nx * 9} y={midY + ny * 9 + 2} fontSize={6} fontWeight="bold" fill="#f5eedf" textAnchor="middle">
+              {edge.label}
             </text>
           </g>
         );
       })}
 
-      {/* Doors and Windows */}
-      {openings.map((op) => {
+      {/* 4. Doors & Windows */}
+      {roomOpenings.map((op) => {
         const wall = walls.find((w) => w.id === op.wallId);
         if (!wall) return null;
         const dx = wall.end.xMm - wall.start.xMm;
@@ -2979,165 +3449,40 @@ function CandidateVectorPreview({
         const px = toSvgX(wall.start.xMm + t * dx);
         const py = toSvgY(wall.start.yMm + t * dy);
         const isDoor = op.kind === 'door';
+
         return (
           <g key={op.id}>
-            <rect x={px - 3} y={py - 3} width={6} height={6} fill={isDoor ? '#c97b2c' : '#2b6cb0'} rx={1} />
-            {isDoor && (
-              <path
-                d={`M ${px} ${py} A 8 8 0 0 1 ${px + 8} ${py - 8}`}
-                fill="none"
-                stroke="#c97b2c"
-                strokeWidth={1}
-                strokeDasharray="2 1"
-              />
+            {isDoor ? (
+              <g>
+                <rect x={px - 3} y={py - 3} width={6} height={6} fill="#c2410c" rx={1} />
+                <path d={`M ${px} ${py} A 14 14 0 0 1 ${px + 14} ${py - 14}`} fill="none" stroke="#c2410c" strokeWidth={1} strokeDasharray="2 1.5" />
+                <line x1={px} y1={py} x2={px + 14} y2={py} stroke="#7c2d12" strokeWidth={1.5} />
+              </g>
+            ) : (
+              <g>
+                <rect x={px - 10} y={py - 3} width={20} height={6} fill="#3b82f6" fillOpacity={0.8} rx={1} />
+                <line x1={px - 10} y1={py} x2={px + 10} y2={py} stroke="#ffffff" strokeWidth={1} />
+              </g>
             )}
           </g>
         );
       })}
 
-      {/* Vector Furniture Placements according to room category and candidate strategy */}
-      {isBedroom && (
-        <g>
-          {/* Bed against top/feature wall */}
-          {(() => {
-            const bedW = 1800 * scale;
-            const bedD = 2000 * scale;
-            const bx = originX + (width * scale - bedW) / 2;
-            const by = originY + 6;
-            return (
-              <g>
-                {/* Headboard */}
-                <rect x={bx - 8 * scale} y={by} width={bedW + 16 * scale} height={120 * scale} fill={candidateType === 'luxury' ? '#c59c2d' : '#8c6239'} rx={1} />
-                {/* Mattress */}
-                <rect x={bx} y={by + 120 * scale} width={bedW} height={bedD} fill="#e5ddd0" stroke="#a39686" strokeWidth={1} rx={3} />
-                {/* Pillows */}
-                <rect x={bx + 6 * scale} y={by + 130 * scale} width={bedW / 2 - 12 * scale} height={400 * scale} fill="#fff" stroke="#d5cbbe" rx={2} />
-                <rect x={bx + bedW / 2 + 6 * scale} y={by + 130 * scale} width={bedW / 2 - 12 * scale} height={400 * scale} fill="#fff" stroke="#d5cbbe" rx={2} />
-                {/* Nightstands */}
-                <rect x={bx - 450 * scale} y={by + 50 * scale} width={400 * scale} height={400 * scale} fill="#c4a480" stroke="#8c6239" rx={1} />
-                <rect x={bx + bedW + 50 * scale} y={by + 50 * scale} width={400 * scale} height={400 * scale} fill="#c4a480" stroke="#8c6239" rx={1} />
-              </g>
-            );
-          })()}
-          {/* Wardrobe along side wall */}
-          {(() => {
-            const wW = 600 * scale;
-            const wH = Math.min(depth * scale - 20, (candidateType === 'storage' ? 2600 : 2100) * scale);
-            const wx = originX + 6;
-            const wy = originY + (depth * scale - wH) / 2;
-            return (
-              <g>
-                <rect x={wx} y={wy} width={wW} height={wH} fill="#5c4433" stroke="#3d2c20" strokeWidth={1} rx={1} />
-                <line x1={wx + wW} y1={wy + wH / 3} x2={wx} y2={wy + wH / 3} stroke="#fff" strokeWidth={0.5} strokeOpacity={0.6} />
-                <line x1={wx + wW} y1={wy + (2 * wH) / 3} x2={wx} y2={wy + (2 * wH) / 3} stroke="#fff" strokeWidth={0.5} strokeOpacity={0.6} />
-                <text x={wx + wW / 2} y={wy + wH / 2} fill="#f5ede3" fontSize={6} fontWeight="bold" textAnchor="middle" transform={`rotate(-90 ${wx + wW / 2} ${wy + wH / 2})`}>WARDROBE</text>
-              </g>
-            );
-          })()}
-        </g>
-      )}
-
-      {isLiving && (
-        <g>
-          {/* TV Unit on top wall */}
-          {(() => {
-            const tvW = Math.min(width * scale - 30, (candidateType === 'storage' || candidateType === 'luxury' ? 2800 : 2200) * scale);
-            const tvD = 400 * scale;
-            const tx = originX + (width * scale - tvW) / 2;
-            const ty = originY + 6;
-            return (
-              <g>
-                <rect x={tx} y={ty} width={tvW} height={tvD} fill="#374151" stroke="#1f2937" strokeWidth={1} rx={1} />
-                <rect x={tx + (tvW - 1200 * scale) / 2} y={ty + 2} width={1200 * scale} height={40 * scale} fill="#111827" stroke="#4b5563" />
-                <text x={tx + tvW / 2} y={ty + tvD / 2 + 3} fill="#e5e7eb" fontSize={6} fontWeight="bold" textAnchor="middle">TV MEDIA WALL</text>
-              </g>
-            );
-          })()}
-          {/* 3-Seater Sofa */}
-          {(() => {
-            const sfW = Math.min(width * scale - 40, 2200 * scale);
-            const sfD = 850 * scale;
-            const sfx = originX + (width * scale - sfW) / 2;
-            const sfy = originY + depth * scale - sfD - 10;
-            return (
-              <g>
-                <rect x={sfx} y={sfy} width={sfW} height={sfD} fill="#4b5563" stroke="#374151" rx={3} />
-                <rect x={sfx + 4} y={sfy + 4} width={sfW - 8} height={sfD - 12} fill="#6b7280" rx={2} />
-                <text x={sfx + sfW / 2} y={sfy + sfD / 2 + 2} fill="#f3f4f6" fontSize={6} fontWeight="bold" textAnchor="middle">SOFA SEATING</text>
-              </g>
-            );
-          })()}
-          {candidateType === 'storage' && (
-            <rect x={originX + width * scale - 450 * scale - 6} y={originY + 20} width={450 * scale} height={1400 * scale} fill="#78350f" rx={1} />
-          )}
-        </g>
-      )}
-
-      {isDining && (
-        <g>
-          {/* Dining Table in Center */}
-          {(() => {
-            const dtW = 1600 * scale;
-            const dtD = 900 * scale;
-            const dtx = originX + (width * scale - dtW) / 2;
-            const dty = originY + (depth * scale - dtD) / 2;
-            return (
-              <g>
-                <rect x={dtx} y={dty} width={dtW} height={dtD} fill="#7c3aed" fillOpacity={0.7} stroke="#5b21b6" strokeWidth={1} rx={3} />
-                <rect x={dtx + 20 * scale} y={dty - 200 * scale} width={380 * scale} height={180 * scale} fill="#6d28d9" rx={2} />
-                <rect x={dtx + dtW - 400 * scale} y={dty - 200 * scale} width={380 * scale} height={180 * scale} fill="#6d28d9" rx={2} />
-                <rect x={dtx + 20 * scale} y={dty + dtD + 20 * scale} width={380 * scale} height={180 * scale} fill="#6d28d9" rx={2} />
-                <rect x={dtx + dtW - 400 * scale} y={dty + dtD + 20 * scale} width={380 * scale} height={180 * scale} fill="#6d28d9" rx={2} />
-                <text x={dtx + dtW / 2} y={dty + dtD / 2 + 3} fill="#fff" fontSize={7} fontWeight="bold" textAnchor="middle">DINING TABLE</text>
-              </g>
-            );
-          })()}
-          {/* Crockery unit along wall */}
-          {(() => {
-            const crW = Math.min(width * scale - 20, 1800 * scale);
-            const crD = 450 * scale;
-            const crx = originX + (width * scale - crW) / 2;
-            const cry = originY + 6;
-            return (
-              <g>
-                <rect x={crx} y={cry} width={crW} height={crD} fill="#854d0e" stroke="#713f12" rx={1} />
-                <text x={crx + crW / 2} y={cry + crD / 2 + 3} fill="#fef08a" fontSize={6} fontWeight="bold" textAnchor="middle">CROCKERY &amp; BAR</text>
-              </g>
-            );
-          })()}
-        </g>
-      )}
-
-      {isKitchen && (
-        <g>
-          {/* Counter L / Parallel run */}
-          <rect x={originX + 6} y={originY + 6} width={width * scale - 12} height={600 * scale} fill="#b45309" stroke="#78350f" rx={1} />
-          {candidateType !== 'circulation' && (
-            <rect x={originX + 6} y={originY + 6} width={600 * scale} height={depth * scale - 12} fill="#b45309" stroke="#78350f" rx={1} />
-          )}
-          <rect x={originX + 800 * scale} y={originY + 100 * scale} width={600 * scale} height={400 * scale} fill="#d97706" rx={2} />
-          <circle cx={originX + 1800 * scale} cy={originY + 300 * scale} r={120 * scale} fill="#451a03" />
-          <text x={originX + 800 * scale + 300 * scale} y={originY + 320 * scale} fill="#fff" fontSize={6} textAnchor="middle">SINK</text>
-          {candidateType === 'luxury' && (
-            <g>
-              <rect x={originX + (width * scale - 1400 * scale) / 2} y={originY + depth * scale - 750 * scale - 10} width={1400 * scale} height={700 * scale} fill="#92400e" stroke="#78350f" rx={2} />
-              <text x={originX + (width * scale) / 2} y={originY + depth * scale - 400 * scale} fill="#fef3c7" fontSize={6} fontWeight="bold" textAnchor="middle">ISLAND / BREAKFAST</text>
-            </g>
-          )}
-        </g>
-      )}
-
-      {isStudy && (
-        <g>
-          <rect x={originX + 6} y={originY + 6} width={width * scale - 12} height={600 * scale} fill="#1d4ed8" stroke="#1e40af" rx={2} />
-          <text x={originX + (width * scale) / 2} y={originY + 350 * scale} fill="#fff" fontSize={7} fontWeight="bold" textAnchor="middle">STUDY WORKTOP &amp; LIBRARY</text>
-        </g>
-      )}
-
-      {/* Plan Dimensions Tag */}
-      <text x={originX + 6} y={originY + depth * scale - 4} fontSize={7} fontWeight="bold" fill="#786c5e">
-        {Math.round(width)} × {Math.round(depth)} mm
-      </text>
+      {/* 5. Dimension Annotation Tag */}
+      <g>
+        <rect
+          x={originX + 8}
+          y={originY + depth * scale - 18}
+          width={84}
+          height={14}
+          fill="#1c1917"
+          fillOpacity={0.88}
+          rx={3}
+        />
+        <text x={originX + 50} y={originY + depth * scale - 8} fontSize={6.5} fontWeight="bold" fill="#f5eedf" textAnchor="middle">
+          {Math.round(width)} × {Math.round(depth)} mm
+        </text>
+      </g>
     </svg>
   );
 }
