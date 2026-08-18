@@ -1591,13 +1591,15 @@ export function SpacesWorkspace() {
                 return <rect x={Math.min(a.x, b.x)} y={Math.min(a.y, b.y)} width={Math.abs(b.x - a.x)} height={Math.abs(b.y - a.y)} fill="rgba(197,156,45,.16)" stroke="var(--gold)" strokeWidth="2" strokeDasharray="6 4" pointerEvents="none" />;
               })()}
 
-              {/* Rooms with Textured Flooring Fills */}
+              {/* Rooms with Textured Flooring Fills & 2D Furniture */}
               {layers.rooms && rooms.filter((r) => r.included !== false).map((r) => {
                 const pts = r.polygon.map((p) => { const q = toPx(p); return `${q.x},${q.y}`; }).join(' ');
                 const isSel = selectedRoom === r.id;
                 const b = bbox(r.polygon);
                 const center = toPx({ xMm: (b.minX + b.maxX) / 2, yMm: (b.minY + b.maxY) / 2 });
                 const patternId = getFloorPatternId(r.floorFinish);
+                const badgeWidth = Math.max(80, r.name.length * 7 + 20);
+
                 return (
                   <g key={r.id} onClick={(e) => { e.stopPropagation(); setSelectedRoom(r.id); }}>
                     {/* Room Floor Surface */}
@@ -1616,20 +1618,38 @@ export function SpacesWorkspace() {
                         strokeWidth={2.5}
                       />
                     )}
-                    <text x={center.x} y={center.y - 6} fontSize={11} fontWeight="bold" fill={isSel ? '#9a6b1f' : '#2d2216'} textAnchor="middle">{r.name}</text>
-                    <text x={center.x} y={center.y + 8} fontSize={9} fill={isSel ? '#7a5214' : '#5a4938'} textAnchor="middle">{r.areaSqm.toFixed(1)} m² · {r.floorFinish || 'Floor finish'}</text>
+
+                    {/* Architectural 2D Furniture for this Room */}
+                    <Room2DArchitecturalLayout room={r} toPx={toPx} scale={view.scale} />
+
+                    {/* Room Identification Pill Badge */}
+                    <g transform={`translate(${center.x}, ${center.y})`} style={{ pointerEvents: 'none' }}>
+                      <rect
+                        x={-badgeWidth / 2}
+                        y={-14}
+                        width={badgeWidth}
+                        height={28}
+                        rx={6}
+                        fill="rgba(255, 253, 248, 0.94)"
+                        stroke={isSel ? 'var(--gold)' : '#d6c6b2'}
+                        strokeWidth={isSel ? 1.8 : 1}
+                        style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.12))' }}
+                      />
+                      <text x={0} y={-1} fontSize={10} fontWeight="800" fill={isSel ? '#8c6218' : '#2d2216'} textAnchor="middle">{r.name}</text>
+                      <text x={0} y={10} fontSize={8.5} fontWeight="600" fill={isSel ? '#7a5214' : '#6b5847'} textAnchor="middle">{r.areaSqm.toFixed(1)} m²</text>
+                    </g>
                   </g>
                 );
               })}
 
-              {/* Walls with 3D Depth / Thickness & labels */}
+              {/* Architectural Walls with Core Hatch & Casing */}
               {layers.walls && walls.map((w) => {
                 const a = toPx(w.start), b = toPx(w.end);
-                const scaledThickness = Math.max(4, Math.min(16, Number(w.thicknessMm ?? (w.isExterior ? 254 : 152.4)) * view.scale));
+                const scaledThickness = Math.max(6, Math.min(18, Number(w.thicknessMm ?? (w.isExterior ? 254 : 152.4)) * view.scale));
                 const isSel = selectedWall === w.id;
                 return (
-                  <g key={w.id}>
-                    {/* 3D Extrusion Shadow in 3D mode */}
+                  <g key={w.id} onClick={(e) => { e.stopPropagation(); setSelectedWall(w.id); }} style={{ cursor: 'pointer' }}>
+                    {/* Wall Outer Shadow in 3D Mode */}
                     {canvasRenderMode === '3d_isometric' && (
                       <line
                         x1={a.x + 3} y1={a.y + 6} x2={b.x + 3} y2={b.y + 6}
@@ -1639,18 +1659,25 @@ export function SpacesWorkspace() {
                         strokeOpacity={0.4}
                       />
                     )}
+                    {/* Architectural Core Wall */}
                     <line
                       x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                      stroke={isSel ? 'var(--gold)' : canvasRenderMode === '3d_isometric' ? '#3d2e22' : '#2b2b2b'}
+                      stroke={isSel ? 'var(--gold)' : '#261e17'}
                       strokeWidth={isSel ? scaledThickness + 4 : scaledThickness}
                       strokeLinecap="square"
-                      onClick={(e) => { e.stopPropagation(); setSelectedWall(w.id); }}
+                    />
+                    {/* Wall Core Inner Line */}
+                    <line
+                      x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                      stroke={isSel ? '#fff' : '#4a3b2e'}
+                      strokeWidth={Math.max(1, scaledThickness / 3)}
+                      strokeLinecap="square"
                     />
                   </g>
                 );
               })}
 
-              {/* Openings (Doors & Windows with arcs) */}
+              {/* Architectural Openings (Doors with 90° Leaf & Arcs, Windows with Glazing) */}
               {layers.openings && openings.map((o) => {
                 const w = walls.find((x) => x.id === o.wallId);
                 if (!w) return null;
@@ -1659,19 +1686,54 @@ export function SpacesWorkspace() {
                 const centerOffset = Math.max(0, Math.min(length, Number(o.offsetAlongWallMm ?? 0)));
                 const t = centerOffset / length;
                 const px = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-                const col = o.kind === 'door' ? '#c97b2c' : '#2f6fb0';
-                return (
-                  <g key={o.id}>
-                    <rect x={px.x - 6} y={px.y - 6} width={12} height={12} rx={2} fill={col} stroke="#fff" strokeWidth={1.5} />
-                    {o.kind === 'door' && (
+                const isDoor = o.kind === 'door';
+                const openingWidthPx = Math.max(14, (o.widthMm || (isDoor ? 900 : 1200)) * view.scale);
+
+                // Wall direction angle
+                const angle = Math.atan2(b.y - a.y, b.x - a.x);
+                const perpX = -Math.sin(angle);
+                const perpY = Math.cos(angle);
+
+                if (isDoor) {
+                  const leafLength = openingWidthPx;
+                  const leafEndX = px.x + perpX * leafLength;
+                  const leafEndY = px.y + perpY * leafLength;
+                  return (
+                    <g key={o.id} className="arch-door-opening">
+                      {/* Door Jamb Ticks */}
+                      <circle cx={px.x} cy={px.y} r={3} fill="#c97b2c" stroke="#fff" strokeWidth={1} />
+                      {/* Door Leaf Open at 90° */}
+                      <line x1={px.x} y1={px.y} x2={leafEndX} y2={leafEndY} stroke="#c97b2c" strokeWidth={2.5} strokeLinecap="round" />
+                      {/* Curved Swing Arc */}
                       <path
-                        d={`M ${px.x} ${px.y} A 14 14 0 0 1 ${px.x + 14} ${px.y - 14}`}
+                        d={`M ${px.x + perpX * leafLength} ${px.y + perpY * leafLength} A ${leafLength} ${leafLength} 0 0 0 ${px.x + Math.cos(angle) * leafLength} ${px.y + Math.sin(angle) * leafLength}`}
                         fill="none"
                         stroke="#c97b2c"
-                        strokeWidth="1.2"
-                        strokeDasharray="2 2"
+                        strokeWidth={1.2}
+                        strokeDasharray="3 2"
                       />
-                    )}
+                    </g>
+                  );
+                }
+
+                // Window with Double-Line Glazing
+                const halfW = openingWidthPx / 2;
+                const wx1 = px.x - Math.cos(angle) * halfW;
+                const wy1 = px.y - Math.sin(angle) * halfW;
+                const wx2 = px.x + Math.cos(angle) * halfW;
+                const wy2 = px.y + Math.sin(angle) * halfW;
+
+                return (
+                  <g key={o.id} className="arch-window-opening">
+                    {/* Window Opening Cutout Backing */}
+                    <line x1={wx1} y1={wy1} x2={wx2} y2={wy2} stroke="#fff" strokeWidth={8} strokeLinecap="square" />
+                    {/* Outer Glazing Line */}
+                    <line x1={wx1 + perpX * 2} y1={wy1 + perpY * 2} x2={wx2 + perpX * 2} y2={wy2 + perpY * 2} stroke="#0284c7" strokeWidth={1.8} />
+                    {/* Inner Glazing Line */}
+                    <line x1={wx1 - perpX * 2} y1={wy1 - perpY * 2} x2={wx2 - perpX * 2} y2={wy2 - perpY * 2} stroke="#0284c7" strokeWidth={1.8} />
+                    {/* End Mullion Jambs */}
+                    <line x1={wx1 - perpX * 4} y1={wy1 - perpY * 4} x2={wx1 + perpX * 4} y2={wy1 + perpY * 4} stroke="#1e293b" strokeWidth={2} />
+                    <line x1={wx2 - perpX * 4} y1={wy2 - perpY * 4} x2={wx2 + perpX * 4} y2={wy2 + perpY * 4} stroke="#1e293b" strokeWidth={2} />
                   </g>
                 );
               })}
@@ -2546,6 +2608,282 @@ function defaultCategoriesForRoom(roomType: string, priority: 'circulation' | 'b
     return ['pooja_unit'];
   }
   return ['storage_unit'];
+}
+
+function Room2DArchitecturalLayout({
+  room,
+  toPx,
+  scale,
+}: {
+  room: PlanRoom;
+  toPx: (point: { xMm: number; yMm: number }) => { x: number; y: number };
+  scale: number;
+}) {
+  const polygon = room.polygon;
+  if (!polygon || polygon.length < 3) return null;
+
+  const xs = polygon.map((p) => p.xMm);
+  const ys = polygon.map((p) => p.yMm);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  const widthMm = Math.max(500, maxX - minX);
+  const depthMm = Math.max(500, maxY - minY);
+
+  const roomType = (room.roomType || 'other').toLowerCase();
+  const roomName = (room.name || '').toLowerCase();
+  const isMasterBed = roomType === 'master_bedroom' || roomName.includes('m bed') || roomName.includes('master');
+  const isBedroom = isMasterBed || roomType === 'bedroom' || roomType === 'kids_bedroom' || roomName.includes('bed') || roomName.includes('c bed');
+  const isLiving = roomType === 'living' || roomName.includes('living');
+  const isDining = roomType === 'dining' || roomName.includes('dining');
+  const isKitchen = roomType === 'kitchen' || roomName.includes('kitchen');
+  const isPooja = roomType === 'pooja' || roomName.includes('pooja') || roomName.includes('mandir');
+  const isToilet = roomType === 'bathroom' || roomType === 'utility' || roomName.includes('toilet') || roomName.includes('bath') || roomName.includes('wc');
+  const isDress = roomName.includes('dress') || roomName.includes('walk-in');
+  const isParking = roomName.includes('park') || roomName.includes('garage');
+
+  // Convert room relative mm to canvas pixels
+  const rPx = (rxMm: number, ryMm: number) => toPx({ xMm: minX + rxMm, yMm: minY + ryMm });
+
+  if (isBedroom) {
+    const bedW = Math.min(widthMm * 0.58, 1800);
+    const bedD = Math.min(depthMm * 0.65, 2000);
+    const bx = (widthMm - bedW) / 2;
+    const by = 80;
+    const pBed = rPx(bx, by);
+    const bwPx = bedW * scale;
+    const bhPx = bedD * scale;
+
+    const pSide1 = rPx(Math.max(10, bx - 420), by + 50);
+    const pSide2 = rPx(bx + bedW + 20, by + 50);
+    const swPx = 380 * scale;
+
+    const pWard = rPx(20, Math.max(by + bedD + 40, depthMm - 580));
+    const wwPx = Math.min((widthMm - 40) * scale, 2400 * scale);
+    const whPx = 540 * scale;
+
+    return (
+      <g className="room-2d-furniture" pointerEvents="none">
+        {/* Bed Headboard */}
+        <rect x={pBed.x - 6 * scale} y={pBed.y} width={bwPx + 12 * scale} height={100 * scale} fill="#c59c2d" rx={2 * scale} />
+        {/* Bed Mattress */}
+        <rect x={pBed.x} y={pBed.y + 100 * scale} width={bwPx} height={bhPx - 100 * scale} fill="#fcf9f2" stroke="#c4b5a0" strokeWidth={1.5} rx={4 * scale} />
+        {/* Bed Pillows */}
+        <rect x={pBed.x + 8 * scale} y={pBed.y + 115 * scale} width={bwPx / 2 - 14 * scale} height={380 * scale} fill="#ffffff" stroke="#d5cbbe" strokeWidth={1} rx={3 * scale} />
+        <rect x={pBed.x + bwPx / 2 + 6 * scale} y={pBed.y + 115 * scale} width={bwPx / 2 - 14 * scale} height={380 * scale} fill="#ffffff" stroke="#d5cbbe" strokeWidth={1} rx={3 * scale} />
+        {/* Blanket Fold Line */}
+        <line x1={pBed.x} y1={pBed.y + 100 * scale + (bhPx - 100 * scale) * 0.55} x2={pBed.x + bwPx} y2={pBed.y + 100 * scale + (bhPx - 100 * scale) * 0.55} stroke="#d5cbbe" strokeWidth={1} strokeDasharray="3 2" />
+        {/* Dual Bedside Tables */}
+        {bx > 420 && (
+          <g>
+            <rect x={pSide1.x} y={pSide1.y} width={swPx} height={swPx} fill="#eadecc" stroke="#a3896b" strokeWidth={1} rx={2} />
+            <circle cx={pSide1.x + swPx / 2} cy={pSide1.y + swPx / 2} r={swPx / 4} fill="#c59c2d" fillOpacity={0.6} />
+            <rect x={pSide2.x} y={pSide2.y} width={swPx} height={swPx} fill="#eadecc" stroke="#a3896b" strokeWidth={1} rx={2} />
+            <circle cx={pSide2.x + swPx / 2} cy={pSide2.y + swPx / 2} r={swPx / 4} fill="#c59c2d" fillOpacity={0.6} />
+          </g>
+        )}
+        {/* Wardrobe */}
+        {depthMm >= 2600 && (
+          <g>
+            <rect x={pWard.x} y={pWard.y} width={wwPx} height={whPx} fill="#4a3728" stroke="#2e2117" strokeWidth={1.5} rx={2} />
+            <line x1={pWard.x + wwPx / 3} y1={pWard.y} x2={pWard.x + wwPx / 3} y2={pWard.y + whPx} stroke="#8c6f56" strokeWidth={1} />
+            <line x1={pWard.x + (2 * wwPx) / 3} y1={pWard.y} x2={pWard.x + (2 * wwPx) / 3} y2={pWard.y + whPx} stroke="#8c6f56" strokeWidth={1} />
+            <text x={pWard.x + wwPx / 2} y={pWard.y + whPx / 2 + 3 * scale} fill="#fff" fontSize={Math.max(7, 8 * scale)} fontWeight="bold" textAnchor="middle">4-DOOR WARDROBE</text>
+          </g>
+        )}
+      </g>
+    );
+  }
+
+  if (isLiving) {
+    const sofaW = Math.min(widthMm * 0.75, 2400);
+    const sofaD = Math.min(depthMm * 0.35, 850);
+    const sx = (widthMm - sofaW) / 2;
+    const sy = depthMm - sofaD - 60;
+    const pSofa = rPx(sx, sy);
+    const swPx = sofaW * scale;
+    const sdPx = sofaD * scale;
+
+    const tvW = Math.min(widthMm * 0.7, 2400);
+    const tvD = 380;
+    const pTv = rPx((widthMm - tvW) / 2, 40);
+    const tvwPx = tvW * scale;
+    const tvdPx = tvD * scale;
+
+    const rugW = Math.min(widthMm * 0.6, 1800);
+    const rugD = Math.min(depthMm * 0.35, 1200);
+    const pRug = rPx((widthMm - rugW) / 2, (depthMm - rugD) / 2);
+    const rugwPx = rugW * scale;
+    const rugdPx = rugD * scale;
+
+    return (
+      <g className="room-2d-furniture" pointerEvents="none">
+        {/* TV Console along top wall */}
+        <rect x={pTv.x} y={pTv.y} width={tvwPx} height={tvdPx} fill="#27272a" stroke="#18181b" strokeWidth={1.5} rx={2} />
+        <rect x={pTv.x + (tvwPx - 1200 * scale) / 2} y={pTv.y + 4 * scale} width={1200 * scale} height={40 * scale} fill="#09090b" stroke="#71717a" />
+        <text x={pTv.x + tvwPx / 2} y={pTv.y + tvdPx / 2 + 3 * scale} fill="#e4e4e7" fontSize={Math.max(7, 8 * scale)} fontWeight="bold" textAnchor="middle">TV FEATURE CONSOLE</text>
+
+        {/* Center Accent Rug */}
+        <rect x={pRug.x} y={pRug.y} width={rugwPx} height={rugdPx} fill="rgba(197, 156, 45, 0.08)" stroke="#c59c2d" strokeWidth={1} strokeDasharray="4 2" rx={6} />
+        {/* Coffee Table */}
+        <rect x={pRug.x + (rugwPx - 900 * scale) / 2} y={pRug.y + (rugdPx - 500 * scale) / 2} width={900 * scale} height={500 * scale} fill="#d6c7b2" stroke="#8c7355" strokeWidth={1} rx={3} />
+
+        {/* 3-Seater Living Sofa */}
+        <rect x={pSofa.x} y={pSofa.y} width={swPx} height={sdPx} fill="#3f3f46" stroke="#27272a" strokeWidth={1.5} rx={4 * scale} />
+        <rect x={pSofa.x + 8 * scale} y={pSofa.y + 8 * scale} width={swPx - 16 * scale} height={sdPx - 18 * scale} fill="#52525b" rx={3 * scale} />
+        <line x1={pSofa.x + swPx / 3} y1={pSofa.y + 8 * scale} x2={pSofa.x + swPx / 3} y2={pSofa.y + sdPx - 10 * scale} stroke="#27272a" strokeWidth={1} />
+        <line x1={pSofa.x + (2 * swPx) / 3} y1={pSofa.y + 8 * scale} x2={pSofa.x + (2 * swPx) / 3} y2={pSofa.y + sdPx - 10 * scale} stroke="#27272a" strokeWidth={1} />
+        <text x={pSofa.x + swPx / 2} y={pSofa.y + sdPx / 2 + 3 * scale} fill="#f4f4f5" fontSize={Math.max(7, 8 * scale)} fontWeight="bold" textAnchor="middle">LUXURY SOFA</text>
+      </g>
+    );
+  }
+
+  if (isKitchen) {
+    const counterD = 580 * scale;
+    const pCorner = rPx(30, 30);
+    const cwPx = (widthMm - 60) * scale;
+    const cdPx = (depthMm - 60) * scale;
+
+    const pSink = rPx(80, 40);
+    const sinkwPx = 700 * scale;
+    const sinkdPx = 420 * scale;
+
+    const pHob = rPx(Math.max(sinkwPx / scale + 120, (widthMm - 600) / 2), 40);
+    const hobwPx = 600 * scale;
+    const hobdPx = 480 * scale;
+
+    const pFridge = rPx(widthMm - 700, 40);
+    const frwPx = 650 * scale;
+    const frdPx = 650 * scale;
+
+    return (
+      <g className="room-2d-furniture" pointerEvents="none">
+        {/* Kitchen Base Counter Run */}
+        <path
+          d={`M ${pCorner.x} ${pCorner.y} L ${pCorner.x + cwPx} ${pCorner.y} L ${pCorner.x + cwPx} ${pCorner.y + counterD} L ${pCorner.x + counterD} ${pCorner.y + counterD} L ${pCorner.x + counterD} ${pCorner.y + cdPx} L ${pCorner.x} ${pCorner.y + cdPx} Z`}
+          fill="#e7dfd5"
+          stroke="#4a3b2c"
+          strokeWidth={1.5}
+        />
+        {/* Stainless Steel Sink */}
+        <rect x={pSink.x} y={pSink.y + 30 * scale} width={sinkwPx} height={sinkdPx} fill="#f1f5f9" stroke="#64748b" strokeWidth={1} rx={2} />
+        <rect x={pSink.x + 16 * scale} y={pSink.y + 45 * scale} width={sinkwPx / 2 - 24 * scale} height={sinkdPx - 30 * scale} fill="#cbd5e1" rx={2} />
+        <rect x={pSink.x + sinkwPx / 2 + 8 * scale} y={pSink.y + 45 * scale} width={sinkwPx / 2 - 24 * scale} height={sinkdPx - 30 * scale} fill="#cbd5e1" rx={2} />
+        <circle cx={pSink.x + sinkwPx / 2} cy={pSink.y + 40 * scale} r={12 * scale} fill="#0284c7" />
+
+        {/* 4-Burner Glass Hob */}
+        <rect x={pHob.x} y={pHob.y + 30 * scale} width={hobwPx} height={hobdPx} fill="#18181b" stroke="#3f3f46" strokeWidth={1} rx={2} />
+        <circle cx={pHob.x + hobwPx * 0.3} cy={pHob.y + 30 * scale + hobdPx * 0.3} r={30 * scale} fill="#ef4444" fillOpacity={0.6} />
+        <circle cx={pHob.x + hobwPx * 0.7} cy={pHob.y + 30 * scale + hobdPx * 0.3} r={26 * scale} fill="#ef4444" fillOpacity={0.6} />
+        <circle cx={pHob.x + hobwPx * 0.3} cy={pHob.y + 30 * scale + hobdPx * 0.7} r={26 * scale} fill="#ef4444" fillOpacity={0.6} />
+        <circle cx={pHob.x + hobwPx * 0.7} cy={pHob.y + 30 * scale + hobdPx * 0.7} r={34 * scale} fill="#ef4444" fillOpacity={0.7} />
+
+        {/* Refrigerator */}
+        {widthMm >= 2200 && (
+          <g>
+            <rect x={pFridge.x} y={pFridge.y} width={frwPx} height={frdPx} fill="#475569" stroke="#1e293b" strokeWidth={1.5} rx={3} />
+            <text x={pFridge.x + frwPx / 2} y={pFridge.y + frdPx / 2 + 3 * scale} fill="#fff" fontSize={Math.max(7, 8 * scale)} fontWeight="bold" textAnchor="middle">FRIDGE</text>
+          </g>
+        )}
+      </g>
+    );
+  }
+
+  if (isDining) {
+    const tblW = Math.min(widthMm * 0.65, 1600);
+    const tblD = Math.min(depthMm * 0.55, 900);
+    const tx = (widthMm - tblW) / 2;
+    const ty = (depthMm - tblD) / 2;
+    const pTbl = rPx(tx, ty);
+    const twPx = tblW * scale;
+    const tdPx = tblD * scale;
+    const chairW = 340 * scale;
+    const chairD = 340 * scale;
+
+    return (
+      <g className="room-2d-furniture" pointerEvents="none">
+        {/* Dining Table Top */}
+        <rect x={pTbl.x} y={pTbl.y} width={twPx} height={tdPx} fill="#7c2d12" stroke="#451a03" strokeWidth={1.5} rx={4 * scale} />
+        <text x={pTbl.x + twPx / 2} y={pTbl.y + tdPx / 2 + 3 * scale} fill="#fef3c7" fontSize={Math.max(7, 8 * scale)} fontWeight="bold" textAnchor="middle">6-SEATER DINING</text>
+
+        {/* Top Chairs */}
+        <rect x={pTbl.x + 30 * scale} y={pTbl.y - 180 * scale} width={chairW} height={chairD} fill="#b45309" stroke="#78350f" rx={2} />
+        <rect x={pTbl.x + twPx - chairW - 30 * scale} y={pTbl.y - 180 * scale} width={chairW} height={chairD} fill="#b45309" stroke="#78350f" rx={2} />
+        {/* Bottom Chairs */}
+        <rect x={pTbl.x + 30 * scale} y={pTbl.y + tdPx - 160 * scale} width={chairW} height={chairD} fill="#b45309" stroke="#78350f" rx={2} />
+        <rect x={pTbl.x + twPx - chairW - 30 * scale} y={pTbl.y + tdPx - 160 * scale} width={chairW} height={chairD} fill="#b45309" stroke="#78350f" rx={2} />
+      </g>
+    );
+  }
+
+  if (isPooja) {
+    const pM = rPx(30, 30);
+    const mwPx = (widthMm - 60) * scale;
+    const mdPx = Math.min(depthMm * 0.45, 600) * scale;
+    return (
+      <g className="room-2d-furniture" pointerEvents="none">
+        <rect x={pM.x} y={pM.y} width={mwPx} height={mdPx} fill="#b45309" stroke="#78350f" strokeWidth={1.5} rx={3} />
+        <circle cx={pM.x + mwPx / 2} cy={pM.y + mdPx / 2} r={16 * scale} fill="#fef3c7" stroke="#d97706" strokeWidth={1} />
+        <text x={pM.x + mwPx / 2} y={pM.y + mdPx / 2 + 4 * scale} fill="#92400e" fontSize={Math.max(8, 10 * scale)} fontWeight="bold" textAnchor="middle">ॐ MANDIR</text>
+      </g>
+    );
+  }
+
+  if (isToilet) {
+    const pWc = rPx(30, 30);
+    const wcwPx = 360 * scale;
+    const wcdPx = 580 * scale;
+
+    const pWash = rPx(widthMm - 500, 30);
+    const washwPx = 460 * scale;
+    const washdPx = 400 * scale;
+
+    return (
+      <g className="room-2d-furniture" pointerEvents="none">
+        {/* WC Cistern & Bowl */}
+        <rect x={pWc.x} y={pWc.y} width={wcwPx} height={180 * scale} fill="#f8fafc" stroke="#94a3b8" strokeWidth={1} rx={2} />
+        <ellipse cx={pWc.x + wcwPx / 2} cy={pWc.y + 340 * scale} rx={wcwPx / 2} ry={180 * scale} fill="#f8fafc" stroke="#94a3b8" strokeWidth={1} />
+
+        {/* Vanity Wash Basin */}
+        <rect x={pWash.x} y={pWash.y} width={washwPx} height={washdPx} fill="#f8fafc" stroke="#94a3b8" strokeWidth={1} rx={3} />
+        <ellipse cx={pWash.x + washwPx / 2} cy={pWash.y + washdPx / 2} rx={washwPx * 0.35} ry={washdPx * 0.3} fill="#e2e8f0" stroke="#0284c7" strokeWidth={1} />
+      </g>
+    );
+  }
+
+  if (isDress) {
+    const pW1 = rPx(20, 20);
+    const pW2 = rPx(widthMm - 520, 20);
+    const wwPx = 500 * scale;
+    const whPx = (depthMm - 40) * scale;
+    return (
+      <g className="room-2d-furniture" pointerEvents="none">
+        <rect x={pW1.x} y={pW1.y} width={wwPx} height={whPx} fill="#4a3728" stroke="#2e2117" strokeWidth={1.5} rx={2} />
+        <rect x={pW2.x} y={pW2.y} width={wwPx} height={whPx} fill="#4a3728" stroke="#2e2117" strokeWidth={1.5} rx={2} />
+        <text x={pW1.x + wwPx / 2} y={pW1.y + whPx / 2} fill="#fff" fontSize={Math.max(6, 7 * scale)} fontWeight="bold" textAnchor="middle" transform={`rotate(-90 ${pW1.x + wwPx / 2} ${pW1.y + whPx / 2})`}>WARDROBE</text>
+        <text x={pW2.x + wwPx / 2} y={pW2.y + whPx / 2} fill="#fff" fontSize={Math.max(6, 7 * scale)} fontWeight="bold" textAnchor="middle" transform={`rotate(90 ${pW2.x + wwPx / 2} ${pW2.y + whPx / 2})`}>WARDROBE</text>
+      </g>
+    );
+  }
+
+  if (isParking) {
+    const carW = Math.min(widthMm * 0.8, 2200);
+    const carD = Math.min(depthMm * 0.85, 4500);
+    const pCar = rPx((widthMm - carW) / 2, (depthMm - carD) / 2);
+    const cwPx = carW * scale;
+    const cdPx = carD * scale;
+
+    return (
+      <g className="room-2d-furniture" pointerEvents="none">
+        <rect x={pCar.x} y={pCar.y} width={cwPx} height={cdPx} fill="rgba(59, 130, 246, 0.08)" stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="6 4" rx={12 * scale} />
+        <rect x={pCar.x + 20 * scale} y={pCar.y + 40 * scale} width={cwPx - 40 * scale} height={cdPx - 80 * scale} fill="rgba(30, 58, 138, 0.12)" stroke="#2563eb" rx={8 * scale} />
+        <text x={pCar.x + cwPx / 2} y={pCar.y + cdPx / 2 + 4 * scale} fill="#1d4ed8" fontSize={Math.max(8, 10 * scale)} fontWeight="bold" textAnchor="middle">PARKING BAY</text>
+      </g>
+    );
+  }
+
+  return null;
 }
 
 function CandidateVectorPreview({
