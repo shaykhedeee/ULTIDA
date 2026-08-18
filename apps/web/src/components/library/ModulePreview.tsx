@@ -328,11 +328,23 @@ export function ModulePreview({ module, compact = false, style }: Props) {
             <stop offset="0%" stopColor="rgba(40, 65, 75, 0.75)" />
             <stop offset="100%" stopColor="rgba(20, 35, 42, 0.88)" />
           </linearGradient>
+          {/* Glossy Reflection Highlight */}
+          <linearGradient id={`grad-gloss-${module.id}`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="rgba(255, 255, 255, 0.4)" />
+            <stop offset="35%" stopColor="rgba(255, 255, 255, 0.08)" />
+            <stop offset="70%" stopColor="transparent" />
+          </linearGradient>
           {/* Drop Shadows */}
           <filter id={`shadow-${module.id}`} x="-20%" y="-20%" width="150%" height="150%">
             <feDropShadow dx="0" dy="5" stdDeviation="4" floodColor="#1c140d" floodOpacity="0.28" />
           </filter>
         </defs>
+
+        {/* Subtle Architectural Floor Grid */}
+        <g opacity="0.15">
+          <line x1="16" y1="126" x2="152" y2="126" stroke="#8c7355" strokeWidth="0.8" />
+          <line x1="30" y1="120" x2="160" y2="120" stroke="#8c7355" strokeWidth="0.6" strokeDasharray="3 3" />
+        </g>
 
         <g filter={`url(#shadow-${module.id})`}>
           {isLivingOrFurniture ? (
@@ -347,9 +359,9 @@ export function ModulePreview({ module, compact = false, style }: Props) {
           <text x="10" y="14" fill="#786c5e" fontSize="7.5" fontWeight="900" letterSpacing="0.8">
             {module.family.replaceAll('-', ' ').toUpperCase()}
           </text>
-          <rect x="104" y="4" width="56" height="14" rx="4" fill="#ffffff" stroke="#e7dcce" strokeWidth="1" />
-          <text x="132" y="14" fill="#695748" fontSize="7" fontWeight="bold" textAnchor="middle">
-            {module.widthMm}×{module.heightMm}
+          <rect x="98" y="4" width="62" height="15" rx="4" fill="#ffffff" stroke="#e7dcce" strokeWidth="1" />
+          <text x="129" y="15" fill="#695748" fontSize="7" fontWeight="bold" textAnchor="middle">
+            {module.widthMm} × {module.heightMm} mm
           </text>
         </g>
       </svg>

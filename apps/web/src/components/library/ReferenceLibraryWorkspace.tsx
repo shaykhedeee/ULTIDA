@@ -172,15 +172,51 @@ const CURATED_VAULT_REFERENCES = [
 ];
 
 const DEFAULT_PROJECT_MATERIALS: Material[] = [
-  { id: 'mat-1', name: 'Action TESA HDHMR Core', code: 'CORE-HDHMR-18', category: 'core_panel', finish: 'Unlaminated Pre-primed', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Action TESA', availability: 'in_stock', metadata: { colorHex: '#84735c' } },
-  { id: 'mat-2', name: '710 Grade BWR Marine Plywood', code: 'CORE-BWR-19', category: 'core_panel', finish: 'Calibrated Hardwood Core', thickness_mm: 19, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Century Ply', availability: 'in_stock', metadata: { colorHex: '#9b744a' } },
-  { id: 'mat-3', name: 'Fluted Charcoal Matte PU Panel', code: 'SHUT-FLUTE-PU', category: 'laminate', finish: 'Fluted Suede PU Touch', thickness_mm: 18, edge_band_status: 'not_required', supplier: 'Royal Crown', availability: 'in_stock', metadata: { colorHex: '#332f2c' } },
-  { id: 'mat-4', name: 'Zero-G 2mm Matte Suede Laminate', code: 'SHUT-LAM-SUEDE', category: 'laminate', finish: 'Anti-Fingerprint Matte', thickness_mm: 2, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Merino Laminates', availability: 'in_stock', metadata: { colorHex: '#d8cbbe' } },
-  { id: 'mat-5', name: 'Calacatta Gold Sintered Porcelain Slab', code: 'SLAB-CAL-GOLD', category: 'countertop', finish: 'Bookmatched Polished', thickness_mm: 12, edge_band_status: 'not_required', supplier: 'Laminam', availability: 'in_stock', metadata: { colorHex: '#f3efe8' } },
-  { id: 'mat-6', name: 'Roman Travertine Honed Stone Slab', code: 'SLAB-TRAV-ROMAN', category: 'countertop', finish: 'Honed Matte Unfilled', thickness_mm: 20, edge_band_status: 'not_required', supplier: 'Artisan Stone Works', availability: 'in_stock', metadata: { colorHex: '#cfbc9f' } },
-  { id: 'mat-7', name: 'Tinted Fluted Aluminium Profile Glass', code: 'GLAS-FLUTED-TINT', category: 'profile_glass', finish: 'Graphite Anodized Profile', thickness_mm: 8, edge_band_status: 'not_required', supplier: 'Hafele Glass', availability: 'in_stock', metadata: { colorHex: '#4d5557' } },
-  { id: 'mat-8', name: 'Camar 807 Heavy Duty Wall Hanging Bracket', code: 'HARD-CAMAR-807', category: 'hardware', finish: 'Zinc Plated Steel (240kg)', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Camar Italy', availability: 'in_stock', metadata: { colorHex: '#a1a1aa' } },
-  { id: 'mat-9', name: 'Blum Tandembox Antaro Soft-Close Drawers', code: 'HARD-BLUM-ANTARO', category: 'hardware', finish: 'Silk White 500mm / 65kg', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Blum Austria', availability: 'in_stock', metadata: { colorHex: '#e4e4e7' } },
+  // ─── HIGH-GLOSS & ACRYLIC LAMINATES (Glossy) ───
+  { id: 'mat-gloss-1', name: 'Mirror High-Gloss Pure White Acrylic', code: 'ROY-HG-WHT-12', category: 'laminate', finish: 'High-Gloss Acrylic Sheen', thickness_mm: 1.2, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#FFFFFF' } },
+  { id: 'mat-gloss-2', name: 'Ultra High-Gloss Cashmere Acrylic', code: 'ROY-HG-CSH-10', category: 'laminate', finish: 'Ultra-Gloss Acrylic', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#E3DAC9' } },
+  { id: 'mat-gloss-3', name: 'Ultra High-Gloss Anthracite Acrylic', code: 'ROY-HG-ANT-10', category: 'laminate', finish: 'Mirror Gloss Acrylic', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#2C3038' } },
+  { id: 'mat-gloss-4', name: 'High-Gloss Champagne Metallic', code: 'MER-HG-CHP-08', category: 'laminate', finish: 'High-Gloss Metallic', thickness_mm: 0.8, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Merino', availability: 'in_stock', metadata: { colorHex: '#F0E6D2' } },
+  { id: 'mat-gloss-5', name: 'Mirror Polygloss Emerald Green', code: 'STY-PG-EMR-10', category: 'laminate', finish: 'Mirror Polygloss', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Stylam', availability: 'in_stock', metadata: { colorHex: '#1B4D3E' } },
+
+  // ─── SUPER-MATTE & ZERO-G LAMINATES (Matte) ───
+  { id: 'mat-matte-1', name: 'Zero-G Anti-Fingerprint Sandstone Matte', code: 'MER-ZG-SND-10', category: 'laminate', finish: 'Anti-Fingerprint Zero-G Matte', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Merino Laminates', availability: 'in_stock', metadata: { colorHex: '#C9B59B' } },
+  { id: 'mat-matte-2', name: 'Deep Nero Ingo Super-Matte', code: 'FNX-SM-NERO-10', category: 'laminate', finish: 'Thermal Healing Super-Matte', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Fenix NTM', availability: 'in_stock', metadata: { colorHex: '#18181B' } },
+  { id: 'mat-matte-3', name: 'Forest Green Anti-Fingerprint Matte', code: 'VRG-AF-GRN-10', category: 'laminate', finish: 'Soft-Touch Matte', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Virgo', availability: 'in_stock', metadata: { colorHex: '#38463A' } },
+  { id: 'mat-matte-4', name: 'Graphite Velvet Suede Matte', code: 'ADV-SD-GRP-08', category: 'laminate', finish: 'Velvet Suede Matte', thickness_mm: 0.8, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Advance', availability: 'in_stock', metadata: { colorHex: '#303234' } },
+  { id: 'mat-matte-5', name: 'Silk Touch Velvet Sage Matte', code: 'ROY-ST-SGE-10', category: 'laminate', finish: 'Silk Touch Soft Matte', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#8A9A86' } },
+
+  // ─── TEXTURED WOODGRAINS & VENEERS ───
+  { id: 'mat-wood-1', name: 'Smoked Walnut Heavy Grain', code: 'CBX-WG-WLN-10', category: 'laminate', finish: 'Synchronized Natural Grain', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Cubex', availability: 'in_stock', metadata: { colorHex: '#654230' } },
+  { id: 'mat-wood-2', name: 'Natural Dune Oak Textured', code: 'VRG-WG-OAK-08', category: 'laminate', finish: 'Natural Dune Woodgrain', thickness_mm: 0.8, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Virgo', availability: 'in_stock', metadata: { colorHex: '#A77B5B' } },
+  { id: 'mat-wood-3', name: 'Royal Smoked Oak Slat Wood', code: 'VRG-WG-SMK-10', category: 'laminate', finish: 'Satin Smoked Woodgrain', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Virgo', availability: 'in_stock', metadata: { colorHex: '#5A473B' } },
+  { id: 'mat-wood-4', name: 'Synchronized Bavarian Teak', code: 'ADV-WG-TEAK-10', category: 'laminate', finish: 'Embossed-in-Register Teak', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Advance', availability: 'in_stock', metadata: { colorHex: '#8C5832' } },
+
+  // ─── FLUTED & SUEDE ARCHITECTURAL PANELS ───
+  { id: 'mat-flute-1', name: 'Fluted Charcoal Matte PU Cladding Panel', code: 'ROY-FLUTE-PU-18', category: 'laminate', finish: 'Fluted Suede PU Touch (18mm)', thickness_mm: 18, edge_band_status: 'not_required', supplier: 'Royal Crown', availability: 'in_stock', metadata: { colorHex: '#332F2C' } },
+  { id: 'mat-flute-2', name: 'Parisian Boiserie Moulding Panel', code: 'ADV-BSR-PARIS-18', category: 'laminate', finish: 'Satin Lacquer French Moulding', thickness_mm: 18, edge_band_status: 'not_required', supplier: 'Advance', availability: 'in_stock', metadata: { colorHex: '#F0ECE1' } },
+
+  // ─── BASE PLY & CORE BOARDS (Substrates) ───
+  { id: 'mat-core-1', name: 'Action TESA 18mm HDHMR Green Core Board', code: 'CORE-HDHMR-18', category: 'core_panel', finish: 'High Density Moisture Resistant (850 kg/m³)', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Action TESA', availability: 'in_stock', metadata: { colorHex: '#6E8B76' } },
+  { id: 'mat-core-2', name: 'Action TESA 12mm HDHMR Core Board', code: 'CORE-HDHMR-12', category: 'core_panel', finish: 'Moisture Resistant Substrate', thickness_mm: 12, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Action TESA', availability: 'in_stock', metadata: { colorHex: '#7D9984' } },
+  { id: 'mat-core-3', name: 'CenturyPly 19mm Club Prime 710 BWP Marine Ply', code: 'CORE-BWP-19', category: 'core_panel', finish: 'Boiling Water Proof Calibrated Hardwood', thickness_mm: 19, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'CenturyPly', availability: 'in_stock', metadata: { colorHex: '#9B744A' } },
+  { id: 'mat-core-4', name: 'Greenply 18mm Ecotec BWR Grade Hardwood Ply', code: 'CORE-BWR-18', category: 'core_panel', finish: 'Boiling Water Resistant Hardwood', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Greenply', availability: 'in_stock', metadata: { colorHex: '#84613C' } },
+  { id: 'mat-core-5', name: 'National Ply 18mm IS:303 Commercial MR Ply', code: 'CORE-MR-18', category: 'core_panel', finish: 'Moisture Resistant Interior Ply', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'National Ply', availability: 'in_stock', metadata: { colorHex: '#A37F58' } },
+  { id: 'mat-core-6', name: 'Riga 18mm 13-Ply Calibrated European Birch Ply', code: 'CORE-BIRCH-18', category: 'core_panel', finish: 'Multi-Ply Exposed Edge Calibrated Core', thickness_mm: 18, edge_band_status: 'not_required', supplier: 'Riga Ply', availability: 'in_stock', metadata: { colorHex: '#D2B48C' } },
+  { id: 'mat-core-7', name: 'Action TESA 18mm Interior CNC Carving MDF', code: 'CORE-MDF-18', category: 'core_panel', finish: 'Homogeneous Fine Fibre Carving Board', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Action TESA', availability: 'in_stock', metadata: { colorHex: '#C2A682' } },
+
+  // ─── STONE & COUNTERTOPS ───
+  { id: 'mat-slab-1', name: 'Calacatta Gold Bookmatched Sintered Porcelain Slab', code: 'SLAB-CAL-GOLD', category: 'countertop', finish: 'Bookmatched Polished (12mm)', thickness_mm: 12, edge_band_status: 'not_required', supplier: 'Laminam', availability: 'in_stock', metadata: { colorHex: '#F4F1EA' } },
+  { id: 'mat-slab-2', name: 'Roman Travertine Honed Stone Slab', code: 'SLAB-TRAV-ROMAN', category: 'countertop', finish: 'Honed Matte Unfilled (20mm)', thickness_mm: 20, edge_band_status: 'not_required', supplier: 'Artisan Stone Works', availability: 'in_stock', metadata: { colorHex: '#CFBC9F' } },
+  { id: 'mat-slab-3', name: 'Nero Marquina Black Porcelain Slab', code: 'SLAB-MARQ-12', category: 'countertop', finish: 'Satin Velvet Porcelain (12mm)', thickness_mm: 12, edge_band_status: 'not_required', supplier: 'Laminam', availability: 'in_stock', metadata: { colorHex: '#1E1E22' } },
+  { id: 'mat-slab-4', name: 'Venetian Terrazzo Beige Anti-Scratch', code: 'SLAB-TRZ-BEIGE', category: 'countertop', finish: 'Anti-Scratch Textured (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Advance', availability: 'in_stock', metadata: { colorHex: '#BBA99B' } },
+
+  // ─── PROFILE GLASS & HARDWARE ───
+  { id: 'mat-glas-1', name: 'Tinted Fluted Aluminium Profile Glass', code: 'GLAS-FLUTED-TINT', category: 'profile_glass', finish: 'Graphite Anodized Profile (8mm)', thickness_mm: 8, edge_band_status: 'not_required', supplier: 'Hafele Glass', availability: 'in_stock', metadata: { colorHex: '#4D5557' } },
+  { id: 'mat-hard-1', name: 'Blum Aventos HF Bi-Fold Lift System', code: 'HARD-BLUM-AVENTOS', category: 'hardware', finish: 'Stay-Lift Bi-Fold Mechanism', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Blum Austria', availability: 'in_stock', metadata: { colorHex: '#CBD5E1' } },
+  { id: 'mat-hard-2', name: 'Blum Tandembox Antaro Soft-Close Drawers', code: 'HARD-BLUM-ANTARO', category: 'hardware', finish: 'Silk White 500mm / 65kg', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Blum Austria', availability: 'in_stock', metadata: { colorHex: '#E4E4E7' } },
+  { id: 'mat-hard-3', name: 'Camar 807 Heavy Duty Wall Hanging Bracket', code: 'HARD-CAMAR-807', category: 'hardware', finish: 'Zinc Plated Steel (240kg load/pair)', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Camar Italy', availability: 'in_stock', metadata: { colorHex: '#A1A1AA' } },
+  { id: 'mat-hard-4', name: 'Hettich Sensys 110° Soft-Close Hinges', code: 'HARD-HET-SENSYS', category: 'hardware', finish: 'Obsidian Black Concealed Hinge', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Hettich Germany', availability: 'in_stock', metadata: { colorHex: '#94A3B8' } },
 ];
 
 function stableImageForModule(module: CatalogModule) {
@@ -198,9 +234,9 @@ function apiBase() {
 }
 
 function materialSubtitle(material: Material) {
-  const thickness = material.thickness_mm ? `${material.thickness_mm}mm sheet` : '';
-  const edge = material.edge_band_status === 'not_required' ? 'edge band integrated' : material.edge_band_thickness_mm ? `${material.edge_band_thickness_mm}mm edge` : '';
-  return [material.category, material.finish, thickness, edge, material.supplier, material.availability]
+  const thickness = material.thickness_mm ? `${material.thickness_mm}mm` : '';
+  const edge = material.edge_band_status === 'not_required' ? 'Seamless' : material.edge_band_thickness_mm ? `${material.edge_band_thickness_mm}mm edge` : '';
+  return [material.supplier, material.finish, thickness, edge]
     .filter(Boolean)
     .join(' · ');
 }
@@ -274,6 +310,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const [vaultState, setVaultState] = useState('all');
   const [moduleFamily, setModuleFamily] = useState('all');
   const [moduleRoom, setModuleRoom] = useState('all');
+  const [materialCategory, setMaterialCategory] = useState('all');
   const [archiveTarget, setArchiveTarget] = useState<VaultEntry | null>(null);
   const [addingStarterMaterials, setAddingStarterMaterials] = useState(false);
   const [previewModalItem, setPreviewModalItem] = useState<{
@@ -377,7 +414,39 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     return matches && item.kind !== 'material' && item.kind !== 'module';
   }), [items, search]);
   const visibleModules = useMemo(() => modules.filter((item) => (moduleFamily === 'all' || item.family === moduleFamily) && (moduleRoom === 'all' || item.roomTypes.includes(moduleRoom)) && (!search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search))), [modules, search, moduleFamily, moduleRoom]);
-  const visibleMaterials = useMemo(() => materials.filter((item) => !search || `${item.name} ${item.code} ${item.category} ${item.supplier ?? ''}`.toLowerCase().includes(search)), [materials, search]);
+  const visibleMaterials = useMemo(() => {
+    const allMaterials = materials.length ? materials : DEFAULT_PROJECT_MATERIALS;
+    return allMaterials.filter((item) => {
+      const matchesSearch = !search || `${item.name} ${item.code} ${item.category} ${item.finish ?? ''} ${item.supplier ?? ''}`.toLowerCase().includes(search);
+      if (!matchesSearch) return false;
+      if (materialCategory === 'all') return true;
+      if (materialCategory === 'glossy') {
+        return /gloss|acrylic|polygloss|mirror/i.test(`${item.name} ${item.finish} ${item.code}`);
+      }
+      if (materialCategory === 'matte') {
+        return /matte|suede|zero-g|anti-fingerprint|soft-touch|velvet/i.test(`${item.name} ${item.finish} ${item.code}`) && !/gloss/i.test(`${item.name} ${item.finish}`);
+      }
+      if (materialCategory === 'woodgrain') {
+        return /wood|oak|walnut|teak|birch|grain|veneer/i.test(`${item.name} ${item.finish} ${item.category}`);
+      }
+      if (materialCategory === 'fluted') {
+        return /flute|boiserie|slat|moulding|panel/i.test(`${item.name} ${item.finish} ${item.category}`);
+      }
+      if (materialCategory === 'core_panel') {
+        return /core|hdhmr|ply|plywood|marine|bwp|bwr|mdf|particle/i.test(`${item.name} ${item.category} ${item.code}`);
+      }
+      if (materialCategory === 'countertop') {
+        return /countertop|slab|marble|travertine|porcelain|granite|sintered|terrazzo|stone/i.test(`${item.name} ${item.category} ${item.finish}`);
+      }
+      if (materialCategory === 'profile_glass') {
+        return /glass|profile/i.test(`${item.name} ${item.category}`);
+      }
+      if (materialCategory === 'hardware') {
+        return /hardware|bracket|drawer|hinge|tandem|blum|hettich|camar|avent/i.test(`${item.name} ${item.category}`);
+      }
+      return item.category === materialCategory;
+    });
+  }, [materials, search, materialCategory]);
   const visibleVault = useMemo(() => vault.filter((entry) => (vaultRoom === 'all' || entry.room === vaultRoom) && (vaultFamily === 'all' || entry.module_family === vaultFamily) && (vaultState === 'all' || entry.review_state === vaultState) && (!search || `${entry.title} ${entry.source_path} ${entry.room} ${entry.module_family} ${entry.style} ${(entry.material_tags ?? []).join(' ')} ${JSON.stringify(entry.metadata ?? {})}`.toLowerCase().includes(search))), [vault, vaultRoom, vaultFamily, vaultState, search]);
   const vaultValues = (field: 'room' | 'module_family' | 'review_state') => [...new Set(vault.map((entry) => entry[field]).filter(Boolean))].sort();
   async function updateVault(id: string, patch: Partial<VaultEntry>) { if (!supabase) return; const { error } = await supabase.from('reference_vault_entries').update(patch).eq('id', id); if (!error) setVault((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry)); }
@@ -1292,27 +1361,69 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       {/* TAB 4: PROJECT MATERIALS */}
       {activeTab === 'materials' && (
         <Card className="workflow">
+          {/* Quick Filter Category Chips for Materials */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>
+            {[
+              ['all', '✨ All Materials', 'all'],
+              ['glossy', '✨ High-Gloss & Acrylic', 'glossy'],
+              ['matte', '🛡️ Super-Matte & Zero-G', 'matte'],
+              ['woodgrain', '🌲 Woodgrains & Veneers', 'woodgrain'],
+              ['fluted', '🏛️ Fluted & Boiserie Panels', 'fluted'],
+              ['core_panel', '🪵 Base Ply & Core Boards', 'core_panel'],
+              ['countertop', '💎 Sintered Stone & Marble', 'countertop'],
+              ['profile_glass', '🪟 Profile Glass', 'profile_glass'],
+              ['hardware', '⚙️ Hardware & Fittings', 'hardware'],
+            ].map(([k, label, fCat]) => {
+              const isActive = (materialCategory === fCat);
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setMaterialCategory(fCat)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 999,
+                    border: isActive ? '1.5px solid var(--gold)' : '1px solid #d6d3d1',
+                    background: isActive ? 'rgba(197,156,45,0.12)' : '#fff',
+                    color: isActive ? 'var(--gold-dim)' : '#57534e',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
           <CardHeader className="section-title">
             <div>
-              <small>PALETTE & FINISHES</small>
-              <h3 style={{ margin: '4px 0 0', fontSize: 16 }}>Curated Materials Library</h3>
+              <small>PALETTE, FINISHES &amp; SUBSTRATE SPECIFICATIONS</small>
+              <h3 style={{ margin: '4px 0 0', fontSize: 16 }}>Curated Materials Library &amp; Board Specifications</h3>
+              <p style={{ margin: '4px 0 0', fontSize: 12, color: '#78716c' }}>
+                Governed laminate finishes, high-density green core substrates, and certified architectural hardware.
+              </p>
             </div>
+            <Badge tone="success">{visibleMaterials.length} materials curated</Badge>
           </CardHeader>
           <CardContent style={{ padding: 16 }}>
             {(() => {
-              const allMaterials = materials.length ? materials : DEFAULT_PROJECT_MATERIALS;
-              const filteredMaterials = allMaterials.filter((mat) => {
-                return !search || `${mat.name} ${mat.code} ${mat.category} ${mat.supplier ?? ''}`.toLowerCase().includes(search);
-              });
-
-              if (!filteredMaterials.length) {
-                return emptyState('No materials match your search.');
+              if (!visibleMaterials.length) {
+                return emptyState('No materials match your search or selected filter.');
               }
 
               return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
-                  {filteredMaterials.map((mat) => {
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: 14 }}>
+                  {visibleMaterials.map((mat) => {
                     const color = materialColour(mat);
+                    const isGloss = /gloss|acrylic|polygloss|mirror/i.test(`${mat.name} ${mat.finish}`);
+                    const isMatte = /matte|suede|zero-g|anti-fingerprint|soft-touch/i.test(`${mat.name} ${mat.finish}`);
+                    const isWood = /wood|oak|walnut|teak|birch|grain|veneer/i.test(`${mat.name} ${mat.finish}`);
+                    const isCore = /hdhmr|ply|plywood|marine|bwp|bwr|mdf/i.test(`${mat.name} ${mat.category}`);
+                    const isStone = /marble|travertine|porcelain|granite|sintered|terrazzo|slab/i.test(`${mat.name} ${mat.category}`);
+
                     return (
                       <article
                         key={mat.id}
@@ -1326,23 +1437,68 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                           display: 'flex',
                           flexDirection: 'column',
                           justifyContent: 'space-between',
+                          position: 'relative',
                         }}
                       >
                         <div>
                           <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10 }}>
                             <div
                               style={{
-                                width: 44,
-                                height: 44,
-                                borderRadius: 8,
+                                width: 50,
+                                height: 50,
+                                borderRadius: 10,
                                 background: color,
-                                border: '1px solid rgba(0,0,0,0.15)',
+                                border: '1.5px solid rgba(0,0,0,0.15)',
                                 flexShrink: 0,
-                                boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.2)',
+                                boxShadow: isGloss ? '0 4px 12px rgba(255,255,255,0.4), inset 0 2px 6px rgba(255,255,255,0.6)' : 'inset 0 1px 4px rgba(0,0,0,0.2)',
+                                position: 'relative',
+                                overflow: 'hidden',
                               }}
-                            />
-                            <div>
-                              <strong style={{ fontSize: 13, color: '#1c1917', display: 'block' }}>{mat.name}</strong>
+                            >
+                              {/* Gloss Sheen Reflection */}
+                              {isGloss && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    background: 'linear-gradient(135deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.1) 40%, transparent 60%)',
+                                    pointerEvents: 'none',
+                                  }}
+                                />
+                              )}
+                              {/* Wood Grain Lines */}
+                              {isWood && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    opacity: 0.25,
+                                    backgroundImage: 'repeating-linear-gradient(90deg, #000 0px, #000 1px, transparent 1px, transparent 6px)',
+                                    pointerEvents: 'none',
+                                  }}
+                                />
+                              )}
+                              {/* Core Board Green / Layer Stamp */}
+                              {isCore && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    bottom: 2,
+                                    right: 2,
+                                    fontSize: 8,
+                                    fontWeight: 900,
+                                    color: '#fff',
+                                    background: '#15803d',
+                                    padding: '1px 3px',
+                                    borderRadius: 3,
+                                  }}
+                                >
+                                  CORE
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <strong style={{ fontSize: 13, color: '#1c1917', display: 'block', lineHeight: 1.3 }}>{mat.name}</strong>
                               <small style={{ fontSize: 10.5, color: '#78716c', fontFamily: 'monospace' }}>{mat.code}</small>
                             </div>
                           </div>
@@ -1354,7 +1510,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px solid #f5f5f4' }}>
                           <span style={{ fontSize: 10.5, fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '2px 6px', borderRadius: 4 }}>
-                            {mat.availability ?? 'In Stock'}
+                            {mat.supplier ?? 'Certified'} • {mat.availability ?? 'In Stock'}
                           </span>
                           <button
                             type="button"
@@ -1400,6 +1556,88 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           </CardContent>
         </Card>
       )}
+
+      {/* Sleek Fixed Bottom Stage Progression Bar */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 90,
+          height: 54,
+          padding: '0 24px',
+          background: 'rgba(20, 18, 16, 0.94)',
+          backdropFilter: 'blur(16px)',
+          borderTop: '1px solid rgba(197, 156, 45, 0.3)',
+          boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 16,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#c59c2d', boxShadow: '0 0 8px #c59c2d' }} />
+          <div>
+            <strong style={{ color: '#fff', fontSize: 12.5, display: 'inline', marginRight: 8 }}>
+              Design Library &amp; Materials Vault
+            </strong>
+            <span style={{ color: '#a8a29e', fontSize: 11.5 }}>
+              • {visibleModules.length} Parametric Modules • {visibleMaterials.length} Curated Laminates &amp; Base Plies.
+            </span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => navigate(activeProjectId ? `/projects/${activeProjectId}/plan` : '/projects')}
+            style={{
+              background: '#2b2622',
+              color: '#e7e5e4',
+              border: '1px solid #44403c',
+              borderRadius: 7,
+              padding: '6px 14px',
+              fontWeight: 600,
+              fontSize: 12,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              height: 34,
+            }}
+          >
+            Back to Studio
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (activeProjectId) {
+                navigate(`/projects/${activeProjectId}/spaces`);
+              } else {
+                navigate('/projects');
+              }
+            }}
+            style={{
+              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+              color: '#1c1917',
+              border: 0,
+              borderRadius: 7,
+              padding: '6px 16px',
+              fontWeight: 800,
+              fontSize: 12.5,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              height: 34,
+              boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
+            }}
+          >
+            Open Configured Spaces <ArrowRight size={14} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
