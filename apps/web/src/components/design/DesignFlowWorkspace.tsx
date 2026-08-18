@@ -1162,15 +1162,15 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         <Badge tone={briefComplete && planApproved ? 'success' : 'accent'}>{!briefComplete ? 'Brief required' : planApproved ? 'Approved plan linked' : 'Approved plan required'}</Badge>
       </div>
 
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }} aria-label="Design workspace mode">
-        <Button onClick={handleAiAutoFitAllWallModules} style={{ background: 'linear-gradient(135deg, #1c1917, #3d2a1a)', color: '#fff', border: '1px solid var(--gold)', boxShadow: '0 2px 8px rgba(197,156,45,0.25)' }}>
-          <Sparkles size={16} style={{ marginRight: '0.5rem', color: 'var(--gold)' }} /> AI Auto-Pick Feature Walls &amp; Setup Units
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }} aria-label="Design workspace mode">
+        <Button onClick={handleAiAutoFitAllWallModules} style={{ background: 'linear-gradient(135deg, #1c1917, #3d2a1a)', color: '#fff', border: '1px solid var(--gold)', boxShadow: '0 2px 8px rgba(197,156,45,0.25)', height: '38px', padding: '0 16px', fontWeight: 800 }}>
+          <Sparkles size={15} style={{ marginRight: '0.5rem', color: 'var(--gold)' }} /> AI Auto-Pick Feature Walls &amp; Setup Units
         </Button>
-        <Button variant={designMode === 'layout' ? 'default' : 'outline'} onClick={() => setDesignMode('layout')}>
-          <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Modular Layout
+        <Button variant={designMode === 'layout' ? 'default' : 'outline'} onClick={() => setDesignMode('layout')} style={{ height: '38px', padding: '0 16px' }}>
+          <Layers3 size={15} style={{ marginRight: '0.5rem' }} /> Modular Layout
         </Button>
-        <Button variant={designMode === 'moodboard' ? 'default' : 'outline'} onClick={() => setDesignMode('moodboard')}>
-          <Palette size={16} style={{ marginRight: '0.5rem' }} /> Moodboard &amp; Materials
+        <Button variant={designMode === 'moodboard' ? 'default' : 'outline'} onClick={() => setDesignMode('moodboard')} style={{ height: '38px', padding: '0 16px' }}>
+          <Palette size={15} style={{ marginRight: '0.5rem' }} /> Moodboard &amp; Materials
         </Button>
       </div>
 
