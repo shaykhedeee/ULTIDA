@@ -96,13 +96,13 @@ const MODULE_REFERENCE_IMAGES: Record<string, string[]> = {
   'kitchen-corner': ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/006-e36e2c7c9b1a.png'],
   'tv-unit': ['/reference-vault/013-52a29a1053dc.png', '/reference-vault/014-685f67e3ff6f.png', '/reference-vault/015-5705e2ee9cb1.png', '/reference-vault/016-f106846da92c.png', '/reference-vault/017-cd2b9919c856.png', '/reference-vault/037-4dd8b6a25dc7.png', '/reference-vault/038-73c6d08adf93.png'],
   wardrobe: ['/reference-vault/007-2b9d568ff444.png', '/reference-vault/008-5fd497f005d8.png', '/reference-vault/009-f68e47674ead.png', '/reference-vault/010-a0dbdf361a50.png', '/reference-vault/011-6c55d3439149.png', '/reference-vault/012-5c60a01e5b86.png', '/reference-vault/039-1786da704c5a.png', '/reference-vault/040-a7dcd66e4242.png'],
-  crockery: ['/reference-vault/013-52a29a1053dc.png', '/reference-vault/018-b7dd5f1492fe.png', '/reference-vault/019-a06a89855436.png', '/reference-vault/041-6770bf54ce43.png'],
+  crockery: ['/reference-vault/018-b7dd5f1492fe.png', '/reference-vault/019-a06a89855436.png', '/reference-vault/041-6770bf54ce43.png'],
   sofa: ['/reference-vault/020-ea872c640df6.png', '/reference-vault/021-5a47b71bad49.png', '/reference-vault/022-d6f4e9ee57d1.png', '/reference-vault/023-ae1e9b70744f.png', '/reference-vault/042-7eaf3dbfd306.png', '/reference-vault/043-71833d244d0d.png'],
   bed: ['/reference-vault/024-5976bb27ca03.png', '/reference-vault/025-adb09122c8d1.png', '/reference-vault/026-ebca5fba9a3f.png', '/reference-vault/027-3ee9dcdaca5c.png', '/reference-vault/044-577ed741688e.png', '/reference-vault/045-7ec65f321496.png'],
-  dining: ['/reference-vault/028-a8f62ab3d392.png', '/reference-vault/029-640527178f8d.png', '/reference-vault/030-7bd7e8a977bf.png', '/reference-vault/046-fe27dfd45c96.png', '/reference-vault/047-c1ce4511e83d.png'],
+  dining: ['/reference-vault/029-640527178f8d.png', '/reference-vault/030-7bd7e8a977bf.png', '/reference-vault/046-fe27dfd45c96.png', '/reference-vault/047-c1ce4511e83d.png'],
   pooja: ['/reference-vault/031-6f3948f48928.png', '/reference-vault/032-ae224c73b5dc.png', '/reference-vault/048-ac94a44309b6.png', '/reference-vault/049-d1a18590223e.png'],
   study: ['/reference-vault/033-9d09b620a75e.png', '/reference-vault/050-a2b533693ac2.png', '/reference-vault/051-999d353af1d8.png', '/reference-vault/052-1d6904ef55a3.png'],
-  utility: ['/reference-vault/053-edfb0eca9b46.png', '/reference-vault/054-c8fa00bd2c4b.png', '/reference-vault/055-e94b19f0e93f.png'],
+  utility: ['/reference-vault/028-a8f62ab3d392.png', '/reference-vault/053-edfb0eca9b46.png', '/reference-vault/054-c8fa00bd2c4b.png', '/reference-vault/055-e94b19f0e93f.png'],
   storage: ['/reference-vault/056-3bb2275767d2.png', '/reference-vault/057-da6cb4575090.png', '/reference-vault/058-b3d36c0c874b.png'],
   'false-ceiling': ['/reference-vault/059-28205fff47ae.png', '/reference-vault/060-70075531f7e7.png'],
 };
@@ -135,7 +135,8 @@ const CURATED_VAULT_REFERENCES = [
   { id: 'ref-025', img: '/reference-vault/025-adb09122c8d1.png', room: 'bedroom', family: 'bed', title: 'Extended Fluted Panel Headboard Bed', tags: ['bedroom', 'bed', 'headboard'] },
   { id: 'ref-026', img: '/reference-vault/026-ebca5fba9a3f.png', room: 'bedroom', family: 'bed', title: 'Upholstered Storage Bed with Nightstands', tags: ['bedroom', 'bed', 'storage'] },
   { id: 'ref-027', img: '/reference-vault/027-3ee9dcdaca5c.png', room: 'bedroom', family: 'bed', title: 'Japandi Platform Bed with Woven Accents', tags: ['bedroom', 'bed', 'platform'] },
-  { id: 'ref-028', img: '/reference-vault/028-a8f62ab3d392.png', room: 'dining', family: 'dining', title: '2100mm Calacatta Marble Dining Table', tags: ['dining', 'table', 'calacatta'] },
+  { id: 'ref-028', img: '/reference-vault/028-a8f62ab3d392.png', room: 'utility', family: 'utility', title: 'Washroom Overhead Shutter Storage & Concealed Cistern Vanity', tags: ['washroom', 'toilet', 'vanity', 'overhead-shutter'] },
+  { id: 'ref-028b', img: '/reference-vault/046-fe27dfd45c96.png', room: 'dining', family: 'dining', title: '2100mm Calacatta Marble & Sintered Stone Dining Table', tags: ['dining', 'table', 'calacatta'] },
   { id: 'ref-029', img: '/reference-vault/029-640527178f8d.png', room: 'dining', family: 'dining', title: 'Solid Smoked Oak 8-Seater Dining Set', tags: ['dining', 'table', 'oak'] },
   { id: 'ref-030', img: '/reference-vault/030-7bd7e8a977bf.png', room: 'dining', family: 'dining', title: 'Sculptural Round Travertine Dining Table', tags: ['dining', 'table', 'travertine'] },
   { id: 'ref-031', img: '/reference-vault/031-6f3948f48928.png', room: 'pooja', family: 'pooja', title: '1200mm Teakwood Pooja Mandir with CNC Jaali', tags: ['pooja', 'mandir', 'jaali'] },
@@ -242,9 +243,10 @@ const DEFAULT_MODULAR_CATALOG: CatalogModule[] = [
   // POOJA & MANDIR
   { id: 'pooja-jaali-1200', family: 'pooja', name: '1200 CNC Jaali Teakwood Pooja Mandir', roomTypes: ['pooja', 'living'], widthMm: 1200, depthMm: 600, heightMm: 2100, sku: 'ULT-PJ-JAL-1200', tags: ['pooja', 'mandir', 'jaali'], description: 'Sacred mandir with CNC back-lit jaali panel, brass bell inlays, and pull-out diya tray.', production: { cutlistSupported: true } },
 
-  // STUDY & FOYER
+  // STUDY, FOYER & WASHROOM
   { id: 'study-1500', family: 'study', name: '1500 Floating Wall-Mounted Study Desk & Shelf', roomTypes: ['study', 'bedroom'], widthMm: 1500, depthMm: 600, heightMm: 2400, sku: 'ULT-ST-FLT-1500', tags: ['study', 'desk', 'floating'], description: 'Heavy-duty wall mounted study workstation with wire grommets and pinboard niche.', production: { cutlistSupported: true } },
   { id: 'foyer-shoe-1200', family: 'storage', name: '1200 Foyer Shoe Storage Bench with Cushion', roomTypes: ['foyer', 'living'], widthMm: 1200, depthMm: 400, heightMm: 1800, sku: 'ULT-ST-FOY-1200', tags: ['storage', 'shoe-rack', 'foyer'], description: 'Entryway console with 16-pair ventilated shoe cabinet and coat hooks.', production: { cutlistSupported: true } },
+  { id: 'washroom-shutter-vanity-900', family: 'utility', name: '900 Washroom Concealed Cistern Vanity & Overhead Shutter Unit', roomTypes: ['utility', 'master_bedroom'], widthMm: 900, depthMm: 450, heightMm: 2100, sku: 'ULT-WR-VS-900', tags: ['washroom', 'vanity', 'overhead-shutter', 'toilet'], description: 'Washroom composition with wall-hung vanity washbasin counter, concealed cistern ledge, open niche, and top 2-door overhead shutter cabinet.', production: { cutlistSupported: true } },
 ];
 
 export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { organizationId?: string | null; projectId?: string | null }) {
@@ -253,7 +255,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const activeProjectId = projectId ?? urlProjectId ?? null;
 
   const [activeTab, setActiveTab] = useState<'templates' | 'modules' | 'moodboard' | 'materials'>('modules');
-  const [moduleImageMode, setModuleImageMode] = useState<'photo' | 'nobg'>('photo');
+  const [moduleImageMode, setModuleImageMode] = useState<'photo' | 'nobg'>('nobg');
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [modules, setModules] = useState<CatalogModule[]>(DEFAULT_MODULAR_CATALOG);
   const [materials, setMaterials] = useState<Material[]>(DEFAULT_PROJECT_MATERIALS);
@@ -699,6 +701,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
               ['dining', '🍽️ Dining & Bars', null, 'dining'],
               ['pooja', '🪔 Sacred Mandirs', 'pooja', null],
               ['study', '💼 Study & Desks', 'study', null],
+              ['washroom', '🚿 Washrooms & Vanity', 'utility', 'utility'],
             ].map(([k, label, fFam, fRoom]) => {
               const isActive = (fFam ? moduleFamily === fFam : moduleRoom === (fRoom ?? 'all'));
               return (

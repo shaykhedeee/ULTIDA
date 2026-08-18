@@ -341,7 +341,8 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
             { img: '/reference-vault/003-1f61a8aabde4.png', tag: 'KITCHEN · APPLIANCE', title: 'Tall Appliance Tower' },
             { img: '/reference-vault/007-2b9d568ff444.png', tag: 'WARDROBE · GLASS', title: 'Profile-Glass Walk-In' },
             { img: '/reference-vault/013-52a29a1053dc.png', tag: 'LIVING · FLUTED PU', title: '2400mm Fluted TV Wall' },
-            { img: '/reference-vault/028-a8f62ab3d392.png', tag: 'DINING · CALACATTA', title: 'Calacatta Marble Dining' },
+            { img: '/reference-vault/028-a8f62ab3d392.png', tag: 'WASHROOM · STORAGE', title: 'Overhead Shutter & Vanity Unit' },
+            { img: '/reference-vault/029-640527178f8d.png', tag: 'DINING · SMOKED OAK', title: 'Smoked Oak Dining Set' },
           ].map((item) => (
             <div
               key={item.img}
