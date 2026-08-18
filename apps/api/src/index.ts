@@ -336,11 +336,10 @@ app.post('/api/catalog/validate-placement', (request, response) => {
   const { moduleId, roomType, clearanceMm, adjacentFamily } = request.body ?? {};
   if (!moduleId || !roomType || typeof clearanceMm !== 'number') return response.status(400).json({ success: false, code: 'INVALID_PLACEMENT_REQUEST', message: 'moduleId, roomType and clearanceMm are required.' });
   const moduleItem = listCatalog().find((item) => item.id === moduleId);
-  if (!moduleItem) return response.status(404).json({ success: false, code: 'MODULE_NOT_FOUND' });
   const result = validatePlacement(moduleItem, RoomTypeSchema.parse(roomType), clearanceMm);
   const ruleViolations: Array<{ code: string; message: string }> = [];
-  if (adjacentFamily === 'kitchen-corner' && moduleItem.tags.includes('drawer')) {
-    ruleViolations.push({ code: 'KITCHEN_DRAWERS_CORNER_ADJACENT', message: 'Kitchen drawer units adjacent to corners require a filler to prevent handle collision.' });
+  if (adjacentFamily === 'kitchen-corner' && (moduleItem.tags.includes('drawer') || moduleItem.family === 'kitchen-base' || moduleItem.tags.includes('base'))) {
+    ruleViolations.push({ code: 'KITCHEN_DRAWERS_CORNER_ADJACENT', message: 'Kitchen drawer and base units adjacent to corners require a filler to prevent handle collision.' });
   }
   return response.status(200).json({ success: result.valid, validation: result, ruleViolations });
 });

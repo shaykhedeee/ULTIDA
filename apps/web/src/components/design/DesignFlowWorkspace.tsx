@@ -40,6 +40,39 @@ function fitModuleToMeasuredWall(item: CatalogItem, wallLengthMm: number) {
   return { widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: widthMm !== item.widthMm };
 }
 
+const ROOM_PREBUILT_PACKAGES: Record<string, Array<{ id: string; name: string; desc: string; width: number; height: number; family: string; icon: string }>> = {
+  dining: [
+    { id: 'pre-dining-crockery', name: '1800mm Fluted Glass Crockery & Bar Console', desc: 'System 32 profile-glass display with soft-close drawers & shelf LED', width: 1800, height: 2100, family: 'crockery', icon: '🍷' },
+    { id: 'pre-dining-buffet', name: '1500mm Floating Buffet Credenza', desc: 'Calacatta marble top with dual soft-close drawers & fluted PU finish', width: 1500, height: 850, family: 'crockery', icon: '🥂' },
+    { id: 'pre-dining-bar', name: '1200mm Compact Wine & Glassware Tower', desc: 'Full-height bronze mirror back with integrated stemware rack', width: 1200, height: 2400, family: 'crockery', icon: '🍾' },
+  ],
+  living: [
+    { id: 'pre-living-tv', name: '2400mm Fluted PU TV Feature Wall', desc: 'Concealed wire raceway, acoustic louvers & floating media console', width: 2400, height: 2400, family: 'tv-unit', icon: '📺' },
+    { id: 'pre-living-display', name: '3000mm Full Entertainment & Bookshelf Suite', desc: 'Asymmetrical profile glass niches with warm vertical LED channels', width: 3000, height: 2600, family: 'tv-unit', icon: '✨' },
+    { id: 'pre-living-credenza', name: '1800mm Anti-Gravity Floating Console', desc: 'Minimalist bevel-edge carcass with gola profile handleless drawers', width: 1800, height: 450, family: 'tv-unit', icon: '🛋️' },
+  ],
+  kitchen: [
+    { id: 'pre-kit-base-tall', name: '2700mm Tandem Drawer Base + Glass Overhead', desc: 'Heavy-duty Blum tandembox drawers with bi-fold lift-up overheads', width: 2700, height: 2100, family: 'kitchen', icon: '🍳' },
+    { id: 'pre-kit-pantry', name: '600mm Tall 12-Basket Pantry Pull-Out Tower', desc: 'Full-extension stainless steel internal wire baskets & spice racks', width: 600, height: 2100, family: 'kitchen', icon: '🥫' },
+    { id: 'pre-kit-appliance', name: '600mm Built-in Oven & Microwave Tower', desc: 'Reinforced ventilated appliance cavity with storage below and loft above', width: 600, height: 2100, family: 'kitchen', icon: '🔥' },
+  ],
+  master_bedroom: [
+    { id: 'pre-bed-wardrobe', name: '2400mm 4-Door Profile Glass Wardrobe', desc: 'Anodized gold aluminum frame with integrated lofts and motion sensor LED', width: 2400, height: 2700, family: 'wardrobe', icon: '🚪' },
+    { id: 'pre-bed-hydraulic', name: '1800mm King Hydraulic Storage Bed + Headboard', desc: 'Gas-lift under-bed storage with fluted acoustic upholstered wall back', width: 1950, height: 1200, family: 'wardrobe', icon: '🛏️' },
+    { id: 'pre-bed-vanity', name: '1200mm Floating Vanity Dresser & LED Mirror', desc: 'Jewelry organizer drawers with backlit anti-fog touch LED mirror', width: 1200, height: 1800, family: 'utility', icon: '🪞' },
+  ],
+  bedroom: [
+    { id: 'pre-bed-2-wardrobe', name: '1800mm 3-Door Swing Wardrobe + Lofts', desc: 'Synchronized soft-close hinges with internal hanger rods & dual drawers', width: 1800, height: 2700, family: 'wardrobe', icon: '🚪' },
+    { id: 'pre-bed-2-study', name: '1200mm Integrated Study Desk & Overhead Bookshelf', desc: 'Cable grommet, push-to-open drawers and magnetic pinboard backing', width: 1200, height: 2100, family: 'study', icon: '📚' },
+  ],
+  pooja: [
+    { id: 'pre-pooja-mandir', name: '1200mm CNC Jali Teak Mandir Unit', desc: 'Om brass inlays, bell brackets, velvet pooja drawer & LED spotlight', width: 1200, height: 2100, family: 'pooja', icon: '🪔' },
+  ],
+  study: [
+    { id: 'pre-study-desk', name: '2100mm Executive Floating Desk & Library Wall', desc: 'Dual pedestal drawers with open shelving and accent warm LED wash', width: 2100, height: 2400, family: 'study', icon: '💻' },
+  ],
+};
+
 export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -621,6 +654,41 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     setPlacementNotice(`✨ AI auto-picked feature walls and fitted ${finalModules.length} modular units across all rooms.`);
   };
 
+  const getPrebuiltSuggestions = (roomType: string) => {
+    const key = roomType?.toLowerCase().replace(/[\s-]+/g, '_') || 'living';
+    return ROOM_PREBUILT_PACKAGES[key] ?? ROOM_PREBUILT_PACKAGES.living;
+  };
+
+  const handlePlacePrebuiltPackage = (pkg: { id: string; name: string; desc: string; width: number; height: number; family: string; icon: string }) => {
+    if (!spaceId) return;
+    const targetWall = wallId || roomWalls[0]?.id || `wall-${spaceId}-1`;
+    const newMod: Module = {
+      id: `mod-${pkg.id}-${Date.now().toString().slice(-4)}`,
+      roomId: spaceId,
+      family: pkg.family,
+      label: pkg.name,
+      widthMm: pkg.width,
+      depthMm: pkg.family === 'wardrobe' ? 600 : pkg.family === 'kitchen' ? 600 : 400,
+      heightMm: pkg.height,
+      wallId: targetWall,
+      offsetMm: 150,
+      configuration: {
+        archetype: pkg.family === 'wardrobe' || pkg.family === 'crockery' ? 'profile_glass_display' : 'full_wall_storage',
+        shutterStyle: pkg.family === 'wardrobe' || pkg.family === 'crockery' ? 'profile-glass' : 'swing',
+        drawerCount: 3,
+        includeLoft: pkg.height >= 2400,
+        glassProfile: pkg.family === 'wardrobe' || pkg.family === 'crockery',
+        sideFillerLeft: false,
+        sideFillerRight: false,
+        handleStyle: 'gola',
+        lighting: 'shelf-led',
+      },
+    };
+    setDraftModules((curr) => [...curr, newMod]);
+    setSelectedModuleId(newMod.id);
+    setPlacementNotice(`✨ ${pkg.name} placed successfully on Wall. You can customize dimensions or assign materials.`);
+  };
+
   async function compileMoodboard(materialSelection?: any[], assignmentVerified = materialAssignmentsSaved) {
     if (!projectId || !draftModules.length) { setPlacementNotice('Place at least one persisted module before compiling a scene.'); return; }
     const sceneMaterials = materialSelection ?? [selectedLaminateObj, selectedHardwareObj].filter((item) => item.id);
@@ -1118,6 +1186,54 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 {catalogLoading && <Loader2 className="ultida-spinner" size={14} aria-hidden="true" />}
                 {placementNotice}
               </p>
+
+              {/* Smart Suggested Pre-Built Modular Packages for the Current Room */}
+              {spaceId && (
+                <div style={{ marginTop: '0.75rem', marginBottom: '0.75rem', padding: '10px 12px', background: 'linear-gradient(135deg, #fffdf8, #fbf4e6)', border: '1px solid rgba(197, 156, 45, 0.3)', borderRadius: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--gold-dim)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Sparkles size={13} style={{ color: 'var(--gold)' }} />
+                      SMART PRE-BUILT MODULES FOR {spaces.find((s) => s.id === spaceId)?.name.toUpperCase() ?? 'ROOM'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    {getPrebuiltSuggestions(spaces.find((s) => s.id === spaceId)?.roomType ?? 'living').map((pkg) => (
+                      <button
+                        key={pkg.id}
+                        type="button"
+                        onClick={() => handlePlacePrebuiltPackage(pkg)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '8px',
+                          padding: '7px 10px',
+                          background: '#fff',
+                          border: '1px solid #e7dcce',
+                          borderRadius: '7px',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#c59c2d'; e.currentTarget.style.background = '#fffdf7'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e7dcce'; e.currentTarget.style.background = '#fff'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                          <span style={{ fontSize: '16px', flexShrink: 0 }}>{pkg.icon}</span>
+                          <div style={{ minWidth: 0 }}>
+                            <strong style={{ display: 'block', fontSize: '11.5px', color: '#2d1f14', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pkg.name}</strong>
+                            <small style={{ display: 'block', fontSize: '10px', color: '#8c7d70', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pkg.desc}</small>
+                          </div>
+                        </div>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: '5px', background: '#f5eee4', color: '#7a5a22', fontSize: '10px', fontWeight: 800, flexShrink: 0 }}>
+                          + Place Unit
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <label>
                 Search templates
                 <input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="TV wall, glass crockery, loft wardrobe" />

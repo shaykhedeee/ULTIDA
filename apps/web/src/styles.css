@@ -322,6 +322,26 @@ h3 { margin: 4px 0; font-size: 16px; color: var(--text-primary); }
 p { color: var(--text-secondary); line-height: 1.55; margin: 6px 0; font-size: 14px; }
 .lede { font-size: 13px; color: var(--text-muted); }
 
+/* Dark container typography override for high-contrast luxury UI */
+.studio-hero h1,
+.aura-hero h1,
+.dark-hero h1,
+.hero-card h1,
+[style*="background: #1c1917"] h1,
+[style*="background: #1c1917"] h2,
+[style*="background: linear-gradient"] h1,
+[style*="background: linear-gradient(135deg, #1c1917"] h1,
+[style*="background: linear-gradient(135deg, #1c1917"] h2 {
+  color: #fffdf9 !important;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+
+.studio-hero p:not(.studio-kicker),
+.aura-hero span,
+.dark-hero p {
+  color: rgba(255, 253, 249, 0.88) !important;
+}
+
 /* ─── Cards ─────────────────────────────────────── */
 .card {
   background: var(--surface-raised);

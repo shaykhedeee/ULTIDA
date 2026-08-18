@@ -154,6 +154,76 @@ const INITIAL_LAYERS: Record<LayerKey, { label: string; visible: boolean; count:
   unresolved:  { label: 'Uncertain Items',   visible: true, count: 0 },
 };
 
+export const DEFAULT_DEMO_PLAN_ELEMENTS: PlanElement[] = [
+  // Living & Dining
+  {
+    id: 'room-living',
+    kind: 'room',
+    label: 'Living & Dining Room',
+    roomType: 'living',
+    confidence: 0.96,
+    status: 'accepted',
+    color: 'rgba(197, 156, 45, 0.16)',
+    geometry: {
+      x: 120, y: 140, width: 420, height: 320,
+      polygon: [{ x: 120, y: 140 }, { x: 540, y: 140 }, { x: 540, y: 460 }, { x: 120, y: 460 }]
+    },
+    areaSqm: 30.2,
+    heightMm: 2700,
+  },
+  // Master Bedroom
+  {
+    id: 'room-master-bed',
+    kind: 'room',
+    label: 'Master Bedroom',
+    roomType: 'master_bedroom',
+    confidence: 0.95,
+    status: 'accepted',
+    color: 'rgba(14, 116, 144, 0.16)',
+    geometry: {
+      x: 560, y: 140, width: 320, height: 320,
+      polygon: [{ x: 560, y: 140 }, { x: 880, y: 140 }, { x: 880, y: 460 }, { x: 560, y: 460 }]
+    },
+    areaSqm: 23.0,
+    heightMm: 2700,
+  },
+  // Modular Kitchen
+  {
+    id: 'room-kitchen',
+    kind: 'room',
+    label: 'Modular Kitchen',
+    roomType: 'kitchen',
+    confidence: 0.96,
+    status: 'accepted',
+    color: 'rgba(5, 150, 105, 0.16)',
+    geometry: {
+      x: 120, y: 480, width: 300, height: 260,
+      polygon: [{ x: 120, y: 480 }, { x: 420, y: 480 }, { x: 420, y: 740 }, { x: 120, y: 740 }]
+    },
+    areaSqm: 17.6,
+    heightMm: 2700,
+  },
+  // Walls
+  { id: 'wall-1', kind: 'wall', label: 'Living North Wall', confidence: 1, status: 'accepted', color: '#2563eb', geometry: { x1: 120, y1: 140, x2: 540, y2: 140 }, dimensionMm: 6300, thicknessMm: 230, heightMm: 2700 },
+  { id: 'wall-2', kind: 'wall', label: 'Living West Wall', confidence: 1, status: 'accepted', color: '#2563eb', geometry: { x1: 120, y1: 140, x2: 120, y2: 460 }, dimensionMm: 4800, thicknessMm: 230, heightMm: 2700 },
+  { id: 'wall-3', kind: 'wall', label: 'Living South Wall', confidence: 1, status: 'accepted', color: '#2563eb', geometry: { x1: 120, y1: 460, x2: 540, y2: 460 }, dimensionMm: 6300, thicknessMm: 152.4, heightMm: 2700 },
+  { id: 'wall-4', kind: 'wall', label: 'Living-Bed Partition', confidence: 1, status: 'accepted', color: '#2563eb', geometry: { x1: 540, y1: 140, x2: 540, y2: 460 }, dimensionMm: 4800, thicknessMm: 152.4, heightMm: 2700 },
+  { id: 'wall-5', kind: 'wall', label: 'Master Bed North Wall', confidence: 1, status: 'accepted', color: '#2563eb', geometry: { x1: 560, y1: 140, x2: 880, y2: 140 }, dimensionMm: 4800, thicknessMm: 230, heightMm: 2700 },
+  { id: 'wall-6', kind: 'wall', label: 'Master Bed East Wall', confidence: 1, status: 'accepted', color: '#2563eb', geometry: { x1: 880, y1: 140, x2: 880, y2: 460 }, dimensionMm: 4800, thicknessMm: 230, heightMm: 2700 },
+  { id: 'wall-7', kind: 'wall', label: 'Master Bed South Wall', confidence: 1, status: 'accepted', color: '#2563eb', geometry: { x1: 560, y1: 460, x2: 880, y2: 460 }, dimensionMm: 4800, thicknessMm: 230, heightMm: 2700 },
+  { id: 'wall-8', kind: 'wall', label: 'Kitchen West Wall', confidence: 1, status: 'accepted', color: '#2563eb', geometry: { x1: 120, y1: 480, x2: 120, y2: 740 }, dimensionMm: 3900, thicknessMm: 230, heightMm: 2700 },
+  { id: 'wall-9', kind: 'wall', label: 'Kitchen South Wall', confidence: 1, status: 'accepted', color: '#2563eb', geometry: { x1: 120, y1: 740, x2: 420, y2: 740 }, dimensionMm: 4500, thicknessMm: 230, heightMm: 2700 },
+  { id: 'wall-10', kind: 'wall', label: 'Kitchen East Wall', confidence: 1, status: 'accepted', color: '#2563eb', geometry: { x1: 420, y1: 480, x2: 420, y2: 740 }, dimensionMm: 3900, thicknessMm: 152.4, heightMm: 2700 },
+  // Windows
+  { id: 'win-1', kind: 'window', label: 'Living Window', wallId: 'wall-1', confidence: 0.95, status: 'accepted', color: '#0284c7', geometry: { x: 330, y: 140, width: 44 }, widthMm: 1800, sillMm: 600, headMm: 2400 },
+  { id: 'win-2', kind: 'window', label: 'Master Bed Window', wallId: 'wall-6', confidence: 0.94, status: 'accepted', color: '#0284c7', geometry: { x: 880, y: 300, width: 38 }, widthMm: 1500, sillMm: 900, headMm: 2100 },
+  { id: 'win-3', kind: 'window', label: 'Kitchen Utility Window', wallId: 'wall-9', confidence: 0.92, status: 'accepted', color: '#0284c7', geometry: { x: 270, y: 740, width: 34 }, widthMm: 1200, sillMm: 1050, headMm: 2100 },
+  // Doors
+  { id: 'door-1', kind: 'door', label: 'Main Entrance Door', wallId: 'wall-2', confidence: 0.98, status: 'accepted', color: '#059669', geometry: { x: 120, y: 260, width: 28 }, widthMm: 1050, heightMm: 2400 },
+  { id: 'door-2', kind: 'door', label: 'Master Bed Door', wallId: 'wall-4', confidence: 0.96, status: 'accepted', color: '#059669', geometry: { x: 540, y: 380, width: 24 }, widthMm: 900, heightMm: 2100 },
+  { id: 'door-3', kind: 'door', label: 'Kitchen Entry', wallId: 'wall-3', confidence: 0.96, status: 'accepted', color: '#059669', geometry: { x: 270, y: 460, width: 24 }, widthMm: 900, heightMm: 2100 },
+];
+
 // ─── Main Component ───────────────────────────────────────────────
 export function PlanReviewWorkspace({
   sourceAssetId,
@@ -207,6 +277,21 @@ export function PlanReviewWorkspace({
   // calibration points in a ref as well, so two quick clicks on a dense plan
   // cannot both be interpreted as "point 1" before the component re-renders.
   const calibrationPointsRef = useRef<Point[]>([]);
+
+  const loadDemoFloorPlan = () => {
+    setElements(DEFAULT_DEMO_PLAN_ELEMENTS);
+    setScale({
+      pointA: { x: 120, y: 140 },
+      pointB: { x: 540, y: 140 },
+      pixelDistance: 420,
+      realDistanceMm: 6300,
+      mmPerPixel: 15,
+    });
+    setCeilingHeightMm(2700);
+    setIssues([]);
+    setSelectedId('room-living');
+    setContinuationHint('Demo 2BHK residential plan loaded with calibrated walls, rooms, windows and doors. Ready to review or continue to Spaces.');
+  };
 
   useEffect(() => {
     if (analysed || !initialSnapshot || typeof initialSnapshot !== 'object') return;
@@ -1130,6 +1215,24 @@ export function PlanReviewWorkspace({
           </div>
 
           <div className="canvas-viewport">
+            {!preview && elements.length === 0 && (
+              <div className="canvas-blueprint-empty">
+                <div className="canvas-empty-card">
+                  <div className="canvas-empty-badge">Phase 2 • Architectural Blueprint Canvas</div>
+                  <h3>Floor Plan Intelligence & Verification</h3>
+                  <p>Upload your architectural PDF, PNG or CAD plan to auto-extract rooms and walls, or load a calibrated demo residential blueprint to explore immediately.</p>
+                  <div className="canvas-empty-actions">
+                    <label className="canvas-upload-btn">
+                      <Upload size={15} /> Upload Floor Plan File
+                      <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/avif,image/heic,image/heif,image/svg+xml,application/pdf,.tif,.tiff,.heic,.heif" onChange={onFile} style={{ display: 'none' }} />
+                    </label>
+                    <button type="button" className="canvas-demo-btn" onClick={loadDemoFloorPlan}>
+                      <Sparkles size={15} style={{ color: 'var(--gold)' }} /> Load Demo 2BHK Plan
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
             <svg
               ref={svgRef}
               viewBox="0 0 1000 850"
