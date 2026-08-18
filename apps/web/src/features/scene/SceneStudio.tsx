@@ -24,7 +24,7 @@ type Props = {
   projectId?: string | null;
   onCompileScene?: () => Promise<void>;
 };
-type Preset = 'perspective' | 'front' | 'top';
+type Preset = 'perspective' | 'front' | 'top' | 'walkthrough' | 'isometric';
 
 function materialColor(materialId: string | undefined) {
   if (!materialId) return '#b99167';
@@ -268,20 +268,119 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
 
     const modulesGroup = new THREE.Group(); geometryGroup.add(modulesGroup);
     for (const mod of scene.modules) {
-      const boxGeometry = new THREE.BoxGeometry(mod.widthMm, mod.heightMm, mod.depthMm);
-      const boxMaterial = new THREE.MeshStandardMaterial({
+      const modContainer = new THREE.Group();
+      modContainer.position.set(mod.position.xMm, 0, mod.position.yMm);
+      modContainer.rotation.y = (mod.rotationDeg * Math.PI) / 180;
+      modContainer.name = `module:${mod.id}`;
+      modContainer.userData = { kind: 'module', id: mod.id, family: mod.family };
+
+      const baseMat = new THREE.MeshStandardMaterial({
         color: materialColor(mod.materialId),
-        roughness: 0.5,
-        metalness: 0.1,
+        roughness: 0.42,
+        metalness: 0.08,
       });
-      const boxMesh = new THREE.Mesh(boxGeometry, boxMaterial);
-      boxMesh.castShadow = true;
-      boxMesh.receiveShadow = true;
-      boxMesh.position.set(mod.position.xMm, mod.heightMm / 2, mod.position.yMm);
-      boxMesh.rotation.y = (mod.rotationDeg * Math.PI) / 180;
-      boxMesh.name = `module:${mod.id}`;
-      boxMesh.userData = { kind: 'module', id: mod.id, family: mod.family };
-      modulesGroup.add(boxMesh);
+
+      const isKitchenBase = mod.family.includes('kitchen-base') || mod.family.includes('counter');
+      const isWardrobe = mod.family.includes('wardrobe') || mod.family.includes('closet');
+      const isBed = mod.family.includes('bed');
+
+      if (isKitchenBase) {
+        // 1. Recessed plinth
+        const plinthGeo = new THREE.BoxGeometry(mod.widthMm - 30, 100, Math.max(100, mod.depthMm - 50));
+        const plinthMesh = new THREE.Mesh(plinthGeo, new THREE.MeshStandardMaterial({ color: '#2b2622', roughness: 0.8 }));
+        plinthMesh.position.set(0, 50, 25);
+        plinthMesh.castShadow = true;
+        modContainer.add(plinthMesh);
+
+        // 2. Carcase & Shutter unit
+        const carcaseHeight = mod.heightMm - 140;
+        const carcaseGeo = new THREE.BoxGeometry(mod.widthMm - 4, carcaseHeight, mod.depthMm - 16);
+        const carcaseMesh = new THREE.Mesh(carcaseGeo, baseMat);
+        carcaseMesh.position.set(0, 100 + carcaseHeight / 2, 0);
+        carcaseMesh.castShadow = true;
+        carcaseMesh.receiveShadow = true;
+        modContainer.add(carcaseMesh);
+
+        // 3. Countertop Slab (40mm thickness with 20mm overhang)
+        const topGeo = new THREE.BoxGeometry(mod.widthMm + 8, 40, mod.depthMm + 16);
+        const topMat = new THREE.MeshStandardMaterial({ color: '#f3ede2', roughness: 0.15, metalness: 0.05 });
+        const topMesh = new THREE.Mesh(topGeo, topMat);
+        topMesh.position.set(0, mod.heightMm - 20, 8);
+        topMesh.castShadow = true;
+        topMesh.receiveShadow = true;
+        modContainer.add(topMesh);
+
+        // 4. Gold profile handles
+        const handleGeo = new THREE.BoxGeometry(Math.min(160, mod.widthMm * 0.45), 10, 16);
+        const handleMat = new THREE.MeshStandardMaterial({ color: '#c59c2d', metalness: 0.9, roughness: 0.2 });
+        const handleMesh = new THREE.Mesh(handleGeo, handleMat);
+        handleMesh.position.set(0, mod.heightMm - 90, mod.depthMm / 2 + 2);
+        modContainer.add(handleMesh);
+      } else if (isWardrobe) {
+        // Tall wardrobe with plinth, carcase, and full-length bar pulls
+        const plinthGeo = new THREE.BoxGeometry(mod.widthMm, 80, mod.depthMm - 20);
+        const plinthMesh = new THREE.Mesh(plinthGeo, new THREE.MeshStandardMaterial({ color: '#2b2622' }));
+        plinthMesh.position.set(0, 40, 0);
+        modContainer.add(plinthMesh);
+
+        const carcaseGeo = new THREE.BoxGeometry(mod.widthMm, mod.heightMm - 80, mod.depthMm);
+        const carcaseMesh = new THREE.Mesh(carcaseGeo, baseMat);
+        carcaseMesh.position.set(0, 80 + (mod.heightMm - 80) / 2, 0);
+        carcaseMesh.castShadow = true;
+        carcaseMesh.receiveShadow = true;
+        modContainer.add(carcaseMesh);
+
+        const handleGeo = new THREE.BoxGeometry(10, 600, 16);
+        const handleMat = new THREE.MeshStandardMaterial({ color: '#1c1917', metalness: 0.85, roughness: 0.25 });
+        const handleMesh = new THREE.Mesh(handleGeo, handleMat);
+        handleMesh.position.set(mod.widthMm > 600 ? -36 : 0, mod.heightMm / 2, mod.depthMm / 2 + 6);
+        modContainer.add(handleMesh);
+        if (mod.widthMm > 600) {
+          const handleMesh2 = handleMesh.clone();
+          handleMesh2.position.x = 36;
+          modContainer.add(handleMesh2);
+        }
+      } else if (isBed) {
+        // Bed base + mattress + headboard
+        const baseGeo = new THREE.BoxGeometry(mod.widthMm, 240, mod.depthMm - 80);
+        const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+        baseMesh.position.set(0, 120, 0);
+        baseMesh.castShadow = true;
+        modContainer.add(baseMesh);
+
+        const mattressGeo = new THREE.BoxGeometry(mod.widthMm - 30, 200, mod.depthMm - 120);
+        const matMesh = new THREE.Mesh(mattressGeo, new THREE.MeshStandardMaterial({ color: '#fcfbf7', roughness: 0.9 }));
+        matMesh.position.set(0, 340, 0);
+        matMesh.castShadow = true;
+        modContainer.add(matMesh);
+
+        const headboardGeo = new THREE.BoxGeometry(mod.widthMm + 40, mod.heightMm || 1050, 100);
+        const headMesh = new THREE.Mesh(headboardGeo, new THREE.MeshStandardMaterial({ color: '#3d2a1a', roughness: 0.6 }));
+        headMesh.position.set(0, (mod.heightMm || 1050) / 2, -mod.depthMm / 2 + 50);
+        headMesh.castShadow = true;
+        modContainer.add(headMesh);
+      } else {
+        const boxGeometry = new THREE.BoxGeometry(mod.widthMm, mod.heightMm, mod.depthMm);
+        const boxMesh = new THREE.Mesh(boxGeometry, baseMat);
+        boxMesh.castShadow = true;
+        boxMesh.receiveShadow = true;
+        boxMesh.position.set(0, mod.heightMm / 2, 0);
+        modContainer.add(boxMesh);
+      }
+
+      modulesGroup.add(modContainer);
+    }
+
+    // Warm ceiling spot lights in each room
+    for (const room of scene.rooms) {
+      if (room.boundary.length >= 3) {
+        const poly = room.boundary;
+        const cx = poly.reduce((s, p) => s + p.xMm, 0) / poly.length;
+        const cz = poly.reduce((s, p) => s + p.yMm, 0) / poly.length;
+        const roomLight = new THREE.PointLight('#fff2d9', 1.5, 6500, 1.2);
+        roomLight.position.set(cx, 2600, cz);
+        root.add(roomLight);
+      }
     }
 
     if (ceilingVisible) {
@@ -327,6 +426,10 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         camera.position.set(targetCenter.x, targetCenter.y + targetSpan * 1.8, targetCenter.z + 0.001);
       } else if (preset === 'front') {
         camera.position.set(targetCenter.x, targetCenter.y + targetSpan * 0.35, targetCenter.z + targetSpan * 1.4);
+      } else if (preset === 'walkthrough') {
+        camera.position.set(targetCenter.x - targetSpan * 0.2, 1500, targetCenter.z - targetSpan * 0.2);
+      } else if (preset === 'isometric') {
+        camera.position.set(targetCenter.x + targetSpan * 1.1, targetCenter.y + targetSpan * 0.9, targetCenter.z + targetSpan * 1.1);
       } else {
         camera.position.set(targetCenter.x + targetSpan * 0.9, targetCenter.y + targetSpan * 0.62, targetCenter.z - targetSpan * 0.9);
       }
@@ -445,9 +548,11 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       )}
 
       <div className="scene-toolbar" aria-label="Scene controls" style={{ marginTop: 8 }}>
-        <Button variant={preset === 'perspective' ? 'default' : 'outline'} onClick={() => setPreset('perspective')}><Camera size={16} /> Perspective</Button>
+        <Button variant={preset === 'perspective' ? 'default' : 'outline'} onClick={() => setPreset('perspective')}><Camera size={16} /> 3D Orbit</Button>
+        <Button variant={preset === 'walkthrough' ? 'default' : 'outline'} onClick={() => setPreset('walkthrough')}><Eye size={16} /> Eye-Level Walkthrough</Button>
+        <Button variant={preset === 'top' ? 'default' : 'outline'} onClick={() => setPreset('top')}><Layers3 size={16} /> Top-Down Plan</Button>
+        <Button variant={preset === 'isometric' ? 'default' : 'outline'} onClick={() => setPreset('isometric')}><Rotate3D size={16} /> Isometric</Button>
         <Button variant={preset === 'front' ? 'default' : 'outline'} onClick={() => setPreset('front')}><Eye size={16} /> Front</Button>
-        <Button variant={preset === 'top' ? 'default' : 'outline'} onClick={() => setPreset('top')}><Layers3 size={16} /> Top</Button>
         <Button variant={wallsVisible ? 'default' : 'outline'} onClick={() => setWallsVisible((value) => !value)}><Box size={16} /> Walls</Button>
         <Button variant={ceilingVisible ? 'default' : 'outline'} onClick={() => setCeilingVisible((value) => !value)}><Rotate3D size={16} /> Ceiling</Button>
         {onCompileScene && (
