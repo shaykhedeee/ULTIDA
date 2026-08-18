@@ -402,6 +402,29 @@ export function SpacesWorkspace() {
     return { approved: ready.length > 0, blockedRooms, totalRooms: includedMetrics.length, readyRooms: ready.length };
   }, [includedMetrics]);
 
+  const sourceDimensionsMm = useMemo(() => {
+    const rawWidth = sourceMeta?.widthPx ?? (sourceMeta as any)?.sourceWidth ?? 1000;
+    const rawHeight = sourceMeta?.heightPx ?? (sourceMeta as any)?.sourceHeight ?? 850;
+    const mmPerPx = sourceMeta?.mmPerPixel ?? (scaleVerified ? 15 : 15);
+
+    const allPts = [
+      ...rooms.flatMap(r => r.polygon),
+      ...walls.flatMap(w => [w.start, w.end]),
+    ];
+    if (!allPts.length) {
+      return { minX: 0, minY: 0, widthMm: rawWidth * mmPerPx, heightMm: rawHeight * mmPerPx };
+    }
+    const b = bbox(allPts);
+    const widthMm = Math.max(rawWidth * mmPerPx, b.maxX);
+    const heightMm = Math.max(rawHeight * mmPerPx, b.maxY);
+    return {
+      minX: Math.min(0, b.minX),
+      minY: Math.min(0, b.minY),
+      widthMm,
+      heightMm,
+    };
+  }, [sourceMeta, rooms, walls, scaleVerified]);
+
   // ── Canvas projection ──
   const view = useMemo(() => {
     const focusRoom = canvasFocus === 'room' ? rooms.find(room => room.id === selectedRoom) : null;
@@ -409,12 +432,18 @@ export function SpacesWorkspace() {
     const inFocus = (point: Pt) => !focusBounds || (point.xMm >= focusBounds.minX - 500 && point.xMm <= focusBounds.maxX + 500 && point.yMm >= focusBounds.minY - 500 && point.yMm <= focusBounds.maxY + 500);
     const all: Pt[] = focusRoom
       ? [...focusRoom.polygon, ...walls.flatMap(w => [w.start, w.end]).filter(inFocus), ...columns.map(c => c.position).filter(inFocus), ...services.map(s => s.position).filter(inFocus)]
-      : [...rooms.flatMap(r => r.polygon), ...walls.flatMap(w => [w.start, w.end]), ...columns.map(c => c.position), ...services.map(s => s.position)];
+      : [
+          ...rooms.flatMap(r => r.polygon),
+          ...walls.flatMap(w => [w.start, w.end]),
+          ...columns.map(c => c.position),
+          ...services.map(s => s.position),
+          ...(planPreviewUrl ? [{ xMm: sourceDimensionsMm.minX, yMm: sourceDimensionsMm.minY }, { xMm: sourceDimensionsMm.widthMm, yMm: sourceDimensionsMm.heightMm }] : []),
+        ];
     if (!all.length) return { minX: 0, minY: 0, scale: 0.1, w: 760, h: 480, maxX: 1000, maxY: 1000 };
-    const b = bbox(all); const pad = 60; const W = 760, H = 480;
+    const b = bbox(all); const pad = 40; const W = 760, H = 480;
     const s = Math.min((W - 2 * pad) / (b.maxX - b.minX || 1), (H - 2 * pad) / (b.maxY - b.minY || 1));
     return { minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY, scale: s, w: W, h: H };
-  }, [rooms, walls, columns, services, selectedRoom, canvasFocus]);
+  }, [rooms, walls, columns, services, selectedRoom, canvasFocus, planPreviewUrl, sourceDimensionsMm]);
 
   const toPx = (p: Pt) => ({ x: (p.xMm - view.minX) * view.scale + 30, y: (p.yMm - view.minY) * view.scale + 30 });
   const pxToMm = (x: number, y: number): Pt => ({ xMm: (x - 30) / view.scale + view.minX, yMm: (y - 30) / view.scale + view.minY });
@@ -1543,15 +1572,15 @@ export function SpacesWorkspace() {
                 </filter>
               </defs>
 
-              {/* Floor plan backdrop image overlay */}
-              {showPlanOverlay && planPreviewUrl && canvasRenderMode === '2d' && (
+              {/* Floor plan backdrop image overlay - precisely registered in world mm coordinates */}
+              {showPlanOverlay && planPreviewUrl && (
                 <image
                   href={planPreviewUrl}
-                  x={30}
-                  y={30}
-                  width={view.w - 60}
-                  height={view.h - 60}
-                  preserveAspectRatio="xMidYMid meet"
+                  x={toPx({ xMm: sourceDimensionsMm.minX, yMm: sourceDimensionsMm.minY }).x}
+                  y={toPx({ xMm: sourceDimensionsMm.minX, yMm: sourceDimensionsMm.minY }).y}
+                  width={sourceDimensionsMm.widthMm * view.scale}
+                  height={sourceDimensionsMm.heightMm * view.scale}
+                  preserveAspectRatio="none"
                   opacity={planOverlayOpacity}
                   style={{ pointerEvents: 'none' }}
                 />
