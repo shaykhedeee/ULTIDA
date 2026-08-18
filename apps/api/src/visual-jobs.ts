@@ -190,7 +190,7 @@ async function jobContext(client: SupabaseClient, request: VisualProposalRequest
   if (project.error || !project.data) throw new Error('Project context was not found.');
   const sceneRow = await client.from('scene_versions').select('id,project_id,status,scene').eq('id', request.sceneVersionId).eq('project_id', request.projectId).single();
   if (sceneRow.error || !sceneRow.data) throw new Error('Scene context was not found.');
-  if (!['approved', 'locked'].includes(String(sceneRow.data.status))) throw new Error('Only approved or locked scenes can generate production-linked visuals.');
+  if (!['approved', 'locked', 'draft'].includes(String(sceneRow.data.status))) throw new Error('Only approved, locked or active draft scenes can generate visuals.');
   const scene = SceneV1Schema.parse(sceneRow.data.scene);
   return { project: project.data, scene };
 }

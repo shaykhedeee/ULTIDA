@@ -640,8 +640,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
   async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string, sceneVersionOverride?: string, sceneIsApproved = sceneApproved, materialTarget?: { materialId: string; semanticSlot: string }) {
     const renderSceneVersionId = sceneVersionOverride ?? compiledSceneId ?? sceneVersionId;
-    if (!renderSceneVersionId) { setVisualState('Create and save a scene first.'); return; }
-    if (!sceneIsApproved) { setVisualState('Approve the source scene before generating a scene-linked render or laminate revision.'); return; }
+    if (!renderSceneVersionId && !projectId) { setVisualState('Select a project and load the scene first.'); return; }
     if (!projectId) { setVisualState('Select a project before generating a render.'); return; }
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
@@ -944,8 +943,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     <option value="final">Final</option>
                   </select>
                 </label>
-                  <Button onClick={() => void createVisual()} disabled={!sceneApproved || !spaceId || visualBusy} title={!sceneApproved ? 'Approve scene.v1 first' : !spaceId ? 'Select a persisted room first' : 'Generate a scene-linked image'}>
-                  {visualBusy ? <RefreshCw className="spin" size={16} /> : <Wand2 size={16} />} {visualBusy ? 'Processing' : 'Generate proposal'}
+                  <Button onClick={() => void createVisual()} disabled={!spaceId || visualBusy} title={!spaceId ? 'Select a room above to generate a render' : 'Generate an AI photorealistic render'}>
+                  {visualBusy ? <RefreshCw className="spin" size={16} /> : <Wand2 size={16} />} {visualBusy ? 'Processing...' : '✨ Generate AI Render'}
                 </Button>
               </div>
               {latest && (
