@@ -56,6 +56,55 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* ═══════════════════════════════════════════════════
+   THEMED LUXURY SCROLLBARS
+   ═══════════════════════════════════════════════════ */
+
+/* Firefox standard */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(197, 156, 45, 0.45) transparent;
+}
+
+/* Chrome, Edge, Safari WebKit */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(197, 156, 45, 0.35);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(197, 156, 45, 0.75);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Dark mode / Sidebar scrollbars */
+aside::-webkit-scrollbar-thumb,
+.dark-panel::-webkit-scrollbar-thumb,
+[data-theme="dark"]::-webkit-scrollbar-thumb {
+  background: rgba(197, 156, 45, 0.4);
+}
+
+aside::-webkit-scrollbar-thumb:hover,
+.dark-panel::-webkit-scrollbar-thumb:hover,
+[data-theme="dark"]::-webkit-scrollbar-thumb:hover {
+  background: rgba(197, 156, 45, 0.85);
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { min-width: 0; max-width: 100%; overflow-x: clip; }
 body { margin: 0; }
