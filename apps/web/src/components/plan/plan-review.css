@@ -96,12 +96,26 @@
 }
 
 /* ─── 3-Panel Grid Layout ────────────────────── */
+.plan-review-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1600px;
+  width: 100%;
+  box-sizing: border-box;
+  position: relative;
+}
+
 .plan-intelligence-grid {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr) 320px;
   gap: 16px;
   align-items: stretch;
-  height: clamp(560px, calc(100vh - 200px), 880px);
+  min-height: 560px;
+  height: clamp(560px, calc(100vh - 220px), 860px);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .panel-left,
@@ -111,9 +125,43 @@
   gap: 12px;
   height: 100%;
   max-height: 100%;
+  min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
+}
+
+.panel-center {
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+@media (max-width: 1200px) {
+  .plan-intelligence-grid {
+    grid-template-columns: 230px minmax(0, 1fr) 280px;
+  }
+}
+
+@media (max-width: 960px) {
+  .plan-intelligence-grid {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .panel-left, .panel-right {
+    max-height: 400px;
+  }
+  .panel-center {
+    min-height: 480px;
+  }
 }
 
 /* ─── Panel Box Containers ───────────────────── */

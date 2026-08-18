@@ -401,7 +401,18 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       setPlacementNotice(`${item.name} needs at least ${item.family === 'tv-unit' ? 1200 : 900} mm of clear wall after end fillers; choose a wider wall or a smaller module family.`);
       return;
     }
-    const offsetMm = Math.max(0, Math.round((wallLengthMm - fitted.widthMm) / 2));
+    const existingOnWall = draftModules.filter((m) => m.wallId === wallId);
+    let offsetMm = 100;
+    if (existingOnWall.length > 0) {
+      const rightEdge = Math.max(...existingOnWall.map((m) => (m.offsetMm ?? 0) + m.widthMm));
+      if (rightEdge + fitted.widthMm <= wallLengthMm - 50) {
+        offsetMm = rightEdge + 50;
+      } else {
+        offsetMm = Math.max(0, Math.round((wallLengthMm - fitted.widthMm) / 2));
+      }
+    } else {
+      offsetMm = Math.max(0, Math.round((wallLengthMm - fitted.widthMm) / 2));
+    }
     setPlacementNotice('Checking room compatibility and circulation...');
     try {
       const response = await fetch(`${apiBase}/catalog/validate-placement`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ moduleId: item.id, roomType: room, clearanceMm: room === 'living' ? 800 : 1200 }) });
@@ -662,6 +673,20 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const handlePlacePrebuiltPackage = (pkg: { id: string; name: string; desc: string; width: number; height: number; family: string; icon: string }) => {
     if (!spaceId) return;
     const targetWall = wallId || roomWalls[0]?.id || `wall-${spaceId}-1`;
+    const targetWallObj = walls.find((w) => w.id === targetWall);
+    const wallLength = targetWallObj?.start && targetWallObj?.end
+      ? Math.round(Math.hypot(targetWallObj.end.xMm - targetWallObj.start.xMm, targetWallObj.end.yMm - targetWallObj.start.yMm))
+      : 3000;
+    const existingOnWall = draftModules.filter((m) => m.wallId === targetWall);
+    let calcOffset = 100;
+    if (existingOnWall.length > 0) {
+      const rightEdge = Math.max(...existingOnWall.map((m) => (m.offsetMm ?? 0) + m.widthMm));
+      if (rightEdge + pkg.width <= wallLength - 50) {
+        calcOffset = rightEdge + 50;
+      } else {
+        calcOffset = Math.max(0, Math.min(100, wallLength - pkg.width));
+      }
+    }
     const newMod: Module = {
       id: `mod-${pkg.id}-${Date.now().toString().slice(-4)}`,
       roomId: spaceId,
@@ -671,7 +696,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       depthMm: pkg.family === 'wardrobe' ? 600 : pkg.family === 'kitchen' ? 600 : 400,
       heightMm: pkg.height,
       wallId: targetWall,
-      offsetMm: 150,
+      offsetMm: calcOffset,
       configuration: {
         archetype: pkg.family === 'wardrobe' || pkg.family === 'crockery' ? 'profile_glass_display' : 'full_wall_storage',
         shutterStyle: pkg.family === 'wardrobe' || pkg.family === 'crockery' ? 'profile-glass' : 'swing',
@@ -686,7 +711,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     };
     setDraftModules((curr) => [...curr, newMod]);
     setSelectedModuleId(newMod.id);
-    setPlacementNotice(`✨ ${pkg.name} placed successfully on Wall. You can customize dimensions or assign materials.`);
+    setPlacementNotice(`✨ ${pkg.name} placed at ${Math.round(calcOffset)} mm on Wall. You can customize dimensions or assign materials.`);
   };
 
   async function compileMoodboard(materialSelection?: any[], assignmentVerified = materialAssignmentsSaved) {

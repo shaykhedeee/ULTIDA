@@ -224,6 +224,69 @@ export const DEFAULT_DEMO_PLAN_ELEMENTS: PlanElement[] = [
   { id: 'door-3', kind: 'door', label: 'Kitchen Entry', wallId: 'wall-3', confidence: 0.96, status: 'accepted', color: '#059669', geometry: { x: 270, y: 460, width: 24 }, widthMm: 900, heightMm: 2100 },
 ];
 
+function resolveRoomOverlaps(roomElements: PlanElement[]): PlanElement[] {
+  const rooms = roomElements.filter((el) => el.kind === 'room');
+  const others = roomElements.filter((el) => el.kind !== 'room');
+  if (rooms.length <= 1) return roomElements;
+
+  const adjusted = rooms.map((r) => ({ ...r, geometry: { ...r.geometry } }));
+  for (let i = 0; i < adjusted.length; i++) {
+    for (let j = i + 1; j < adjusted.length; j++) {
+      const g1 = adjusted[i].geometry;
+      const g2 = adjusted[j].geometry;
+      if (typeof g1.x !== 'number' || typeof g1.y !== 'number' || typeof g1.width !== 'number' || typeof g1.height !== 'number') continue;
+      if (typeof g2.x !== 'number' || typeof g2.y !== 'number' || typeof g2.width !== 'number' || typeof g2.height !== 'number') continue;
+
+      const xOverlap = Math.max(0, Math.min(g1.x + g1.width, g2.x + g2.width) - Math.max(g1.x, g2.x));
+      const yOverlap = Math.max(0, Math.min(g1.y + g1.height, g2.y + g2.height) - Math.max(g1.y, g2.y));
+      const intersectionArea = xOverlap * yOverlap;
+      const minArea = Math.min(g1.width * g1.height, g2.width * g2.height);
+
+      if (intersectionArea > 0.05 * minArea) {
+        if (xOverlap < yOverlap) {
+          if (g1.x < g2.x) {
+            const newX = g1.x + g1.width;
+            const newWidth = Math.max(40, (g2.x + g2.width) - newX);
+            g2.x = newX;
+            g2.width = newWidth;
+          } else {
+            const newX = g2.x + g2.width;
+            const newWidth = Math.max(40, (g1.x + g1.width) - newX);
+            g1.x = newX;
+            g1.width = newWidth;
+          }
+        } else {
+          if (g1.y < g2.y) {
+            const newY = g1.y + g1.height;
+            const newHeight = Math.max(40, (g2.y + g2.height) - newY);
+            g2.y = newY;
+            g2.height = newHeight;
+          } else {
+            const newY = g2.y + g2.height;
+            const newHeight = Math.max(40, (g1.y + g1.height) - newY);
+            g1.y = newY;
+            g1.height = newHeight;
+          }
+        }
+        g1.polygon = [
+          { x: g1.x, y: g1.y },
+          { x: g1.x + g1.width, y: g1.y },
+          { x: g1.x + g1.width, y: g1.y + g1.height },
+          { x: g1.x, y: g1.y + g1.height },
+        ];
+        g2.polygon = [
+          { x: g2.x, y: g2.y },
+          { x: g2.x + g2.width, y: g2.y },
+          { x: g2.x + g2.width, y: g2.y + g2.height },
+          { x: g2.x, y: g2.y + g2.height },
+        ];
+      }
+    }
+  }
+
+  return [...others, ...adjusted];
+}
+
 // ─── Main Component ───────────────────────────────────────────────
 export function PlanReviewWorkspace({
   sourceAssetId,
@@ -385,7 +448,7 @@ export function PlanReviewWorkspace({
     const promotedGuides = mapped.length === 0
       ? guideRegions.map((guide) => ({ ...guide, isAnalysisGuide: false, status: 'accepted' as const, note: 'Designer-traced provisional room boundary' }))
       : guideRegions;
-    setElements([...promotedGuides, ...mapped]);
+    setElements(resolveRoomOverlaps([...promotedGuides, ...mapped]));
     setIssues(analysisIssues.filter((issue) => !nonMeasurableIssues.includes(issue)).map((issue, index) => ({
       id: `${issue.code}-${issue.entityId ?? index}`,
       elementId: issue.entityId,
@@ -395,6 +458,14 @@ export function PlanReviewWorkspace({
     })));
     setSelectedId(mapped[0]?.id ?? null);
   }, [analysed, proposals, analysisIssues]);
+
+  const handleAutoFixRoomOverlaps = () => {
+    setElements((curr) => {
+      const fixed = resolveRoomOverlaps(curr);
+      setContinuationHint('✨ Room boundaries automatically adjusted to eliminate overlapping zones.');
+      return fixed;
+    });
+  };
 
   // Toggle layer visibility
   const toggleLayer = (key: LayerKey) => {
@@ -998,6 +1069,29 @@ export function PlanReviewWorkspace({
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#fff', color: 'var(--brown-mid)', border: '1px solid var(--brown-mid)', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
               >
                 <RefreshCw size={14} /> Retry analysis
+              </button>
+            )}
+            {elements.filter((e) => e.kind === 'room').length > 1 && (
+              <button
+                type="button"
+                onClick={handleAutoFixRoomOverlaps}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '7px 14px',
+                  background: '#fff',
+                  color: 'var(--brown-mid)',
+                  border: '1px solid var(--gold)',
+                  borderRadius: 7,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 4px rgba(197,156,45,0.15)',
+                }}
+                title="Auto-adjust room boundaries to eliminate overlapping zones"
+              >
+                <Sparkles size={14} style={{ color: 'var(--gold)' }} /> Fix Overlaps
               </button>
             )}
             <button
