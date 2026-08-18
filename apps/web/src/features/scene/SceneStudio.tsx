@@ -46,7 +46,9 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
     const addSegment = (from: number, to: number, bottomMm: number, heightMm: number, suffix: string) => {
       if (to - from <= 1 || heightMm <= 0) return;
       const geometry = new THREE.BoxGeometry(to - from, heightMm, wall.thicknessMm);
-      const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: '#e5e0d8', roughness: 0.92 }));
+      const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: '#eee9e0', roughness: 0.88, metalness: 0.02 }));
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       const midpoint = (from + to) / 2;
       mesh.position.set(wall.start.xMm + Math.cos(angle) * midpoint, bottomMm + heightMm / 2, wall.start.yMm + Math.sin(angle) * midpoint);
       mesh.rotation.y = -angle;
@@ -145,26 +147,62 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   useEffect(() => {
     const host = canvasRef.current;
     if (!host || !scene) return;
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(host.clientWidth, host.clientHeight);
-    renderer.setClearColor('#f4f1eb');
+    renderer.setClearColor('#f8f6f0');
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
     host.replaceChildren(renderer.domElement);
     const root = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(45, host.clientWidth / host.clientHeight, 10, 100000);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.maxPolarAngle = Math.PI / 2 - 0.02;
     controls.target.set(0, 1000, 0);
-    root.add(new THREE.HemisphereLight('#fff9eb', '#6b6f76', 2.4));
-    const sun = new THREE.DirectionalLight('#fff3dd', 2.2); sun.position.set(4000, 5500, -2500); root.add(sun);
+
+    const hemiLight = new THREE.HemisphereLight('#fff9eb', '#6b655d', 2.2);
+    root.add(hemiLight);
+
+    const sun = new THREE.DirectionalLight('#fff4e0', 2.4);
+    sun.position.set(4500, 6500, -3000);
+    sun.castShadow = true;
+    sun.shadow.mapSize.width = 2048;
+    sun.shadow.mapSize.height = 2048;
+    sun.shadow.camera.near = 500;
+    sun.shadow.camera.far = 25000;
+    const d = 8000;
+    sun.shadow.camera.left = -d;
+    sun.shadow.camera.right = d;
+    sun.shadow.camera.top = d;
+    sun.shadow.camera.bottom = -d;
+    sun.shadow.bias = -0.0005;
+    root.add(sun);
+
+    const fillLight = new THREE.DirectionalLight('#e8f0fe', 0.8);
+    fillLight.position.set(-4000, 3000, 4000);
+    root.add(fillLight);
+
     const geometryGroup = new THREE.Group(); root.add(geometryGroup);
     const floors = new THREE.Group(); geometryGroup.add(floors);
     for (const room of scene.rooms) {
       const points = room.boundary.slice(0, -1).map((point) => new THREE.Vector2(point.xMm, point.yMm));
       if (points.length < 3) continue;
       const shape = new THREE.Shape(points);
-      const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshStandardMaterial({ color: '#d8d0c5', roughness: 1, side: THREE.DoubleSide }));
-      mesh.rotation.x = -Math.PI / 2; mesh.name = room.id; mesh.userData = { kind: 'room', id: room.id }; floors.add(mesh);
+      const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshStandardMaterial({
+        color: '#e2dbd0',
+        roughness: 0.38,
+        metalness: 0.06,
+        side: THREE.DoubleSide,
+      }));
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.name = room.id;
+      mesh.userData = { kind: 'room', id: room.id };
+      mesh.receiveShadow = true;
+      floors.add(mesh);
     }
     addWallSegments(geometryGroup, scene, wallsVisible);
     if (ceilingVisible) {
@@ -178,7 +216,9 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     const modulesWithParts = new Set(scene.moduleParts.map((part) => part.moduleId));
     const renderableModules = scene.modules.filter((module) => !modulesWithParts.has(module.id));
     const addModuleBox = (module: { id: string; family: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number }; rotationDeg: number; materialId?: string }, verticalMm = 0, label?: string) => {
-      const box = new THREE.Mesh(new THREE.BoxGeometry(module.widthMm, module.heightMm, module.depthMm), new THREE.MeshStandardMaterial({ color: materialColor(module.materialId), roughness: 0.62, metalness: 0.05 }));
+      const box = new THREE.Mesh(new THREE.BoxGeometry(module.widthMm, module.heightMm, module.depthMm), new THREE.MeshStandardMaterial({ color: materialColor(module.materialId), roughness: 0.55, metalness: 0.08 }));
+      box.castShadow = true;
+      box.receiveShadow = true;
       const theta = -THREE.MathUtils.degToRad(module.rotationDeg);
       box.position.set(
         module.position.xMm + module.widthMm / 2 * Math.cos(theta) - module.depthMm / 2 * Math.sin(theta),
