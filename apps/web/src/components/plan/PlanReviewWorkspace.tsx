@@ -1319,6 +1319,27 @@ export function PlanReviewWorkspace({
               </button>
             )}
             <button
+              type="button"
+              onClick={loadDemoFloorPlan}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '7px 14px',
+                background: 'linear-gradient(135deg, #1c1917, #3d2a1a)',
+                color: '#e8c96a',
+                border: '1px solid var(--gold)',
+                borderRadius: 7,
+                fontSize: 12.5,
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(197,156,45,0.25)',
+              }}
+              title="Instantly load pre-configured 3BHK Sharma Residence floor plan with rooms, walls, doors & windows"
+            >
+              <Sparkles size={14} style={{ color: 'var(--gold)' }} /> Load Demo Plan
+            </button>
+            <button
               onClick={handleApprovePlan}
               disabled={!approvalReady}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 18px', background: 'var(--gold)', color: '#fff', border: 0, borderRadius: 7, fontSize: 13, fontWeight: 800, cursor: 'pointer' }}

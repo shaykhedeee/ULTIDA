@@ -440,6 +440,165 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
     }
   }, []);
 
+  const [loadingDemo, setLoadingDemo] = useState(false);
+
+  const handleLoadDemoProject = async () => {
+    setLoadingDemo(true);
+    setError('');
+    try {
+      if (!supabase) throw new Error('Supabase not configured');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not signed in');
+
+      const { data: membership } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .limit(1)
+        .single();
+
+      let organizationId = membership?.organization_id as string | undefined;
+      if (!organizationId) {
+        const { data: organization } = await supabase
+          .from('organizations')
+          .insert({ name: 'ULTIDA Studio', slug: `studio-${user.id.slice(0, 8)}`, created_by: user.id })
+          .select('id')
+          .single();
+        if (organization) {
+          await supabase.from('organization_members').insert({ organization_id: organization.id, user_id: user.id, role: 'owner' });
+          organizationId = organization.id;
+        }
+      }
+
+      // Check if Sharma project already exists
+      const { data: existing } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('name', 'Sharma Luxury Residence (3BHK)')
+        .limit(1)
+        .maybeSingle();
+
+      let demoProjectId = existing?.id;
+
+      if (!demoProjectId) {
+        demoProjectId = crypto.randomUUID();
+        const { error: insertErr } = await supabase.from('projects').insert({
+          id: demoProjectId,
+          organization_id: organizationId,
+          name: 'Sharma Luxury Residence (3BHK)',
+          client_name: 'Rohit & Ananya Sharma',
+          location: 'Pali Hill, Bandra West, Mumbai',
+          property_type: 'apartment',
+          created_by: user.id,
+          workflow_stage: 'plan',
+          project_status: 'draft',
+        });
+        if (insertErr) throw insertErr;
+      }
+
+      // Seed standard scene version if not exists
+      const { data: existingScene } = await supabase
+        .from('scene_versions')
+        .select('id')
+        .eq('project_id', demoProjectId)
+        .limit(1)
+        .maybeSingle();
+
+      if (!existingScene) {
+        const demoScenePayload = {
+          schema: 'scene.v1',
+          units: 'mm',
+          rooms: [
+            {
+              id: 'room-living',
+              name: 'Living & Dining Room',
+              boundary: [
+                { xMm: 0, yMm: 0 },
+                { xMm: 6300, yMm: 0 },
+                { xMm: 6300, yMm: 4800 },
+                { xMm: 0, yMm: 4800 },
+                { xMm: 0, yMm: 0 },
+              ],
+            },
+            {
+              id: 'room-master-bed',
+              name: 'Master Bedroom',
+              boundary: [
+                { xMm: 6600, yMm: 0 },
+                { xMm: 11400, yMm: 0 },
+                { xMm: 11400, yMm: 4800 },
+                { xMm: 6600, yMm: 4800 },
+                { xMm: 6600, yMm: 0 },
+              ],
+            },
+            {
+              id: 'room-kitchen',
+              name: 'Modular Kitchen',
+              boundary: [
+                { xMm: 0, yMm: 5100 },
+                { xMm: 4500, yMm: 5100 },
+                { xMm: 4500, yMm: 9000 },
+                { xMm: 0, yMm: 9000 },
+                { xMm: 0, yMm: 5100 },
+              ],
+            },
+          ],
+          walls: [
+            { id: 'w1', start: { xMm: 0, yMm: 0 }, end: { xMm: 6300, yMm: 0 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w2', start: { xMm: 0, yMm: 0 }, end: { xMm: 0, yMm: 4800 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w3', start: { xMm: 0, yMm: 4800 }, end: { xMm: 6300, yMm: 4800 }, thicknessMm: 150, heightMm: 2700 },
+            { id: 'w4', start: { xMm: 6300, yMm: 0 }, end: { xMm: 6300, yMm: 4800 }, thicknessMm: 150, heightMm: 2700 },
+            { id: 'w5', start: { xMm: 6600, yMm: 0 }, end: { xMm: 11400, yMm: 0 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w6', start: { xMm: 11400, yMm: 0 }, end: { xMm: 11400, yMm: 4800 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w7', start: { xMm: 6600, yMm: 4800 }, end: { xMm: 11400, yMm: 4800 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w8', start: { xMm: 0, yMm: 5100 }, end: { xMm: 0, yMm: 9000 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w9', start: { xMm: 0, yMm: 9000 }, end: { xMm: 4500, yMm: 9000 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w10', start: { xMm: 4500, yMm: 5100 }, end: { xMm: 4500, yMm: 9000 }, thicknessMm: 150, heightMm: 2700 },
+          ],
+          openings: [
+            { id: 'op-1', wallId: 'w2', offsetMm: 1200, widthMm: 1050, heightMm: 2400, kind: 'door' },
+            { id: 'op-2', wallId: 'w1', offsetMm: 2400, widthMm: 1800, heightMm: 1800, sillHeightMm: 600, kind: 'window' },
+            { id: 'op-3', wallId: 'w6', offsetMm: 1500, widthMm: 1500, heightMm: 1500, sillHeightMm: 900, kind: 'window' },
+          ],
+          modules: [
+            { id: 'mod-kit-base-1', family: 'kitchen-base', widthMm: 2400, depthMm: 600, heightMm: 860, position: { xMm: 1200, yMm: 8700 }, rotationDeg: 0, materialId: 'mat-acrylic-pearl' },
+            { id: 'mod-wardrobe-1', family: 'wardrobe', widthMm: 2100, depthMm: 600, heightMm: 2400, position: { xMm: 9000, yMm: 300 }, rotationDeg: 0, materialId: 'mat-smoked-oak' },
+            { id: 'mod-bed-1', family: 'bed-king', widthMm: 1950, depthMm: 2100, heightMm: 1100, position: { xMm: 9000, yMm: 2600 }, rotationDeg: 0, materialId: 'mat-linen-warm' },
+            { id: 'mod-tv-1', family: 'tv-console', widthMm: 2400, depthMm: 400, heightMm: 450, position: { xMm: 3150, yMm: 300 }, rotationDeg: 0, materialId: 'mat-fluted-walnut' },
+          ],
+          moduleParts: [],
+          materials: [
+            { id: 'mat-acrylic-pearl', name: 'High-Gloss Pearl White Acrylic', code: 'LAM-HG-01', finish: 'High Gloss' },
+            { id: 'mat-smoked-oak', name: 'Smoked Crown Oak Veneer', code: 'LAM-WD-04', finish: 'Velvet Matte' },
+            { id: 'mat-linen-warm', name: 'Warm Beige Bouclé Upholstery', code: 'FAB-BC-01', finish: 'Fabric' },
+            { id: 'mat-fluted-walnut', name: 'Architectural Fluted Walnut Panel', code: 'FLT-WL-01', finish: 'Woodgrain' },
+          ],
+          cameras: [
+            { id: 'cam-1', name: 'Living Perspective', position: { xMm: 3150, yMm: 3000, zMm: 1600 }, target: { xMm: 3150, yMm: 0, zMm: 900 }, lensMm: 28 },
+          ],
+        };
+
+        try {
+          await supabase.from('scene_versions').insert({
+            id: crypto.randomUUID(),
+            project_id: demoProjectId,
+            version_number: 1,
+            status: 'approved',
+            scene: demoScenePayload,
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      navigate(`/projects/${demoProjectId}/plan`);
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to load demo project');
+    } finally {
+      setLoadingDemo(false);
+    }
+  };
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (searchParams.get('new') === '1') setShowNew(true); }, [searchParams]);
 
@@ -504,6 +663,27 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
             </p>
           </div>
           <div className="page-header-actions">
+            <button
+              onClick={handleLoadDemoProject}
+              disabled={loadingDemo}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 15px',
+                background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+                color: '#1c1917',
+                border: 0,
+                borderRadius: 8,
+                fontSize: 12.5,
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
+              }}
+              title="Instant 1-click launcher with pre-configured 3BHK Sharma Residence"
+            >
+              <Sparkles size={14} /> {loadingDemo ? 'Launching Demo…' : '✨ Launch Demo Project'}
+            </button>
             <button
               onClick={load}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--surface)', fontSize: 13, cursor: 'pointer', color: 'var(--text-secondary)' }}
@@ -577,10 +757,11 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
                     <Plus size={15} /> Create Custom Project
                   </button>
                   <button
-                    onClick={() => setShowNew(true)}
+                    onClick={handleLoadDemoProject}
+                    disabled={loadingDemo}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'linear-gradient(135deg, #c59c2d, #a88220)', color: '#1c1917', border: 0, borderRadius: 8, fontSize: 13.5, fontWeight: 800, cursor: 'pointer', boxShadow: '0 2px 8px rgba(197,156,45,0.3)' }}
                   >
-                    <Sparkles size={15} /> Load Sample 3BHK Residence
+                    <Sparkles size={15} /> {loadingDemo ? 'Preparing Demo Residence…' : '✨ Launch Sample 3BHK Residence'}
                   </button>
                 </div>
               )}
