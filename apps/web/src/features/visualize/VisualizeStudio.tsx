@@ -1,65 +1,31 @@
 import { Box, ChevronRight, Image, Palette, Sparkles } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
-import { supabase } from '../../lib/supabase';
-import { getApiBase } from '../../lib/api-base';
-import InteractiveRenderViewer from '../../components/visual/InteractiveRenderViewer';
 import './visualize-studio.css';
 
-type VisualizeTab = 'review' | 'render' | 'laminate' | 'interactive';
+type VisualizeTab = 'review' | 'render' | 'laminate';
 type Props = { review: ReactNode; render: ReactNode; laminate: ReactNode; sceneReady: boolean; sceneApproved: boolean };
-
-const SAMPLE_INTERACTIVE_ITEMS = [
-  {
-    object_id: 1,
-    bbox: { x: 80, y: 160, w: 420, h: 260 },
-    category: 'Modular TV Console',
-    matched_sku: 'TV-FLUTED-OAK-2400',
-    matched_name: '2400 mm Fluted Smoked Oak Wall-Mounted TV Unit',
-    vendor: 'ULTIDA Modular Pro',
-    unit_price: 1850,
-    confidence_score: 0.96,
-  },
-  {
-    object_id: 2,
-    bbox: { x: 520, y: 220, w: 340, h: 200 },
-    category: 'Lounge Seating',
-    matched_sku: 'SOFA-BOUCLE-CURVE-2800',
-    matched_name: '2800 mm Curved Bouclé 4-Seater Sectional',
-    vendor: 'Studio Collection',
-    unit_price: 2450,
-    confidence_score: 0.94,
-  },
-  {
-    object_id: 3,
-    bbox: { x: 320, y: 340, w: 260, h: 140 },
-    category: 'Accent Furniture',
-    matched_sku: 'COFFEE-TRAVERTINE-ROUND',
-    matched_name: 'Roman Travertine Tiered Fluted Coffee Table',
-    vendor: 'Artisan Stone Works',
-    unit_price: 780,
-    confidence_score: 0.91,
-  },
-];
 
 export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApproved }: Props) {
   const navigate = useNavigate();
   const { projectId } = useParams<{ projectId?: string }>();
   const [params, setParams] = useSearchParams();
   const requested = params.get('tab');
-  const active: VisualizeTab = requested === 'render' || requested === 'laminate' || requested === 'interactive' ? requested : 'review';
+  const active: VisualizeTab = requested === 'render' || requested === 'laminate' ? requested : 'review';
   
   const tabs = [
     { id: 'review' as const, label: '3D Scene Review', icon: Box, help: 'Measured Three.js scene verification' },
     { id: 'render' as const, label: 'AI Render', icon: Image, help: 'Generate from the approved scene' },
     { id: 'laminate' as const, label: 'Laminate Revision', icon: Palette, help: 'Change one named component only' },
-    { id: 'interactive' as const, label: 'Interactive Hotspots & BOM', icon: Sparkles, help: 'Hover & inspect detected modules, materials and dynamic quotation' },
   ];
 
   const panels: Record<VisualizeTab, ReactNode> = {
     review,
     render,
     laminate,
+    /* Historical static hotspot demo intentionally disabled: inspection must
+       be sourced from a real, approved scene-linked render artifact. */
+    /*
     interactive: (
       <div style={{ background: '#1c1917', borderRadius: 12, padding: 16 }}>
         <InteractiveRenderViewer
@@ -106,6 +72,7 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
         />
       </div>
     ),
+    */
   };
 
   function select(id: VisualizeTab) {
@@ -168,16 +135,18 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
       {/* Sleek Fixed Bottom Stage Progression Bar */}
       <div
         style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
+          position: 'sticky',
+          bottom: 12,
+          left: 'auto',
+          right: 'auto',
           zIndex: 90,
-          height: 54,
+          minHeight: 54,
+          height: 'auto',
           padding: '0 24px',
           background: 'rgba(20, 18, 16, 0.94)',
           backdropFilter: 'blur(16px)',
           borderTop: '1px solid rgba(197, 156, 45, 0.3)',
+          borderRadius: 12,
           boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
           display: 'flex',
           justifyContent: 'space-between',

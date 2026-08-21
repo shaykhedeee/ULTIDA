@@ -117,12 +117,14 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
       {/* Sleek Fixed Bottom Stage Progression Bar */}
       <div
         style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
+          position: 'sticky',
+          bottom: 12,
+          left: 'auto',
+          right: 'auto',
           zIndex: 90,
-          height: 54,
+          minHeight: 54,
+          height: 'auto',
+          borderRadius: 12,
           padding: '0 24px',
           background: 'rgba(20, 18, 16, 0.94)',
           backdropFilter: 'blur(16px)',

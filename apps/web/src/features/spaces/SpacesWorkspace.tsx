@@ -110,17 +110,17 @@ const FURNITURE_OPTIONS: Record<string, Array<{ id: string; label: string; defau
   ],
   master_bedroom: [
     { id: 'master_wardrobe', label: 'Master 4-Shutter / Walk-in Wardrobe & Lofts', defaultModuleId: 'wardrobe-2100-four-shutter' },
-    { id: 'master_bed', label: 'King Hydraulic Storage Bed & Extended Headboard', defaultModuleId: 'bed-1800-extended-headboard' },
-    { id: 'master_vanity', label: 'Dresser & Backlit Vanity Mirror Unit', defaultModuleId: 'vanity-900' },
-    { id: 'master_tv', label: 'Master Bedroom Floating TV Console', defaultModuleId: 'tv-floating-1600' },
+    { id: 'master_bed', label: 'King Storage Bed & Extended Headboard', defaultModuleId: 'bed-floating-led-1800' },
+    { id: 'master_vanity', label: 'Dresser & Backlit Vanity Mirror Unit' },
+    { id: 'master_tv', label: 'Master Bedroom Floating TV Console' },
     { id: 'master_study', label: 'Executive Bedroom Study Desk & Workstation', defaultModuleId: 'study-1500' }
   ],
   bedroom: [
     { id: 'wardrobe', label: 'Wardrobe & Overhead Lofts', defaultModuleId: 'wardrobe-2100-four-shutter' },
-    { id: 'bed', label: 'Queen Storage Bed & Headboard', defaultModuleId: 'bed-1800-extended-headboard' },
-    { id: 'vanity_unit', label: 'Dresser & Mirror Unit', defaultModuleId: 'vanity-900' },
+    { id: 'bed', label: 'Queen Storage Bed & Headboard', defaultModuleId: 'bed-floating-led-1800' },
+    { id: 'vanity_unit', label: 'Dresser & Mirror Unit' },
     { id: 'study_unit', label: 'Study Desk & Shelving', defaultModuleId: 'study-1500' },
-    { id: 'tv_unit', label: 'Bedroom TV Console', defaultModuleId: 'tv-floating-1600' }
+    { id: 'tv_unit', label: 'Bedroom TV Console' }
   ],
   kitchen: [
     { id: 'kitchen_base', label: 'Kitchen Base (2-Pot Tandems, Cutlery & Hob)', defaultModuleId: 'kit-base-tandem-2pot-600' },
@@ -137,28 +137,28 @@ const FURNITURE_OPTIONS: Record<string, Array<{ id: string; label: string; defau
   ],
   utility: [
     { id: 'utility_unit', label: 'Laundry & Washer Tower', defaultModuleId: 'utility-laundry-1500' },
-    { id: 'storage_unit', label: 'Utility Storage Tower', defaultModuleId: 'utility-900' }
+    { id: 'storage_unit', label: 'Utility Storage Tower', defaultModuleId: 'utility-laundry-1500' }
   ],
   pooja: [
     { id: 'pooja_unit', label: 'Pooja Unit with Jaali & Drawer', defaultModuleId: 'pooja-mandir-mandapa-1500' },
-    { id: 'storage_unit', label: 'Pooja Storage Unit', defaultModuleId: 'pooja-900' }
+    { id: 'storage_unit', label: 'Pooja Storage Unit', defaultModuleId: 'pooja-1200-jaali' }
   ],
   bathroom: [
-    { id: 'vanity_unit', label: 'Vanity Cabinet & Basin', defaultModuleId: 'vanity-900' },
-    { id: 'storage_unit', label: 'Storage Ledge', defaultModuleId: 'storage-shoe-1200' }
+    { id: 'vanity_unit', label: 'Vanity Cabinet & Basin' },
+    { id: 'storage_unit', label: 'Storage Ledge' }
   ],
   study: [
-    { id: 'study_unit', label: 'Study Desk & Library Wall', defaultModuleId: 'study-library-1800' },
+    { id: 'study_unit', label: 'Study Desk & Library Wall', defaultModuleId: 'study-1500' },
     { id: 'storage_unit', label: 'Bookshelf & Storage', defaultModuleId: 'study-1500' }
   ],
   foyer: [
     { id: 'foyer_console', label: 'Floating Foyer Console', defaultModuleId: 'foyer-console-1200' },
-    { id: 'shoe_unit', label: 'Shoe & Entryway Storage', defaultModuleId: 'storage-shoe-1200' }
+    { id: 'shoe_unit', label: 'Shoe & Entryway Storage', defaultModuleId: 'foyer-console-1200' }
   ],
   other: [
-    { id: 'storage_unit', label: 'Storage Unit', defaultModuleId: 'storage-shoe-1200' },
+    { id: 'storage_unit', label: 'Storage Unit', defaultModuleId: 'foyer-console-1200' },
     { id: 'study_unit', label: 'Study Unit', defaultModuleId: 'study-1500' },
-    { id: 'tv_unit', label: 'TV Unit', defaultModuleId: 'tv-1800' }
+    { id: 'tv_unit', label: 'TV Unit' }
   ],
 };
 
@@ -528,7 +528,7 @@ export function SpacesWorkspace() {
         proposals.push({
           id: entityId(),
           category: 'bed',
-          moduleId: 'bed-1800-extended-headboard',
+          moduleId: 'bed-floating-led-1800',
           name: '1800 King Storage Bed & Extended Headboard',
           wallId: primaryWall.id,
           wallLabel: 'Wall A (Headboard)',
@@ -606,7 +606,7 @@ export function SpacesWorkspace() {
         proposals.push({
           id: entityId(),
           category: 'kitchen_wall',
-          moduleId: 'kit-wall-600',
+          moduleId: 'kit-wall-normal-600',
           name: 'Upper Wall Cabinets & Lofts (Equal Shutters)',
           wallId: mainWall.id,
           wallLabel: 'Wall Cabinets',
@@ -619,7 +619,7 @@ export function SpacesWorkspace() {
         proposals.push({
           id: entityId(),
           category: 'dining_table',
-          moduleId: 'dining-1600',
+          moduleId: 'dining-calacatta-gold-2100',
           name: '1600 Six-Seat Dining Ensemble',
           wallLabel: 'Center',
           rationale: 'Centred in dining zone with 950 mm pullout clearance around all chairs.',
@@ -643,7 +643,7 @@ export function SpacesWorkspace() {
         proposals.push({
           id: entityId(),
           category: 'study_unit',
-          moduleId: 'study-library-1800',
+          moduleId: 'study-1500',
           name: '1800 Study Desk & Tall Open Library Wall',
           wallId: rWalls[0]?.id,
           wallLabel: 'Wall A',
@@ -695,8 +695,9 @@ export function SpacesWorkspace() {
 
       setAiProposals(proposals);
       setAiDetecting(false);
-      void applyLayoutCandidateToScene(room, 'balanced');
-      setSaveState(`✨ Spatial AI applied & verified ${proposals.length} layout modules for ${room.name}. 3D Scene updated!`);
+      // Suggestions remain reviewable until the designer explicitly applies
+      // them. An assistance action must never silently mutate scene lineage.
+      setSaveState(`${proposals.length} room-aware placement suggestion${proposals.length === 1 ? '' : 's'} prepared for ${room.name}. Review the selected walls and apply only when ready.`);
     }, 450);
   };
 
@@ -1092,7 +1093,7 @@ export function SpacesWorkspace() {
       proposals.push({
         id: entityId(),
         category: 'bed',
-        moduleId: candidateType === 'luxury' ? 'bed-floating-led-1800' : 'bed-1800-extended-headboard',
+        moduleId: 'bed-floating-led-1800',
         name: candidateType === 'luxury' ? '1800 King Floating Bed with Backlit Headboard' : '1800 King Storage Bed & Extended Headboard',
         wallId: primaryWall.id,
         wallLabel: 'Headboard Wall',
@@ -1104,7 +1105,7 @@ export function SpacesWorkspace() {
       proposals.push({
         id: entityId(),
         category: 'wardrobe',
-        moduleId: candidateType === 'storage' ? 'wardrobe-6-shutter-vanity-3200' : 'wardrobe-2100-four-shutter',
+        moduleId: 'wardrobe-2100-four-shutter',
         name: candidateType === 'storage' ? '3200 6-Shutter Wardrobe with Lofts & Vanity' : '2100 Four-Shutter Wardrobe with Loft',
         wallId: secondaryWall.id,
         wallLabel: 'Storage Wall',
@@ -1234,7 +1235,11 @@ export function SpacesWorkspace() {
 
     try {
       await persistRoom(updatedRoom, 'verified');
-      if (supabase && projectId) {
+      setSaveState(`Arrangement selected for ${room.name}. Next, open the module editor to review the actual wall, openings, clearances, and finishes before placing anything in scene.v1.`);
+      // Candidate selection establishes a brief only. Exact modules are created
+      // after an explicit approved layout in the wall-anchored module editor.
+      /*
+      if (false && supabase && projectId) {
         const session = (await supabase.auth.getSession()).data.session;
         if (session?.access_token) {
           const apiBase = getApiBase();
@@ -1267,6 +1272,7 @@ export function SpacesWorkspace() {
           await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, { method: 'POST', headers }).catch(() => null);
         }
       }
+      */
     } catch {
       // ignore
     }
@@ -1295,12 +1301,15 @@ export function SpacesWorkspace() {
   }
 
   const filteredCatalogModules = useMemo(() => {
+    const selectedRoomType = sel?.room.roomType;
     return IndianModularCatalog.filter(mod => {
       const matchesSearch = !catalogQuery.trim() || `${mod.name} ${mod.family} ${mod.sku} ${(mod.tags ?? []).join(' ')}`.toLowerCase().includes(catalogQuery.toLowerCase());
       const matchesFamily = catalogFilterFamily === 'all' || mod.family === catalogFilterFamily;
-      return matchesSearch && matchesFamily;
+      const matchesRoom = !selectedRoomType || mod.roomTypes.includes(selectedRoomType as never)
+        || (['master_bedroom', 'kids_bedroom'].includes(selectedRoomType) && mod.roomTypes.includes('bedroom' as never));
+      return matchesSearch && matchesFamily && matchesRoom;
     });
-  }, [catalogQuery, catalogFilterFamily]);
+  }, [catalogQuery, catalogFilterFamily, sel?.room.roomType]);
 
   return (
     <div className="spaces-workspace phase4" style={{ paddingBottom: 80 }}>
@@ -2540,16 +2549,18 @@ export function SpacesWorkspace() {
       {/* Sleek Fixed Bottom Stage Progression Bar */}
       <div
         style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
+          position: 'sticky',
+          bottom: 12,
+          left: 'auto',
+          right: 'auto',
           zIndex: 90,
-          height: 54,
+          minHeight: 54,
+          height: 'auto',
           padding: '0 24px',
           background: 'rgba(20, 18, 16, 0.94)',
           backdropFilter: 'blur(16px)',
           borderTop: '1px solid rgba(197, 156, 45, 0.3)',
+          borderRadius: 12,
           boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
           display: 'flex',
           justifyContent: 'space-between',
@@ -3574,4 +3585,3 @@ function CandidateVectorPreview({
     </svg>
   );
 }
-

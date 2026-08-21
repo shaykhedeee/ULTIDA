@@ -68,7 +68,7 @@ export type MoodboardItem = {
 
 const MOODBOARD_PRESETS: Record<string, MoodboardItem[]> = {
   living: [
-    { id: 'mb-tv', type: 'module', title: 'Fluted TV Wall (2100mm)', subtitle: 'Floating console with warm LED', x: 40, y: 40, width: 280, height: 180, zIndex: 2, module: { id: 'tv-fluted-2100', family: 'tv-unit', name: '2100 fluted-panel TV wall', roomTypes: ['living'], widthMm: 2100, depthMm: 400, heightMm: 2300, sku: 'ULT-TV-FLUTE-2100', tags: ['tv-wall', 'fluted'], production: { cutlistSupported: true } } },
+    { id: 'mb-tv', type: 'module', title: 'Fluted TV Wall (2400mm)', subtitle: 'Floating console with warm LED', x: 40, y: 40, width: 280, height: 180, zIndex: 2, module: { id: 'tv-fluted-2400', family: 'tv-unit', name: '2400 fluted media wall with floating console', roomTypes: ['living'], widthMm: 2400, depthMm: 400, heightMm: 2400, sku: 'ULT-TV-FLT-2400', tags: ['tv-wall', 'fluted'], production: { cutlistSupported: true } } },
     { id: 'mb-sofa', type: 'module', title: 'Curved Bouclé Sectional', subtitle: 'Sculptural organic contours in soft sand', x: 360, y: 50, width: 280, height: 170, zIndex: 1, module: { id: 'sofa-curved-boucle-2800', family: 'sofa', name: '2800 curved bouclé sectional sofa', roomTypes: ['living'], widthMm: 2800, depthMm: 1600, heightMm: 800, sku: 'ULT-SF-CRV-2800', tags: ['sofa', 'sectional', 'boucle'], production: { cutlistSupported: false } } },
     { id: 'mb-mat1', type: 'swatch', title: 'Smoked Oak Veneer', subtitle: 'Feature wall accent', colorHex: '#5A473B', x: 60, y: 250, width: 140, height: 100, zIndex: 3 },
     { id: 'mb-mat2', type: 'swatch', title: 'Botticino Marble', subtitle: 'Tabletop & floor sheen', colorHex: '#E8DFD0', x: 220, y: 250, width: 140, height: 100, zIndex: 4 },
@@ -103,6 +103,7 @@ const MODULE_REFERENCE_IMAGES: Record<string, string[]> = {
   pooja: ['/reference-vault/019-a06a89855436.png', '/reference-vault/020-ea872c640df6.png', '/reference-vault/021-5a47b71bad49.png'],
   study: ['/reference-vault/011-6c55d3439149.png', '/reference-vault/022-d6f4e9ee57d1.png', '/reference-vault/024-5976bb27ca03.png', '/reference-vault/033-9d09b620a75e.png', '/reference-vault/044-577ed741688e.png', '/reference-vault/054-c8fa00bd2c4b.png'],
   utility: ['/reference-vault/005-7919b88e0dc1.png', '/reference-vault/036-de959cf3df44.png'],
+  bathroom: ['/reference-vault/027-3ee9dcdaca5c.png', '/reference-vault/028-a8f62ab3d392.png', '/reference-vault/029-640527178f8d.png'],
   vanity: ['/reference-vault/027-3ee9dcdaca5c.png', '/reference-vault/028-a8f62ab3d392.png', '/reference-vault/029-640527178f8d.png', '/reference-vault/030-7bd7e8a977bf.png', '/reference-vault/031-6f3948f48928.png', '/reference-vault/032-ae224c73b5dc.png'],
   'feature-wall': ['/reference-vault/034-355f624f691c.png', '/reference-vault/037-4dd8b6a25dc7.png', '/reference-vault/046-fe27dfd45c96.png'],
   storage: ['/reference-vault/008-5fd497f005d8.png', '/reference-vault/040-a7dcd66e4242.png', '/reference-vault/041-6770bf54ce43.png'],
@@ -199,10 +200,19 @@ const DEFAULT_PROJECT_MATERIALS: Material[] = [
 ];
 
 function stableImageForModule(module: CatalogModule) {
-  const images = MODULE_REFERENCE_IMAGES[module.family] ?? MODULE_REFERENCE_IMAGES[module.family.split('-')[0]];
+  const isVanity = /vanity|washroom|cistern|toilet/i.test(`${module.id} ${module.name} ${module.tags.join(' ')}`);
+  const images = (isVanity ? MODULE_REFERENCE_IMAGES.vanity : undefined)
+    ?? MODULE_REFERENCE_IMAGES[module.family]
+    ?? MODULE_REFERENCE_IMAGES[module.family.split('-')[0]];
   if (!images?.length) return null;
   const seed = [...module.id].reduce((total, character) => total + character.charCodeAt(0), 0);
   return images[seed % images.length];
+}
+
+function moduleSupportsRoom(module: CatalogModule, room: string) {
+  if (module.roomTypes.includes(room)) return true;
+  if (room === 'master_bedroom' || room === 'kids_bedroom') return module.roomTypes.includes('bedroom');
+  return false;
 }
 
 function apiBase() {
@@ -272,7 +282,9 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const [activeTab, setActiveTab] = useState<'templates' | 'modules' | 'moodboard' | 'materials'>('modules');
   const [moduleImageMode, setModuleImageMode] = useState<'photo' | 'nobg'>('nobg');
   const [items, setItems] = useState<LibraryItem[]>([]);
-  const [modules, setModules] = useState<CatalogModule[]>(DEFAULT_MODULAR_CATALOG);
+  // Templates come from the canonical catalogue API. Do not briefly show the
+  // legacy in-memory list: it may contain retired IDs that cannot be placed.
+  const [modules, setModules] = useState<CatalogModule[]>([]);
   const [materials, setMaterials] = useState<Material[]>(DEFAULT_PROJECT_MATERIALS);
   const [moodboardItems, setMoodboardItems] = useState<MoodboardItem[]>(MOODBOARD_PRESETS.living);
   const [moodboardBg, setMoodboardBg] = useState<'linen' | 'clay' | 'dark' | 'white'>('linen');
@@ -392,7 +404,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     const matches = !search || `${item.title} ${item.kind} ${item.tags.join(' ')} ${item.notes}`.toLowerCase().includes(search);
     return matches && item.kind !== 'material' && item.kind !== 'module';
   }), [items, search]);
-  const visibleModules = useMemo(() => modules.filter((item) => (moduleFamily === 'all' || item.family === moduleFamily) && (moduleRoom === 'all' || item.roomTypes.includes(moduleRoom)) && (!search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search))), [modules, search, moduleFamily, moduleRoom]);
+  const visibleModules = useMemo(() => modules.filter((item) => (moduleFamily === 'all' || item.family === moduleFamily) && (moduleRoom === 'all' || moduleSupportsRoom(item, moduleRoom)) && (!search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search))), [modules, search, moduleFamily, moduleRoom]);
   const visibleMaterials = useMemo(() => {
     const allMaterials = materials.length ? materials : DEFAULT_PROJECT_MATERIALS;
     return allMaterials.filter((item) => {
@@ -1009,7 +1021,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                 <strong style={{ display: 'block', fontSize: 11, color: '#78716c', textTransform: 'uppercase', marginBottom: 8 }}>Quick Add Cutouts</strong>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   <button type="button" onClick={() => {
-                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'module', title: 'Fluted TV Wall', subtitle: '2100mm floating unit', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 260, height: 160, zIndex: moodboardItems.length + 1, module: { id: 'tv-fluted-2100', family: 'tv-unit', name: '2100 fluted-panel TV wall', roomTypes: ['living'], widthMm: 2100, depthMm: 400, heightMm: 2300, sku: 'ULT-TV-FLUTE-2100', tags: ['tv-wall', 'fluted'], production: { cutlistSupported: true } } };
+                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'module', title: 'Fluted TV Wall', subtitle: '2400mm floating unit', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 260, height: 160, zIndex: moodboardItems.length + 1, module: { id: 'tv-fluted-2400', family: 'tv-unit', name: '2400 fluted media wall with floating console', roomTypes: ['living'], widthMm: 2400, depthMm: 400, heightMm: 2400, sku: 'ULT-TV-FLT-2400', tags: ['tv-wall', 'fluted'], production: { cutlistSupported: true } } };
                     setMoodboardItems(prev => [...prev, newItem]);
                   }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #e7e5e4', background: '#faf8f5', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
                     + Fluted TV Wall
