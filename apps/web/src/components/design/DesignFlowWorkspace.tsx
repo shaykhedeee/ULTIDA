@@ -7,6 +7,7 @@ import MaterialSwapPanel from './MaterialSwapPanel';
 import { getApiBase } from '../../lib/api-base';
 import './visual-studio.css';
 import { ModulePreview } from '../library/ModulePreview';
+import { listCatalog } from '@ultida/catalog-core';
 
 type Stage = 'Design' | 'Visualize' | 'Document';
 type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration };
@@ -20,6 +21,22 @@ type DesignFocus = 'all' | 'modules' | 'materials';
 type MaterialSlot = 'carcass' | 'shutter' | 'back_panel' | 'countertop' | 'profile' | 'glass';
 type Props = { stage: Stage; focus?: DesignFocus; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
 const apiBase = getApiBase();
+
+function localCatalogForRoom(roomType: string): CatalogItem[] {
+  const permittedRooms = new Set(['kitchen', 'living', 'bedroom', 'master_bedroom', 'kids_bedroom', 'bathroom', 'dining', 'study', 'pooja', 'utility', 'foyer', 'balcony', 'other']);
+  const safeRoom = permittedRooms.has(roomType) ? roomType as Parameters<typeof listCatalog>[0] : 'other';
+  return listCatalog(safeRoom).map((item) => ({
+    id: item.id,
+    family: item.family,
+    name: item.name,
+    widthMm: item.widthMm,
+    depthMm: item.depthMm,
+    heightMm: item.heightMm,
+    tags: item.tags,
+    description: item.description,
+    manufacturingRules: item.manufacturingRules,
+  }));
+}
 
 function roundToModuleIncrement(valueMm: number, incrementMm = 50) {
   return Math.round(valueMm / incrementMm) * incrementMm;
@@ -187,6 +204,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const [stylePresets, setStylePresets] = useState<DesignPreset[]>([]);
   const [activeTheme, setActiveTheme] = useState('');
   const [activeLaminate, setActiveLaminate] = useState('');
+  const [carcassLaminateId, setCarcassLaminateId] = useState('');
+  const [shutterLaminateId, setShutterLaminateId] = useState('');
   const [activeHardware, setActiveHardware] = useState('');
   const [materialSlot, setMaterialSlot] = useState<MaterialSlot>('shutter');
   // Library materials must be available before scene.v1 exists. Scene-only
@@ -198,6 +217,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   
   const selectedThemeObj = stylePresets.find((preset) => preset.id === activeTheme) ?? stylePresets[0];
   const selectedLaminateObj = catalogLaminates.find((l) => l.id === activeLaminate) ?? catalogLaminates[0] ?? { id: '', name: 'No laminate selected', code: '', hex: '#d6c7b8', unitCost: 0 };
+  const selectedCarcassLaminate = catalogLaminates.find((l) => l.id === carcassLaminateId) ?? catalogLaminates[0] ?? { id: '', name: 'No carcass finish selected', code: '', hex: '#d6c7b8', unitCost: 0 };
+  const selectedShutterLaminate = catalogLaminates.find((l) => l.id === shutterLaminateId) ?? selectedLaminateObj;
   const selectedHardwareObj = catalogHardwares.find((h) => h.id === activeHardware) ?? catalogHardwares[0] ?? { id: '', name: 'No hardware selected', code: '', unitCost: 0 };
   const fallbackModule: Module = useMemo(() => {
     const isBed = room.includes('bed');
@@ -252,8 +273,10 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   useEffect(() => {
     setStyle(`${selectedThemeObj ? [...selectedThemeObj.referenceStyle, ...selectedThemeObj.renderRules].join('. ') : 'Approved project style'} with ${selectedLaminateObj.name} and ${selectedHardwareObj.name}`);
     if (!activeLaminate && catalogLaminates[0]) setActiveLaminate(catalogLaminates[0].id);
+    if (!carcassLaminateId && catalogLaminates[0]) setCarcassLaminateId(catalogLaminates[0].id);
+    if (!shutterLaminateId && catalogLaminates[0]) setShutterLaminateId(catalogLaminates[0].id);
     if (!activeHardware && catalogHardwares[0]) setActiveHardware(catalogHardwares[0].id);
-  }, [activeTheme, activeLaminate, activeHardware, materials, stylePresets]);
+  }, [activeTheme, activeLaminate, carcassLaminateId, shutterLaminateId, activeHardware, materials, stylePresets]);
 
   async function authenticatedHeaders() {
     const session = await supabase?.auth.getSession();
@@ -272,8 +295,13 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         return;
       }
     } catch {
-      // fallback
+      // A gallery must only contain durable render records returned by the API.
     }
+
+    setRenders([]);
+    setSelectedRenderId(null);
+    setReviewVisualJobId(null);
+    return;
 
     setRenders((current) => {
       if (current.length > 0) return current;
@@ -419,10 +447,16 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       setCatalogLoading(true);
       try {
         const response = await fetch(`${apiBase}/catalog/modules?room=${encodeURIComponent(room)}`, { headers: await authenticatedHeaders() });
-        const payload = await response.json();
-        setCatalogItems(response.ok && Array.isArray(payload.modules) ? payload.modules : []);
+        const payload = await response.json().catch(() => null);
+        if (response.ok && Array.isArray(payload?.modules) && payload.modules.length > 0) {
+          setCatalogItems(payload.modules);
+          return;
+        }
+        setCatalogItems(localCatalogForRoom(room));
+        setPlacementNotice('The live catalogue service did not respond. Showing the bundled, verified room catalogue; placement will still be validated before it is saved.');
       } catch {
-        setCatalogItems([]);
+        setCatalogItems(localCatalogForRoom(room));
+        setPlacementNotice('The catalogue service is temporarily unavailable. Showing the bundled, verified room catalogue; placement will still be validated before it is saved.');
       } finally {
         setCatalogLoading(false);
       }
@@ -600,7 +634,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   async function saveMoodboard(): Promise<boolean> {
     if (!projectId) { setPlacementNotice('Select a project before saving the moodboard.'); return false; }
     if (!briefComplete || !planApproved) { setPlacementNotice('Save the brief and approve the floor plan before saving materials.'); return false; }
-    if (!selectedLaminateObj.id && !selectedHardwareObj.id) {
+    if (!selectedCarcassLaminate.id && !selectedShutterLaminate.id && !selectedHardwareObj.id) {
       setPlacementNotice('Choose a material from the organization library before saving the moodboard.');
       return false;
     }
@@ -612,7 +646,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         return false;
       }
       const assignments = [
-        selectedLaminateObj.id ? { materialId: selectedLaminateObj.id, semanticSlot: materialSlot, targetId: selectedModule.id } : null,
+        selectedCarcassLaminate.id ? { materialId: selectedCarcassLaminate.id, semanticSlot: 'carcass', targetId: selectedModule.id } : null,
+        selectedShutterLaminate.id ? { materialId: selectedShutterLaminate.id, semanticSlot: 'shutter', targetId: selectedModule.id } : null,
         selectedHardwareObj.id ? { materialId: selectedHardwareObj.id, semanticSlot: 'hardware', targetId: selectedModule.id } : null,
       ].filter(Boolean) as Array<{ materialId: string; semanticSlot: MaterialSlot | 'hardware'; targetId: string }>;
       const results = await Promise.all(assignments.map((assignment) => fetch(`${apiBase}/projects/${projectId}/material-assignments`, {
@@ -630,7 +665,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         if (!preference.ok || !preferencePayload.success) { setPlacementNotice(preferencePayload.message ?? 'Project style preference could not be saved.'); return false; }
       }
       setMaterialAssignmentsSaved(true);
-      setPlacementNotice(`${selectedModule.label} now has ${assignments.length} versioned material assignment${assignments.length === 1 ? '' : 's'}, including its ${materialSlot.replace('_', ' ')} finish.`);
+      setPlacementNotice(`${selectedModule.label} now has ${assignments.length} versioned material assignment${assignments.length === 1 ? '' : 's'}, including separate carcass and shutter finishes.`);
       return true;
     } catch {
       setPlacementNotice('Material assignment service unavailable. No moodboard changes were applied.');
@@ -639,6 +674,39 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   }
 
   const handleAiAutoFitAllWallModules = () => {
+    if (!selectedSpace || !selectedWall) {
+      setPlacementNotice('Choose one verified room and its measured wall before asking for a module recommendation.');
+      return;
+    }
+    const preferredFamilies: Record<string, string[]> = {
+      kitchen: ['kitchen-base', 'kitchen-wall', 'kitchen-tall'],
+      living: ['tv-unit', 'crockery', 'sofa'],
+      dining: ['crockery', 'dining'],
+      bedroom: ['wardrobe', 'bed', 'study'],
+      master_bedroom: ['wardrobe', 'bed', 'study'],
+      kids_bedroom: ['wardrobe', 'bed', 'study'],
+      bathroom: ['utility'], pooja: ['pooja'], study: ['study'], utility: ['utility'],
+      foyer: ['storage'], balcony: ['storage'], other: ['storage'],
+    };
+    const families = preferredFamilies[room] ?? ['storage'];
+    const candidate = catalogItems.find((item) => families.includes(item.family)) ?? localCatalogForRoom(room).find((item) => families.includes(item.family));
+    if (!candidate) {
+      setPlacementNotice(`No verified ${selectedSpace.roomType} template is available yet. Correct the room type or choose a compatible catalogue family.`);
+      return;
+    }
+    setFamilyFilter(candidate.family);
+    setCatalogQuery(candidate.name);
+    setModuleConfiguration((current) => ({
+      ...current,
+      includeLoft: candidate.family === 'wardrobe' || candidate.family === 'kitchen-tall',
+      glassProfile: ['crockery', 'tv-unit'].includes(candidate.family),
+      shutterStyle: ['crockery', 'tv-unit'].includes(candidate.family) ? 'profile-glass' : current.shutterStyle,
+    }));
+    setPlacementNotice(`Suggested ${candidate.name} for ${selectedSpace.name}. It is not placed yet: review the selected-wall elevation, then click the catalogue card to run clearance checks and save it.`);
+    return;
+
+    // Legacy client-only auto-fill kept below temporarily for a narrow diff.
+    // It is unreachable: AI suggestions must never impersonate persisted modules.
     const newModules: Module[] = [];
     
     spaces.forEach((s) => {
@@ -796,15 +864,38 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
   const getPrebuiltSuggestions = (roomType: string) => {
     const key = roomType?.toLowerCase().replace(/[\s-]+/g, '_') || 'living';
-    return ROOM_PREBUILT_PACKAGES[key] ?? ROOM_PREBUILT_PACKAGES.living;
+    // Never show a living-room package merely because a room was not classified.
+    // The room type must be corrected before an unrelated unit is recommended.
+    return ROOM_PREBUILT_PACKAGES[key] ?? [];
   };
 
   const handlePlacePrebuiltPackage = (pkg: { id: string; name: string; desc: string; width: number; height: number; family: string; icon: string }) => {
+    const packageFamily = pkg.family === 'kitchen' ? 'kitchen-base' : pkg.family;
+    // Use the room-scoped canonical catalogue here. The network catalogue can
+    // briefly contain the previously selected room while its new query is in flight.
+    const source = localCatalogForRoom(room);
+    const item = source.find((candidate) => candidate.family === packageFamily)
+      ?? source.find((candidate) => candidate.family.startsWith('kitchen-') && pkg.family === 'kitchen');
+    if (!item) {
+      setPlacementNotice(`${pkg.name} is a design suggestion only. Select a compatible canonical catalogue module before it can be placed.`);
+      return;
+    }
+    void addModule(item, { width: pkg.width, depth: item.depthMm, height: pkg.height });
+    return;
+
+    // Legacy local-only placement path. Kept unreachable pending removal so
+    // quick packages always go through anchor validation and persistence.
     if (!spaceId) return;
     const targetWall = wallId || roomWalls[0]?.id || `wall-${spaceId}-1`;
     const targetWallObj = walls.find((w) => w.id === targetWall);
-    const wallLength = targetWallObj?.start && targetWallObj?.end
-      ? Math.round(Math.hypot(targetWallObj.end.xMm - targetWallObj.start.xMm, targetWallObj.end.yMm - targetWallObj.start.yMm))
+    const targetStart = targetWallObj?.start;
+    const targetEnd = targetWallObj?.end;
+    const targetStartX = targetStart?.xMm ?? 0;
+    const targetStartY = targetStart?.yMm ?? 0;
+    const targetEndX = targetEnd?.xMm ?? 0;
+    const targetEndY = targetEnd?.yMm ?? 0;
+    const wallLength = targetStart && targetEnd
+      ? Math.round(Math.hypot(targetEndX - targetStartX, targetEndY - targetStartY))
       : 3000;
     const existingOnWall = draftModules.filter((m) => m.wallId === targetWall);
     let calcOffset = 100;
@@ -818,7 +909,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     }
     const newMod: Module = {
       id: `mod-${pkg.id}-${Date.now().toString().slice(-4)}`,
-      roomId: spaceId,
+      roomId: spaceId ?? 'unassigned',
       family: pkg.family,
       label: pkg.name,
       widthMm: pkg.width,
@@ -881,6 +972,10 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       const payload = response ? await response.json().catch(() => ({})) : {};
 
       if (!response?.ok || !payload?.success) {
+        setVisualBusy(false);
+        setVisualState(payload?.message ?? payload?.error ?? 'The render service could not create an image. Your approved scene is unchanged; try again when a provider is available.');
+        return;
+
         const roomImages: Record<string, string[]> = {
           kitchen: ['/reference-vault/003-1f61a8aabde4.png', '/reference-vault/006-e36e2c7c9b1a.png', '/reference-vault/039-1786da704c5a.png', '/reference-vault/042-7eaf3dbfd306.png', '/reference-vault/048-ac94a44309b6.png', '/reference-vault/050-a2b533693ac2.png', '/reference-vault/052-1d6904ef55a3.png', '/reference-vault/055-e94b19f0e93f.png', '/reference-vault/056-3bb2275767d2.png'],
           living: ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/013-52a29a1053dc.png', '/reference-vault/014-685f67e3ff6f.png', '/reference-vault/015-5705e2ee9cb1.png', '/reference-vault/016-f106846da92c.png', '/reference-vault/017-cd2b9919c856.png', '/reference-vault/026-ebca5fba9a3f.png', '/reference-vault/051-999d353af1d8.png', '/reference-vault/058-b3d36c0c874b.png'],
@@ -1346,7 +1441,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }} aria-label="Design workspace mode">
         <Button onClick={handleAiAutoFitAllWallModules} style={{ background: 'linear-gradient(135deg, #1c1917, #3d2a1a)', color: '#fff', border: '1px solid var(--gold)', boxShadow: '0 2px 8px rgba(197,156,45,0.25)', height: '38px', padding: '0 16px', fontWeight: 800 }}>
-          <Sparkles size={15} style={{ marginRight: '0.5rem', color: 'var(--gold)' }} /> AI Auto-Pick Feature Walls &amp; Setup Units
+          <Sparkles size={15} style={{ marginRight: '0.5rem', color: 'var(--gold)' }} /> Suggest a room module
         </Button>
         <Button variant={designMode === 'layout' ? 'default' : 'outline'} onClick={() => setDesignMode('layout')} style={{ height: '38px', padding: '0 16px' }}>
           <Layers3 size={15} style={{ marginRight: '0.5rem' }} /> Modular Layout
@@ -1487,7 +1582,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 </select>
               </label>
               <fieldset className="module-configuration" style={{ border: '1px solid #e8ded2', borderRadius: '6px', padding: '0.75rem', display: 'grid', gap: '0.55rem' }}>
-                <legend style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0 0.25rem' }}>CONFIGURE THE NEXT MOODBOARD MODULE</legend>
+                <legend style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0 0.25rem' }}>CONFIGURE THE NEXT MODULE</legend>
                 <label>
                   Assembly archetype
                   <select value={moduleConfiguration.archetype} onChange={(event) => setModuleConfiguration((current) => ({ ...current, archetype: event.target.value }))}>
@@ -1551,16 +1646,16 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 </div>
                 <div className="module-inline-materials">
                   <label>
-                    Internal Carcass Fabric
-                    <select value={selectedLaminateObj.id} onChange={(e) => { setActiveLaminate(e.target.value); setMaterialSlot('carcass'); }}>
-                      <option value="">Fabric Beige Textured (0.8mm)</option>
+                    Internal carcass finish
+                    <select value={selectedCarcassLaminate.id} onChange={(e) => { setCarcassLaminateId(e.target.value); setMaterialSlot('carcass'); }}>
+                      <option value="">Choose a carcass board finish</option>
                       {catalogLaminates.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                     </select>
                   </label>
                   <label>
-                    External Shutter Laminate
-                    <select value={selectedLaminateObj.id} onChange={(e) => { setActiveLaminate(e.target.value); setMaterialSlot('shutter'); }}>
-                      <option value="">Smoked Walnut / Matte Ivory (1.0mm)</option>
+                    External shutter finish
+                    <select value={selectedShutterLaminate.id} onChange={(e) => { setShutterLaminateId(e.target.value); setActiveLaminate(e.target.value); setMaterialSlot('shutter'); }}>
+                      <option value="">Choose a shutter laminate</option>
                       {catalogLaminates.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                     </select>
                   </label>
@@ -1587,7 +1682,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     <Plus size={15} />
                   </button>
                 ))}
-                {catalogLoading ? <p className="placement-notice"><Loader2 className="ultida-spinner" size={14} aria-hidden="true" /> Loading compatible furniture…</p> : !catalogItems.length && <p className="placement-notice">No compatible templates are available for this approved room.</p>}
+                {catalogLoading ? <p className="placement-notice"><Loader2 className="ultida-spinner" size={14} aria-hidden="true" /> Loading compatible furniture…</p> : !catalogItems.length && <p className="placement-notice">No templates could be loaded for this room. Check the catalogue service or correct the room type.</p>}
               </div>
             </CardContent>
           </Card>
@@ -2044,4 +2139,3 @@ function WallElevationPreview({
     </div>
   );
 }
-
