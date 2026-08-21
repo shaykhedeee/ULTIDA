@@ -1,4 +1,4 @@
-import { ArrowRight, Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Send, Sparkles, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
+import { ArrowRight, Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Save, Send, Sparkles, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
@@ -936,7 +936,9 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
   async function compileMoodboard(materialSelection?: any[], assignmentVerified = materialAssignmentsSaved) {
     if (!projectId || !draftModules.length) { setPlacementNotice('Place at least one persisted module before compiling a scene.'); return; }
-    const sceneMaterials = materialSelection ?? [selectedLaminateObj, selectedHardwareObj].filter((item) => item.id);
+    const sceneMaterials = materialSelection ?? [selectedCarcassLaminate, selectedShutterLaminate, selectedHardwareObj]
+      .filter((item) => item.id)
+      .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index);
     if (!sceneMaterials.length) { setPlacementNotice('Save a real material-library selection before compiling a scene.'); return; }
     if (!assignmentVerified) { setPlacementNotice('Save the selected component materials before compiling scene.v1.'); return; }
     setPlacementNotice('Compiling the reviewed moodboard into scene.v1...');
@@ -949,6 +951,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       setPlacementNotice('Scene compilation failed. The moodboard remains saved for correction.');
       return undefined;
     }
+  }
+
+  async function saveFinishesAndCompileScene() {
+    const saved = await saveMoodboard();
+    if (!saved) return;
+    await compileMoodboard(undefined, true);
   }
 
   async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string, sceneVersionOverride?: string, sceneIsApproved = sceneApproved, materialTarget?: { materialId: string; semanticSlot: string }) {
@@ -1856,6 +1864,26 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               </div>
 
               {/* 4. Action Hub */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {!catalogLaminates.length && (
+                  <Button variant="outline" onClick={() => void addStarterMaterials()} disabled={!projectId}>
+                    <Palette size={15} /> Add starter materials
+                  </Button>
+                )}
+                {starterMaterialsState ? <p className="placement-notice" role="status">{starterMaterialsState}</p> : null}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <Button variant="outline" onClick={() => void saveMoodboard()} disabled={!selectedModule || !draftModules.length}>
+                    <Save size={14} /> Save finishes
+                  </Button>
+                  <Button
+                    onClick={() => void saveFinishesAndCompileScene()}
+                    disabled={!selectedModule || !draftModules.length || !briefComplete || !planApproved}
+                    style={{ background: 'linear-gradient(135deg, #1c1917, #3d2a1a)', color: '#fff', fontWeight: 800 }}
+                  >
+                    <Layers3 size={14} /> Compile scene.v1
+                  </Button>
+                </div>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
                 <Button
                   onClick={handleAiAutoFitAllWallModules}
@@ -1866,17 +1894,19 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     fontWeight: 800,
                   }}
                 >
-                  <Sparkles size={15} style={{ color: 'var(--gold)' }} /> Auto-Fit All Rooms with Furniture
+                  <Sparkles size={15} style={{ color: 'var(--gold)' }} /> Suggest a compatible module
                 </Button>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   <Button
                     onClick={() => navigate(`/projects/${projectId}/3d`)}
+                    disabled={!compiledSceneId}
                     style={{ background: 'var(--gold)', color: '#fff', fontWeight: 800, fontSize: '12px' }}
                   >
                     <Layers3 size={14} /> View 3D Scene →
                   </Button>
                   <Button
                     onClick={() => navigate(`/projects/${projectId}/visualize`)}
+                    disabled={!compiledSceneId}
                     style={{ background: 'linear-gradient(135deg, #c59c2d, #8f6c12)', color: '#fff', fontWeight: 800, fontSize: '12px' }}
                   >
                     <Wand2 size={14} /> 4K AI Render →
@@ -1893,7 +1923,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               <small>SCENE V1</small>
               <h3>{sceneVersionId ? `Version ${sceneVersionId.slice(0, 8)}` : 'Draft scene'}</h3>
             </div>
-            <Badge>{draftModules.length} moodboard modules</Badge>
+            <Badge>{draftModules.length} persisted module{draftModules.length === 1 ? '' : 's'}</Badge>
           </CardHeader>
           <CardContent>
             {(() => {
@@ -1911,7 +1941,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                       ))
                     ) : (
                       <div style={{ display: 'grid', placeItems: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        No modules placed in {room.toUpperCase()} yet. Choose a catalogue module or click "AI Auto-Pick Feature Walls".
+                        No validated modules are placed in {room.toUpperCase()} yet. Choose a catalogue module, then save its finishes before compiling.
                       </div>
                     )}
                   </div>
