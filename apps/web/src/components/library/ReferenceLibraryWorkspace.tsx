@@ -89,134 +89,113 @@ const MOODBOARD_PRESETS: Record<string, MoodboardItem[]> = {
 };
 
 const MODULE_REFERENCE_IMAGES: Record<string, string[]> = {
-  kitchen: ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/002-cab37cfa0bb2.png', '/reference-vault/003-1f61a8aabde4.png', '/reference-vault/004-ee04b56efde7.png', '/reference-vault/005-7919b88e0dc1.png', '/reference-vault/006-e36e2c7c9b1a.png'],
-  'kitchen-base': ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/003-1f61a8aabde4.png', '/reference-vault/034-355f624f691c.png'],
-  'kitchen-wall': ['/reference-vault/002-cab37cfa0bb2.png', '/reference-vault/004-ee04b56efde7.png', '/reference-vault/035-78733d79d595.png'],
-  'kitchen-tall': ['/reference-vault/003-1f61a8aabde4.png', '/reference-vault/005-7919b88e0dc1.png', '/reference-vault/036-de959cf3df44.png'],
-  'kitchen-corner': ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/006-e36e2c7c9b1a.png'],
-  'tv-unit': ['/reference-vault/013-52a29a1053dc.png', '/reference-vault/014-685f67e3ff6f.png', '/reference-vault/015-5705e2ee9cb1.png', '/reference-vault/016-f106846da92c.png', '/reference-vault/017-cd2b9919c856.png', '/reference-vault/037-4dd8b6a25dc7.png', '/reference-vault/038-73c6d08adf93.png'],
-  wardrobe: ['/reference-vault/007-2b9d568ff444.png', '/reference-vault/008-5fd497f005d8.png', '/reference-vault/009-f68e47674ead.png', '/reference-vault/010-a0dbdf361a50.png', '/reference-vault/011-6c55d3439149.png', '/reference-vault/012-5c60a01e5b86.png', '/reference-vault/039-1786da704c5a.png', '/reference-vault/040-a7dcd66e4242.png'],
-  crockery: ['/reference-vault/018-b7dd5f1492fe.png', '/reference-vault/019-a06a89855436.png', '/reference-vault/041-6770bf54ce43.png'],
-  sofa: ['/reference-vault/020-ea872c640df6.png', '/reference-vault/021-5a47b71bad49.png', '/reference-vault/022-d6f4e9ee57d1.png', '/reference-vault/023-ae1e9b70744f.png', '/reference-vault/042-7eaf3dbfd306.png', '/reference-vault/043-71833d244d0d.png'],
-  bed: ['/reference-vault/024-5976bb27ca03.png', '/reference-vault/025-adb09122c8d1.png', '/reference-vault/026-ebca5fba9a3f.png', '/reference-vault/027-3ee9dcdaca5c.png', '/reference-vault/044-577ed741688e.png', '/reference-vault/045-7ec65f321496.png'],
-  dining: ['/reference-vault/029-640527178f8d.png', '/reference-vault/030-7bd7e8a977bf.png', '/reference-vault/046-fe27dfd45c96.png', '/reference-vault/047-c1ce4511e83d.png'],
-  pooja: ['/reference-vault/031-6f3948f48928.png', '/reference-vault/032-ae224c73b5dc.png', '/reference-vault/048-ac94a44309b6.png', '/reference-vault/049-d1a18590223e.png'],
-  study: ['/reference-vault/033-9d09b620a75e.png', '/reference-vault/050-a2b533693ac2.png', '/reference-vault/051-999d353af1d8.png', '/reference-vault/052-1d6904ef55a3.png'],
-  utility: ['/reference-vault/028-a8f62ab3d392.png', '/reference-vault/053-edfb0eca9b46.png', '/reference-vault/054-c8fa00bd2c4b.png', '/reference-vault/055-e94b19f0e93f.png'],
-  storage: ['/reference-vault/056-3bb2275767d2.png', '/reference-vault/057-da6cb4575090.png', '/reference-vault/058-b3d36c0c874b.png'],
-  'false-ceiling': ['/reference-vault/059-28205fff47ae.png', '/reference-vault/060-70075531f7e7.png'],
+  kitchen: ['/reference-vault/003-1f61a8aabde4.png', '/reference-vault/006-e36e2c7c9b1a.png', '/reference-vault/039-1786da704c5a.png', '/reference-vault/042-7eaf3dbfd306.png', '/reference-vault/048-ac94a44309b6.png', '/reference-vault/050-a2b533693ac2.png', '/reference-vault/052-1d6904ef55a3.png', '/reference-vault/053-edfb0eca9b46.png', '/reference-vault/055-e94b19f0e93f.png', '/reference-vault/056-3bb2275767d2.png', '/reference-vault/057-da6cb4575090.png', '/reference-vault/059-28205fff47ae.png'],
+  'kitchen-base': ['/reference-vault/006-e36e2c7c9b1a.png', '/reference-vault/039-1786da704c5a.png', '/reference-vault/042-7eaf3dbfd306.png', '/reference-vault/050-a2b533693ac2.png', '/reference-vault/053-edfb0eca9b46.png', '/reference-vault/055-e94b19f0e93f.png', '/reference-vault/057-da6cb4575090.png'],
+  'kitchen-wall': ['/reference-vault/006-e36e2c7c9b1a.png', '/reference-vault/039-1786da704c5a.png', '/reference-vault/050-a2b533693ac2.png', '/reference-vault/053-edfb0eca9b46.png'],
+  'kitchen-tall': ['/reference-vault/003-1f61a8aabde4.png', '/reference-vault/048-ac94a44309b6.png', '/reference-vault/052-1d6904ef55a3.png', '/reference-vault/056-3bb2275767d2.png', '/reference-vault/059-28205fff47ae.png'],
+  'kitchen-corner': ['/reference-vault/042-7eaf3dbfd306.png', '/reference-vault/055-e94b19f0e93f.png', '/reference-vault/057-da6cb4575090.png'],
+  'tv-unit': ['/reference-vault/013-52a29a1053dc.png', '/reference-vault/014-685f67e3ff6f.png', '/reference-vault/015-5705e2ee9cb1.png', '/reference-vault/016-f106846da92c.png', '/reference-vault/017-cd2b9919c856.png', '/reference-vault/026-ebca5fba9a3f.png', '/reference-vault/051-999d353af1d8.png', '/reference-vault/058-b3d36c0c874b.png'],
+  wardrobe: ['/reference-vault/007-2b9d568ff444.png', '/reference-vault/008-5fd497f005d8.png', '/reference-vault/009-f68e47674ead.png', '/reference-vault/010-a0dbdf361a50.png', '/reference-vault/012-5c60a01e5b86.png', '/reference-vault/023-ae1e9b70744f.png', '/reference-vault/025-adb09122c8d1.png', '/reference-vault/035-78733d79d595.png', '/reference-vault/038-73c6d08adf93.png', '/reference-vault/040-a7dcd66e4242.png', '/reference-vault/041-6770bf54ce43.png', '/reference-vault/043-71833d244d0d.png', '/reference-vault/044-577ed741688e.png', '/reference-vault/045-7ec65f321496.png', '/reference-vault/054-c8fa00bd2c4b.png'],
+  crockery: ['/reference-vault/002-cab37cfa0bb2.png', '/reference-vault/004-ee04b56efde7.png', '/reference-vault/018-b7dd5f1492fe.png'],
+  sofa: ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/034-355f624f691c.png'],
+  bed: ['/reference-vault/047-c1ce4511e83d.png', '/reference-vault/049-d1a18590223e.png', '/reference-vault/060-70075531f7e7.png'],
+  dining: ['/reference-vault/002-cab37cfa0bb2.png', '/reference-vault/004-ee04b56efde7.png', '/reference-vault/018-b7dd5f1492fe.png'],
+  pooja: ['/reference-vault/019-a06a89855436.png', '/reference-vault/020-ea872c640df6.png', '/reference-vault/021-5a47b71bad49.png'],
+  study: ['/reference-vault/011-6c55d3439149.png', '/reference-vault/022-d6f4e9ee57d1.png', '/reference-vault/024-5976bb27ca03.png', '/reference-vault/033-9d09b620a75e.png', '/reference-vault/044-577ed741688e.png', '/reference-vault/054-c8fa00bd2c4b.png'],
+  utility: ['/reference-vault/005-7919b88e0dc1.png', '/reference-vault/036-de959cf3df44.png'],
+  vanity: ['/reference-vault/027-3ee9dcdaca5c.png', '/reference-vault/028-a8f62ab3d392.png', '/reference-vault/029-640527178f8d.png', '/reference-vault/030-7bd7e8a977bf.png', '/reference-vault/031-6f3948f48928.png', '/reference-vault/032-ae224c73b5dc.png'],
+  'feature-wall': ['/reference-vault/034-355f624f691c.png', '/reference-vault/037-4dd8b6a25dc7.png', '/reference-vault/046-fe27dfd45c96.png'],
+  storage: ['/reference-vault/008-5fd497f005d8.png', '/reference-vault/040-a7dcd66e4242.png', '/reference-vault/041-6770bf54ce43.png'],
 };
 
 const CURATED_VAULT_REFERENCES = [
-  { id: 'ref-001', img: '/reference-vault/001-ddc1891636f7.png', room: 'kitchen', family: 'kitchen-base', title: 'Modular Kitchen Island & Suede Cabinets', tags: ['kitchen', 'island', 'matte-suede'] },
-  { id: 'ref-002', img: '/reference-vault/002-cab37cfa0bb2.png', room: 'kitchen', family: 'kitchen-wall', title: 'Fluted Overhead Kitchen Units', tags: ['kitchen', 'overhead', 'fluted'] },
-  { id: 'ref-003', img: '/reference-vault/003-1f61a8aabde4.png', room: 'kitchen', family: 'kitchen-tall', title: 'Full Height Appliance Pantry Tower', tags: ['kitchen', 'appliance', 'pantry'] },
-  { id: 'ref-004', img: '/reference-vault/004-ee04b56efde7.png', room: 'kitchen', family: 'kitchen-wall', title: 'Glass Lift-Up Overhead Storage', tags: ['kitchen', 'lift-up', 'glass'] },
-  { id: 'ref-005', img: '/reference-vault/005-7919b88e0dc1.png', room: 'kitchen', family: 'kitchen-tall', title: 'Integrated Refrigerator Tall Unit', tags: ['kitchen', 'built-in', 'tall'] },
-  { id: 'ref-006', img: '/reference-vault/006-e36e2c7c9b1a.png', room: 'kitchen', family: 'kitchen-corner', title: 'Blind Corner Carousel Cabinet', tags: ['kitchen', 'corner', 'lemans'] },
-  { id: 'ref-007', img: '/reference-vault/007-2b9d568ff444.png', room: 'bedroom', family: 'wardrobe', title: 'Tinted Profile-Glass Walk-In Wardrobe', tags: ['wardrobe', 'glass', 'walk-in'] },
-  { id: 'ref-008', img: '/reference-vault/008-5fd497f005d8.png', room: 'bedroom', family: 'wardrobe', title: 'Floor-to-Ceiling 6-Shutter Wardrobe', tags: ['wardrobe', 'swing', 'loft'] },
-  { id: 'ref-009', img: '/reference-vault/009-f68e47674ead.png', room: 'bedroom', family: 'wardrobe', title: 'Sliding Wardrobe with Fluted Veneer Center', tags: ['wardrobe', 'sliding', 'fluted'] },
-  { id: 'ref-010', img: '/reference-vault/010-a0dbdf361a50.png', room: 'bedroom', family: 'wardrobe', title: 'Open Dressing Island with Watch Tray', tags: ['wardrobe', 'island', 'vanity'] },
-  { id: 'ref-011', img: '/reference-vault/011-6c55d3439149.png', room: 'bedroom', family: 'wardrobe', title: 'Corner L-Shaped Wardrobe System', tags: ['wardrobe', 'corner', 'l-shaped'] },
-  { id: 'ref-012', img: '/reference-vault/012-5c60a01e5b86.png', room: 'bedroom', family: 'wardrobe', title: 'Minimalist Gola Profile Wardrobe', tags: ['wardrobe', 'gola', 'handleless'] },
-  { id: 'ref-013', img: '/reference-vault/013-52a29a1053dc.png', room: 'living', family: 'tv-unit', title: '2400mm Fluted TV Console Wall', tags: ['living', 'tv-wall', 'fluted'] },
+  { id: 'ref-001', img: '/reference-vault/001-ddc1891636f7.png', room: 'living', family: 'sofa', title: '2800mm Sectional Sofa & Dark Oak Coffee Table', tags: ['living', 'sofa', 'sectional', 'l-shaped'] },
+  { id: 'ref-002', img: '/reference-vault/002-cab37cfa0bb2.png', room: 'dining', family: 'crockery', title: '1800mm Fluted Crockery Console & Glass Overhead Bar', tags: ['dining', 'crockery', 'fluted', 'bar'] },
+  { id: 'ref-003', img: '/reference-vault/003-1f61a8aabde4.png', room: 'kitchen', family: 'kitchen-tall', title: 'Modular Kitchen with Dual Microwave/Oven Tall Tower', tags: ['kitchen', 'tall-unit', 'appliance', 'microwave'] },
+  { id: 'ref-004', img: '/reference-vault/004-ee04b56efde7.png', room: 'dining', family: 'crockery', title: 'Dining Bar & Display Console with Fluted Louvers', tags: ['dining', 'bar', 'crockery', 'display'] },
+  { id: 'ref-005', img: '/reference-vault/005-7919b88e0dc1.png', room: 'utility', family: 'utility', title: 'Technical CAD Elevation: 1596mm Utility Wall Unit', tags: ['utility', 'cad-elevation', 'sink', 'washing-machine'] },
+  { id: 'ref-006', img: '/reference-vault/006-e36e2c7c9b1a.png', room: 'kitchen', family: 'kitchen-base', title: 'Modular Kitchen Counter with Tandem Pot Drawers', tags: ['kitchen', 'base-unit', 'drawers', 'fluted-glass'] },
+  { id: 'ref-007', img: '/reference-vault/007-2b9d568ff444.png', room: 'bedroom', family: 'wardrobe', title: '2-Door Sliding Wardrobe with Fluted Glass & Study Desk', tags: ['bedroom', 'wardrobe', 'sliding', 'study'] },
+  { id: 'ref-008', img: '/reference-vault/008-5fd497f005d8.png', room: 'bedroom', family: 'wardrobe', title: '2000mm 4-Door Natural Oak Wardrobe with Lofts', tags: ['bedroom', 'wardrobe', 'oak', 'swing-door'] },
+  { id: 'ref-009', img: '/reference-vault/009-f68e47674ead.png', room: 'bedroom', family: 'wardrobe', title: 'Suede Ivory 4-Door Wardrobe with Pinboard Study Desk', tags: ['bedroom', 'wardrobe', 'study', 'pinboard'] },
+  { id: 'ref-010', img: '/reference-vault/010-a0dbdf361a50.png', room: 'bedroom', family: 'wardrobe', title: 'Blush Pink & White Arched 4-Door Kids Wardrobe & Desk', tags: ['bedroom', 'wardrobe', 'kids', 'arched', 'pink'] },
+  { id: 'ref-011', img: '/reference-vault/011-6c55d3439149.png', room: 'study', family: 'study', title: '1500mm Floating Study Desk with Fluted Wall Cabinet', tags: ['study', 'desk', 'floating', 'fluted'] },
+  { id: 'ref-012', img: '/reference-vault/012-5c60a01e5b86.png', room: 'bedroom', family: 'wardrobe', title: '2400mm Minimalist Gola Handleless Profile Wardrobe', tags: ['bedroom', 'wardrobe', 'gola', 'handleless'] },
+  { id: 'ref-013', img: '/reference-vault/013-52a29a1053dc.png', room: 'living', family: 'tv-unit', title: '2400mm Fluted TV Console Wall with Backlit Louvers', tags: ['living', 'tv-unit', 'fluted', 'backlit'] },
   { id: 'ref-014', img: '/reference-vault/014-685f67e3ff6f.png', room: 'living', family: 'tv-unit', title: 'Minimalist Floating Backlit Media Wall', tags: ['living', 'tv-unit', 'floating'] },
-  { id: 'ref-015', img: '/reference-vault/015-5705e2ee9cb1.png', room: 'living', family: 'tv-unit', title: 'TV Wall with Open Display Bookshelf', tags: ['living', 'tv-unit', 'bookshelf'] },
+  { id: 'ref-015', img: '/reference-vault/015-5705e2ee9cb1.png', room: 'living', family: 'tv-unit', title: 'TV Wall with Open Display Bookshelf & Acoustic Slats', tags: ['living', 'tv-unit', 'bookshelf'] },
   { id: 'ref-016', img: '/reference-vault/016-f106846da92c.png', room: 'living', family: 'tv-unit', title: 'Acoustic Slat Partition TV Media Wall', tags: ['living', 'tv-unit', 'partition'] },
   { id: 'ref-017', img: '/reference-vault/017-cd2b9919c856.png', room: 'living', family: 'tv-unit', title: 'Curved Asymmetric Plaster & Wood TV Unit', tags: ['living', 'tv-unit', 'curved'] },
-  { id: 'ref-018', img: '/reference-vault/018-b7dd5f1492fe.png', room: 'dining', family: 'crockery', title: '1800mm Full Height Bar & Wine Cabinet', tags: ['dining', 'bar', 'crockery'] },
-  { id: 'ref-019', img: '/reference-vault/019-a06a89855436.png', room: 'dining', family: 'crockery', title: 'Floating Dining Sideboard Buffet', tags: ['dining', 'sideboard', 'floating'] },
-  { id: 'ref-020', img: '/reference-vault/020-ea872c640df6.png', room: 'living', family: 'sofa', title: 'Curved Organic Bouclé Sectional Sofa', tags: ['living', 'sofa', 'boucle'] },
-  { id: 'ref-021', img: '/reference-vault/021-5a47b71bad49.png', room: 'living', family: 'sofa', title: 'Deep Modular 3-Seater Cloud Couch', tags: ['living', 'sofa', 'lounge'] },
-  { id: 'ref-022', img: '/reference-vault/022-d6f4e9ee57d1.png', room: 'living', family: 'sofa', title: 'Low-Slung Japandi Linen Sectional', tags: ['living', 'sofa', 'japandi'] },
-  { id: 'ref-023', img: '/reference-vault/023-ae1e9b70744f.png', room: 'living', family: 'sofa', title: 'Cognac Saddle Leather Lounge Chairs', tags: ['living', 'armchair', 'leather'] },
-  { id: 'ref-024', img: '/reference-vault/024-5976bb27ca03.png', room: 'bedroom', family: 'bed', title: 'Floating King Bed with Warm Underglow', tags: ['bedroom', 'bed', 'floating'] },
-  { id: 'ref-025', img: '/reference-vault/025-adb09122c8d1.png', room: 'bedroom', family: 'bed', title: 'Extended Fluted Panel Headboard Bed', tags: ['bedroom', 'bed', 'headboard'] },
-  { id: 'ref-026', img: '/reference-vault/026-ebca5fba9a3f.png', room: 'bedroom', family: 'bed', title: 'Upholstered Storage Bed with Nightstands', tags: ['bedroom', 'bed', 'storage'] },
-  { id: 'ref-027', img: '/reference-vault/027-3ee9dcdaca5c.png', room: 'bedroom', family: 'bed', title: 'Japandi Platform Bed with Woven Accents', tags: ['bedroom', 'bed', 'platform'] },
-  { id: 'ref-028', img: '/reference-vault/028-a8f62ab3d392.png', room: 'utility', family: 'utility', title: 'Washroom Overhead Shutter Storage & Concealed Cistern Vanity', tags: ['washroom', 'toilet', 'vanity', 'overhead-shutter'] },
-  { id: 'ref-028b', img: '/reference-vault/046-fe27dfd45c96.png', room: 'dining', family: 'dining', title: '2100mm Calacatta Marble & Sintered Stone Dining Table', tags: ['dining', 'table', 'calacatta'] },
-  { id: 'ref-029', img: '/reference-vault/029-640527178f8d.png', room: 'dining', family: 'dining', title: 'Solid Smoked Oak 8-Seater Dining Set', tags: ['dining', 'table', 'oak'] },
-  { id: 'ref-030', img: '/reference-vault/030-7bd7e8a977bf.png', room: 'dining', family: 'dining', title: 'Sculptural Round Travertine Dining Table', tags: ['dining', 'table', 'travertine'] },
-  { id: 'ref-031', img: '/reference-vault/031-6f3948f48928.png', room: 'pooja', family: 'pooja', title: '1200mm Teakwood Pooja Mandir with CNC Jaali', tags: ['pooja', 'mandir', 'jaali'] },
-  { id: 'ref-032', img: '/reference-vault/032-ae224c73b5dc.png', room: 'pooja', family: 'pooja', title: 'Modern Backlit Corian Mandir Shrine', tags: ['pooja', 'mandir', 'backlit'] },
-  { id: 'ref-033', img: '/reference-vault/033-9d09b620a75e.png', room: 'study', family: 'study', title: 'Ergonomic Wall-Mounted Floating Study Desk', tags: ['study', 'desk', 'floating'] },
-  { id: 'ref-034', img: '/reference-vault/034-355f624f691c.png', room: 'kitchen', family: 'kitchen-base', title: 'Tandem Cutlery & Pot Base Drawers', tags: ['kitchen', 'base', 'drawers'] },
-  { id: 'ref-035', img: '/reference-vault/035-78733d79d595.png', room: 'kitchen', family: 'kitchen-wall', title: 'Integrated Task Lighting Overhead Cabinet', tags: ['kitchen', 'overhead', 'lighting'] },
-  { id: 'ref-036', img: '/reference-vault/036-de959cf3df44.png', room: 'kitchen', family: 'kitchen-tall', title: 'Mid-Way Spice & Microwave Tall Unit', tags: ['kitchen', 'tall', 'microwave'] },
-  { id: 'ref-037', img: '/reference-vault/037-4dd8b6a25dc7.png', room: 'living', family: 'tv-unit', title: 'Marble Sintered Stone TV Feature Panel', tags: ['living', 'tv-unit', 'stone'] },
-  { id: 'ref-038', img: '/reference-vault/038-73c6d08adf93.png', room: 'living', family: 'tv-unit', title: 'French Wainscoting & Beading TV Wall', tags: ['living', 'tv-unit', 'wainscoting'] },
-  { id: 'ref-039', img: '/reference-vault/039-1786da704c5a.png', room: 'bedroom', family: 'wardrobe', title: 'Integrated Vanity with Mirror LED Wardrobe', tags: ['wardrobe', 'vanity', 'mirror'] },
-  { id: 'ref-040', img: '/reference-vault/040-a7dcd66e4242.png', room: 'bedroom', family: 'wardrobe', title: 'Leatherette Insert Shutter Wardrobe', tags: ['wardrobe', 'leather', 'luxe'] },
-  { id: 'ref-041', img: '/reference-vault/041-6770bf54ce43.png', room: 'dining', family: 'crockery', title: 'Gold Brushed Trim Glass Crockery Shelf', tags: ['dining', 'crockery', 'brass'] },
-  { id: 'ref-042', img: '/reference-vault/042-7eaf3dbfd306.png', room: 'living', family: 'sofa', title: 'Corner Sectional with Integrated End Table', tags: ['living', 'sofa', 'corner'] },
-  { id: 'ref-043', img: '/reference-vault/043-71833d244d0d.png', room: 'living', family: 'sofa', title: 'Velvet Emerald Green Accent Armchairs', tags: ['living', 'armchair', 'velvet'] },
-  { id: 'ref-044', img: '/reference-vault/044-577ed741688e.png', room: 'bedroom', family: 'bed', title: 'Tufted Velvet Headboard with Brass Trim', tags: ['bedroom', 'bed', 'velvet'] },
-  { id: 'ref-045', img: '/reference-vault/045-7ec65f321496.png', room: 'bedroom', family: 'bed', title: 'Kids Bunk Bed System with Study & Stairs', tags: ['bedroom', 'kids', 'bunk-bed'] },
-  { id: 'ref-046', img: '/reference-vault/046-fe27dfd45c96.png', room: 'dining', family: 'dining', title: '6-Seater Ceramic Top Expandable Table', tags: ['dining', 'table', 'ceramic'] },
-  { id: 'ref-047', img: '/reference-vault/047-c1ce4511e83d.png', room: 'dining', family: 'dining', title: 'Leather Upholstered Bucket Dining Chairs', tags: ['dining', 'chairs', 'leather'] },
-  { id: 'ref-048', img: '/reference-vault/048-ac94a44309b6.png', room: 'pooja', family: 'pooja', title: 'Brass Inlay Wooden Sacred Pooja Unit', tags: ['pooja', 'mandir', 'brass'] },
-  { id: 'ref-049', img: '/reference-vault/049-d1a18590223e.png', room: 'pooja', family: 'pooja', title: 'Pooja Cabinet with Sliding Jaali Doors', tags: ['pooja', 'mandir', 'sliding'] },
-  { id: 'ref-050', img: '/reference-vault/050-a2b533693ac2.png', room: 'study', family: 'study', title: 'Dual Workstation Home Office Library', tags: ['study', 'office', 'dual'] },
-  { id: 'ref-051', img: '/reference-vault/051-999d353af1d8.png', room: 'study', family: 'study', title: 'Compact Niche Study with Pinboard & Shelf', tags: ['study', 'niche', 'shelf'] },
-  { id: 'ref-052', img: '/reference-vault/052-1d6904ef55a3.png', room: 'study', family: 'study', title: 'Executive Walnut Desk with Leather Blotter', tags: ['study', 'desk', 'walnut'] },
-  { id: 'ref-053', img: '/reference-vault/053-edfb0eca9b46.png', room: 'utility', family: 'utility', title: 'Washing Machine Surround & Ironing Unit', tags: ['utility', 'laundry', 'storage'] },
-  { id: 'ref-054', img: '/reference-vault/054-c8fa00bd2c4b.png', room: 'utility', family: 'utility', title: 'Utility Sink Base Cabinet & Broom Tall Unit', tags: ['utility', 'sink', 'broom'] },
-  { id: 'ref-055', img: '/reference-vault/055-e94b19f0e93f.png', room: 'utility', family: 'utility', title: 'Overhead Drying Rack & Laundry Basket Niche', tags: ['utility', 'drying', 'laundry'] },
-  { id: 'ref-056', img: '/reference-vault/056-3bb2275767d2.png', room: 'storage', family: 'storage', title: 'Foyer Shoe Storage Bench with Cushion', tags: ['storage', 'foyer', 'shoe-rack'] },
-  { id: 'ref-057', img: '/reference-vault/057-da6cb4575090.png', room: 'storage', family: 'storage', title: 'Linen Closet with Slatted Ventilated Trays', tags: ['storage', 'linen', 'closet'] },
-  { id: 'ref-058', img: '/reference-vault/058-b3d36c0c874b.png', room: 'storage', family: 'storage', title: 'Under-Stair Pull-Out Storage Modules', tags: ['storage', 'under-stair', 'modular'] },
-  { id: 'ref-059', img: '/reference-vault/059-28205fff47ae.png', room: 'false-ceiling', family: 'false-ceiling', title: 'Cove Light Floating Gypsum False Ceiling', tags: ['false-ceiling', 'cove', 'lighting'] },
-  { id: 'ref-060', img: '/reference-vault/060-70075531f7e7.png', room: 'false-ceiling', family: 'false-ceiling', title: 'Wooden Rafters & Perimeter Magnetic Track Ceiling', tags: ['false-ceiling', 'rafter', 'magnetic-track'] },
+  { id: 'ref-018', img: '/reference-vault/018-b7dd5f1492fe.png', room: 'dining', family: 'crockery', title: '1800mm Full Height Bar & Wine Cabinet with Fluted Backing', tags: ['dining', 'bar', 'crockery', 'fluted'] },
+  { id: 'ref-019', img: '/reference-vault/019-a06a89855436.png', room: 'pooja', family: 'pooja', title: 'Modular Pooja Mandir Unit (Open & Shutter Variations)', tags: ['pooja', 'mandir', 'jaali', 'shutter'] },
+  { id: 'ref-020', img: '/reference-vault/020-ea872c640df6.png', room: 'pooja', family: 'pooja', title: 'Traditional Backlit Pooja Mandir with CNC Jaali Archway', tags: ['pooja', 'mandir', 'cnc-jaali', 'backlit'] },
+  { id: 'ref-021', img: '/reference-vault/021-5a47b71bad49.png', room: 'pooja', family: 'pooja', title: 'Isolated Product: 1000mm Mandir with Gold OM Mandala', tags: ['pooja', 'mandir', 'gold-om', 'isolated'] },
+  { id: 'ref-022', img: '/reference-vault/022-d6f4e9ee57d1.png', room: 'study', family: 'study', title: 'Floating Study Desk with Fluted Dark Oak Shutter & Bookshelf', tags: ['study', 'desk', 'fluted', 'bookshelf'] },
+  { id: 'ref-023', img: '/reference-vault/023-ae1e9b70744f.png', room: 'bedroom', family: 'wardrobe', title: '3200mm Beige Arched 4-Door Wardrobe & Floating Desk', tags: ['bedroom', 'wardrobe', 'arched', 'study'] },
+  { id: 'ref-024', img: '/reference-vault/024-5976bb27ca03.png', room: 'study', family: 'study', title: 'Study Workstation with Linear Ceiling Profile Lighting', tags: ['study', 'desk', 'workstation', 'lighting'] },
+  { id: 'ref-025', img: '/reference-vault/025-adb09122c8d1.png', room: 'bedroom', family: 'wardrobe', title: 'Sage Green Arched 4-Door Wardrobe with Glass LED Shelf', tags: ['bedroom', 'wardrobe', 'sage-green', 'glass-led'] },
+  { id: 'ref-026', img: '/reference-vault/026-ebca5fba9a3f.png', room: 'living', family: 'tv-unit', title: 'Living Hallway TV Wall with Marble & Emerald Flank Trims', tags: ['living', 'tv-unit', 'wainscoting', 'marble'] },
+  { id: 'ref-027', img: '/reference-vault/027-3ee9dcdaca5c.png', room: 'bathroom', family: 'vanity', title: '900mm Bathroom Vanity Ledge & Overhead Double-Shutter', tags: ['bathroom', 'vanity', 'cistern', 'overhead'] },
+  { id: 'ref-028', img: '/reference-vault/028-a8f62ab3d392.png', room: 'bathroom', family: 'vanity', title: '1200mm Concealed Cistern Vanity & Wall-Hung Basin', tags: ['bathroom', 'toilet', 'vanity', 'wall-hung'] },
+  { id: 'ref-029', img: '/reference-vault/029-640527178f8d.png', room: 'bathroom', family: 'vanity', title: '1500mm Bathroom Suite with Oval Backlit Mirror & Shutter', tags: ['bathroom', 'vanity', 'mirror', 'storage'] },
+  { id: 'ref-030', img: '/reference-vault/030-7bd7e8a977bf.png', room: 'bathroom', family: 'vanity', title: '1200mm Bathroom Concealed Cistern Wall & Cabinet', tags: ['bathroom', 'vanity', 'cistern', 'cabinet'] },
+  { id: 'ref-031', img: '/reference-vault/031-6f3948f48928.png', room: 'bathroom', family: 'vanity', title: '900mm Toilet Cistern Wall with Overhead Storage Cabinet', tags: ['bathroom', 'toilet', 'overhead-cabinet'] },
+  { id: 'ref-032', img: '/reference-vault/032-ae224c73b5dc.png', room: 'bathroom', family: 'vanity', title: '900mm Cistern Vanity Unit with Dual Shutter Loft', tags: ['bathroom', 'toilet', 'loft-storage'] },
+  { id: 'ref-033', img: '/reference-vault/033-9d09b620a75e.png', room: 'study', family: 'study', title: 'Architectural CAD Elevation: Study & Wardrobe Release', tags: ['study', 'cad-elevation', 'dimensions'] },
+  { id: 'ref-034', img: '/reference-vault/034-355f624f691c.png', room: 'living', family: 'feature-wall', title: 'Living Room Acoustic Slat Divider with Backlit Niches', tags: ['living', 'partition', 'slat-wall', 'backlit'] },
+  { id: 'ref-035', img: '/reference-vault/035-78733d79d595.png', room: 'bedroom', family: 'wardrobe', title: 'Sage Green Arched Wardrobe with Integrated Desk & LED Shelf', tags: ['bedroom', 'wardrobe', 'arched', 'desk'] },
+  { id: 'ref-036', img: '/reference-vault/036-de959cf3df44.png', room: 'utility', family: 'utility', title: '1800mm Laundry Counter with Washing Machine & Lofts', tags: ['utility', 'laundry', 'washing-machine', 'dishwasher'] },
+  { id: 'ref-037', img: '/reference-vault/037-4dd8b6a25dc7.png', room: 'bedroom', family: 'feature-wall', title: 'Bedroom Feature Wall with Recessed LED Cove Lighting', tags: ['bedroom', 'feature-wall', 'cove-lighting', 'lofts'] },
+  { id: 'ref-038', img: '/reference-vault/038-73c6d08adf93.png', room: 'bedroom', family: 'wardrobe', title: 'Arched Shutter Kids Wardrobe with Built-In Study & Shelf', tags: ['bedroom', 'wardrobe', 'kids', 'study'] },
+  { id: 'ref-039', img: '/reference-vault/039-1786da704c5a.png', room: 'kitchen', family: 'kitchen-base', title: '2400mm Kitchen Base & Fluted Glass Overhead Cabinets', tags: ['kitchen', 'base', 'overhead', 'terrazzo'] },
+  { id: 'ref-040', img: '/reference-vault/040-a7dcd66e4242.png', room: 'bedroom', family: 'wardrobe', title: '2000mm 4-Door Suede & Dark Oak Corridor Wardrobe', tags: ['bedroom', 'wardrobe', 'corridor', 'suede'] },
+  { id: 'ref-041', img: '/reference-vault/041-6770bf54ce43.png', room: 'bedroom', family: 'wardrobe', title: '2000mm 4-Door Stepped Two-Tone Passage Wardrobe', tags: ['bedroom', 'wardrobe', 'two-tone', 'lofts'] },
+  { id: 'ref-042', img: '/reference-vault/042-7eaf3dbfd306.png', room: 'kitchen', family: 'kitchen-base', title: 'L-Shaped Kitchen with White Base, Oak Overheads & Lofts', tags: ['kitchen', 'l-shaped', 'acrylic', 'oak'] },
+  { id: 'ref-043', img: '/reference-vault/043-71833d244d0d.png', room: 'bedroom', family: 'wardrobe', title: '2900mm Wardrobe with Integrated Desk & Backlit Niche', tags: ['bedroom', 'wardrobe', 'study', 'lofts'] },
+  { id: 'ref-044', img: '/reference-vault/044-577ed741688e.png', room: 'bedroom', family: 'wardrobe', title: 'CAD Release: 2900W × 2790H Wardrobe & Study Elevation', tags: ['bedroom', 'wardrobe', 'cad-elevation', 'dimensions'] },
+  { id: 'ref-045', img: '/reference-vault/045-7ec65f321496.png', room: 'bedroom', family: 'wardrobe', title: 'Sage Green Wardrobe Suite with Glass LED Display Tower', tags: ['bedroom', 'wardrobe', 'sage-green', 'display-tower'] },
+  { id: 'ref-046', img: '/reference-vault/046-fe27dfd45c96.png', room: 'bedroom', family: 'feature-wall', title: 'Master Bed Feature Wall with Vertical LED Lighting Strip', tags: ['bedroom', 'feature-wall', 'led-strip', 'lofts'] },
+  { id: 'ref-047', img: '/reference-vault/047-c1ce4511e83d.png', room: 'bedroom', family: 'bed', title: 'Master Bedroom Suite: King Bed, Fluted 4-Door Wardrobe & Vanity', tags: ['bedroom', 'bed', 'wardrobe', 'vanity'] },
+  { id: 'ref-048', img: '/reference-vault/048-ac94a44309b6.png', room: 'kitchen', family: 'kitchen-tall', title: 'Kitchen Counter with Fluted Glass & Rolling Shutter Garage', tags: ['kitchen', 'rolling-shutter', 'appliance-garage', 'drawers'] },
+  { id: 'ref-049', img: '/reference-vault/049-d1a18590223e.png', room: 'bedroom', family: 'bed', title: 'Master Bedroom Dossier: Floor Plan, 3D Elevation & Swatches', tags: ['bedroom', 'floor-plan', 'dossier', 'material-swatch'] },
+  { id: 'ref-050', img: '/reference-vault/050-a2b533693ac2.png', room: 'kitchen', family: 'kitchen-base', title: 'Kitchen Base & Glass Overheads with Wood Slats Feature', tags: ['kitchen', 'fluted-glass', 'wood-slats', 'terrazzo'] },
+  { id: 'ref-051', img: '/reference-vault/051-999d353af1d8.png', room: 'living', family: 'tv-unit', title: '2700mm TV Media Wall with Travertine, Louvers & Glass Cabinet', tags: ['living', 'tv-unit', 'travertine', 'louvers', 'glass-cabinet'] },
+  { id: 'ref-052', img: '/reference-vault/052-1d6904ef55a3.png', room: 'kitchen', family: 'kitchen-tall', title: 'Minimalist Kitchen with Built-In Dual Oven Tower & Plinth LED', tags: ['kitchen', 'tall-tower', 'built-in-oven', 'plinth-led'] },
+  { id: 'ref-053', img: '/reference-vault/053-edfb0eca9b46.png', room: 'kitchen', family: 'kitchen-base', title: 'Kitchen Sink Counter with Fluted Glass Overheads & Wood Niche', tags: ['kitchen', 'sink-unit', 'fluted-glass', 'open-shelf'] },
+  { id: 'ref-054', img: '/reference-vault/054-c8fa00bd2c4b.png', room: 'bedroom', family: 'wardrobe', title: '2500mm 3-Door Wardrobe with Integrated Study & Pinboard', tags: ['bedroom', 'wardrobe', 'study', 'pedestal-drawers'] },
+  { id: 'ref-055', img: '/reference-vault/055-e94b19f0e93f.png', room: 'kitchen', family: 'kitchen-base', title: 'L-Shaped Kitchen with White Base, Teak Overheads & Fridge Bay', tags: ['kitchen', 'l-shaped', 'refrigerator-bay', 'teak'] },
+  { id: 'ref-056', img: '/reference-vault/056-3bb2275767d2.png', room: 'kitchen', family: 'kitchen-tall', title: 'Straight Kitchen with Microwave Tall Unit & Fluted Glass Display', tags: ['kitchen', 'microwave-unit', 'fluted-glass', 'straight-line'] },
+  { id: 'ref-057', img: '/reference-vault/057-da6cb4575090.png', room: 'kitchen', family: 'kitchen-base', title: 'L-Shaped Kitchen with Marble Top, Bronze Tap & Teak Overheads', tags: ['kitchen', 'marble', 'bronze-faucet', 'l-shaped'] },
+  { id: 'ref-058', img: '/reference-vault/058-b3d36c0c874b.png', room: 'living', family: 'tv-unit', title: '2600mm TV Panel with White Fluted Surround & Halo LED Light', tags: ['living', 'tv-unit', 'halo-light', 'floating-console'] },
+  { id: 'ref-059', img: '/reference-vault/059-28205fff47ae.png', room: 'kitchen', family: 'kitchen-tall', title: 'Minimalist Kitchen with Dual Oven Tower & Gas Cooktop', tags: ['kitchen', 'tall-tower', 'cooktop', 'microwave'] },
+  { id: 'ref-060', img: '/reference-vault/060-70075531f7e7.png', room: 'bedroom', family: 'bed', title: 'Master Bedroom Suite: King Bed, 6-Door Wardrobe & Study Desk', tags: ['bedroom', 'suite', 'king-bed', '6-door-wardrobe'] },
 ];
 
 const DEFAULT_PROJECT_MATERIALS: Material[] = [
-  // ─── HIGH-GLOSS & ACRYLIC LAMINATES (Glossy) ───
-  { id: 'mat-gloss-1', name: 'Mirror High-Gloss Pure White Acrylic', code: 'ROY-HG-WHT-12', category: 'laminate', finish: 'High-Gloss Acrylic Sheen', thickness_mm: 1.2, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#FFFFFF' } },
-  { id: 'mat-gloss-2', name: 'Ultra High-Gloss Cashmere Acrylic', code: 'ROY-HG-CSH-10', category: 'laminate', finish: 'Ultra-Gloss Acrylic', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#E3DAC9' } },
-  { id: 'mat-gloss-3', name: 'Ultra High-Gloss Anthracite Acrylic', code: 'ROY-HG-ANT-10', category: 'laminate', finish: 'Mirror Gloss Acrylic', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#2C3038' } },
-  { id: 'mat-gloss-4', name: 'High-Gloss Champagne Metallic', code: 'MER-HG-CHP-08', category: 'laminate', finish: 'High-Gloss Metallic', thickness_mm: 0.8, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Merino', availability: 'in_stock', metadata: { colorHex: '#F0E6D2' } },
-  { id: 'mat-gloss-5', name: 'Mirror Polygloss Emerald Green', code: 'STY-PG-EMR-10', category: 'laminate', finish: 'Mirror Polygloss', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Stylam', availability: 'in_stock', metadata: { colorHex: '#1B4D3E' } },
+  // ─── HIGH-GLOSS & ACRYLIC ───
+  { id: 'mat-gloss-1', name: 'Mirror High-Gloss Pure White Acrylic', code: 'ROY-HG-WHT', category: 'laminate', finish: 'High-Gloss Acrylic Sheen (1.2mm)', thickness_mm: 1.2, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#FFFFFF' } },
+  { id: 'mat-gloss-2', name: 'Ultra High-Gloss Cashmere Acrylic', code: 'ROY-HG-CSH', category: 'laminate', finish: 'Ultra-Gloss Acrylic (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#E3DAC9' } },
+  { id: 'mat-gloss-3', name: 'Ultra High-Gloss Anthracite Acrylic', code: 'ROY-HG-ANT', category: 'laminate', finish: 'Mirror Gloss Acrylic (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#2C3038' } },
 
-  // ─── SUPER-MATTE & ZERO-G LAMINATES (Matte) ───
-  { id: 'mat-matte-1', name: 'Zero-G Anti-Fingerprint Sandstone Matte', code: 'MER-ZG-SND-10', category: 'laminate', finish: 'Anti-Fingerprint Zero-G Matte', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Merino Laminates', availability: 'in_stock', metadata: { colorHex: '#C9B59B' } },
-  { id: 'mat-matte-2', name: 'Deep Nero Ingo Super-Matte', code: 'FNX-SM-NERO-10', category: 'laminate', finish: 'Thermal Healing Super-Matte', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Fenix NTM', availability: 'in_stock', metadata: { colorHex: '#18181B' } },
-  { id: 'mat-matte-3', name: 'Forest Green Anti-Fingerprint Matte', code: 'VRG-AF-GRN-10', category: 'laminate', finish: 'Soft-Touch Matte', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Virgo', availability: 'in_stock', metadata: { colorHex: '#38463A' } },
-  { id: 'mat-matte-4', name: 'Graphite Velvet Suede Matte', code: 'ADV-SD-GRP-08', category: 'laminate', finish: 'Velvet Suede Matte', thickness_mm: 0.8, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Advance', availability: 'in_stock', metadata: { colorHex: '#303234' } },
-  { id: 'mat-matte-5', name: 'Silk Touch Velvet Sage Matte', code: 'ROY-ST-SGE-10', category: 'laminate', finish: 'Silk Touch Soft Matte', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#8A9A86' } },
+  // ─── SUPER-MATTE ───
+  { id: 'mat-matte-1', name: 'Zero-G Anti-Fingerprint Sandstone Matte', code: 'MER-ZG-SND', category: 'laminate', finish: 'Soft-Touch Zero-G Matte (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Merino', availability: 'in_stock', metadata: { colorHex: '#C9B59B' } },
+  { id: 'mat-matte-2', name: 'Deep Nero Ingo Super-Matte', code: 'FNX-SM-NERO', category: 'laminate', finish: 'Thermal Healing Super-Matte (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Fenix NTM', availability: 'in_stock', metadata: { colorHex: '#18181B' } },
+  { id: 'mat-matte-3', name: 'Silk Touch Velvet Sage Matte', code: 'ROY-ST-SGE', category: 'laminate', finish: 'Silk Touch Soft Matte (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#8A9A86' } },
 
-  // ─── TEXTURED WOODGRAINS & VENEERS ───
-  { id: 'mat-wood-1', name: 'Smoked Walnut Heavy Grain', code: 'CBX-WG-WLN-10', category: 'laminate', finish: 'Synchronized Natural Grain', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Cubex', availability: 'in_stock', metadata: { colorHex: '#654230' } },
-  { id: 'mat-wood-2', name: 'Natural Dune Oak Textured', code: 'VRG-WG-OAK-08', category: 'laminate', finish: 'Natural Dune Woodgrain', thickness_mm: 0.8, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Virgo', availability: 'in_stock', metadata: { colorHex: '#A77B5B' } },
-  { id: 'mat-wood-3', name: 'Royal Smoked Oak Slat Wood', code: 'VRG-WG-SMK-10', category: 'laminate', finish: 'Satin Smoked Woodgrain', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Virgo', availability: 'in_stock', metadata: { colorHex: '#5A473B' } },
-  { id: 'mat-wood-4', name: 'Synchronized Bavarian Teak', code: 'ADV-WG-TEAK-10', category: 'laminate', finish: 'Embossed-in-Register Teak', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Advance', availability: 'in_stock', metadata: { colorHex: '#8C5832' } },
+  // ─── WOODGRAIN & FLUTED ───
+  { id: 'mat-wood-1', name: 'Smoked Crown Walnut Veneer', code: 'CBX-WG-WLN', category: 'laminate', finish: 'Synchronized Natural Grain (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Cubex', availability: 'in_stock', metadata: { colorHex: '#654230' } },
+  { id: 'mat-wood-2', name: 'Natural Dune Oak Textured', code: 'VRG-WG-OAK', category: 'laminate', finish: 'Natural Dune Woodgrain (0.8mm)', thickness_mm: 0.8, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Virgo', availability: 'in_stock', metadata: { colorHex: '#A77B5B' } },
+  { id: 'mat-flute-1', name: 'Fluted Charcoal Matte PU Panel', code: 'ROY-FLUTE-PU', category: 'laminate', finish: 'Fluted Suede PU Touch (18mm)', thickness_mm: 18, edge_band_status: 'not_required', supplier: 'Royal Crown', availability: 'in_stock', metadata: { colorHex: '#332F2C' } },
 
-  // ─── FLUTED & SUEDE ARCHITECTURAL PANELS ───
-  { id: 'mat-flute-1', name: 'Fluted Charcoal Matte PU Cladding Panel', code: 'ROY-FLUTE-PU-18', category: 'laminate', finish: 'Fluted Suede PU Touch (18mm)', thickness_mm: 18, edge_band_status: 'not_required', supplier: 'Royal Crown', availability: 'in_stock', metadata: { colorHex: '#332F2C' } },
-  { id: 'mat-flute-2', name: 'Parisian Boiserie Moulding Panel', code: 'ADV-BSR-PARIS-18', category: 'laminate', finish: 'Satin Lacquer French Moulding', thickness_mm: 18, edge_band_status: 'not_required', supplier: 'Advance', availability: 'in_stock', metadata: { colorHex: '#F0ECE1' } },
-
-  // ─── BASE PLY & CORE BOARDS (Substrates) ───
-  { id: 'mat-core-1', name: 'Action TESA 18mm HDHMR Green Core Board', code: 'CORE-HDHMR-18', category: 'core_panel', finish: 'High Density Moisture Resistant (850 kg/m³)', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Action TESA', availability: 'in_stock', metadata: { colorHex: '#6E8B76' } },
-  { id: 'mat-core-2', name: 'Action TESA 12mm HDHMR Core Board', code: 'CORE-HDHMR-12', category: 'core_panel', finish: 'Moisture Resistant Substrate', thickness_mm: 12, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Action TESA', availability: 'in_stock', metadata: { colorHex: '#7D9984' } },
-  { id: 'mat-core-3', name: 'CenturyPly 19mm Club Prime 710 BWP Marine Ply', code: 'CORE-BWP-19', category: 'core_panel', finish: 'Boiling Water Proof Calibrated Hardwood', thickness_mm: 19, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'CenturyPly', availability: 'in_stock', metadata: { colorHex: '#9B744A' } },
-  { id: 'mat-core-4', name: 'Greenply 18mm Ecotec BWR Grade Hardwood Ply', code: 'CORE-BWR-18', category: 'core_panel', finish: 'Boiling Water Resistant Hardwood', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Greenply', availability: 'in_stock', metadata: { colorHex: '#84613C' } },
-  { id: 'mat-core-5', name: 'National Ply 18mm IS:303 Commercial MR Ply', code: 'CORE-MR-18', category: 'core_panel', finish: 'Moisture Resistant Interior Ply', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'National Ply', availability: 'in_stock', metadata: { colorHex: '#A37F58' } },
-  { id: 'mat-core-6', name: 'Riga 18mm 13-Ply Calibrated European Birch Ply', code: 'CORE-BIRCH-18', category: 'core_panel', finish: 'Multi-Ply Exposed Edge Calibrated Core', thickness_mm: 18, edge_band_status: 'not_required', supplier: 'Riga Ply', availability: 'in_stock', metadata: { colorHex: '#D2B48C' } },
-  { id: 'mat-core-7', name: 'Action TESA 18mm Interior CNC Carving MDF', code: 'CORE-MDF-18', category: 'core_panel', finish: 'Homogeneous Fine Fibre Carving Board', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Action TESA', availability: 'in_stock', metadata: { colorHex: '#C2A682' } },
-
-  // ─── STONE & COUNTERTOPS ───
-  { id: 'mat-slab-1', name: 'Calacatta Gold Bookmatched Sintered Porcelain Slab', code: 'SLAB-CAL-GOLD', category: 'countertop', finish: 'Bookmatched Polished (12mm)', thickness_mm: 12, edge_band_status: 'not_required', supplier: 'Laminam', availability: 'in_stock', metadata: { colorHex: '#F4F1EA' } },
+  // ─── STONE, GLASS & HARDWARE ───
+  { id: 'mat-slab-1', name: 'Calacatta Gold Sintered Porcelain Slab', code: 'SLAB-CAL-GOLD', category: 'countertop', finish: 'Bookmatched Polished (12mm)', thickness_mm: 12, edge_band_status: 'not_required', supplier: 'Laminam', availability: 'in_stock', metadata: { colorHex: '#F4F1EA' } },
   { id: 'mat-slab-2', name: 'Roman Travertine Honed Stone Slab', code: 'SLAB-TRAV-ROMAN', category: 'countertop', finish: 'Honed Matte Unfilled (20mm)', thickness_mm: 20, edge_band_status: 'not_required', supplier: 'Artisan Stone Works', availability: 'in_stock', metadata: { colorHex: '#CFBC9F' } },
-  { id: 'mat-slab-3', name: 'Nero Marquina Black Porcelain Slab', code: 'SLAB-MARQ-12', category: 'countertop', finish: 'Satin Velvet Porcelain (12mm)', thickness_mm: 12, edge_band_status: 'not_required', supplier: 'Laminam', availability: 'in_stock', metadata: { colorHex: '#1E1E22' } },
-  { id: 'mat-slab-4', name: 'Venetian Terrazzo Beige Anti-Scratch', code: 'SLAB-TRZ-BEIGE', category: 'countertop', finish: 'Anti-Scratch Textured (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Advance', availability: 'in_stock', metadata: { colorHex: '#BBA99B' } },
-
-  // ─── PROFILE GLASS & HARDWARE ───
   { id: 'mat-glas-1', name: 'Tinted Fluted Aluminium Profile Glass', code: 'GLAS-FLUTED-TINT', category: 'profile_glass', finish: 'Graphite Anodized Profile (8mm)', thickness_mm: 8, edge_band_status: 'not_required', supplier: 'Hafele Glass', availability: 'in_stock', metadata: { colorHex: '#4D5557' } },
-  { id: 'mat-hard-1', name: 'Blum Aventos HF Bi-Fold Lift System', code: 'HARD-BLUM-AVENTOS', category: 'hardware', finish: 'Stay-Lift Bi-Fold Mechanism', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Blum Austria', availability: 'in_stock', metadata: { colorHex: '#CBD5E1' } },
-  { id: 'mat-hard-2', name: 'Blum Tandembox Antaro Soft-Close Drawers', code: 'HARD-BLUM-ANTARO', category: 'hardware', finish: 'Silk White 500mm / 65kg', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Blum Austria', availability: 'in_stock', metadata: { colorHex: '#E4E4E7' } },
-  { id: 'mat-hard-3', name: 'Camar 807 Heavy Duty Wall Hanging Bracket', code: 'HARD-CAMAR-807', category: 'hardware', finish: 'Zinc Plated Steel (240kg load/pair)', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Camar Italy', availability: 'in_stock', metadata: { colorHex: '#A1A1AA' } },
-  { id: 'mat-hard-4', name: 'Hettich Sensys 110° Soft-Close Hinges', code: 'HARD-HET-SENSYS', category: 'hardware', finish: 'Obsidian Black Concealed Hinge', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Hettich Germany', availability: 'in_stock', metadata: { colorHex: '#94A3B8' } },
+  { id: 'mat-hard-4', name: 'Hettich Sensys Obsidian Soft-Close Hinges', code: 'HARD-HET-SENSYS', category: 'hardware', finish: 'Concealed Obsidian Black Hinge', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Hettich Germany', availability: 'in_stock', metadata: { colorHex: '#94A3B8' } },
+
+  // ─── BASE PLY & SUBSTRATES ───
+  { id: 'mat-core-1', name: 'Action TESA 18mm HDHMR Green Core Board', code: 'CORE-HDHMR-18', category: 'core_panel', finish: 'High Density Moisture Resistant (850 kg/m³)', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Action TESA', availability: 'in_stock', metadata: { colorHex: '#6E8B76' } },
+  { id: 'mat-core-3', name: 'CenturyPly 19mm Club Prime 710 BWP Marine Ply', code: 'CORE-BWP-19', category: 'core_panel', finish: 'Boiling Water Proof Calibrated Hardwood', thickness_mm: 19, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'CenturyPly', availability: 'in_stock', metadata: { colorHex: '#9B744A' } },
 ];
 
 function stableImageForModule(module: CatalogModule) {
@@ -427,22 +406,13 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
         return /matte|suede|zero-g|anti-fingerprint|soft-touch|velvet/i.test(`${item.name} ${item.finish} ${item.code}`) && !/gloss/i.test(`${item.name} ${item.finish}`);
       }
       if (materialCategory === 'woodgrain') {
-        return /wood|oak|walnut|teak|birch|grain|veneer/i.test(`${item.name} ${item.finish} ${item.category}`);
+        return /wood|oak|walnut|teak|birch|grain|veneer|flute|boiserie|slat/i.test(`${item.name} ${item.finish} ${item.category}`);
       }
-      if (materialCategory === 'fluted') {
-        return /flute|boiserie|slat|moulding|panel/i.test(`${item.name} ${item.finish} ${item.category}`);
+      if (materialCategory === 'countertop') {
+        return /countertop|slab|marble|travertine|porcelain|granite|sintered|terrazzo|stone|glass|profile|hardware|hinge|bracket/i.test(`${item.name} ${item.category} ${item.finish}`);
       }
       if (materialCategory === 'core_panel') {
         return /core|hdhmr|ply|plywood|marine|bwp|bwr|mdf|particle/i.test(`${item.name} ${item.category} ${item.code}`);
-      }
-      if (materialCategory === 'countertop') {
-        return /countertop|slab|marble|travertine|porcelain|granite|sintered|terrazzo|stone/i.test(`${item.name} ${item.category} ${item.finish}`);
-      }
-      if (materialCategory === 'profile_glass') {
-        return /glass|profile/i.test(`${item.name} ${item.category}`);
-      }
-      if (materialCategory === 'hardware') {
-        return /hardware|bracket|drawer|hinge|tandem|blum|hettich|camar|avent/i.test(`${item.name} ${item.category}`);
       }
       return item.category === materialCategory;
     });
@@ -746,7 +716,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
         {([
           ['modules', 'Modular Templates', LibraryIcon, visibleModules.length],
           ['moodboard', 'Moodboard Studio', Sparkles, moodboardItems.length],
-          ['templates', 'Studio References', BookOpen, visibleTemplates.length],
+          ['templates', 'Studio References', BookOpen, CURATED_VAULT_REFERENCES.length],
           ['materials', 'Project Materials', Palette, visibleMaterials.length],
         ] as const).map(([id, label, Icon, count]) => (
           <button key={id} onClick={() => setActiveTab(id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', fontSize: 14, fontWeight: 700, color: activeTab === id ? '#8a6244' : '#78716c', borderBottom: activeTab === id ? '2.5px solid #c59c2d' : '2.5px solid transparent', background: activeTab === id ? 'rgba(197,156,45,0.06)' : 'none', borderRadius: '8px 8px 0 0', borderTop: 0, borderLeft: 0, borderRight: 0, cursor: 'pointer', transition: 'all 0.15s ease' }}>
@@ -1173,25 +1143,24 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
         <Card className="workflow">
           {/* Quick Filter Category Chips */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>
-            {[
-              ['all', '✨ All 60 References', 'all'],
-              ['living', '🛋️ Living & Lounges', 'living'],
-              ['bedroom', '🛏️ Bedrooms & Beds', 'bedroom'],
-              ['wardrobe', '🚪 Wardrobes & Closets', 'wardrobe'],
-              ['kitchen', '🍳 Modular Kitchens', 'kitchen'],
+            {([
+              ['all', '✨ All References', 'all'],
+              ['living', '🛋️ Living & TV Walls', 'living'],
+              ['bedroom', '🛏️ Bedrooms & Wardrobes', 'bedroom'],
+              ['kitchen', '🍳 Kitchens', 'kitchen'],
               ['dining', '🍽️ Dining & Bars', 'dining'],
+              ['bathroom', '🚿 Bathrooms & Vanity', 'bathroom'],
               ['pooja', '🪔 Sacred Mandirs', 'pooja'],
               ['study', '💼 Study & Desks', 'study'],
               ['utility', '🧺 Utility & Laundry', 'utility'],
-              ['storage', '🗄️ Foyer & Storage', 'storage'],
-              ['false-ceiling', '✨ False Ceilings', 'false-ceiling'],
-            ].map(([k, label, fRoom]) => {
+            ] as const).map(([k, label, fRoom]) => {
               const isActive = (vaultRoom === fRoom);
+              const chipCount = fRoom === 'all' ? CURATED_VAULT_REFERENCES.length : CURATED_VAULT_REFERENCES.filter(r => r.room === fRoom || r.family === fRoom).length;
               return (
                 <button
                   key={k}
                   type="button"
-                  onClick={() => setVaultRoom(isActive && fRoom !== 'all' ? 'all' : (fRoom as any))}
+                  onClick={() => setVaultRoom(isActive && fRoom !== 'all' ? 'all' : fRoom)}
                   style={{
                     padding: '6px 12px',
                     borderRadius: 999,
@@ -1202,9 +1171,11 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                     fontWeight: 700,
                     cursor: 'pointer',
                     transition: 'all 0.15s ease',
+                    display: 'flex', alignItems: 'center', gap: 5,
                   }}
                 >
                   {label}
+                  <span style={{ fontSize: 10, opacity: 0.7, background: isActive ? 'rgba(197,156,45,0.2)' : '#f3efe7', borderRadius: 99, padding: '1px 5px' }}>{chipCount}</span>
                 </button>
               );
             })}
@@ -1364,15 +1335,12 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           {/* Quick Filter Category Chips for Materials */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>
             {[
-              ['all', '✨ All Materials', 'all'],
-              ['glossy', '✨ High-Gloss & Acrylic', 'glossy'],
-              ['matte', '🛡️ Super-Matte & Zero-G', 'matte'],
-              ['woodgrain', '🌲 Woodgrains & Veneers', 'woodgrain'],
-              ['fluted', '🏛️ Fluted & Boiserie Panels', 'fluted'],
-              ['core_panel', '🪵 Base Ply & Core Boards', 'core_panel'],
-              ['countertop', '💎 Sintered Stone & Marble', 'countertop'],
-              ['profile_glass', '🪟 Profile Glass', 'profile_glass'],
-              ['hardware', '⚙️ Hardware & Fittings', 'hardware'],
+              ['all', '✨ All', 'all'],
+              ['glossy', '💎 High-Gloss & Acrylic', 'glossy'],
+              ['matte', '🛡️ Super-Matte', 'matte'],
+              ['woodgrain', '🪵 Woodgrain & Fluted', 'woodgrain'],
+              ['countertop', '🏛️ Stone, Glass & Hardware', 'countertop'],
+              ['core_panel', '🪵 Base Ply & Core', 'core_panel'],
             ].map(([k, label, fCat]) => {
               const isActive = (materialCategory === fCat);
               return (
@@ -1381,7 +1349,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                   type="button"
                   onClick={() => setMaterialCategory(fCat)}
                   style={{
-                    padding: '6px 12px',
+                    padding: '6px 14px',
                     borderRadius: 999,
                     border: isActive ? '1.5px solid var(--gold)' : '1px solid #d6d3d1',
                     background: isActive ? 'rgba(197,156,45,0.12)' : '#fff',

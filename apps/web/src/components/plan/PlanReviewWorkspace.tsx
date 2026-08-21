@@ -288,6 +288,139 @@ function resolveRoomOverlaps(roomElements: PlanElement[]): PlanElement[] {
   return [...others, ...adjusted];
 }
 
+function autoSynthesizePartitionWallsAndOpenings(existingElements: PlanElement[], ceilingH = 2700): PlanElement[] {
+  const rooms = existingElements.filter((e) => e.kind === 'room' && e.status !== 'rejected');
+  if (!rooms.length) return existingElements;
+
+  const existingWalls = existingElements.filter((e) => e.kind === 'wall' && e.status !== 'rejected');
+  const otherElements = existingElements.filter((e) => e.kind !== 'wall' && e.kind !== 'room');
+
+  const hasWallSegment = (p1: Point, p2: Point, tolerance = 30) => {
+    return existingWalls.some((w) => {
+      const { x1, y1, x2, y2 } = w.geometry;
+      if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) return false;
+      const d1 = Math.hypot(x1 - p1.x, y1 - p1.y) + Math.hypot(x2 - p2.x, y2 - p2.y);
+      const d2 = Math.hypot(x1 - p2.x, y1 - p2.y) + Math.hypot(x2 - p1.x, y2 - p1.y);
+      return d1 < tolerance * 2 || d2 < tolerance * 2;
+    });
+  };
+
+  const newWalls: PlanElement[] = [...existingWalls];
+  const newOpenings: PlanElement[] = [...existingElements.filter(e => e.kind === 'door' || e.kind === 'window')];
+
+  const hasOpeningNear = (x: number, y: number, tolerance = 40) => {
+    return newOpenings.some((op) => {
+      const gx = op.geometry.x ?? 0;
+      const gy = op.geometry.y ?? 0;
+      return Math.hypot(gx - x, gy - y) < tolerance;
+    });
+  };
+
+  rooms.forEach((room) => {
+    const poly = room.geometry.polygon ?? (
+      room.geometry.x !== undefined && room.geometry.y !== undefined && room.geometry.width && room.geometry.height
+        ? [
+            { x: room.geometry.x, y: room.geometry.y },
+            { x: room.geometry.x + room.geometry.width, y: room.geometry.y },
+            { x: room.geometry.x + room.geometry.width, y: room.geometry.y + room.geometry.height },
+            { x: room.geometry.x, y: room.geometry.y + room.geometry.height },
+          ]
+        : []
+    );
+
+    if (poly.length < 3) return;
+
+    for (let i = 0; i < poly.length; i++) {
+      const p1 = poly[i];
+      const p2 = poly[(i + 1) % poly.length];
+      const lengthPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      if (lengthPx < 10) continue;
+
+      if (!hasWallSegment(p1, p2, 25)) {
+        const wallId = `wall-syn-${room.id}-${i + 1}-${Math.round(p1.x + p2.x)}`;
+        const isExternal = p1.x < 140 || p2.x < 140 || p1.y < 160 || p2.y < 160 || p1.x > 860 || p2.x > 860 || p1.y > 720 || p2.y > 720;
+        const newWall: PlanElement = {
+          id: wallId,
+          kind: 'wall',
+          label: `${room.label} ${isExternal ? 'Exterior' : 'Partition'} Wall`,
+          confidence: 0.98,
+          status: 'accepted',
+          color: isExternal ? '#1d4ed8' : '#2563eb',
+          geometry: { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y },
+          dimensionMm: Math.round(lengthPx * 15),
+          thicknessMm: isExternal ? 230 : 150,
+          heightMm: ceilingH,
+        };
+        newWalls.push(newWall);
+
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+
+        if (!isExternal && lengthPx > 35 && !hasOpeningNear(midX, midY, 35)) {
+          newOpenings.push({
+            id: `door-syn-${room.id}-${i + 1}`,
+            kind: 'door',
+            label: `${room.label} Door Entry`,
+            wallId: wallId,
+            confidence: 0.95,
+            status: 'accepted',
+            color: '#059669',
+            geometry: { x: midX, y: midY, width: 24 },
+            widthMm: 900,
+            heightMm: 2100,
+          });
+        } else if (isExternal && lengthPx > 45 && !hasOpeningNear(midX, midY, 40)) {
+          newOpenings.push({
+            id: `win-syn-${room.id}-${i + 1}`,
+            kind: 'window',
+            label: `${room.label} Window`,
+            wallId: wallId,
+            confidence: 0.94,
+            status: 'accepted',
+            color: '#0284c7',
+            geometry: { x: midX, y: midY, width: 36 },
+            widthMm: 1500,
+            sillMm: 900,
+            headMm: 2100,
+          });
+        }
+      }
+    }
+  });
+
+  const enhancedRooms = rooms.map((r) => {
+    let floorType = 'French Light Oak Herringbone';
+    let floorColor = '#c9a87c';
+    const name = (r.label || r.roomType || '').toLowerCase();
+
+    if (name.includes('bath') || name.includes('toilet') || name.includes('wash')) {
+      floorType = 'Anti-Skid Vitrified Ceramic Tiles';
+      floorColor = '#b8c5c7';
+    } else if (name.includes('kitchen')) {
+      floorType = 'Roman Travertine Stone Slab';
+      floorColor = '#cfbc9f';
+    } else if (name.includes('bed')) {
+      floorType = 'Smoked Walnut Hardwood Plank';
+      floorColor = '#8c6239';
+    } else if (name.includes('balcony') || name.includes('parking') || name.includes('terrace')) {
+      floorType = 'Flamed Granite Paving';
+      floorColor = '#71717a';
+    }
+
+    return {
+      ...r,
+      status: 'accepted' as const,
+      floorFinish: floorType,
+      floorColor,
+    };
+  });
+
+  const uniqueWalls = Array.from(new Map(newWalls.map(w => [w.id, w])).values());
+  const uniqueOpenings = Array.from(new Map(newOpenings.map(o => [o.id, o])).values());
+
+  return [...otherElements.filter(e => e.kind !== 'door' && e.kind !== 'window'), ...enhancedRooms, ...uniqueWalls, ...uniqueOpenings];
+}
+
 // ─── Main Component ───────────────────────────────────────────────
 export function PlanReviewWorkspace({
   sourceAssetId,
@@ -527,6 +660,12 @@ export function PlanReviewWorkspace({
     } else {
       setContinuationHint('Upload an architectural plan file to run AI Vision Analysis.');
     }
+  };
+
+  const handleAutoEnhanceFullPlan = () => {
+    const enhanced = autoSynthesizePartitionWallsAndOpenings(elements, ceilingHeightMm ?? 2700);
+    commitElements(enhanced);
+    setContinuationHint('✨ AI Auto-Enhanced Plan: Generated all interior partition walls, doors, windows, and custom room flooring!');
   };
   const undo = () => {
     setUndoStack((stack) => {
@@ -1108,31 +1247,11 @@ export function PlanReviewWorkspace({
     const mmPerPixel = effectiveScale.mmPerPixel;
     const effectiveSourceAssetId = sourceAssetId || `source-plan-${Date.now()}`;
 
-    // Ensure we have rooms and walls
-    let activeElements = approvalElements.length ? approvalElements : elements.filter((e) => e.status !== 'rejected');
-    if (!activeElements.some((e) => e.kind === 'wall') && activeElements.some((e) => e.kind === 'room')) {
-      const roomAdditions: PlanElement[] = [];
-      for (const room of activeElements.filter((e) => e.kind === 'room')) {
-        const poly = room.geometry.polygon ?? [];
-        for (let i = 0; i < poly.length; i++) {
-          const p1 = poly[i];
-          const p2 = poly[(i + 1) % poly.length];
-          roomAdditions.push({
-            id: crypto.randomUUID(),
-            kind: 'wall',
-            label: `${room.label} Wall ${i + 1}`,
-            confidence: 0.95,
-            status: 'accepted',
-            color: '#2563eb',
-            geometry: { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y },
-            thicknessMm: 152.4,
-            heightMm: ceilingHeightMm ?? 2700,
-          });
-        }
-      }
-      activeElements = [...activeElements, ...roomAdditions];
-      commitElements((prev) => [...prev, ...roomAdditions]);
-    }
+    // Auto-synthesize all missing partition walls, doors, and windows for all rooms
+    let activeElements = autoSynthesizePartitionWallsAndOpenings(
+      approvalElements.length ? approvalElements : elements.filter((e) => e.status !== 'rejected'),
+      ceilingHeightMm ?? 2700
+    );
 
     const selectedWalls = activeElements.filter((element) => element.kind === 'wall');
     const durableIds = new Map<string, string>();
@@ -1318,6 +1437,27 @@ export function PlanReviewWorkspace({
                 <Sparkles size={14} style={{ color: 'var(--gold)' }} /> Fix Overlaps
               </button>
             )}
+            <button
+              type="button"
+              onClick={handleAutoEnhanceFullPlan}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '7px 16px',
+                background: 'linear-gradient(135deg, #c59c2d, #8f6c12)',
+                color: '#fff',
+                border: 0,
+                borderRadius: 7,
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(197,156,45,0.35)',
+              }}
+              title="Auto-generate all interior dividing partition walls, doors, windows, and custom room flooring"
+            >
+              <Sparkles size={14} /> AI Auto-Enhance Entire Plan
+            </button>
             <button
               type="button"
               onClick={loadDemoFloorPlan}
@@ -2086,13 +2226,55 @@ export function PlanReviewWorkspace({
                 )}
 
                 {(selectedElement.kind === 'wall' || selectedElement.kind === 'door' || selectedElement.kind === 'window') && (
-                  <div className="inspector-grid" style={{ marginTop: 8 }}>
-                    {(selectedElement.kind === 'wall' || selectedElement.kind === 'door' || selectedElement.kind === 'window') && <label>Height (mm)<input type="number" min={1} value={selectedElement.heightMm ?? ''} onChange={(e) => updateElement(selectedElement.id, { heightMm: Number(e.target.value) || undefined })} /></label>}
-                    {(selectedElement.kind === 'wall') && <label>Thickness (mm)<input type="number" min={1} value={selectedElement.thicknessMm ?? ''} onChange={(e) => updateElement(selectedElement.id, { thicknessMm: Number(e.target.value) || undefined })} /></label>}
-                    {(selectedElement.kind === 'door' || selectedElement.kind === 'window') && <label>Width (mm)<input type="number" min={1} value={selectedElement.widthMm ?? ''} onChange={(e) => updateElement(selectedElement.id, { widthMm: Number(e.target.value) || undefined })} /></label>}
-                    {(selectedElement.kind === 'door' || selectedElement.kind === 'window') && <label>Wall ID<input type="text" value={selectedElement.wallId ?? ''} onChange={(e) => updateElement(selectedElement.id, { wallId: e.target.value || undefined })} /></label>}
-                    {(selectedElement.kind === 'window') && <label>Sill (mm)<input type="number" min={0} value={selectedElement.sillMm ?? ''} onChange={(e) => updateElement(selectedElement.id, { sillMm: Number(e.target.value) || undefined })} /></label>}
-                    {(selectedElement.kind === 'window') && <label>Head (mm)<input type="number" min={1} value={selectedElement.headMm ?? ''} onChange={(e) => updateElement(selectedElement.id, { headMm: Number(e.target.value) || undefined })} /></label>}
+                  <div className="inspector-grid" style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    {(selectedElement.kind === 'wall' || selectedElement.kind === 'door' || selectedElement.kind === 'window') && (
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, fontWeight: 700 }}>
+                        Height (mm)
+                        <input
+                          type="number"
+                          min={1}
+                          value={selectedElement.heightMm ?? ceilingHeightMm ?? 2700}
+                          onChange={(e) => updateElement(selectedElement.id, { heightMm: Number(e.target.value) || 2700 })}
+                          style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d6d3d1', fontSize: 13 }}
+                        />
+                      </label>
+                    )}
+                    {(selectedElement.kind === 'wall') && (
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, fontWeight: 700 }}>
+                        Thickness (mm)
+                        <input
+                          type="number"
+                          min={1}
+                          value={selectedElement.thicknessMm ?? (/external|outer|perimeter/i.test(selectedElement.label) ? 230 : 150)}
+                          onChange={(e) => updateElement(selectedElement.id, { thicknessMm: Number(e.target.value) || 150 })}
+                          style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d6d3d1', fontSize: 13 }}
+                        />
+                      </label>
+                    )}
+                    {(selectedElement.kind === 'door' || selectedElement.kind === 'window') && (
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, fontWeight: 700 }}>
+                        Width (mm)
+                        <input
+                          type="number"
+                          min={1}
+                          value={selectedElement.widthMm ?? (selectedElement.kind === 'door' ? 900 : 1500)}
+                          onChange={(e) => updateElement(selectedElement.id, { widthMm: Number(e.target.value) || 900 })}
+                          style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d6d3d1', fontSize: 13 }}
+                        />
+                      </label>
+                    )}
+                    {(selectedElement.kind === 'window') && (
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, fontWeight: 700 }}>
+                        Sill (mm)
+                        <input
+                          type="number"
+                          min={0}
+                          value={selectedElement.sillMm ?? 900}
+                          onChange={(e) => updateElement(selectedElement.id, { sillMm: Number(e.target.value) || 900 })}
+                          style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d6d3d1', fontSize: 13 }}
+                        />
+                      </label>
+                    )}
                   </div>
                 )}
 

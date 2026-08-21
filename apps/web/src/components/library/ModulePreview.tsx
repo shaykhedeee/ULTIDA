@@ -1,4 +1,5 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
+import { Camera, Layers } from 'lucide-react';
 import './module-preview.css';
 
 export type ModulePreviewData = {
@@ -9,9 +10,42 @@ export type ModulePreviewData = {
   depthMm: number;
   heightMm: number;
   tags?: string[];
+  photoUrl?: string;
 };
 
-type Props = { module: ModulePreviewData; compact?: boolean; style?: CSSProperties };
+type Props = { module: ModulePreviewData; compact?: boolean; style?: CSSProperties; defaultView?: 'vector' | 'real' };
+
+// 3D AI-generated product renders (background-less, white-background product shots)
+const MODULE_3D_BY_FAMILY: Record<string, string> = {
+  'kitchen-base': '/module-3d/kitchen-base.jpg',
+  'kitchen-tall': '/module-3d/kitchen-tall.jpg',
+  wardrobe: '/module-3d/wardrobe.jpg',
+  'tv-unit': '/module-3d/tv-unit.jpg',
+  'feature-wall': '/module-3d/tv-unit.jpg',
+  crockery: '/module-3d/crockery.jpg',
+  study: '/module-3d/study.jpg',
+};
+
+// Real-life installed photography fallback
+const REAL_LIFE_PHOTO_BY_FAMILY: Record<string, string> = {
+  'tv-unit': '/reference-vault/013-52a29a1053dc.png',
+  'feature-wall': '/reference-vault/034-355f624f691c.png',
+  wardrobe: '/reference-vault/008-5fd497f005d8.png',
+  'kitchen-base': '/reference-vault/006-e36e2c7c9b1a.png',
+  'kitchen-wall': '/reference-vault/039-1786da704c5a.png',
+  'kitchen-tall': '/reference-vault/003-1f61a8aabde4.png',
+  'kitchen-corner': '/reference-vault/042-7eaf3dbfd306.png',
+  bed: '/reference-vault/047-c1ce4511e83d.png',
+  sofa: '/reference-vault/001-ddc1891636f7.png',
+  dining: '/reference-vault/002-cab37cfa0bb2.png',
+  crockery: '/reference-vault/018-b7dd5f1492fe.png',
+  pooja: '/reference-vault/020-ea872c640df6.png',
+  study: '/reference-vault/011-6c55d3439149.png',
+  utility: '/reference-vault/036-de959cf3df44.png',
+  vanity: '/reference-vault/028-a8f62ab3d392.png',
+  storage: '/reference-vault/040-a7dcd66e4242.png',
+  'false-ceiling': '/reference-vault/037-4dd8b6a25dc7.png',
+};
 
 const paletteByFamily: Record<string, { front: string; frontEnd: string; side: string; top: string; accent: string; highlight: string; led: string }> = {
   'kitchen-base': { front: '#e8dcce', frontEnd: '#d4c2af', side: '#b5a18d', top: '#f8f4ec', accent: '#8c6239', highlight: '#ffffff', led: '#fef08a' },
@@ -33,11 +67,12 @@ const paletteByFamily: Record<string, { front: string; frontEnd: string; side: s
 };
 
 function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colours: (typeof paletteByFamily)['kitchen-base'] }) {
-  const isTall = module.family === 'wardrobe' || module.family === 'kitchen-tall' || module.family === 'utility' || module.family === 'storage';
-  const isWall = module.family === 'kitchen-wall';
+  const roomRefH = 2800; // standard architectural reference ceiling height in mm
+  const plinthY = 118; // standard floor plinth datum
+  const isTall = module.family === 'wardrobe' || module.family === 'kitchen-tall' || module.family === 'utility' || module.family === 'storage' || (module.heightMm && module.heightMm >= 1800);
+  const isWall = module.family === 'kitchen-wall' || (!isTall && /wall|overhead/i.test(module.name));
   const isCorner = module.family === 'kitchen-corner';
   const isCrockery = module.family === 'crockery';
-  const isUtility = module.family === 'utility';
   const isPooja = module.family === 'pooja';
 
   const tags = `${module.name} ${(module.tags ?? []).join(' ')}`.toLowerCase();
@@ -48,10 +83,20 @@ function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colou
   const hasAppliance = /microwave|oven|appliance/i.test(tags);
   const isWashroom = /washroom|vanity|cistern/i.test(tags);
 
-  const frontY = isTall ? 20 : isWall ? 28 : 54;
-  const frontH = isTall ? 104 : isWall ? 72 : 62;
+  // Proportional height scaling (750mm -> ~32px, 2100mm -> ~80px, 2730mm -> ~102px)
+  const hMm = module.heightMm || (isTall ? 2400 : isWall ? 720 : 750);
+  const rawH = (hMm / roomRefH) * 105;
+  const frontH = Math.max(30, Math.min(104, Math.round(rawH)));
+  const frontY = isTall
+    ? Math.max(14, plinthY - frontH)
+    : isWall
+      ? 34
+      : plinthY - frontH;
+
   const doors = module.widthMm >= 1200 ? 3 : module.widthMm >= 500 ? 2 : 1;
   const doorW = 110 / doors;
+  const hasLoft = isTall && hMm >= 2100;
+  const loftH = hasLoft ? Math.round(frontH * (630 / hMm)) : 0;
 
   return (
     <>
@@ -65,20 +110,20 @@ function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colou
 
       {/* System 32 Line Hole Indicators (Architectural Detailing) */}
       <g opacity="0.4">
-        <circle cx="26" cy={frontY + 12} r="0.8" fill="#4a3b2c" />
-        <circle cx="26" cy={frontY + 24} r="0.8" fill="#4a3b2c" />
-        <circle cx="26" cy={frontY + 36} r="0.8" fill="#4a3b2c" />
-        <circle cx="128" cy={frontY + 12} r="0.8" fill="#4a3b2c" />
-        <circle cx="128" cy={frontY + 24} r="0.8" fill="#4a3b2c" />
-        <circle cx="128" cy={frontY + 36} r="0.8" fill="#4a3b2c" />
+        <circle cx="26" cy={frontY + 8} r="0.8" fill="#4a3b2c" />
+        <circle cx="26" cy={frontY + 18} r="0.8" fill="#4a3b2c" />
+        <circle cx="26" cy={frontY + 28} r="0.8" fill="#4a3b2c" />
+        <circle cx="128" cy={frontY + 8} r="0.8" fill="#4a3b2c" />
+        <circle cx="128" cy={frontY + 18} r="0.8" fill="#4a3b2c" />
+        <circle cx="128" cy={frontY + 28} r="0.8" fill="#4a3b2c" />
       </g>
 
       {/* Tall Unit Upper Lofts */}
-      {isTall && (
+      {hasLoft && (
         <g>
-          <rect x="22" y={frontY} width="110" height="20" fill={colours.frontEnd} stroke={colours.accent} strokeWidth="1" />
-          <line x1="77" y1={frontY} x2="77" y2={frontY + 20} stroke={colours.accent} strokeWidth="1" />
-          <text x="77" y={frontY + 14} fill={colours.accent} fontSize="7" fontWeight="bold" textAnchor="middle" opacity="0.8">LOFT STORAGE</text>
+          <rect x="22" y={frontY} width="110" height={loftH} fill={colours.frontEnd} stroke={colours.accent} strokeWidth="1" />
+          <line x1="77" y1={frontY} x2="77" y2={frontY + loftH} stroke={colours.accent} strokeWidth="1" />
+          <text x="77" y={frontY + Math.max(9, loftH / 2 + 3)} fill={colours.accent} fontSize="6" fontWeight="bold" textAnchor="middle" opacity="0.8">LOFT STORAGE</text>
         </g>
       )}
 
@@ -86,14 +131,14 @@ function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colou
       {hasDrawers && !isTall && !isWall && (
         <g>
           {/* Top Cutlery Drawer */}
-          <rect x="24" y={frontY + 2} width="106" height="16" rx="1.5" fill={colours.front} stroke={colours.accent} strokeWidth="0.8" />
-          <line x1="28" y1={frontY + 10} x2="126" y2={frontY + 10} stroke={colours.accent} strokeWidth="1.5" strokeLinecap="round" />
+          <rect x="24" y={frontY + 2} width="106" height={Math.round((frontH - 6) * 0.28)} rx="1.5" fill={colours.front} stroke={colours.accent} strokeWidth="0.8" />
+          <line x1="28" y1={frontY + Math.round((frontH - 6) * 0.14)} x2="126" y2={frontY + Math.round((frontH - 6) * 0.14)} stroke={colours.accent} strokeWidth="1.5" strokeLinecap="round" />
           {/* Middle Utensil Drawer */}
-          <rect x="24" y={frontY + 20} width="106" height="18" rx="1.5" fill={colours.front} stroke={colours.accent} strokeWidth="0.8" />
-          <line x1="28" y1={frontY + 29} x2="126" y2={frontY + 29} stroke={colours.accent} strokeWidth="1.5" strokeLinecap="round" />
+          <rect x="24" y={frontY + Math.round((frontH - 6) * 0.32)} width="106" height={Math.round((frontH - 6) * 0.32)} rx="1.5" fill={colours.front} stroke={colours.accent} strokeWidth="0.8" />
+          <line x1="28" y1={frontY + Math.round((frontH - 6) * 0.48)} x2="126" y2={frontY + Math.round((frontH - 6) * 0.48)} stroke={colours.accent} strokeWidth="1.5" strokeLinecap="round" />
           {/* Bottom Pot Drawer */}
-          <rect x="24" y={frontY + 40} width="106" height="20" rx="1.5" fill={colours.front} stroke={colours.accent} strokeWidth="0.8" />
-          <line x1="28" y1={frontY + 50} x2="126" y2={frontY + 50} stroke={colours.accent} strokeWidth="1.5" strokeLinecap="round" />
+          <rect x="24" y={frontY + Math.round((frontH - 6) * 0.66)} width="106" height={Math.round((frontH - 6) * 0.32)} rx="1.5" fill={colours.front} stroke={colours.accent} strokeWidth="0.8" />
+          <line x1="28" y1={frontY + Math.round((frontH - 6) * 0.82)} x2="126" y2={frontY + Math.round((frontH - 6) * 0.82)} stroke={colours.accent} strokeWidth="1.5" strokeLinecap="round" />
         </g>
       )}
 
@@ -101,14 +146,14 @@ function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colou
       {hasAppliance && isTall && (
         <g>
           {/* Microwave Niche */}
-          <rect x="26" y={frontY + 24} width="102" height="28" rx="2" fill="#18181b" stroke="#3f3f46" strokeWidth="1.2" />
-          <rect x="30" y={frontY + 28} width="66" height="20" rx="1" fill="#09090b" stroke="#52525b" />
-          <circle cx="112" cy={frontY + 34} r="3" fill="#ef4444" opacity="0.8" />
-          <circle cx="112" cy={frontY + 44} r="4" fill="#a1a1aa" />
+          <rect x="26" y={frontY + loftH + 4} width="102" height="24" rx="2" fill="#18181b" stroke="#3f3f46" strokeWidth="1.2" />
+          <rect x="30" y={frontY + loftH + 7} width="66" height="18" rx="1" fill="#09090b" stroke="#52525b" />
+          <circle cx="112" cy={frontY + loftH + 12} r="2.5" fill="#ef4444" opacity="0.8" />
+          <circle cx="112" cy={frontY + loftH + 20} r="3" fill="#a1a1aa" />
           {/* Convection Oven */}
-          <rect x="26" y={frontY + 56} width="102" height="32" rx="2" fill="#18181b" stroke="#3f3f46" strokeWidth="1.2" />
-          <rect x="30" y={frontY + 60} width="94" height="20" rx="1" fill="#27272a" stroke="#52525b" />
-          <line x1="34" y1={frontY + 64} x2="120" y2={frontY + 64} stroke="#cbd5e1" strokeWidth="2" strokeLinecap="round" />
+          <rect x="26" y={frontY + loftH + 32} width="102" height="26" rx="2" fill="#18181b" stroke="#3f3f46" strokeWidth="1.2" />
+          <rect x="30" y={frontY + loftH + 35} width="94" height="18" rx="1" fill="#27272a" stroke="#52525b" />
+          <line x1="34" y1={frontY + loftH + 39} x2="120" y2={frontY + loftH + 39} stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" />
         </g>
       )}
 
@@ -116,8 +161,8 @@ function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colou
       {!hasDrawers && !hasAppliance && Array.from({ length: doors }).map((_, index) => {
         const x = 24 + index * doorW;
         const isGlassDoor = hasGlass && (index === doors - 1 || doors === 1);
-        const shutterTop = frontY + (isTall ? 22 : 2);
-        const shutterHeight = frontH - (isTall ? 24 : 4);
+        const shutterTop = frontY + (hasLoft ? loftH + 2 : 2);
+        const shutterHeight = frontH - (hasLoft ? loftH + 4 : 4);
 
         return (
           <g key={index}>
@@ -145,11 +190,11 @@ function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colou
               <g>
                 <line
                   x1={index % 2 === 0 ? x + doorW - 5 : x + 5}
-                  y1={shutterTop + shutterHeight / 2 - 12}
+                  y1={shutterTop + shutterHeight / 2 - 10}
                   x2={index % 2 === 0 ? x + doorW - 5 : x + 5}
-                  y2={shutterTop + shutterHeight / 2 + 12}
+                  y2={shutterTop + shutterHeight / 2 + 10}
                   stroke="#c59c2d"
-                  strokeWidth="2"
+                  strokeWidth="1.8"
                   strokeLinecap="round"
                 />
               </g>
@@ -163,16 +208,15 @@ function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colou
         <g>
           <path d="M 35 75 Q 60 60 90 75 Q 110 88 85 102 Q 50 102 35 75 Z" fill="#cbd5e1" stroke="#64748b" strokeWidth="1.5" opacity="0.9" />
           <circle cx="45" cy="80" r="3" fill="#c59c2d" />
-          <path d="M 45 92 Q 75 78 105 92 Q 120 104 98 114 Q 60 114 45 92 Z" fill="#cbd5e1" stroke="#64748b" strokeWidth="1.5" opacity="0.9" />
         </g>
       )}
 
       {/* Stainless Steel Sink Basin on Base Unit */}
       {hasSink && (
         <g>
-          <ellipse cx="77" cy={frontY - 6} rx="26" ry="8" fill="#e2e8f0" stroke="#64748b" strokeWidth="1.5" />
-          <ellipse cx="64" cy={frontY - 6} rx="10" ry="5" fill="#cbd5e1" />
-          <ellipse cx="88" cy={frontY - 6} rx="10" ry="5" fill="#cbd5e1" />
+          <ellipse cx="77" cy={frontY - 5} rx="24" ry="7" fill="#e2e8f0" stroke="#64748b" strokeWidth="1.5" />
+          <ellipse cx="64" cy={frontY - 5} rx="9" ry="4" fill="#cbd5e1" />
+          <ellipse cx="88" cy={frontY - 5} rx="9" ry="4" fill="#cbd5e1" />
           {/* Chrome Mixer Faucet */}
           <path d="M 77 46 Q 77 34 83 34 Q 88 34 88 40" fill="none" stroke="#0284c7" strokeWidth="2.5" strokeLinecap="round" />
         </g>
@@ -181,34 +225,34 @@ function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colou
       {/* 4-Burner Glass Hob */}
       {hasHob && (
         <g>
-          <rect x="50" y={frontY - 8} width="54" height="12" rx="2" fill="#18181b" stroke="#3f3f46" strokeWidth="1" />
-          <circle cx="62" cy={frontY - 2} r="3" fill="#ef4444" opacity="0.8" />
-          <circle cx="92" cy={frontY - 2} r="3" fill="#ef4444" opacity="0.8" />
+          <rect x="50" y={frontY - 6} width="54" height="10" rx="2" fill="#18181b" stroke="#3f3f46" strokeWidth="1" />
+          <circle cx="62" cy={frontY - 1} r="2.5" fill="#ef4444" opacity="0.8" />
+          <circle cx="92" cy={frontY - 1} r="2.5" fill="#ef4444" opacity="0.8" />
         </g>
       )}
 
       {/* Washroom Overhead Shutter & Backlit Vanity Mirror */}
       {isWashroom && (
         <g>
-          <rect x="30" y={frontY + 6} width="94" height="34" rx="2" fill="#eadecc" stroke="#a3896b" strokeWidth="1" />
-          <ellipse cx="77" cy={frontY + 60} rx="18" ry="18" fill="#f8fafc" stroke="#c59c2d" strokeWidth="2" />
-          <circle cx="77" cy={frontY + 60} r="15" fill="#e2e8f0" opacity="0.8" />
+          <rect x="30" y={frontY + 4} width="94" height="24" rx="2" fill="#eadecc" stroke="#a3896b" strokeWidth="1" />
+          <ellipse cx="77" cy={frontY + 45} rx="16" ry="16" fill="#f8fafc" stroke="#c59c2d" strokeWidth="1.8" />
+          <circle cx="77" cy={frontY + 45} r="13" fill="#e2e8f0" opacity="0.8" />
         </g>
       )}
 
       {/* Sacred Pooja Altar Insets */}
       {isPooja && (
         <g>
-          <path d="M 52 82 V 64 C 52 50 77 44 77 30 C 77 44 102 50 102 64 V 82" fill="none" stroke="#c59c2d" strokeWidth="3" />
-          <circle cx="77" cy="68" r="6" fill="#fef08a" stroke="#d97706" />
-          <text x="77" y="72" fill="#92400e" fontSize="9" fontWeight="bold" textAnchor="middle">ॐ</text>
+          <path d="M 52 75 V 58 C 52 46 77 40 77 28 C 77 40 102 46 102 58 V 75" fill="none" stroke="#c59c2d" strokeWidth="2.5" />
+          <circle cx="77" cy="62" r="5" fill="#fef08a" stroke="#d97706" />
+          <text x="77" y="65" fill="#92400e" fontSize="8" fontWeight="bold" textAnchor="middle">ॐ</text>
         </g>
       )}
 
       {/* Bottom Plinth / Skirting */}
-      {!isTall && !isWall && (
+      {!isWall && (
         <g>
-          <rect x="20" y={frontY + frontH} width="114" height="6" rx="1" fill="#2b2017" stroke="#1c140d" strokeWidth="1" />
+          <rect x="20" y={frontY + frontH} width="114" height="5" rx="1" fill="#2b2017" stroke="#1c140d" strokeWidth="1" />
           <line x1="22" y1={frontY + frontH + 2} x2="132" y2={frontY + frontH + 2} stroke="#c59c2d" strokeWidth="0.8" opacity="0.6" />
         </g>
       )}
@@ -303,68 +347,165 @@ function DetailedLivingPreview({ module, colours }: { module: ModulePreviewData;
   );
 }
 
-export function ModulePreview({ module, compact = false, style }: Props) {
+export function ModulePreview({ module, compact = false, style, defaultView = 'vector' }: Props) {
+  const [viewMode, setViewMode] = useState<'vector' | 'real'>(defaultView);
   const colours = paletteByFamily[module.family] ?? paletteByFamily.storage;
   const isLivingOrFurniture = ['tv-unit', 'bed', 'sofa', 'dining', 'feature-wall'].includes(module.family);
+  // Prefer 3D render if available, then custom photoUrl, then real-life reference vault photo
+  const photo = MODULE_3D_BY_FAMILY[module.family] ?? module.photoUrl ?? REAL_LIFE_PHOTO_BY_FAMILY[module.family] ?? '/reference-vault/013-52a29a1053dc.png';
+  const has3D = Boolean(MODULE_3D_BY_FAMILY[module.family] ?? module.photoUrl);
 
   return (
-    <div className={`module-preview${compact ? ' compact' : ''}`} style={style} aria-label={`${module.name} architectural preview`} role="img">
-      <svg viewBox="0 0 168 138" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style={{ background: 'transparent', width: '100%', height: '100%' }}>
-        <defs>
-          {/* Gradients */}
-          <linearGradient id={`grad-front-${module.id}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={colours.front} />
-            <stop offset="100%" stopColor={colours.frontEnd} />
-          </linearGradient>
-          <linearGradient id={`grad-top-${module.id}`} x1="0" y1="1" x2="0" y2="0">
-            <stop offset="0%" stopColor={colours.top} />
-            <stop offset="100%" stopColor="#ffffff" />
-          </linearGradient>
-          <linearGradient id={`grad-side-${module.id}`} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor={colours.side} />
-            <stop offset="100%" stopColor={colours.frontEnd} />
-          </linearGradient>
-          <linearGradient id="grad-glass" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="rgba(40, 65, 75, 0.75)" />
-            <stop offset="100%" stopColor="rgba(20, 35, 42, 0.88)" />
-          </linearGradient>
-          {/* Glossy Reflection Highlight */}
-          <linearGradient id={`grad-gloss-${module.id}`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="rgba(255, 255, 255, 0.4)" />
-            <stop offset="35%" stopColor="rgba(255, 255, 255, 0.08)" />
-            <stop offset="70%" stopColor="transparent" />
-          </linearGradient>
-          {/* Drop Shadows */}
-          <filter id={`shadow-${module.id}`} x="-20%" y="-20%" width="150%" height="150%">
-            <feDropShadow dx="0" dy="5" stdDeviation="4" floodColor="#1c140d" floodOpacity="0.28" />
-          </filter>
-        </defs>
+    <div className={`module-preview${compact ? ' compact' : ''}`} style={{ position: 'relative', overflow: 'hidden', ...style }} aria-label={`${module.name} architectural preview`} role="img">
+      {/* Quick 2D CAD vs Real-Life View Switcher */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 4,
+          left: 4,
+          zIndex: 10,
+          display: 'flex',
+          gap: 2,
+          background: 'rgba(28, 25, 23, 0.85)',
+          backdropFilter: 'blur(4px)',
+          borderRadius: 14,
+          padding: '2px 4px',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={() => setViewMode('vector')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 3,
+            padding: '2px 6px',
+            fontSize: '9px',
+            fontWeight: 800,
+            borderRadius: 10,
+            border: 0,
+            background: viewMode === 'vector' ? 'var(--gold, #c59c2d)' : 'transparent',
+            color: viewMode === 'vector' ? '#1c1917' : '#d6d3d1',
+            cursor: 'pointer',
+          }}
+          title="2D Architectural Elevation & Millimeter Geometry"
+        >
+          <Layers size={10} /> 2D
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode('real')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 3,
+            padding: '2px 6px',
+            fontSize: '9px',
+            fontWeight: 800,
+            borderRadius: 10,
+            border: 0,
+            background: viewMode === 'real' ? 'var(--gold, #c59c2d)' : 'transparent',
+            color: viewMode === 'real' ? '#1c1917' : '#d6d3d1',
+            cursor: 'pointer',
+          }}
+          title={has3D ? '3D Product Render — AI Generated' : 'Real-Life Installed Photography & Luxury Finish'}
+        >
+          <Camera size={10} /> {has3D ? '3D' : 'Real'}
+        </button>
+      </div>
 
-        {/* Subtle Architectural Floor Grid */}
-        <g opacity="0.15">
-          <line x1="16" y1="126" x2="152" y2="126" stroke="#8c7355" strokeWidth="0.8" />
-          <line x1="30" y1="120" x2="160" y2="120" stroke="#8c7355" strokeWidth="0.6" strokeDasharray="3 3" />
-        </g>
-
-        <g filter={`url(#shadow-${module.id})`}>
-          {isLivingOrFurniture ? (
-            <DetailedLivingPreview module={module} colours={colours as any} />
+      {viewMode === 'real' ? (
+        <div style={{ width: '100%', height: '100%', minHeight: compact ? 80 : 120, position: 'relative', background: has3D ? '#f8f6f2' : '#000', borderRadius: 6, overflow: 'hidden' }}>
+          <img
+            src={photo}
+            alt={`${module.name} product render`}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: has3D ? 'contain' : 'cover',
+              display: 'block',
+              borderRadius: 6,
+              padding: has3D ? '4px' : 0,
+            }}
+          />
+          {/* Overlay — dark for real-life photos, minimal badge for 3D renders */}
+          {has3D ? (
+            <div style={{
+              position: 'absolute', bottom: 4, right: 6,
+              background: 'rgba(197,156,45,0.9)', color: '#1c1917',
+              fontSize: '8px', fontWeight: 800, borderRadius: 6, padding: '2px 6px',
+              letterSpacing: '.04em',
+            }}>
+              3D RENDER · {module.widthMm}mm
+            </div>
           ) : (
-            <DetailedCabinet module={module} colours={colours} />
+            <div style={{
+              position: 'absolute', bottom: 0, left: 0, right: 0,
+              background: 'linear-gradient(to top, rgba(0,0,0,0.85), transparent)',
+              padding: '6px 8px 4px', color: '#fff', fontSize: '10px', fontWeight: 700,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' }}>{module.name}</span>
+              <span style={{ fontSize: '9px', opacity: 0.9, color: 'var(--gold-dim, #e8c96a)' }}>{module.widthMm}×{module.heightMm}</span>
+            </div>
           )}
-        </g>
+        </div>
+      ) : (
+        <svg viewBox="0 0 168 138" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style={{ background: 'transparent', width: '100%', height: '100%' }}>
+          <defs>
+            {/* Gradients */}
+            <linearGradient id={`grad-front-${module.id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={colours.front} />
+              <stop offset="100%" stopColor={colours.frontEnd} />
+            </linearGradient>
+            <linearGradient id={`grad-top-${module.id}`} x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0%" stopColor={colours.top} />
+              <stop offset="100%" stopColor="#ffffff" />
+            </linearGradient>
+            <linearGradient id={`grad-side-${module.id}`} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor={colours.side} />
+              <stop offset="100%" stopColor={colours.frontEnd} />
+            </linearGradient>
+            <linearGradient id="grad-glass" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="rgba(40, 65, 75, 0.75)" />
+              <stop offset="100%" stopColor="rgba(20, 35, 42, 0.88)" />
+            </linearGradient>
+            {/* Glossy Reflection Highlight */}
+            <linearGradient id={`grad-gloss-${module.id}`} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="rgba(255, 255, 255, 0.4)" />
+              <stop offset="35%" stopColor="rgba(255, 255, 255, 0.08)" />
+              <stop offset="70%" stopColor="transparent" />
+            </linearGradient>
+            {/* Drop Shadows */}
+            <filter id={`shadow-${module.id}`} x="-20%" y="-20%" width="150%" height="150%">
+              <feDropShadow dx="0" dy="5" stdDeviation="4" floodColor="#1c140d" floodOpacity="0.28" />
+            </filter>
+          </defs>
 
-        {/* Top Header Title & Dimension Badges */}
-        <g style={{ pointerEvents: 'none' }}>
-          <text x="10" y="14" fill="#786c5e" fontSize="7.5" fontWeight="900" letterSpacing="0.8">
-            {module.family.replaceAll('-', ' ').toUpperCase()}
-          </text>
-          <rect x="98" y="4" width="62" height="15" rx="4" fill="#ffffff" stroke="#e7dcce" strokeWidth="1" />
-          <text x="129" y="15" fill="#695748" fontSize="7" fontWeight="bold" textAnchor="middle">
-            {module.widthMm} × {module.heightMm} mm
-          </text>
-        </g>
-      </svg>
+          {/* Subtle Architectural Floor Grid */}
+          <g opacity="0.15">
+            <line x1="16" y1="126" x2="152" y2="126" stroke="#8c7355" strokeWidth="0.8" />
+            <line x1="30" y1="120" x2="160" y2="120" stroke="#8c7355" strokeWidth="0.6" strokeDasharray="3 3" />
+          </g>
+
+          <g filter={`url(#shadow-${module.id})`}>
+            {isLivingOrFurniture ? (
+              <DetailedLivingPreview module={module} colours={colours as any} />
+            ) : (
+              <DetailedCabinet module={module} colours={colours} />
+            )}
+          </g>
+
+          {/* Top Header Title & Dimension Badges */}
+          <g style={{ pointerEvents: 'none' }}>
+            <rect x="98" y="4" width="62" height="15" rx="4" fill="#ffffff" stroke="#e7dcce" strokeWidth="1" />
+            <text x="129" y="15" fill="#695748" fontSize="7" fontWeight="bold" textAnchor="middle">
+              {module.widthMm} × {module.heightMm} mm
+            </text>
+          </g>
+        </svg>
+      )}
     </div>
   );
 }

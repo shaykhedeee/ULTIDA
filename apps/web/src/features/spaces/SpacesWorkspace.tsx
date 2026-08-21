@@ -2316,6 +2316,33 @@ export function SpacesWorkspace() {
                   </Button>
                 </div>
                 {!sel.room.requiredFurniture.length && <p className="room-blocker">Choose at least one modular requirement before verifying this room.</p>}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate(`/projects/${projectId}/spaces?tab=modules`);
+                  }}
+                  style={{
+                    marginTop: 12,
+                    width: '100%',
+                    padding: '11px 14px',
+                    borderRadius: 8,
+                    background: 'linear-gradient(135deg, #c59c2d, #8f6c12)',
+                    color: '#fff',
+                    border: 0,
+                    fontWeight: 800,
+                    fontSize: '12.5px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <Sparkles size={15} /> Continue to Design &amp; Moodboard Studio →
+                </button>
               </div>
             ) : (
               <div className="props-empty">Select a room or wall from the list or canvas.</div>

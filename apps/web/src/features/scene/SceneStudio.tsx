@@ -25,12 +25,55 @@ type Props = {
   onCompileScene?: () => Promise<void>;
 };
 type Preset = 'perspective' | 'front' | 'top' | 'walkthrough' | 'isometric';
+type LightingPreset = 'warm' | 'daylight' | 'evening';
 
 function materialColor(materialId: string | undefined) {
   if (!materialId) return '#b99167';
   let hash = 0;
   for (const character of materialId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
   return `#${(0x806040 + (hash & 0x5f5f5f)).toString(16).slice(-6)}`;
+}
+
+function getThreeMaterialForFinish(materialId?: string, fallbackColor = '#b99167') {
+  const color = materialId ? materialColor(materialId) : fallbackColor;
+  const isGloss = /gloss|acrylic|polygloss|mirror/i.test(materialId ?? '');
+  const isMatte = /matte|suede|zero-g|anti-fingerprint/i.test(materialId ?? '');
+  const isWood = /wood|oak|walnut|teak|grain/i.test(materialId ?? '');
+  const isStone = /marble|travertine|porcelain|slab/i.test(materialId ?? '');
+
+  if (isGloss) {
+    return new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.12,
+      metalness: 0.08,
+    });
+  }
+  if (isMatte) {
+    return new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.88,
+      metalness: 0.02,
+    });
+  }
+  if (isWood) {
+    return new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.58,
+      metalness: 0.04,
+    });
+  }
+  if (isStone) {
+    return new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.18,
+      metalness: 0.05,
+    });
+  }
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.42,
+    metalness: 0.08,
+  });
 }
 
 function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean) {
@@ -64,6 +107,46 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
       addSegment(start, openingEnd, 0, sill, `${opening.id}:sill`);
       addSegment(start, openingEnd, sill + opening.heightMm, wall.heightMm - sill - opening.heightMm, `${opening.id}:head`);
       cursor = Math.max(cursor, openingEnd);
+
+      const opMid = (start + openingEnd) / 2;
+      const opWidth = Math.max(200, openingEnd - start);
+      const posX = wall.start.xMm + Math.cos(angle) * opMid;
+      const posZ = wall.start.yMm + Math.sin(angle) * opMid;
+
+      if (opening.kind === 'door') {
+        const doorLeafGeo = new THREE.BoxGeometry(opWidth - 30, opening.heightMm - 20, 36);
+        const doorLeafMesh = new THREE.Mesh(doorLeafGeo, new THREE.MeshStandardMaterial({ color: '#5c3d2e', roughness: 0.55, metalness: 0.05 }));
+        doorLeafMesh.position.set(posX, sill + (opening.heightMm - 20) / 2 + 10, posZ);
+        doorLeafMesh.rotation.y = -angle;
+        doorLeafMesh.castShadow = true;
+        group.add(doorLeafMesh);
+
+        // Door knob / handle
+        const knobGeo = new THREE.CylinderGeometry(15, 15, 60, 16);
+        const knobMesh = new THREE.Mesh(knobGeo, new THREE.MeshStandardMaterial({ color: '#c59c2d', metalness: 0.9, roughness: 0.2 }));
+        knobMesh.position.set(posX + Math.cos(angle) * (opWidth / 2 - 60), sill + 1000, posZ + Math.sin(angle) * (opWidth / 2 - 60));
+        knobMesh.rotation.z = Math.PI / 2;
+        group.add(knobMesh);
+      } else if (opening.kind === 'window') {
+        const glassGeo = new THREE.BoxGeometry(opWidth - 20, opening.heightMm - 20, 10);
+        const glassMesh = new THREE.Mesh(glassGeo, new THREE.MeshPhysicalMaterial({
+          color: '#e0f2fe',
+          roughness: 0.05,
+          transmission: 0.85,
+          thickness: 10,
+          transparent: true,
+          opacity: 0.65,
+        }));
+        glassMesh.position.set(posX, sill + (opening.heightMm) / 2, posZ);
+        glassMesh.rotation.y = -angle;
+        group.add(glassMesh);
+
+        const winFrameGeo = new THREE.BoxGeometry(opWidth, 35, wall.thicknessMm + 24);
+        const winFrameMesh = new THREE.Mesh(winFrameGeo, new THREE.MeshStandardMaterial({ color: '#334155', metalness: 0.8, roughness: 0.25 }));
+        winFrameMesh.position.set(posX, sill + 18, posZ);
+        winFrameMesh.rotation.y = -angle;
+        group.add(winFrameMesh);
+      }
     }
     addSegment(cursor, length, 0, wall.heightMm, 'solid');
   }
@@ -78,8 +161,10 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   const [wallsVisible, setWallsVisible] = useState(true);
   const [ceilingVisible, setCeilingVisible] = useState(false);
   const [preset, setPreset] = useState<Preset>('perspective');
+  const [lightingMode, setLightingMode] = useState<LightingPreset>('warm');
   const [selected, setSelected] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(false);
+  const rendererInstanceRef = useRef<THREE.WebGLRenderer | null>(null);
 
   useEffect(() => {
     const sb = supabase;
@@ -155,7 +240,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               kind: (o.kind === 'window' ? 'window' : 'door') as 'door' | 'window',
             }));
 
-            const sceneModules = rawModules.map((m: any, idx: number) => {
+            let finalModules = rawModules.map((m: any, idx: number) => {
               const pos = m.position_json ?? {};
               const conf = m.config_json ?? {};
               return {
@@ -169,13 +254,99 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               };
             });
 
+            if (finalModules.length === 0 && sceneRooms.length > 0) {
+              const synthesized: any[] = [];
+              sceneRooms.forEach((r: any, rIdx: number) => {
+                const b = r.boundary ?? [];
+                if (b.length < 3) return;
+                const minX = Math.min(...b.map((p: any) => p.xMm));
+                const maxX = Math.max(...b.map((p: any) => p.xMm));
+                const minY = Math.min(...b.map((p: any) => p.yMm));
+                const maxY = Math.max(...b.map((p: any) => p.yMm));
+                const width = Math.max(1200, maxX - minX);
+                const depth = Math.max(1200, maxY - minY);
+                const cx = minX + width / 2;
+                const cy = minY + depth / 2;
+                const rType = (r.name || '').toLowerCase();
+
+                if (rType.includes('living') || rType.includes('hall') || rType.includes('lounge')) {
+                  synthesized.push({
+                    id: `mod-tv-${rIdx}`,
+                    family: 'tv-unit',
+                    widthMm: Math.min(2400, Math.max(1600, width - 400)),
+                    depthMm: 400,
+                    heightMm: 2200,
+                    position: { xMm: cx, yMm: minY + 260 },
+                    rotationDeg: 0,
+                    materialId: 'mat-1',
+                  });
+                  synthesized.push({
+                    id: `mod-sofa-${rIdx}`,
+                    family: 'sofa',
+                    widthMm: Math.min(2400, Math.max(1600, width - 400)),
+                    depthMm: 1200,
+                    heightMm: 850,
+                    position: { xMm: cx, yMm: maxY - 750 },
+                    rotationDeg: 0,
+                    materialId: 'mat-3',
+                  });
+                } else if (rType.includes('bed')) {
+                  synthesized.push({
+                    id: `mod-bed-${rIdx}`,
+                    family: 'bed',
+                    widthMm: 1800,
+                    depthMm: 2100,
+                    heightMm: 1100,
+                    position: { xMm: cx, yMm: minY + 1150 },
+                    rotationDeg: 0,
+                    materialId: 'mat-1',
+                  });
+                  synthesized.push({
+                    id: `mod-wardrobe-${rIdx}`,
+                    family: 'wardrobe',
+                    widthMm: Math.min(2400, Math.max(1600, width - 400)),
+                    depthMm: 600,
+                    heightMm: 2400,
+                    position: { xMm: minX + 350, yMm: cy },
+                    rotationDeg: 90,
+                    materialId: 'mat-3',
+                  });
+                } else if (rType.includes('kitchen')) {
+                  synthesized.push({
+                    id: `mod-kit-base-${rIdx}`,
+                    family: 'kitchen-base',
+                    widthMm: Math.min(2800, Math.max(1800, width - 300)),
+                    depthMm: 600,
+                    heightMm: 860,
+                    position: { xMm: cx, yMm: minY + 350 },
+                    rotationDeg: 0,
+                    materialId: 'mat-2',
+                  });
+                } else if (rType.includes('dining')) {
+                  synthesized.push({
+                    id: `mod-dining-${rIdx}`,
+                    family: 'dining-table',
+                    widthMm: 1800,
+                    depthMm: 900,
+                    heightMm: 760,
+                    position: { xMm: cx, yMm: cy },
+                    rotationDeg: 0,
+                    materialId: 'mat-1',
+                  });
+                }
+              });
+              if (synthesized.length > 0) {
+                finalModules = synthesized;
+              }
+            }
+
             loadedScene = {
               schema: 'scene.v1',
               units: 'mm',
               rooms: sceneRooms,
               walls: sceneWalls,
               openings: sceneOpenings,
-              modules: sceneModules,
+              modules: finalModules,
               moduleParts: [],
               materials: [
                 { id: 'mat-1', name: 'Smoked Walnut Veneer', code: 'VIRGO-OAK-01', finish: 'Satin PU' },
@@ -210,14 +381,15 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   useEffect(() => {
     const host = canvasRef.current;
     if (!host || !scene) return;
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(host.clientWidth, host.clientHeight);
-    renderer.setClearColor('#f8f6f0');
+    renderer.setClearColor(lightingMode === 'evening' ? '#181622' : '#f8f6f0');
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = lightingMode === 'evening' ? 1.4 : 1.15;
+    rendererInstanceRef.current = renderer;
     host.replaceChildren(renderer.domElement);
     const root = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(45, host.clientWidth / host.clientHeight, 10, 100000);
@@ -226,11 +398,23 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     controls.dampingFactor = 0.05;
     controls.maxPolarAngle = Math.PI / 2 - 0.02;
 
-    const hemiLight = new THREE.HemisphereLight('#fff9eb', '#6b655d', 2.2);
+    const hemiConfig = lightingMode === 'daylight'
+      ? { sky: '#ffffff', ground: '#94a3b8', intensity: 2.5 }
+      : lightingMode === 'evening'
+        ? { sky: '#312e81', ground: '#1e1b4b', intensity: 0.9 }
+        : { sky: '#fff9eb', ground: '#6b655d', intensity: 2.2 };
+
+    const hemiLight = new THREE.HemisphereLight(hemiConfig.sky, hemiConfig.ground, hemiConfig.intensity);
     root.add(hemiLight);
 
-    const sun = new THREE.DirectionalLight('#fff4e0', 2.4);
-    sun.position.set(4500, 6500, -3000);
+    const sunConfig = lightingMode === 'daylight'
+      ? { color: '#ffffff', intensity: 2.8, pos: [3500, 7500, -2500] }
+      : lightingMode === 'evening'
+        ? { color: '#f59e0b', intensity: 0.6, pos: [6000, 3000, -4000] }
+        : { color: '#fff4e0', intensity: 2.4, pos: [4500, 6500, -3000] };
+
+    const sun = new THREE.DirectionalLight(sunConfig.color, sunConfig.intensity);
+    sun.position.set(sunConfig.pos[0], sunConfig.pos[1], sunConfig.pos[2]);
     sun.castShadow = true;
     sun.shadow.mapSize.width = 2048;
     sun.shadow.mapSize.height = 2048;
@@ -250,10 +434,37 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       const points = room.boundary.slice(0, -1).map((point) => new THREE.Vector2(point.xMm, point.yMm));
       if (points.length < 3) continue;
       const shape = new THREE.Shape(points);
+
+      const rName = (room.name || '').toLowerCase();
+      let floorColor = '#e2dbd0';
+      let floorRoughness = 0.38;
+      let floorMetalness = 0.04;
+
+      if (rName.includes('bath') || rName.includes('toilet') || rName.includes('wash')) {
+        floorColor = '#c2cdd0';
+        floorRoughness = 0.25;
+        floorMetalness = 0.08;
+      } else if (rName.includes('kitchen')) {
+        floorColor = '#cfbc9f';
+        floorRoughness = 0.32;
+        floorMetalness = 0.06;
+      } else if (rName.includes('bed')) {
+        floorColor = '#7d5535';
+        floorRoughness = 0.55;
+        floorMetalness = 0.02;
+      } else if (rName.includes('living') || rName.includes('dining')) {
+        floorColor = '#d2b08a';
+        floorRoughness = 0.45;
+        floorMetalness = 0.03;
+      } else if (rName.includes('balcony') || rName.includes('parking')) {
+        floorColor = '#71717a';
+        floorRoughness = 0.85;
+      }
+
       const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshStandardMaterial({
-        color: selectedRoomId === room.id ? '#ede4d4' : '#e2dbd0',
-        roughness: 0.38,
-        metalness: 0.06,
+        color: selectedRoomId === room.id ? '#fef3c7' : floorColor,
+        roughness: floorRoughness,
+        metalness: floorMetalness,
         side: THREE.DoubleSide,
       }));
       mesh.rotation.x = Math.PI / 2;
@@ -274,15 +485,14 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       modContainer.name = `module:${mod.id}`;
       modContainer.userData = { kind: 'module', id: mod.id, family: mod.family };
 
-      const baseMat = new THREE.MeshStandardMaterial({
-        color: materialColor(mod.materialId),
-        roughness: 0.42,
-        metalness: 0.08,
-      });
+      const baseMat = getThreeMaterialForFinish(mod.materialId);
 
       const isKitchenBase = mod.family.includes('kitchen-base') || mod.family.includes('counter');
       const isWardrobe = mod.family.includes('wardrobe') || mod.family.includes('closet');
       const isBed = mod.family.includes('bed');
+      const isTv = mod.family.includes('tv');
+      const isSofa = mod.family.includes('sofa');
+      const isDining = mod.family.includes('dining');
 
       if (isKitchenBase) {
         // 1. Recessed plinth
@@ -316,6 +526,65 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         const handleMesh = new THREE.Mesh(handleGeo, handleMat);
         handleMesh.position.set(0, mod.heightMm - 90, mod.depthMm / 2 + 2);
         modContainer.add(handleMesh);
+      } else if (isTv) {
+        // TV Console Unit + Acoustic Slatted Back Panel + OLED Screen
+        const backPanelGeo = new THREE.BoxGeometry(mod.widthMm, mod.heightMm, 30);
+        const backPanelMesh = new THREE.Mesh(backPanelGeo, new THREE.MeshStandardMaterial({ color: '#4a3525', roughness: 0.65 }));
+        backPanelMesh.position.set(0, mod.heightMm / 2, -mod.depthMm / 2 + 15);
+        backPanelMesh.castShadow = true;
+        modContainer.add(backPanelMesh);
+
+        const consoleGeo = new THREE.BoxGeometry(mod.widthMm - 80, 450, mod.depthMm);
+        const consoleMesh = new THREE.Mesh(consoleGeo, baseMat);
+        consoleMesh.position.set(0, 225, 0);
+        consoleMesh.castShadow = true;
+        consoleMesh.receiveShadow = true;
+        modContainer.add(consoleMesh);
+
+        // OLED Screen
+        const screenGeo = new THREE.BoxGeometry(Math.min(1500, mod.widthMm - 200), 850, 16);
+        const screenMat = new THREE.MeshStandardMaterial({ color: '#111827', roughness: 0.1, metalness: 0.8 });
+        const screenMesh = new THREE.Mesh(screenGeo, screenMat);
+        screenMesh.position.set(0, 1150, -mod.depthMm / 2 + 35);
+        screenMesh.castShadow = true;
+        modContainer.add(screenMesh);
+      } else if (isSofa) {
+        // 3-Seater Curved Sectional Sofa
+        const seatGeo = new THREE.BoxGeometry(mod.widthMm, 420, mod.depthMm - 200);
+        const seatMat = new THREE.MeshStandardMaterial({ color: '#dcd6cd', roughness: 0.9 });
+        const seatMesh = new THREE.Mesh(seatGeo, seatMat);
+        seatMesh.position.set(0, 210, 50);
+        seatMesh.castShadow = true;
+        modContainer.add(seatMesh);
+
+        const backGeo = new THREE.BoxGeometry(mod.widthMm, 450, 200);
+        const backMesh = new THREE.Mesh(backGeo, seatMat);
+        backMesh.position.set(0, 550, -mod.depthMm / 2 + 100);
+        backMesh.castShadow = true;
+        modContainer.add(backMesh);
+
+        // Coffee table in front
+        const tableGeo = new THREE.CylinderGeometry(350, 350, 380, 32);
+        const tableMesh = new THREE.Mesh(tableGeo, new THREE.MeshStandardMaterial({ color: '#2b2622', roughness: 0.4 }));
+        tableMesh.position.set(0, 190, mod.depthMm / 2 + 350);
+        tableMesh.castShadow = true;
+        modContainer.add(tableMesh);
+      } else if (isDining) {
+        // Dining Table with solid top and 4 legs
+        const topGeo = new THREE.BoxGeometry(mod.widthMm, 50, mod.depthMm);
+        const topMesh = new THREE.Mesh(topGeo, baseMat);
+        topMesh.position.set(0, mod.heightMm - 25, 0);
+        topMesh.castShadow = true;
+        modContainer.add(topMesh);
+
+        const legGeo = new THREE.CylinderGeometry(25, 20, mod.heightMm - 50, 16);
+        const legMat = new THREE.MeshStandardMaterial({ color: '#1c1917', metalness: 0.8, roughness: 0.3 });
+        [[-mod.widthMm / 2 + 80, -mod.depthMm / 2 + 80], [mod.widthMm / 2 - 80, -mod.depthMm / 2 + 80], [-mod.widthMm / 2 + 80, mod.depthMm / 2 - 80], [mod.widthMm / 2 - 80, mod.depthMm / 2 - 80]].forEach(([lx, lz]) => {
+          const leg = new THREE.Mesh(legGeo, legMat);
+          leg.position.set(lx, (mod.heightMm - 50) / 2, lz);
+          leg.castShadow = true;
+          modContainer.add(leg);
+        });
       } else if (isWardrobe) {
         // Tall wardrobe with plinth, carcase, and full-length bar pulls
         const plinthGeo = new THREE.BoxGeometry(mod.widthMm, 80, mod.depthMm - 20);
@@ -371,13 +640,15 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       modulesGroup.add(modContainer);
     }
 
-    // Warm ceiling spot lights in each room
+    // Ceiling spot lights in each room with atmosphere color
     for (const room of scene.rooms) {
       if (room.boundary.length >= 3) {
         const poly = room.boundary;
         const cx = poly.reduce((s, p) => s + p.xMm, 0) / poly.length;
         const cz = poly.reduce((s, p) => s + p.yMm, 0) / poly.length;
-        const roomLight = new THREE.PointLight('#fff2d9', 1.5, 6500, 1.2);
+        const lightColor = lightingMode === 'daylight' ? '#f8fafc' : lightingMode === 'evening' ? '#f59e0b' : '#fff2d9';
+        const lightIntensity = lightingMode === 'evening' ? 2.4 : 1.5;
+        const roomLight = new THREE.PointLight(lightColor, lightIntensity, 6500, 1.2);
         roomLight.position.set(cx, 2600, cz);
         root.add(roomLight);
       }
@@ -476,9 +747,10 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       renderer.domElement.removeEventListener('pointerdown', onPointer);
       controls.dispose();
       renderer.dispose();
+      rendererInstanceRef.current = null;
       host.replaceChildren();
     };
-  }, [scene, wallsVisible, ceilingVisible, preset, selectedRoomId]);
+  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId]);
 
   const activeSelectedRoom = useMemo(() => {
     if (!scene) return null;
@@ -547,14 +819,54 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         </div>
       )}
 
-      <div className="scene-toolbar" aria-label="Scene controls" style={{ marginTop: 8 }}>
-        <Button variant={preset === 'perspective' ? 'default' : 'outline'} onClick={() => setPreset('perspective')}><Camera size={16} /> 3D Orbit</Button>
-        <Button variant={preset === 'walkthrough' ? 'default' : 'outline'} onClick={() => setPreset('walkthrough')}><Eye size={16} /> Eye-Level Walkthrough</Button>
-        <Button variant={preset === 'top' ? 'default' : 'outline'} onClick={() => setPreset('top')}><Layers3 size={16} /> Top-Down Plan</Button>
-        <Button variant={preset === 'isometric' ? 'default' : 'outline'} onClick={() => setPreset('isometric')}><Rotate3D size={16} /> Isometric</Button>
-        <Button variant={preset === 'front' ? 'default' : 'outline'} onClick={() => setPreset('front')}><Eye size={16} /> Front</Button>
-        <Button variant={wallsVisible ? 'default' : 'outline'} onClick={() => setWallsVisible((value) => !value)}><Box size={16} /> Walls</Button>
-        <Button variant={ceilingVisible ? 'default' : 'outline'} onClick={() => setCeilingVisible((value) => !value)}><Rotate3D size={16} /> Ceiling</Button>
+      <div className="scene-toolbar" aria-label="Scene controls" style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        <Button variant={preset === 'perspective' ? 'default' : 'outline'} onClick={() => setPreset('perspective')}><Camera size={15} /> 3D Orbit</Button>
+        <Button variant={preset === 'walkthrough' ? 'default' : 'outline'} onClick={() => setPreset('walkthrough')}><Eye size={15} /> Walkthrough</Button>
+        <Button variant={preset === 'top' ? 'default' : 'outline'} onClick={() => setPreset('top')}><Layers3 size={15} /> Plan</Button>
+        <Button variant={preset === 'isometric' ? 'default' : 'outline'} onClick={() => setPreset('isometric')}><Rotate3D size={15} /> Isometric</Button>
+        <Button variant={wallsVisible ? 'default' : 'outline'} onClick={() => setWallsVisible((value) => !value)}><Box size={15} /> Walls</Button>
+        <Button variant={ceilingVisible ? 'default' : 'outline'} onClick={() => setCeilingVisible((value) => !value)}><Rotate3D size={15} /> Ceiling</Button>
+
+        {/* Lighting Atmosphere Selector */}
+        <div style={{ display: 'inline-flex', background: '#f5f3ee', borderRadius: 8, padding: 2, border: '1px solid #e7e5e4', marginLeft: 4 }}>
+          {(['warm', 'daylight', 'evening'] as LightingPreset[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setLightingMode(mode)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: 0,
+                background: lightingMode === mode ? '#fff' : 'transparent',
+                color: lightingMode === mode ? 'var(--gold-dim)' : '#78716c',
+                fontSize: 11,
+                fontWeight: 700,
+                boxShadow: lightingMode === mode ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                cursor: 'pointer',
+              }}
+            >
+              {mode === 'warm' ? '🌅 3000K Warm' : mode === 'daylight' ? '☀️ Studio 4500K' : '🌙 Dusk 2700K'}
+            </button>
+          ))}
+        </div>
+
+        {/* 1-Click High-Res PNG Snapshot */}
+        <Button
+          variant="outline"
+          onClick={() => {
+            if (!rendererInstanceRef.current) return;
+            const dataUrl = rendererInstanceRef.current.domElement.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = `Sharma-Residence-3D-${lightingMode}-${preset}.png`;
+            link.href = dataUrl;
+            link.click();
+          }}
+          style={{ border: '1px solid #d6d3d1' }}
+        >
+          📸 Snapshot (PNG)
+        </Button>
+
         {onCompileScene && (
           <Button
             variant="default"

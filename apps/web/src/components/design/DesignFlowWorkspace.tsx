@@ -40,38 +40,99 @@ function fitModuleToMeasuredWall(item: CatalogItem, wallLengthMm: number) {
   return { widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: widthMm !== item.widthMm };
 }
 
-const ROOM_PREBUILT_PACKAGES: Record<string, Array<{ id: string; name: string; desc: string; width: number; height: number; family: string; icon: string }>> = {
+const ROOM_PREBUILT_PACKAGES: Record<string, Array<{ id: string; name: string; desc: string; width: number; depth?: number; height: number; family: string; icon: string }>> = {
   dining: [
-    { id: 'pre-dining-crockery', name: '1800mm Fluted Glass Crockery & Bar Console', desc: 'System 32 profile-glass display with soft-close drawers & shelf LED', width: 1800, height: 2100, family: 'crockery', icon: '🍷' },
-    { id: 'pre-dining-buffet', name: '1500mm Floating Buffet Credenza', desc: 'Calacatta marble top with dual soft-close drawers & fluted PU finish', width: 1500, height: 850, family: 'crockery', icon: '🥂' },
-    { id: 'pre-dining-bar', name: '1200mm Compact Wine & Glassware Tower', desc: 'Full-height bronze mirror back with integrated stemware rack', width: 1200, height: 2400, family: 'crockery', icon: '🍾' },
+    { id: 'pre-dining-table', name: '2100mm Sintered Stone Dining Table (6 Chairs)', desc: 'Calacatta honed marble slab on fluted smoked oak tapered pedestals (760 mm H)', width: 2100, depth: 1000, height: 760, family: 'dining', icon: '🍽️' },
+    { id: 'pre-dining-crockery', name: '1800mm Fluted Glass Crockery & Bar Console', desc: 'System 32 profile-glass display with soft-close drawers & warm 3000K shelf LED (2400 mm H)', width: 1800, depth: 450, height: 2400, family: 'crockery', icon: '🍷' },
+    { id: 'pre-dining-buffet', name: '1500mm Floating Buffet Credenza', desc: 'Sintered stone top with dual soft-close drawers & fluted PU finish (850 mm H)', width: 1500, depth: 450, height: 850, family: 'crockery', icon: '🥂' },
   ],
   living: [
-    { id: 'pre-living-tv', name: '2400mm Fluted PU TV Feature Wall', desc: 'Concealed wire raceway, acoustic louvers & floating media console', width: 2400, height: 2400, family: 'tv-unit', icon: '📺' },
-    { id: 'pre-living-display', name: '3000mm Full Entertainment & Bookshelf Suite', desc: 'Asymmetrical profile glass niches with warm vertical LED channels', width: 3000, height: 2600, family: 'tv-unit', icon: '✨' },
-    { id: 'pre-living-credenza', name: '1800mm Anti-Gravity Floating Console', desc: 'Minimalist bevel-edge carcass with gola profile handleless drawers', width: 1800, height: 450, family: 'tv-unit', icon: '🛋️' },
+    { id: 'pre-living-tv', name: '2400mm Fluted TV Console & OLED Media Wall', desc: 'Fluted acoustic back panel, concealed wire raceway & floating console (2200 mm H)', width: 2400, depth: 400, height: 2200, family: 'tv-unit', icon: '📺' },
+    { id: 'pre-living-sofa', name: '2800mm Curved Bouclé Sectional Sofa', desc: 'Deep ergonomic contours in warm textured sand bouclé with 430 mm seat height (850 mm H)', width: 2800, depth: 1200, height: 850, family: 'sofa', icon: '🛋️' },
+    { id: 'pre-living-table', name: '800mm Round Calacatta Coffee Table', desc: 'Low-slung 40mm sintered marble top on brushed brass tubular base (380 mm H)', width: 800, depth: 800, height: 380, family: 'sofa', icon: '☕' },
+    { id: 'pre-living-chair', name: '850mm Cognac Saddle Leather Lounge Armchair', desc: 'Sculptural accent chair with brushed nickel swivel base and memory foam (820 mm H)', width: 850, depth: 850, height: 820, family: 'sofa', icon: '🪑' },
   ],
   kitchen: [
-    { id: 'pre-kit-base-tall', name: '2700mm Tandem Drawer Base + Glass Overhead', desc: 'Heavy-duty Blum tandembox drawers with bi-fold lift-up overheads', width: 2700, height: 2100, family: 'kitchen', icon: '🍳' },
-    { id: 'pre-kit-pantry', name: '600mm Tall 12-Basket Pantry Pull-Out Tower', desc: 'Full-extension stainless steel internal wire baskets & spice racks', width: 600, height: 2100, family: 'kitchen', icon: '🥫' },
-    { id: 'pre-kit-appliance', name: '600mm Built-in Oven & Microwave Tower', desc: 'Reinforced ventilated appliance cavity with storage below and loft above', width: 600, height: 2100, family: 'kitchen', icon: '🔥' },
+    { id: 'pre-kit-base-tall', name: '2700mm Tandem Base + 40mm Sintered Stone Top', desc: 'Blum tandembox drawers, cutlery inserts, plinth & sink cut-out at 860 mm working H', width: 2700, depth: 600, height: 860, family: 'kitchen-base', icon: '🍳' },
+    { id: 'pre-kit-overhead', name: '2700mm Profile-Glass Lift-Up Overhead (3000K LED)', desc: 'Anodized graphite aluminium frames with under-cabinet warm task strip at 1450 mm elevation', width: 2700, depth: 350, height: 720, family: 'kitchen-wall', icon: '🪟' },
+    { id: 'pre-kit-appliance', name: '600mm Built-in Oven & Microwave Pantry Tower', desc: 'Reinforced ventilated appliance cavity with storage drawers below and top loft (2100 mm H)', width: 600, depth: 600, height: 2100, family: 'kitchen-tall', icon: '🔥' },
+    { id: 'pre-kit-pantry', name: '600mm Tall 12-Basket Pantry Pull-Out Tower', desc: 'Full-extension stainless steel internal wire baskets & spice racks (2100 mm H)', width: 600, depth: 600, height: 2100, family: 'kitchen-tall', icon: '🥫' },
   ],
   master_bedroom: [
-    { id: 'pre-bed-wardrobe', name: '2400mm 4-Door Profile Glass Wardrobe', desc: 'Anodized gold aluminum frame with integrated lofts and motion sensor LED', width: 2400, height: 2700, family: 'wardrobe', icon: '🚪' },
-    { id: 'pre-bed-hydraulic', name: '1800mm King Hydraulic Storage Bed + Headboard', desc: 'Gas-lift under-bed storage with fluted acoustic upholstered wall back', width: 1950, height: 1200, family: 'wardrobe', icon: '🛏️' },
-    { id: 'pre-bed-vanity', name: '1200mm Floating Vanity Dresser & LED Mirror', desc: 'Jewelry organizer drawers with backlit anti-fog touch LED mirror', width: 1200, height: 1800, family: 'utility', icon: '🪞' },
+    { id: 'pre-bed-hydraulic', name: '1800mm King Storage Bed + Extended Headboard', desc: 'Gas-lift hydraulic storage with fluted acoustic upholstered wall back panel (1200 mm H)', width: 1950, depth: 2100, height: 1200, family: 'bed', icon: '🛏️' },
+    { id: 'pre-bed-wardrobe', name: '2400mm 4-Door Profile Glass Wardrobe', desc: 'Anodized bronze aluminum frame with integrated lofts and sensor LED (2700 mm H)', width: 2400, depth: 600, height: 2700, family: 'wardrobe', icon: '🚪' },
+    { id: 'pre-bed-vanity', name: '1200mm Floating Vanity Dresser & LED Mirror', desc: 'Jewelry organizer drawers with backlit anti-fog touch LED mirror (1800 mm H)', width: 1200, depth: 450, height: 1800, family: 'utility', icon: '🪞' },
+    { id: 'pre-bed-nightstand', name: '500mm Dual Floating Bedside Nightstands', desc: 'Soft-close drawer with integrated wireless charging pad and ambient LED (450 mm H)', width: 500, depth: 400, height: 450, family: 'bed', icon: '🏮' },
   ],
   bedroom: [
-    { id: 'pre-bed-2-wardrobe', name: '1800mm 3-Door Swing Wardrobe + Lofts', desc: 'Synchronized soft-close hinges with internal hanger rods & dual drawers', width: 1800, height: 2700, family: 'wardrobe', icon: '🚪' },
-    { id: 'pre-bed-2-study', name: '1200mm Integrated Study Desk & Overhead Bookshelf', desc: 'Cable grommet, push-to-open drawers and magnetic pinboard backing', width: 1200, height: 2100, family: 'study', icon: '📚' },
+    { id: 'pre-bed-2-hydraulic', name: '1600mm Queen Storage Bed + Fluted Headboard', desc: 'Hydraulic lift storage bed with padded headboard and bedside clearance (1150 mm H)', width: 1750, depth: 2100, height: 1150, family: 'bed', icon: '🛏️' },
+    { id: 'pre-bed-2-wardrobe', name: '1800mm 3-Door Swing Wardrobe + Lofts', desc: 'Synchronized soft-close hinges with internal hanger rods & dual drawers (2700 mm H)', width: 1800, depth: 600, height: 2700, family: 'wardrobe', icon: '🚪' },
+    { id: 'pre-bed-2-study', name: '1200mm Integrated Study Desk & Overhead Bookshelf', desc: 'Cable grommet, push-to-open drawers and magnetic pinboard backing (2100 mm H)', width: 1200, depth: 600, height: 2100, family: 'study', icon: '📚' },
+  ],
+  bathroom: [
+    { id: 'pre-bath-vanity', name: '1200mm Floating Vanity & Backlit Mirror', desc: 'Undermount ceramic basin, sintered stone top, soft-close drawer and anti-fog mirror (850 mm H)', width: 1200, depth: 500, height: 850, family: 'utility', icon: '🪞' },
+    { id: 'pre-bath-shutter', name: '900mm Overhead Mirror Cabinet with Hidden Storage', desc: 'Double-sided mirror doors with internal power socket and adjustable shelves (750 mm H)', width: 900, depth: 180, height: 750, family: 'utility', icon: '🧴' },
   ],
   pooja: [
-    { id: 'pre-pooja-mandir', name: '1200mm CNC Jali Teak Mandir Unit', desc: 'Om brass inlays, bell brackets, velvet pooja drawer & LED spotlight', width: 1200, height: 2100, family: 'pooja', icon: '🪔' },
+    { id: 'pre-pooja-mandir', name: '1200mm CNC Jali Teak Mandir Unit', desc: 'Om brass inlays, bell brackets, velvet pooja drawer & LED spotlight (2100 mm H)', width: 1200, depth: 400, height: 2100, family: 'pooja', icon: '🪔' },
   ],
   study: [
-    { id: 'pre-study-desk', name: '2100mm Executive Floating Desk & Library Wall', desc: 'Dual pedestal drawers with open shelving and accent warm LED wash', width: 2100, height: 2400, family: 'study', icon: '💻' },
+    { id: 'pre-study-desk', name: '2100mm Executive Floating Desk & Library Wall', desc: 'Dual pedestal drawers with open shelving and accent warm LED wash (2400 mm H)', width: 2100, depth: 600, height: 2400, family: 'study', icon: '💻' },
   ],
 };
+
+const STUDIO_ROOM_REFERENCES: Record<string, Array<{ id: string; img: string; title: string; styleTag: string }>> = {
+  living: [
+    { id: 'ref-liv-1', img: '/reference-vault/013-52a29a1053dc.png', title: '2400mm Fluted TV Console Wall', styleTag: 'Fluted Smoked Oak & Ambient LED' },
+    { id: 'ref-liv-2', img: '/reference-vault/001-ddc1891636f7.png', title: '2800mm Sectional Sofa & Coffee Table', styleTag: 'Deep Charcoal & Warm Sconces' },
+    { id: 'ref-liv-3', img: '/reference-vault/014-685f67e3ff6f.png', title: 'Floating Backlit Media Wall', styleTag: 'Anti-Gravity Minimalist' },
+    { id: 'ref-liv-4', img: '/reference-vault/051-999d353af1d8.png', title: 'Travertine Media Wall with Glass Tower', styleTag: 'Calacatta Marble & Brushed Brass' },
+  ],
+  kitchen: [
+    { id: 'ref-kit-1', img: '/reference-vault/006-e36e2c7c9b1a.png', title: 'Modular Kitchen with Tandem Drawers', styleTag: 'Fluted Glass Overheads & Terrazzo' },
+    { id: 'ref-kit-2', img: '/reference-vault/042-7eaf3dbfd306.png', title: 'L-Shaped Kitchen & Oak Overhead Units', styleTag: 'Gloss White Base & Double Lofts' },
+    { id: 'ref-kit-3', img: '/reference-vault/003-1f61a8aabde4.png', title: 'Full-Height Appliance Pantry Tower', styleTag: 'Seamless Dual Oven/Microwave Wall' },
+    { id: 'ref-kit-4', img: '/reference-vault/048-ac94a44309b6.png', title: 'Rolling Shutter Appliance Garage Counter', styleTag: 'Fluted Glass & Wicker Vegetable Trays' },
+  ],
+  bedroom: [
+    { id: 'ref-bed-1', img: '/reference-vault/008-5fd497f005d8.png', title: 'Natural Oak 4-Door Full-Height Wardrobe', styleTag: 'Floor-to-Ceiling Lofts & Edge Pulls' },
+    { id: 'ref-bed-2', img: '/reference-vault/009-f68e47674ead.png', title: 'Suede Ivory Wardrobe & Pinboard Study Desk', styleTag: 'Integrated Workstation & Brass Accents' },
+    { id: 'ref-bed-3', img: '/reference-vault/025-adb09122c8d1.png', title: 'Sage Green Arched Wardrobe & Study Desk', styleTag: 'Warm Nordic Arched Shutter Millwork' },
+  ],
+  master_bedroom: [
+    { id: 'ref-mbed-1', img: '/reference-vault/047-c1ce4511e83d.png', title: 'Master Bedroom Suite: Bed, Fluted Wardrobe & Vanity', styleTag: 'Complete 3BHK Master Luxury Package' },
+    { id: 'ref-mbed-2', img: '/reference-vault/040-a7dcd66e4242.png', title: '4-Door Suede & Dark Oak Passage Wardrobe', styleTag: 'Lofts, Recessed Spots & Flush Reveal' },
+    { id: 'ref-mbed-3', img: '/reference-vault/060-70075531f7e7.png', title: 'Master Suite 6-Door Wardrobe & Floating TV', styleTag: 'Tufted Bed & Concealed Dressing Alcove' },
+  ],
+  dining: [
+    { id: 'ref-din-1', img: '/reference-vault/002-cab37cfa0bb2.png', title: '1800mm Fluted Crockery Console & Bar', styleTag: 'Fluted Louvers & Glass Display' },
+    { id: 'ref-din-2', img: '/reference-vault/018-b7dd5f1492fe.png', title: 'Full Height Bar & Wine Cabinet', styleTag: 'Profile Glass & Stemware Lighting' },
+  ],
+  bathroom: [
+    { id: 'ref-bath-1', img: '/reference-vault/028-a8f62ab3d392.png', title: 'Concealed Cistern Vanity & Wall-Hung Basin', styleTag: 'Vitrified Wall Tiles & Shutter Storage' },
+    { id: 'ref-bath-2', img: '/reference-vault/029-640527178f8d.png', title: 'Bathroom Suite with Oval Mirror & Shower', styleTag: 'Vitrified Marble & Overhead Shutter' },
+  ],
+  pooja: [
+    { id: 'ref-poo-1', img: '/reference-vault/020-ea872c640df6.png', title: 'Traditional Backlit Mandir with CNC Jaali', styleTag: 'Brass Inlays, Bell Hooks & 4 Drawers' },
+    { id: 'ref-poo-2', img: '/reference-vault/021-5a47b71bad49.png', title: 'Mandir Unit with Gold OM Mandala & Tray', styleTag: 'Pull-out Bhog Tray & Soft-Close Drawers' },
+    { id: 'ref-poo-3', img: '/reference-vault/019-a06a89855436.png', title: 'Modular Pooja Unit with Shutter Variations', styleTag: 'Frosted Glass Shutter with Ganesha Motif' },
+  ],
+  study: [
+    { id: 'ref-stu-1', img: '/reference-vault/011-6c55d3439149.png', title: '1500mm Floating Study Desk & Wall Cabinet', styleTag: 'Fluted Shutter & Open Book Niche' },
+    { id: 'ref-stu-2', img: '/reference-vault/044-577ed741688e.png', title: 'Architectural Elevation: 2900mm Wardrobe + Desk', styleTag: 'Exact Millimeter Dimensioned Release' },
+  ],
+  utility: [
+    { id: 'ref-utl-1', img: '/reference-vault/036-de959cf3df44.png', title: '1800mm Laundry Counter with Washing Machine', styleTag: 'Undermount Sink, Dishwasher & Lofts' },
+    { id: 'ref-utl-2', img: '/reference-vault/005-7919b88e0dc1.png', title: 'Technical CAD Elevation: 1596mm Utility Wall', styleTag: 'Service Plumbing & Appliance Clearance' },
+  ],
+};
+
+const CURATED_MINIMAL_FINISHES = [
+  { id: 'mat-high-gloss', name: 'High Gloss Acrylic', type: 'High Gloss', code: 'ULT-HG-01', hex: '#F7F7F2', desc: 'Mirror-like reflective acrylic shutter finish' },
+  { id: 'mat-super-matte', name: 'Super-Matte Suede', type: 'Super Matte', code: 'ULT-MAT-02', hex: '#2B2622', desc: 'Zero-fingerprint soft-touch matte finish' },
+  { id: 'mat-smoked-walnut', name: 'Smoked Walnut Veneer', type: 'Wood Grain', code: 'ULT-WOD-03', hex: '#654321', desc: 'Rich organic walnut with natural grain texture' },
+  { id: 'mat-calacatta-stone', name: 'Calacatta Sintered Stone', type: 'Sintered Slab', code: 'ULT-STN-04', hex: '#F3EDE2', desc: '40mm honed marble slab with gold-grey veining' },
+];
 
 export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
   const navigate = useNavigate();
@@ -138,7 +199,24 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const selectedThemeObj = stylePresets.find((preset) => preset.id === activeTheme) ?? stylePresets[0];
   const selectedLaminateObj = catalogLaminates.find((l) => l.id === activeLaminate) ?? catalogLaminates[0] ?? { id: '', name: 'No laminate selected', code: '', hex: '#d6c7b8', unitCost: 0 };
   const selectedHardwareObj = catalogHardwares.find((h) => h.id === activeHardware) ?? catalogHardwares[0] ?? { id: '', name: 'No hardware selected', code: '', unitCost: 0 };
-  const selectedModule = draftModules.find((module) => module.id === selectedModuleId) ?? draftModules[0] ?? null;
+  const fallbackModule: Module = useMemo(() => {
+    const isBed = room.includes('bed');
+    const isKit = room.includes('kitchen');
+    return {
+      id: `mod-active-${spaceId || 'space'}`,
+      roomId: spaceId || 'space-1',
+      family: isBed ? 'wardrobe' : isKit ? 'kitchen-base' : 'tv-unit',
+      label: isBed ? '2400 mm Profile-Glass Wardrobe' : isKit ? '2800 mm Modular Kitchen Counter' : '2400 mm Fluted TV Console Wall',
+      widthMm: isBed ? 2400 : isKit ? 2800 : 2400,
+      depthMm: isBed ? 600 : isKit ? 600 : 400,
+      heightMm: isBed ? 2400 : isKit ? 860 : 2200,
+      wallId: wallId || 'wall-1',
+      offsetMm: 200,
+      configuration: moduleConfiguration,
+    };
+  }, [room, spaceId, wallId, moduleConfiguration]);
+
+  const selectedModule = draftModules.find((module) => module.id === selectedModuleId) ?? draftModules[0] ?? fallbackModule;
   const selectedSpace = spaces.find((space) => space.id === spaceId) ?? null;
   const roomWalls = useMemo(() => {
     const polygon = selectedSpace?.geometry_json?.polygon ?? [];
@@ -804,13 +882,15 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
       if (!response?.ok || !payload?.success) {
         const roomImages: Record<string, string[]> = {
-          kitchen: ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/003-1f61a8aabde4.png', '/reference-vault/012-5c60a01e5b86.png'],
-          living: ['/reference-vault/002-cab37cfa0bb2.png', '/reference-vault/004-ee04b56efde7.png', '/reference-vault/016-f106846da92c.png'],
-          master_bedroom: ['/reference-vault/006-e36e2c7c9b1a.png', '/reference-vault/015-5705e2ee9cb1.png', '/reference-vault/021-5a47b71bad49.png'],
-          bedroom: ['/reference-vault/007-2b9d568ff444.png', '/reference-vault/023-ae1e9b70744f.png'],
-          dining: ['/reference-vault/008-5fd497f005d8.png', '/reference-vault/018-b7dd5f1492fe.png'],
-          study: ['/reference-vault/010-a0dbdf361a50.png', '/reference-vault/027-3ee9dcdaca5c.png'],
-          pooja: ['/reference-vault/014-685f67e3ff6f.png'],
+          kitchen: ['/reference-vault/003-1f61a8aabde4.png', '/reference-vault/006-e36e2c7c9b1a.png', '/reference-vault/039-1786da704c5a.png', '/reference-vault/042-7eaf3dbfd306.png', '/reference-vault/048-ac94a44309b6.png', '/reference-vault/050-a2b533693ac2.png', '/reference-vault/052-1d6904ef55a3.png', '/reference-vault/055-e94b19f0e93f.png', '/reference-vault/056-3bb2275767d2.png'],
+          living: ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/013-52a29a1053dc.png', '/reference-vault/014-685f67e3ff6f.png', '/reference-vault/015-5705e2ee9cb1.png', '/reference-vault/016-f106846da92c.png', '/reference-vault/017-cd2b9919c856.png', '/reference-vault/026-ebca5fba9a3f.png', '/reference-vault/051-999d353af1d8.png', '/reference-vault/058-b3d36c0c874b.png'],
+          master_bedroom: ['/reference-vault/047-c1ce4511e83d.png', '/reference-vault/040-a7dcd66e4242.png', '/reference-vault/060-70075531f7e7.png', '/reference-vault/049-d1a18590223e.png'],
+          bedroom: ['/reference-vault/007-2b9d568ff444.png', '/reference-vault/008-5fd497f005d8.png', '/reference-vault/009-f68e47674ead.png', '/reference-vault/010-a0dbdf361a50.png', '/reference-vault/012-5c60a01e5b86.png', '/reference-vault/023-ae1e9b70744f.png', '/reference-vault/025-adb09122c8d1.png', '/reference-vault/035-78733d79d595.png', '/reference-vault/038-73c6d08adf93.png', '/reference-vault/041-6770bf54ce43.png', '/reference-vault/043-71833d244d0d.png', '/reference-vault/045-7ec65f321496.png', '/reference-vault/054-c8fa00bd2c4b.png'],
+          dining: ['/reference-vault/002-cab37cfa0bb2.png', '/reference-vault/004-ee04b56efde7.png', '/reference-vault/018-b7dd5f1492fe.png'],
+          study: ['/reference-vault/011-6c55d3439149.png', '/reference-vault/022-d6f4e9ee57d1.png', '/reference-vault/024-5976bb27ca03.png', '/reference-vault/044-577ed741688e.png', '/reference-vault/054-c8fa00bd2c4b.png'],
+          pooja: ['/reference-vault/019-a06a89855436.png', '/reference-vault/020-ea872c640df6.png', '/reference-vault/021-5a47b71bad49.png'],
+          bathroom: ['/reference-vault/027-3ee9dcdaca5c.png', '/reference-vault/028-a8f62ab3d392.png', '/reference-vault/029-640527178f8d.png', '/reference-vault/030-7bd7e8a977bf.png', '/reference-vault/031-6f3948f48928.png', '/reference-vault/032-ae224c73b5dc.png'],
+          utility: ['/reference-vault/005-7919b88e0dc1.png', '/reference-vault/036-de959cf3df44.png'],
         };
         const rKey = room?.toLowerCase() || 'living';
         const imgPool = roomImages[rKey] || roomImages.living;
@@ -1512,106 +1592,202 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
             </CardContent>
           </Card>
         ) : (
-          <Card className="catalog-panel" style={{ minWidth: '400px' }}>
-            <CardHeader>
-              <small>MOODBOARD STUDIO</small>
-              <h3>Aesthetic Material Curation</h3>
+          <Card className="catalog-panel" style={{ minWidth: '420px' }}>
+            <CardHeader style={{ paddingBottom: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                <div>
+                  <small style={{ color: 'var(--gold)', fontWeight: 800, letterSpacing: '0.05em' }}>AGENT B STYLE MOODBOARD STUDIO</small>
+                  <h3 style={{ margin: '2px 0 0', fontSize: '16px' }}>Room Furniture &amp; Aesthetic Curation</h3>
+                </div>
+                <Badge tone="accent">{room.toUpperCase()}</Badge>
+              </div>
             </CardHeader>
-            <CardContent style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <CardContent style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem', paddingTop: '6px' }}>
+              {/* Room Pill Switcher */}
               <div>
-                <label style={{ fontWeight: 'bold', fontSize: '0.8rem', display: 'block', marginBottom: '0.5rem' }}>1. Select Theme & Palette</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-      {stylePresets.map((theme) => (
+                <label style={{ fontWeight: 800, fontSize: '11.5px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                  Active Room
+                </label>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {spaces.map((s) => (
                     <button
-                      key={theme.id}
-                      onClick={() => setActiveTheme(theme.id)}
+                      key={s.id}
+                      type="button"
+                      onClick={() => { setSpaceId(s.id); setRoom(s.roomType); }}
                       style={{
-                        padding: '0.75rem',
-                        borderRadius: '0.375rem',
-                        border: activeTheme === theme.id ? '2px solid #c59c2d' : '1px solid #e5e7eb',
-                        backgroundColor: activeTheme === theme.id ? '#fafaf9' : '#ffffff',
-                        textAlign: 'left',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <strong style={{ fontSize: '0.8rem', display: 'block' }}>{theme.name}</strong>
-                      <small>{theme.referenceStyle.join(' · ')}</small>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontWeight: 'bold', fontSize: '0.8rem', display: 'block', marginBottom: '0.5rem' }}>2. Component finish</label>
-                <select value={materialSlot} onChange={(event) => setMaterialSlot(event.target.value as MaterialSlot)} style={{ width: '100%', marginBottom: '0.65rem' }}>
-                  <option value="shutter">External shutter / drawer front</option>
-                  <option value="carcass">Internal carcass and shelves</option>
-                  <option value="back_panel">Back panel</option>
-                  <option value="countertop">Countertop</option>
-                  <option value="profile">Aluminium profile</option>
-                  <option value="glass">Glass insert</option>
-                </select>
-                {!catalogLaminates.length && <div className="placement-notice" role="status" style={{ marginBottom: '0.6rem' }}><span>No organization laminate is available yet.</span><Button variant="outline" onClick={() => void addStarterMaterials()} disabled={!projectId || starterMaterialsState.startsWith('Adding')}>Add curated Cubex, Advance &amp; Virgo starters</Button><small>{starterMaterialsState || 'These are editable starter specifications; verify supplier availability before production.'}</small></div>}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {catalogLaminates.map((laminate) => (
-                    <button
-                      key={laminate.id}
-                      onClick={() => setActiveLaminate(laminate.id)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.75rem',
-                        padding: '0.5rem 0.75rem',
-                        borderRadius: '0.375rem',
-                        border: activeLaminate === laminate.id ? '2px solid #c59c2d' : '1px solid #e5e7eb',
-                        backgroundColor: '#ffffff',
+                        padding: '5px 12px',
+                        borderRadius: '20px',
+                        fontSize: '11.5px',
+                        fontWeight: spaceId === s.id ? 800 : 500,
+                        background: spaceId === s.id ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fff',
+                        color: spaceId === s.id ? '#e8c96a' : '#44403c',
+                        border: spaceId === s.id ? '1px solid var(--gold)' : '1px solid #d6d3d1',
                         cursor: 'pointer',
-                        textAlign: 'left'
+                        transition: 'all 0.15s ease',
                       }}
                     >
-                      <span style={{ width: '20px', height: '20px', borderRadius: '4px', backgroundColor: laminate.hex, border: '1px solid #d1d5db' }} />
-                      <span style={{ fontSize: '0.8rem', flex: 1 }}>{laminate.name}</span>
-                      <small style={{ fontSize: '0.7rem', color: '#6b7280' }}>{laminate.code}</small>
+                      {s.name}
                     </button>
                   ))}
                 </div>
               </div>
 
+              {/* 1. Curated Room Furniture Packages */}
+              <div style={{ background: '#faf8f5', padding: '12px', borderRadius: '10px', border: '1px solid #ede5d8' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#292524', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Sparkles size={14} style={{ color: 'var(--gold)' }} />
+                    1. CURATED FURNITURE FOR {room.toUpperCase()}
+                  </span>
+                  <small style={{ color: 'var(--gold-dim)', fontWeight: 700, fontSize: '10.5px' }}>Strict Millwork Heights</small>
+                </div>
+                <div style={{ display: 'grid', gap: '6px' }}>
+                  {getPrebuiltSuggestions(room).map((pkg) => {
+                    const isPlaced = draftModules.some((m) => m.roomId === spaceId && (m.label.includes(pkg.name.slice(0, 10)) || m.family === pkg.family));
+                    return (
+                      <div
+                        key={pkg.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '8px',
+                          padding: '8px 10px',
+                          background: '#fff',
+                          border: isPlaced ? '1.5px solid #16a34a' : '1px solid #e7dcce',
+                          borderRadius: '8px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                          <span style={{ fontSize: '18px', flexShrink: 0 }}>{pkg.icon}</span>
+                          <div style={{ minWidth: 0 }}>
+                            <strong style={{ display: 'block', fontSize: '11.5px', color: '#1c1917', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pkg.name}</strong>
+                            <small style={{ display: 'block', fontSize: '10px', color: '#78716c', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pkg.desc}</small>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handlePlacePrebuiltPackage(pkg)}
+                          style={{
+                            padding: '4px 9px',
+                            borderRadius: '6px',
+                            background: isPlaced ? '#dcfce7' : 'linear-gradient(135deg, #c59c2d, #8f6c12)',
+                            color: isPlaced ? '#15803d' : '#fff',
+                            border: isPlaced ? '1px solid #86efac' : 0,
+                            fontSize: '10.5px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {isPlaced ? '✓ In Scene' : '+ Add'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Minimal Curated Finishes */}
               <div>
-                <label style={{ fontWeight: 'bold', fontSize: '0.8rem', display: 'block', marginBottom: '0.5rem' }}>3. Hardware and lighting finish</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {catalogHardwares.map((hardware) => (
-                    <button
-                      key={hardware.id}
-                      onClick={() => setActiveHardware(hardware.id)}
+                <label style={{ fontWeight: 800, fontSize: '11.5px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                  2. Minimal Curated Finishes
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  {CURATED_MINIMAL_FINISHES.map((fin) => {
+                    const isSelected = activeLaminate === fin.id || (activeLaminate === '' && fin.id === 'mat-smoked-walnut');
+                    return (
+                      <button
+                        key={fin.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveLaminate(fin.id);
+                          setStyle((curr) => `${curr}; material: ${fin.name}`);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          border: isSelected ? '2px solid var(--gold)' : '1px solid #e7e5e4',
+                          background: isSelected ? '#fffdfa' : '#fff',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          boxShadow: isSelected ? '0 2px 8px rgba(197,156,45,0.2)' : 'none',
+                        }}
+                      >
+                        <span style={{ width: '22px', height: '22px', borderRadius: '5px', background: fin.hex, border: '1px solid rgba(0,0,0,0.15)', flexShrink: 0 }} />
+                        <div style={{ minWidth: 0 }}>
+                          <strong style={{ display: 'block', fontSize: '11px', color: '#1c1917' }}>{fin.name}</strong>
+                          <small style={{ display: 'block', fontSize: '9.5px', color: '#78716c' }}>{fin.type}</small>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 3. Studio Reference Image Gallery (Filtered for Active Room) */}
+              <div>
+                <label style={{ fontWeight: 800, fontSize: '11.5px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                  3. Studio Reference Gallery · {room.toUpperCase()}
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: '6px' }}>
+                  {(STUDIO_ROOM_REFERENCES[room] ?? STUDIO_ROOM_REFERENCES.living).map((ref) => (
+                    <div
+                      key={ref.id}
                       style={{
-                        flex: 1,
-                        padding: '0.5rem',
-                        fontSize: '0.75rem',
-                        borderRadius: '0.375rem',
-                        border: activeHardware === hardware.id ? '2px solid #c59c2d' : '1px solid #e5e7eb',
-                        backgroundColor: '#ffffff',
-                        cursor: 'pointer'
+                        position: 'relative',
+                        borderRadius: '7px',
+                        overflow: 'hidden',
+                        aspectRatio: '1',
+                        border: '1px solid #e7e5e4',
+                        cursor: 'pointer',
                       }}
+                      onClick={() => {
+                        setStyle((curr) => `${curr}; atmosphere inspired by: ${ref.styleTag}`);
+                        setPlacementNotice(`✨ Applied reference atmosphere: "${ref.styleTag}" to active moodboard!`);
+                      }}
+                      title={`Click to apply atmosphere: ${ref.styleTag}`}
                     >
-                      {hardware.name}
-                    </button>
+                      <img src={ref.img} alt={ref.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.85), transparent)', padding: '3px 4px', fontSize: '8.5px', color: '#fff', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {ref.title}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
 
-              <Button onClick={() => { void saveMoodboard(); }} style={{ marginTop: '0.5rem' }}>
-                <Check size={16} style={{ marginRight: '0.5rem' }} /> Save Moodboard
-              </Button>
-              <Button onClick={() => void compileMoodboard()} variant="outline" disabled={!selectedModule || !materialAssignmentsSaved} title={!selectedModule ? 'Place and select a module first' : !materialAssignmentsSaved ? 'Save selected materials before compiling' : 'Compile persisted geometry, modules and materials'}>
-                <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Compile {draftModules.length} reviewed module{draftModules.length === 1 ? '' : 's'} to scene.v1
-              </Button>
-              <Button onClick={() => { if (compiledSceneId) void onSceneApproved(compiledSceneId); }} variant="outline" disabled={!compiledSceneId || sceneApproved} title={!compiledSceneId ? 'Compile a scene first' : sceneApproved ? 'This scene is already approved' : 'Approve this exact scene before rendering'}>
-                <Check size={16} style={{ marginRight: '0.5rem' }} /> {sceneApproved ? 'Scene approved' : 'Approve scene'}
-              </Button>
-              <Button disabled={!compiledSceneId || !projectId} onClick={() => navigate(`/projects/${projectId}/3d`)} variant="outline">
-                <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Inspect compiled scene in 3D
-              </Button>
+              {/* 4. Action Hub */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                <Button
+                  onClick={handleAiAutoFitAllWallModules}
+                  style={{
+                    background: 'linear-gradient(135deg, #1c1917, #3d2a1a)',
+                    color: '#e8c96a',
+                    border: '1px solid var(--gold)',
+                    fontWeight: 800,
+                  }}
+                >
+                  <Sparkles size={15} style={{ color: 'var(--gold)' }} /> Auto-Fit All Rooms with Furniture
+                </Button>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <Button
+                    onClick={() => navigate(`/projects/${projectId}/3d`)}
+                    style={{ background: 'var(--gold)', color: '#fff', fontWeight: 800, fontSize: '12px' }}
+                  >
+                    <Layers3 size={14} /> View 3D Scene →
+                  </Button>
+                  <Button
+                    onClick={() => navigate(`/projects/${projectId}/visualize`)}
+                    style={{ background: 'linear-gradient(135deg, #c59c2d, #8f6c12)', color: '#fff', fontWeight: 800, fontSize: '12px' }}
+                  >
+                    <Wand2 size={14} /> 4K AI Render →
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}

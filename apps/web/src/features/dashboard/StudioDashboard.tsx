@@ -87,7 +87,10 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
           <div
-            onClick={() => openTool('/plan')}
+            onClick={() => {
+              const activeProjId = projects[0]?.id;
+              openTool(activeProjId ? `/projects/${activeProjId}/plan` : '/projects');
+            }}
             style={{
               background: 'rgba(255,255,255,0.05)',
               padding: '16px',
@@ -114,7 +117,10 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           </div>
 
           <div
-            onClick={() => openTool('/spaces')}
+            onClick={() => {
+              const activeProjId = projects[0]?.id;
+              openTool(activeProjId ? `/projects/${activeProjId}/spaces?tab=spaces` : '/tools/room-builder');
+            }}
             style={{
               background: 'rgba(255,255,255,0.05)',
               padding: '16px',
@@ -141,7 +147,10 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           </div>
 
           <div
-            onClick={() => openTool('/spaces?tab=modules')}
+            onClick={() => {
+              const activeProjId = projects[0]?.id;
+              openTool(activeProjId ? `/projects/${activeProjId}/spaces?tab=modules` : '/tools/modules');
+            }}
             style={{
               background: 'rgba(255,255,255,0.05)',
               padding: '16px',
@@ -168,7 +177,10 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           </div>
 
           <div
-            onClick={() => openTool('/3d')}
+            onClick={() => {
+              const activeProjId = projects[0]?.id;
+              openTool(activeProjId ? `/projects/${activeProjId}/3d` : '/tools/render');
+            }}
             style={{
               background: 'rgba(255,255,255,0.05)',
               padding: '16px',
@@ -195,7 +207,10 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           </div>
 
           <div
-            onClick={() => openTool('/tools/render')}
+            onClick={() => {
+              const activeProjId = projects[0]?.id;
+              openTool(activeProjId ? `/projects/${activeProjId}/production` : '/projects');
+            }}
             style={{
               background: 'rgba(255,255,255,0.05)',
               padding: '16px',
@@ -305,17 +320,16 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         </div>
       </section>
 
-      {/* Featured Masterclass Design Showcase Strip */}
-      <section style={{ margin: '24px 0', padding: '20px', borderRadius: 16, background: '#1c1917', color: '#fff', border: '1px solid #292524' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      {/* Production Reference Vault Section */}
+      <section style={{ margin: '24px 0', padding: '24px', borderRadius: 16, background: '#1c1917', border: '1px solid #38322c', boxShadow: '0 8px 30px rgba(0,0,0,0.2)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <span style={{ fontSize: 10.5, fontWeight: 800, color: '#c59c2d', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: '#c59c2d', letterSpacing: '0.12em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
               ✦ PRODUCTION REFERENCE VAULT
             </span>
             <h2 style={{ margin: '4px 0 0', fontSize: 18, color: '#fff' }}>Curated Masterclass Design Renders</h2>
           </div>
           <button
-            type="button"
             onClick={() => openTool('/library')}
             style={{
               background: 'rgba(255,255,255,0.08)',
@@ -336,13 +350,13 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
           {[
-            { img: '/reference-vault/001-ddc1891636f7.png', tag: 'KITCHEN · ACRYLIC', title: 'Modular Kitchen Run' },
-            { img: '/reference-vault/002-cab37cfa0bb2.png', tag: 'KITCHEN · OVERHEAD', title: 'Fluted Overhead Cabinets' },
-            { img: '/reference-vault/003-1f61a8aabde4.png', tag: 'KITCHEN · APPLIANCE', title: 'Tall Appliance Tower' },
-            { img: '/reference-vault/007-2b9d568ff444.png', tag: 'WARDROBE · GLASS', title: 'Profile-Glass Walk-In' },
-            { img: '/reference-vault/013-52a29a1053dc.png', tag: 'LIVING · FLUTED PU', title: '2400mm Fluted TV Wall' },
-            { img: '/reference-vault/028-a8f62ab3d392.png', tag: 'WASHROOM · STORAGE', title: 'Overhead Shutter & Vanity Unit' },
-            { img: '/reference-vault/029-640527178f8d.png', tag: 'DINING · SMOKED OAK', title: 'Smoked Oak Dining Set' },
+            { img: '/reference-vault/001-ddc1891636f7.png', tag: 'LIVING · SECTIONAL', title: '2800mm Sectional Sofa & Dark Oak Table' },
+            { img: '/reference-vault/002-cab37cfa0bb2.png', tag: 'DINING · CROCKERY', title: '1800mm Fluted Crockery Console & Bar' },
+            { img: '/reference-vault/003-1f61a8aabde4.png', tag: 'KITCHEN · APPLIANCE', title: 'Dual Microwave/Oven Tall Tower' },
+            { img: '/reference-vault/007-2b9d568ff444.png', tag: 'BEDROOM · WARDROBE', title: 'Profile-Glass 2-Door Sliding Wardrobe' },
+            { img: '/reference-vault/013-52a29a1053dc.png', tag: 'LIVING · FLUTED TV', title: '2400mm Fluted TV Console Wall' },
+            { img: '/reference-vault/020-ea872c640df6.png', tag: 'SACRED · MANDIR', title: 'Traditional Backlit CNC Jaali Mandir' },
+            { img: '/reference-vault/028-a8f62ab3d392.png', tag: 'BATHROOM · VANITY', title: '1200mm Concealed Cistern Vanity Suite' },
           ].map((item) => (
             <div
               key={item.img}
