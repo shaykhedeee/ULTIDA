@@ -19,6 +19,8 @@ type Provider = { id: string; configured: boolean; operations: string[] };
 type StoredRender = { id: string; scene_version_id: string; status: string; stale?: boolean; signedUrl: string | null; created_at: string; provenance?: { provider?: string; model?: string; promptVersion?: string; reviewStatus?: string } };
 type DesignFocus = 'all' | 'modules' | 'materials';
 type MaterialSlot = 'carcass' | 'shutter' | 'back_panel' | 'countertop' | 'profile' | 'glass';
+type ScenePreflightModule = { id: string; roomId: string; label: string; family: string; readiness: { layoutApproved: boolean; wallAnchorSaved: boolean; positionResolved: boolean; dimensionsValid: boolean; materialsSaved: boolean }; missingMaterialSlots: string[]; sceneReady: boolean };
+type ScenePreflight = { room: { id: string; planRoomId?: string; name: string; roomType: string }; modules: ScenePreflightModule[]; requestedModuleIds: string[]; sceneReady: boolean; blockers: Array<Record<string, unknown>> };
 type Props = { stage: Stage; focus?: DesignFocus; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
 const apiBase = getApiBase();
 
@@ -188,6 +190,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const [structuralImageName, setStructuralImageName] = useState<string | null>(null);
   const [materialLibrary, setMaterialLibrary] = useState<any[]>([]);
   const [materialAssignmentsSaved, setMaterialAssignmentsSaved] = useState(materials.length > 0);
+  const [scenePreflight, setScenePreflight] = useState<ScenePreflight | null>(null);
+  const [preflightLoading, setPreflightLoading] = useState(false);
   const [starterMaterialsState, setStarterMaterialsState] = useState('');
 
   useEffect(() => { setCompiledSceneId(sceneVersionId); }, [sceneVersionId]);
@@ -220,24 +224,9 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const selectedCarcassLaminate = catalogLaminates.find((l) => l.id === carcassLaminateId) ?? catalogLaminates[0] ?? { id: '', name: 'No carcass finish selected', code: '', hex: '#d6c7b8', unitCost: 0 };
   const selectedShutterLaminate = catalogLaminates.find((l) => l.id === shutterLaminateId) ?? selectedLaminateObj;
   const selectedHardwareObj = catalogHardwares.find((h) => h.id === activeHardware) ?? catalogHardwares[0] ?? { id: '', name: 'No hardware selected', code: '', unitCost: 0 };
-  const fallbackModule: Module = useMemo(() => {
-    const isBed = room.includes('bed');
-    const isKit = room.includes('kitchen');
-    return {
-      id: `mod-active-${spaceId || 'space'}`,
-      roomId: spaceId || 'space-1',
-      family: isBed ? 'wardrobe' : isKit ? 'kitchen-base' : 'tv-unit',
-      label: isBed ? '2400 mm Profile-Glass Wardrobe' : isKit ? '2800 mm Modular Kitchen Counter' : '2400 mm Fluted TV Console Wall',
-      widthMm: isBed ? 2400 : isKit ? 2800 : 2400,
-      depthMm: isBed ? 600 : isKit ? 600 : 400,
-      heightMm: isBed ? 2400 : isKit ? 860 : 2200,
-      wallId: wallId || 'wall-1',
-      offsetMm: 200,
-      configuration: moduleConfiguration,
-    };
-  }, [room, spaceId, wallId, moduleConfiguration]);
-
-  const selectedModule = draftModules.find((module) => module.id === selectedModuleId) ?? draftModules[0] ?? fallbackModule;
+  // Suggestions and previews never impersonate a saved module. Only a module
+  // returned by the persistence API can receive finishes or enter scene.v1.
+  const selectedModule = draftModules.find((module) => module.id === selectedModuleId) ?? draftModules[0] ?? null;
   const selectedSpace = spaces.find((space) => space.id === spaceId) ?? null;
   const roomWalls = useMemo(() => {
     const polygon = selectedSpace?.geometry_json?.polygon ?? [];
@@ -282,6 +271,28 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     const session = await supabase?.auth.getSession();
     const token = session?.data.session?.access_token;
     return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  }
+
+  async function loadScenePreflight(targetRoomId = spaceId): Promise<ScenePreflight | null> {
+    if (!projectId || !targetRoomId) { setScenePreflight(null); return null; }
+    setPreflightLoading(true);
+    try {
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/preflight?roomId=${encodeURIComponent(targetRoomId)}`, { headers: await authenticatedHeaders() });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        setScenePreflight(null);
+        setPlacementNotice(`${payload.code ? `${payload.code}: ` : ''}${payload.message ?? 'Scene readiness could not be checked.'}`);
+        return null;
+      }
+      setScenePreflight(payload as ScenePreflight);
+      return payload as ScenePreflight;
+    } catch {
+      setScenePreflight(null);
+      setPlacementNotice('Scene readiness is temporarily unavailable. Your placed modules remain saved.');
+      return null;
+    } finally {
+      setPreflightLoading(false);
+    }
   }
 
   async function loadRenders() {
@@ -381,6 +392,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       }
     })();
   }, [projectId, planApproved]);
+
+  useEffect(() => { void loadScenePreflight(); }, [projectId, spaceId, draftModules.length]);
 
   async function addStarterMaterials() {
     if (!projectId) return;
@@ -935,20 +948,28 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   };
 
   async function compileMoodboard(materialSelection?: any[], assignmentVerified = materialAssignmentsSaved) {
-    if (!projectId || !draftModules.length) { setPlacementNotice('Place at least one persisted module before compiling a scene.'); return; }
+    if (!projectId || !spaceId) { setPlacementNotice('Select an approved room before compiling its scene.'); return; }
     const sceneMaterials = materialSelection ?? [selectedCarcassLaminate, selectedShutterLaminate, selectedHardwareObj]
       .filter((item) => item.id)
       .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index);
     if (!sceneMaterials.length) { setPlacementNotice('Save a real material-library selection before compiling a scene.'); return; }
     if (!assignmentVerified) { setPlacementNotice('Save the selected component materials before compiling scene.v1.'); return; }
-    setPlacementNotice('Compiling the reviewed moodboard into scene.v1...');
+    const preflight = await loadScenePreflight(spaceId);
+    if (!preflight?.sceneReady || !preflight.requestedModuleIds.length) {
+      const missing = preflight?.modules.flatMap((module) => module.missingMaterialSlots).filter(Boolean) ?? [];
+      setPlacementNotice(missing.length ? `Save ${[...new Set(missing)].join(' and ')} finishes on a placed module before compiling.` : 'Place a module on an approved layout and resolve the readiness checklist before compiling.');
+      return;
+    }
+    const readyModules = draftModules.filter((module) => module.roomId === spaceId && preflight.requestedModuleIds.includes(module.id));
+    if (!readyModules.length) { setPlacementNotice('The server found no scene-ready persisted module in this room.'); return; }
+    setPlacementNotice('Compiling scene-ready room modules into scene.v1...');
     try {
-      const nextSceneId = await onSceneCreated(crypto.randomUUID(), draftModules, sceneMaterials);
+      const nextSceneId = await onSceneCreated(crypto.randomUUID(), readyModules, sceneMaterials);
       if (nextSceneId) setCompiledSceneId(nextSceneId);
-      setPlacementNotice('Scene compiled from persisted room anchors, module dimensions, and library materials.');
+      setPlacementNotice(`Scene compiled with ${readyModules.length} persisted module${readyModules.length === 1 ? '' : 's'}, exact wall anchors, parts, and finishes.`);
       return nextSceneId;
-    } catch {
-      setPlacementNotice('Scene compilation failed. The moodboard remains saved for correction.');
+    } catch (error) {
+      setPlacementNotice(error instanceof Error ? error.message : 'Scene compilation failed. Your persisted room design remains available for correction.');
       return undefined;
     }
   }
@@ -956,7 +977,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   async function saveFinishesAndCompileScene() {
     const saved = await saveMoodboard();
     if (!saved) return;
-    await compileMoodboard(undefined, true);
+    const nextSceneId = await compileMoodboard(undefined, true);
+    if (nextSceneId && projectId && spaceId) navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(scenePreflight?.room.planRoomId ?? spaceId)}&sceneVersionId=${encodeURIComponent(nextSceneId)}`);
   }
 
   async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string, sceneVersionOverride?: string, sceneIsApproved = sceneApproved, materialTarget?: { materialId: string; semanticSlot: string }) {
@@ -1898,7 +1920,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 </Button>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   <Button
-                    onClick={() => navigate(`/projects/${projectId}/3d`)}
+                    onClick={() => navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(scenePreflight?.room.planRoomId ?? spaceId ?? '')}&sceneVersionId=${encodeURIComponent(compiledSceneId ?? '')}`)}
                     disabled={!compiledSceneId}
                     style={{ background: 'var(--gold)', color: '#fff', fontWeight: 800, fontSize: '12px' }}
                   >
@@ -1923,7 +1945,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               <small>SCENE V1</small>
               <h3>{sceneVersionId ? `Version ${sceneVersionId.slice(0, 8)}` : 'Draft scene'}</h3>
             </div>
-            <Badge>{draftModules.length} persisted module{draftModules.length === 1 ? '' : 's'}</Badge>
+            <Badge>{scenePreflight?.requestedModuleIds.length ?? 0} scene-ready / {draftModules.filter((module) => !spaceId || module.roomId === spaceId).length} placed</Badge>
           </CardHeader>
           <CardContent>
             {(() => {
@@ -1948,7 +1970,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   
                   {materials.length > 0 && (
                     <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#fafaf9', borderRadius: '0.375rem', border: '1px dashed #e5e7eb' }}>
-                      <small style={{ fontWeight: 'bold', color: '#c59c2d', display: 'block', marginBottom: '0.25rem' }}>ACTIVE MOODBOARD MATERIALS</small>
+                      <small style={{ fontWeight: 'bold', color: '#c59c2d', display: 'block', marginBottom: '0.25rem' }}>SAVED ROOM FINISHES</small>
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         {materials.map((m) => (
                           <Badge key={m.id} tone="success">{m.name}</Badge>
@@ -1976,8 +1998,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         </Card>
       </div>
       <div className="workflow-next-action">
-        <div><small>NEXT STEP</small><strong>{compiledSceneId ? 'Inspect the compiled room before requesting a render.' : 'Compile the placed modules into one canonical scene.'}</strong><span>{compiledSceneId ? 'The same scene supplies 3D, renders, drawings, cutlists and estimates.' : 'Place a module, save its material assignment, then compile the scene.'}</span></div>
-        <Button onClick={() => navigate(`/projects/${projectId}/${compiledSceneId ? '3d' : 'materials'}`)} disabled={!projectId || !compiledSceneId}><ArrowRight size={16} /> {compiledSceneId ? 'Continue to 3D Scene' : 'Scene required'}</Button>
+        <div><small>ROOM SCENE CHECKLIST</small><strong>{compiledSceneId ? 'Room scene compiled — inspect it in 3D.' : 'Place → save finishes → compile → open room in 3D'}</strong><span>{preflightLoading ? 'Checking saved room modules…' : `${draftModules.filter((module) => module.roomId === spaceId).length ? '✓ Module placed' : '1. Place a module'} · ${materialAssignmentsSaved ? '✓ Finishes saved' : '2. Save finishes'} · ${scenePreflight?.sceneReady ? 'Ready to compile' : '3. Resolve readiness'} · ${compiledSceneId ? '4. Open room in 3D' : '3D unlocks after compilation'}`}</span></div>
+        {compiledSceneId ? (
+          <Button onClick={() => navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(scenePreflight?.room.planRoomId ?? spaceId ?? '')}&sceneVersionId=${encodeURIComponent(compiledSceneId)}`)} disabled={!projectId || !spaceId}><ArrowRight size={16} /> Open room in 3D</Button>
+        ) : (
+          <Button onClick={() => void saveFinishesAndCompileScene()} disabled={!projectId || !selectedModule || preflightLoading}><Layers3 size={16} /> Save finishes & compile scene</Button>
+        )}
       </div>
     </section>
   );

@@ -1083,16 +1083,21 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       throw new Error('Authenticated session required.');
     }
     const apiBase = getApiBase();
+    const roomId = modules[0]?.roomId;
+    if (!roomId || modules.some((module) => module.roomId !== roomId)) {
+      setPlanStatus('Compile one approved room at a time.');
+      throw new Error('ROOM_REQUIRED: Compile one approved room at a time.');
+    }
     try {
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ moduleInstanceIds: modules.map((module) => module.id), designVersion: 'spaces.v1', changeReason: 'Compiled from persisted moodboard modules, library assignments, and active approved plan.v1' }),
+        body: JSON.stringify({ roomId, moduleInstanceIds: modules.map((module) => module.id), designVersion: 'room-design.v1', changeReason: 'Compiled from persisted room modules, component finishes, and active approved plan.v1' }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success || !payload.sceneVersion) {
         setPlanStatus(payload.message ?? 'Scene compilation failed.');
-        throw new Error(payload.message ?? 'Scene compilation failed.');
+        throw new Error(`${payload.code ? `${payload.code}: ` : ''}${payload.message ?? 'Scene compilation failed.'}`);
       }
       setSceneVersionId(payload.sceneVersion.id);
       setSceneVersionNumber(payload.sceneVersion.version_number);

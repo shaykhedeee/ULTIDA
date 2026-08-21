@@ -1,5 +1,6 @@
 import { Box, Camera, Eye, Layers3, MousePointer2, Rotate3D, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { supabase } from '../../lib/supabase';
@@ -11,10 +12,10 @@ type Scene = {
   schema: 'scene.v1';
   units: 'mm';
   rooms: Array<{ id: string; name: string; boundary: Array<{ xMm: number; yMm: number }> }>;
-  walls: Array<{ id: string; start: { xMm: number; yMm: number }; end: { xMm: number; yMm: number }; thicknessMm: number; heightMm: number }>;
+  walls: Array<{ id: string; start: { xMm: number; yMm: number }; end: { xMm: number; yMm: number }; thicknessMm: number; heightMm: number; spaceIds?: string[] }>;
   openings: Array<{ id: string; wallId: string; offsetMm: number; widthMm: number; heightMm: number; sillHeightMm?: number; kind: 'door' | 'window' }>;
-  modules: Array<{ id: string; family: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number }; rotationDeg: number; materialId?: string }>;
-  moduleParts: Array<{ id: string; moduleId: string; semanticType: string; name: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number; zMm: number }; rotationDeg: number; materialId?: string }>;
+  modules: Array<{ id: string; roomId: string; family: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number }; rotationDeg: number; materialId?: string }>;
+  moduleParts: Array<{ id: string; moduleId: string; roomId: string; semanticType: string; name: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number; zMm: number }; rotationDeg: number; materialId?: string }>;
   materials: Array<{ id: string; name: string; code: string; finish?: string }>;
   cameras: Array<{ id: string; name: string; position: { xMm: number; yMm: number; zMm: number }; target: { xMm: number; yMm: number; zMm: number }; lensMm: number }>;
 };
@@ -153,10 +154,13 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
 }
 
 export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props) {
+  const [searchParams] = useSearchParams();
+  const requestedRoomId = searchParams.get('roomId');
+  const requestedSceneVersionId = searchParams.get('sceneVersionId') || sceneVersionId;
   const canvasRef = useRef<HTMLDivElement>(null);
   const [scene, setScene] = useState<Scene | null>(null);
   const [activeRooms, setActiveRooms] = useState<Array<{ id: string; name: string; roomType?: string; areaSqm?: number; polygon: Array<{ xMm: number; yMm: number }> }>>([]);
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(requestedRoomId);
   const [status, setStatus] = useState('Loading 3D scene geometry...');
   const [wallsVisible, setWallsVisible] = useState(true);
   const [ceilingVisible, setCeilingVisible] = useState(false);
@@ -181,18 +185,28 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       let loadedScene: Scene | null = null;
 
       let query = sb.from('scene_versions').select('id,scene,status');
-      if (sceneVersionId) {
-        query = query.eq('id', sceneVersionId);
+      if (requestedSceneVersionId) {
+        query = query.eq('id', requestedSceneVersionId);
       } else {
         query = query.eq('project_id', projectId).order('version_number', { ascending: false }).limit(1);
       }
 
-      const { data } = await (sceneVersionId ? query.single() : query.maybeSingle());
+      const { data } = await (requestedSceneVersionId ? query.single() : query.maybeSingle());
       if (data?.scene && (data.status === 'approved' || data.status === 'draft')) {
         const candidate = data.scene as Scene;
         if (candidate.schema === 'scene.v1' && candidate.units === 'mm') {
           loadedScene = { ...candidate, moduleParts: candidate.moduleParts ?? [] };
         }
+      }
+
+      // 3D is a viewer of a persisted scene version, not a client-side scene
+      // synthesizer. Missing compilation remains a clear, recoverable state.
+      if (!loadedScene && requestedSceneVersionId) {
+        if (live) {
+          setScene(null);
+          setStatus('The requested scene version could not be loaded. Return to Room Design, check readiness, and compile again.');
+        }
+        return;
       }
 
       if (!loadedScene) {
@@ -245,6 +259,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               const conf = m.config_json ?? {};
               return {
                 id: m.id || `mod-${idx}`,
+                roomId: String(m.space_id ?? pos.roomId ?? ''),
                 family: m.category || conf.family || 'modular',
                 widthMm: Number(conf.widthMm ?? 1800),
                 depthMm: Number(conf.depthMm ?? 600),
@@ -366,6 +381,18 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       if (!live) return;
 
       if (loadedScene) {
+        if (requestedRoomId) {
+          const roomWalls = loadedScene.walls.filter((wall) => wall.spaceIds?.includes(requestedRoomId));
+          const wallIds = new Set(roomWalls.map((wall) => wall.id));
+          loadedScene = {
+            ...loadedScene,
+            rooms: loadedScene.rooms.filter((room) => room.id === requestedRoomId),
+            walls: roomWalls,
+            openings: loadedScene.openings.filter((opening) => wallIds.has(opening.wallId)),
+            modules: loadedScene.modules.filter((module) => module.roomId === requestedRoomId),
+            moduleParts: loadedScene.moduleParts.filter((part) => part.roomId === requestedRoomId),
+          };
+        }
         setScene(loadedScene);
         setStatus(`✨ 3D Geometry loaded: ${loadedScene.rooms.length} rooms, ${loadedScene.walls.length} walls, ${loadedScene.openings.length} openings, ${loadedScene.modules.length} modules.`);
       } else {
@@ -376,7 +403,16 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
 
     void loadScene();
     return () => { live = false; };
-  }, [sceneVersionId, projectId]);
+  }, [requestedSceneVersionId, requestedRoomId, projectId]);
+
+  useEffect(() => {
+    if (!scene) return;
+    const availableRoomIds = new Set(scene.modules.map((module) => module.roomId));
+    const nextRoomId = requestedRoomId && availableRoomIds.has(requestedRoomId)
+      ? requestedRoomId
+      : scene.modules[0]?.roomId ?? null;
+    setSelectedRoomId(nextRoomId);
+  }, [scene, requestedRoomId]);
 
   useEffect(() => {
     const host = canvasRef.current;

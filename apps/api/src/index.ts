@@ -1928,6 +1928,62 @@ app.post('/api/projects/:projectId/material-assignments', requireProjectUser, as
   return response.status(201).json({ success: true, assignment: assignment.data, invalidatedArtifactCount: stale.count ?? null });
 });
 
+app.get('/api/projects/:projectId/scenes/preflight', requireProjectUser, async (request, response) => {
+  const projectId = String(request.params.projectId);
+  const roomId = typeof request.query.roomId === 'string' ? request.query.roomId : '';
+  if (!roomId) return response.status(400).json({ success: false, code: 'ROOM_REQUIRED', message: 'Select an approved room before checking scene readiness.' });
+  const client = getRequestSupabaseClient(request);
+  const [activePlan, space, modules] = await Promise.all([
+    client.from('floor_plan_versions').select('id,status,active_version').eq('project_id', projectId).eq('active_version', true).maybeSingle(),
+    client.from('spaces').select('id,space_id,name,room_type,status,verification_status').eq('project_id', projectId).eq('id', roomId).maybeSingle(),
+    client.from('module_instances').select('id,space_id,layout_id,category,label,config_json,position_json').eq('project_id', projectId).eq('space_id', roomId).eq('status', 'validated'),
+  ]);
+  if (activePlan.error || space.error || modules.error) return response.status(500).json({ success: false, code: 'SCENE_PREFLIGHT_READ_FAILED', message: activePlan.error?.message ?? space.error?.message ?? modules.error?.message });
+  if (!activePlan.data || activePlan.data.status !== 'approved') return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'Approve the active plan before compiling a room scene.' });
+  if (!space.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected approved room could not be found.' });
+  const layoutIds = [...new Set((modules.data ?? []).map((module: any) => module.layout_id).filter(Boolean))];
+  const [layouts, assignments] = await Promise.all([
+    layoutIds.length ? client.from('layouts').select('id,status').eq('project_id', projectId).in('id', layoutIds) : Promise.resolve({ data: [], error: null }),
+    (modules.data ?? []).length
+      ? client.from('material_assignments').select('module_instance_id,semantic_slot,status,revision').eq('project_id', projectId).in('module_instance_id', (modules.data ?? []).map((module: any) => module.id))
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (layouts.error || assignments.error) return response.status(500).json({ success: false, code: 'SCENE_PREFLIGHT_READ_FAILED', message: layouts.error?.message ?? assignments.error?.message });
+  const approvedLayoutIds = new Set((layouts.data ?? []).filter((layout: any) => layout.status === 'approved').map((layout: any) => String(layout.id)));
+  const assignedSlots = new Map<string, Set<string>>();
+  for (const assignment of assignments.data ?? []) {
+    const moduleId = String(assignment.module_instance_id ?? '');
+    if (!moduleId) continue;
+    if (!assignedSlots.has(moduleId)) assignedSlots.set(moduleId, new Set());
+    assignedSlots.get(moduleId)!.add(String(assignment.semantic_slot));
+  }
+  const panelFamily = /kitchen|wardrobe|tv|crockery|pooja|study|utility|storage/i;
+  const checks = (modules.data ?? []).map((module: any) => {
+    const config = module.config_json ?? {};
+    const position = module.position_json ?? {};
+    const requiredSlots = panelFamily.test(String(module.category ?? config.family ?? '')) ? ['carcass', 'shutter'] : ['carcass'];
+    const slots = assignedSlots.get(String(module.id)) ?? new Set<string>();
+    const missingMaterialSlots = requiredSlots.filter((slot) => !slots.has(slot));
+    const readiness = {
+      layoutApproved: Boolean(module.layout_id && approvedLayoutIds.has(String(module.layout_id))),
+      wallAnchorSaved: position.anchor === 'wall' && typeof position.wallId === 'string' && position.wallId.length > 0,
+      positionResolved: Number.isFinite(Number(position.xMm)) && Number.isFinite(Number(position.yMm)),
+      dimensionsValid: Number(config.widthMm) > 0 && Number(config.depthMm) > 0 && Number(config.heightMm) > 0,
+      materialsSaved: missingMaterialSlots.length === 0,
+    };
+    return { id: module.id, roomId: module.space_id, label: module.label, family: module.category, readiness, missingMaterialSlots, sceneReady: Object.values(readiness).every(Boolean) };
+  });
+  return response.json({
+    success: true,
+    room: { id: space.data.id, planRoomId: space.data.space_id, name: space.data.name, roomType: space.data.room_type },
+    activePlanVersionId: activePlan.data.id,
+    modules: checks,
+    requestedModuleIds: checks.filter((module) => module.sceneReady).map((module) => module.id),
+    sceneReady: checks.some((module) => module.sceneReady),
+    blockers: checks.length ? checks.filter((module) => !module.sceneReady).map((module) => ({ moduleId: module.id, missingMaterialSlots: module.missingMaterialSlots, readiness: module.readiness })) : [{ code: 'MODULES_REQUIRED', message: 'Place and save at least one module in this room.' }],
+  });
+});
+
 app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const projectId = String(request.params.projectId);
@@ -1949,6 +2005,12 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
     return response.status(422).json({ success: false, code: 'CANONICAL_PLAN_INVALID', message: 'The active floor plan does not satisfy the canonical plan.v1 contract.', fieldErrors: parsedPlan.error.flatten() });
   }
 
+  const roomId = typeof request.body?.roomId === 'string' ? request.body.roomId : '';
+  if (!roomId) return response.status(400).json({ success: false, code: 'ROOM_REQUIRED', message: 'Compile scene.v1 for one approved room at a time.' });
+  const selectedSpace = await client.from('spaces').select('id,space_id,name,room_type').eq('project_id', projectId).eq('id', roomId).maybeSingle();
+  if (selectedSpace.error) return response.status(500).json({ success: false, code: 'SPACE_READ_FAILED', message: selectedSpace.error.message });
+  if (!selectedSpace.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected approved room could not be found.' });
+  const sceneRoomId = String(selectedSpace.data.space_id ?? selectedSpace.data.id);
   const requestedModuleIds = Array.isArray(request.body?.moduleInstanceIds) ? request.body.moduleInstanceIds.filter((id: unknown): id is string => typeof id === 'string') : [];
   if (!requestedModuleIds.length) {
     return response.status(422).json({ success: false, code: 'MODULES_REQUIRED', message: 'Place and save at least one validated module before compiling scene.v1.' });
@@ -1956,6 +2018,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
   const storedModules = requestedModuleIds.length ? await client.from('module_instances').select('id,space_id,layout_id,category,template_id,config_json,position_json').eq('project_id', projectId).in('id', requestedModuleIds) : { data: [], error: null };
   if (storedModules.error) return response.status(500).json({ success: false, code: 'MODULE_INSTANCE_READ_FAILED', message: storedModules.error.message });
   if ((storedModules.data ?? []).length !== requestedModuleIds.length) return response.status(422).json({ success: false, code: 'MODULE_INSTANCE_NOT_FOUND', message: 'One or more requested module instances is missing.' });
+  if ((storedModules.data ?? []).some((module: any) => String(module.space_id) !== roomId)) return response.status(422).json({ success: false, code: 'ROOM_MODULE_MISMATCH', message: 'Every compiled module must belong to the selected approved room.' });
   const layoutIds = [...new Set((storedModules.data ?? []).map((module: any) => module.layout_id).filter((id: unknown): id is string => typeof id === 'string'))];
   const approvedLayouts = layoutIds.length ? await client.from('layouts').select('id').eq('project_id', projectId).eq('status', 'approved').in('id', layoutIds) : { data: [], error: null };
   if (approvedLayouts.error) return response.status(500).json({ success: false, code: 'LAYOUT_READ_FAILED', message: approvedLayouts.error.message });
@@ -1966,7 +2029,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
     return !module.space_id || !module.layout_id || !approvedLayoutIds.has(module.layout_id) || position.anchor !== 'wall' || typeof position.wallId !== 'string' || !Number.isFinite(Number(config.widthMm)) || !Number.isFinite(Number(config.depthMm)) || !Number.isFinite(Number(config.heightMm)) || !Number.isFinite(Number(position.xMm)) || !Number.isFinite(Number(position.yMm));
   });
   if (invalidModule) return response.status(422).json({ success: false, code: 'MODULE_INSTANCE_NOT_SCENE_READY', message: `Module ${invalidModule.id} has no valid approved layout, persisted wall anchor, room lineage, or dimensions.` });
-  const compiledModules = (storedModules.data ?? []).map((module: any) => compileStoredModuleForScene(module, parsedPlan.data.walls));
+  const compiledModules = (storedModules.data ?? []).map((module: any) => compileStoredModuleForScene({ ...module, space_id: sceneRoomId }, parsedPlan.data.walls));
   const compilationFailure = compiledModules.find((result) => !result.ok);
   if (compilationFailure && !compilationFailure.ok) return response.status(422).json({ success: false, code: compilationFailure.code, message: compilationFailure.message });
   const sceneModules = compiledModules.filter((result): result is Extract<typeof result, { ok: true }> => result.ok).map((result) => result.module);
@@ -2056,7 +2119,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
     created_by: authReq.ultidaUser!.id,
   }).select('id,version_number,status,scene,created_at').single();
   if (created.error) return response.status(500).json({ success: false, code: 'SCENE_CREATE_FAILED', message: created.error.message });
-  return response.status(201).json({ success: true, sceneVersion: created.data, materials, materialAssignments: [...latestBySlot.values()] });
+  return response.status(201).json({ success: true, sceneVersionId: created.data.id, roomId: sceneRoomId, sourceSpaceId: roomId, compiledModuleCount: resolvedSceneModules.length, componentPartCount: resolvedModuleParts.length, materialCount: materials.length, sceneVersion: created.data, materials, materialAssignments: [...latestBySlot.values()] });
 });
 
 // Downstream documents must use the saved scene contract, never a browser-built
