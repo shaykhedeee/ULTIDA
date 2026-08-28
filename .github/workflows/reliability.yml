@@ -46,7 +46,9 @@ jobs:
 
       - name: Locate Chromium
         shell: bash
-        run: echo "PUPPETEER_EXECUTABLE_PATH=$(node -e \"console.log(require('playwright').chromium.executablePath())\")" >> "$GITHUB_ENV"
+        run: |
+          chromium_path=$(node -p "require('playwright').chromium.executablePath()")
+          echo "PUPPETEER_EXECUTABLE_PATH=$chromium_path" >> "$GITHUB_ENV"
 
       - name: Run reliability gate
         env:
