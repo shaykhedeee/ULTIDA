@@ -37,6 +37,7 @@ import { resolveModuleWallAnchor } from './module-anchor.js';
 import { compileStoredModuleForScene } from './scene-module-parts.js';
 import { evaluateVastuCompliance, generateCandidates } from '@ultida/layout-core';
 import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord } from './reference-retrieval.js';
+import { getDeploymentIdentity, isPreviewWriteAllowed } from './deployment-identity.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8800);
@@ -147,8 +148,20 @@ export function createSceneDxf(input: Record<string, unknown>) {
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '35mb' }));
+app.use('/api', (request, response, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return next();
+  const deployment = getDeploymentIdentity();
+  if (isPreviewWriteAllowed(deployment)) return next();
+  return response.status(503).json({
+    success: false,
+    code: 'PREVIEW_DATABASE_NOT_ISOLATED',
+    message: 'Preview writes are disabled until this deployment is connected to an isolated Preview database.',
+    deployment,
+  });
+});
 
 app.get('/api/health', async (_request, response) => {
+  const deployment = getDeploymentIdentity();
   const currentGateway = createProviderGateway(process.env);
   const hasServerSupabaseKey = Boolean(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
   const workerUrl = process.env.CLOUDFLARE_WORKER_URL?.replace(/\/$/, '');
@@ -179,8 +192,10 @@ app.get('/api/health', async (_request, response) => {
     success: true,
     app: 'ultida',
     status: 'ok',
+    deployment,
     readiness: {
       supabase: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY),
+      previewDatabaseIsolated: deployment.previewDatabaseIsolated,
       durableJobs: hasServerSupabaseKey && workerDispatchReady,
       planVision: hasPlanVisionProvider,
       realImageGeneration: currentGateway.status().some((provider) => provider.configured && provider.operations.includes('generate'))

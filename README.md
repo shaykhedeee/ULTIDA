@@ -20,3 +20,11 @@ ULTIDA is a measured interior-design operating system. Approved plan and scene v
 If port `5173` is already occupied, Vite may start the web workspace on the next available port. Use the URL printed by Vite in the terminal.
 
 Provider keys are optional. Missing providers are shown as unavailable and never replaced with an unrelated stock image.
+
+## Reliability and release status
+
+Run `npm run reliability` before proposing a merge. Pull requests and pushes to the active stabilization branches run the same checks in GitHub Actions, with the browser smoke test made mandatory.
+
+Local implementation is not production proof. Use `docs/RELEASE_CANDIDATE_CHECKLIST.md` for the automated and hosted gates that must pass on the exact commit before merging to `main` or promoting a deployment.
+
+The default development workflow is online-only and uses read-only Vercel Previews without a paid Supabase branch. See `docs/ONLINE_ONLY_DEVELOPMENT.md`.

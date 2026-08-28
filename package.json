@@ -19,11 +19,13 @@
     "test:api": "npm run test --workspace=@ultida/api",
     "test:aura": "npm run test --workspace=@ultida/aura-tools",
     "preflight": "node scripts/preflight.mjs",
+    "validate:reliability": "node scripts/validate-reliability.mjs",
+    "reliability": "npm run validate:reliability && npm run preflight && npm run check && npm run build && npm run test:api && npm run test:aura",
     "scan:secrets": "node scripts/scan-secrets.mjs",
     "verify:supabase": "node scripts/verify-supabase.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": "24.x"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

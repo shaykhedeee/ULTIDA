@@ -34,7 +34,11 @@ test('Browser headless verification of api documentation & status endpoints', as
       path.join(userProfile, '.cache', 'puppeteer', 'chrome', 'win64-146.0.7680.153', 'chrome-win64', 'chrome')
     ];
     const execPath = process.env.PUPPETEER_EXECUTABLE_PATH || possiblePaths.find(p => fs.existsSync(p));
+    const browserRequired = process.env.ULTIDA_REQUIRE_BROWSER_E2E === 'true';
     if (!execPath) {
+      if (browserRequired) {
+        assert.fail('ULTIDA_REQUIRE_BROWSER_E2E=true but PUPPETEER_EXECUTABLE_PATH does not point to an installed browser.');
+      }
       t.skip('No supported Chrome or Edge executable is installed for this optional browser check.');
       return;
     }
@@ -48,6 +52,7 @@ test('Browser headless verification of api documentation & status endpoints', as
         timeout: 10000
       });
     } catch (error) {
+      if (browserRequired) throw error;
       t.skip(`A browser executable was found but could not be launched in this environment: ${error instanceof Error ? error.message : 'unknown launch error'}`);
       return;
     }
