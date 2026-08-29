@@ -1,26 +1,12 @@
-import { Check, FileUp, Save, Sparkles, Upload } from 'lucide-react';
+import { Check, Download, FileUp, Save, Sparkles, Upload, ArrowRight } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
-
-export type ClientBrief = {
-  clientName: string;
-  projectName: string;
-  propertyType: string;
-  rooms: string;
-  style: string;
-  budgetRange: string;
-  lifestyle?: string;
-  storageNeeds?: string;
-  kitchenRequirements?: string;
-  materials?: string;
-  appliancesServices?: string;
-  vastuPreference?: string;
-  approvalNotes?: string;
-};
-
-export const emptyBrief: ClientBrief = { clientName: '', projectName: '', propertyType: '', rooms: '', style: '', budgetRange: '', lifestyle: '', storageNeeds: '', kitchenRequirements: '', materials: '', appliancesServices: '', vastuPreference: '', approvalNotes: '' };
+import type { ClientBrief } from '../../features/project-types';
+export type { ClientBrief } from '../../features/project-types';
 
 type Props = {
+  projectId: string;
   initialBrief: ClientBrief;
   fileName?: string;
   status?: string;
@@ -48,7 +34,8 @@ const briefTemplates: BriefTemplate[] = [
   { id: 'best-without-compromise', name: 'Best without compromise', description: 'Premium detailing, tailored modular units, and material-led visual direction.', values: { propertyType: 'Villa', rooms: 'Living room | Kitchen | Master bedroom | Bedroom | Study | Pooja | Dining | Utility', style: 'Modern classic', budgetRange: 'Above INR 40 lakh', lifestyle: 'Family living | Frequent hosting', storageNeeds: 'Maximum storage', materials: 'Wood veneer | Stone and fluted panels | Glass and metal accents', vastuPreference: 'Follow vastu principles' } }
 ];
 
-export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile, onAnalyze }: Props) {
+export function BriefWorkspace({ projectId, initialBrief, fileName, status, onSave, onFile, onAnalyze }: Props) {
+  const navigate = useNavigate();
   const [brief, setBrief] = useState(initialBrief);
   const [state, setState] = useState('');
   const [editing, setEditing] = useState(true);
@@ -72,6 +59,20 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
     } catch (error) {
       setState(error instanceof Error ? error.message : 'Brief could not be saved.');
     }
+  }
+  async function downloadBrief() {
+    setState('Preparing project brief PDF...');
+    try {
+      const { supabase } = await import('../../lib/supabase');
+      const token = (await supabase?.auth.getSession())?.data.session?.access_token;
+      if (!token) throw new Error('Sign in again before downloading the brief.');
+      const apiBase = String(import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+      const response = await fetch(`${apiBase}/projects/${projectId}/brief.pdf`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) { const error = await response.json().catch(() => null); throw new Error(error?.message ?? 'Brief PDF could not be created.'); }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a'); link.href = url; link.download = `ultida-${projectId}-brief.pdf`; link.click(); URL.revokeObjectURL(url);
+      setState('Brief PDF downloaded.');
+    } catch (error) { setState(error instanceof Error ? error.message : 'Brief PDF could not be created.'); }
   }
   const field = (key: keyof ClientBrief, label: string, placeholder: string, options?: readonly string[]) => (
     <label className="brief-field">
@@ -143,6 +144,7 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
               <Button variant="outline" onClick={() => void save(false)} disabled={!editing}><Save size={16} /> Save draft</Button>
               <Button onClick={() => void save(true)} disabled={!editing || !valid}><Sparkles size={16} /> Complete brief</Button>
               {!editing && <Button variant="outline" onClick={() => setEditing(true)}>Edit brief</Button>}
+              {!editing && <Button variant="outline" onClick={() => void downloadBrief()}><Download size={16} /> Download brief PDF</Button>}
               <span role="status">{state}</span>
             </div>
           </CardContent>
@@ -151,7 +153,7 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
           <small>ATTACHMENT</small>
           <FileUp size={24}/>
           <h2>Attach Floor Plan</h2>
-          <p>Attach the source now. Analysis starts only when you explicitly request it.</p>
+          <p>Attach the source, then open Guided Plan to calibrate or outline rough rooms before analysis.</p>
           <div 
             onClick={() => fileInputRef.current?.click()} 
             className="dropzone" 
@@ -171,10 +173,47 @@ export function BriefWorkspace({ initialBrief, fileName, status, onSave, onFile,
           {status && <p className="inline-message" role="status" style={{ fontSize: '12px', margin: '8px 0' }}>{status}</p>}
           {onAnalyze && fileName && (
             <Button variant="outline" className="full" onClick={onAnalyze} style={{ marginTop: '8px' }}>
-              Run Plan Intake & Analyze
+              Open Guided Plan
             </Button>
           )}
         </Card>
+      </div>
+
+      {/* Bottom Stage Progression Bar */}
+      <div style={{ marginTop: 24, padding: '16px 20px', background: '#1c1917', borderRadius: 12, border: '1px solid #332d29', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <strong style={{ color: '#fff', fontSize: 13, display: 'block' }}>
+            Step 1 of 8: Client Intake &amp; Project Brief
+          </strong>
+          <small style={{ color: '#a8a29e', fontSize: 11 }}>
+            Complete the design style, property details, and budget requirements, then proceed to floor plan analysis and vector calibration.
+          </small>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (projectId) {
+                navigate(`/projects/${projectId}/plan`);
+              }
+            }}
+            style={{
+              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+              color: '#1c1917',
+              border: 0,
+              borderRadius: 8,
+              padding: '10px 18px',
+              fontWeight: 800,
+              fontSize: 13,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            Continue to Step 2: Floor Plan <ArrowRight size={15} />
+          </button>
+        </div>
       </div>
     </section>
   );

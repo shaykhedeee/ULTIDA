@@ -6,6 +6,10 @@ import {
   WardrobeShapeSchema,
   LivingShapeSchema,
   BedroomShapeSchema,
+  DiningShapeSchema,
+  StudyShapeSchema,
+  PoojaShapeSchema,
+  UtilityShapeSchema,
   PlacementAnchorSchema,
   PlacementSchema,
   LayoutCandidateSchema,
@@ -29,6 +33,10 @@ export type TvUnitShape = z.infer<typeof TvUnitShapeSchema>;
 export type WardrobeShape = z.infer<typeof WardrobeShapeSchema>;
 export type LivingShape = z.infer<typeof LivingShapeSchema>;
 export type BedroomShape = z.infer<typeof BedroomShapeSchema>;
+export type DiningShape = z.infer<typeof DiningShapeSchema>;
+export type StudyShape = z.infer<typeof StudyShapeSchema>;
+export type PoojaShape = z.infer<typeof PoojaShapeSchema>;
+export type UtilityShape = z.infer<typeof UtilityShapeSchema>;
 export type PlacementAnchor = z.infer<typeof PlacementAnchorSchema>;
 export type Placement = z.infer<typeof PlacementSchema>;
 export type LayoutCandidate = z.infer<typeof LayoutCandidateSchema>;
@@ -67,10 +75,12 @@ export function evaluateConstraintGraph(
 ): LayoutConstraintGraph {
   const constraints = placements.flatMap((placement) => {
     const defaults: LayoutConstraint[] = [
-      { id: `${placement.id}:wall`, kind: 'must_be_wall_anchored', sourceId: placement.id, weight: 2 },
       { id: `${placement.id}:opening`, kind: 'must_not_obstruct_opening', sourceId: placement.id, weight: 3 },
       { id: `${placement.id}:clearance`, kind: 'must_keep_clearance', sourceId: placement.id, valueMm: placement.clearanceMm, weight: 2 },
     ];
+    if (placement.anchor === 'wall' || placement.wallRef) {
+      defaults.unshift({ id: `${placement.id}:wall`, kind: 'must_be_wall_anchored', sourceId: placement.id, weight: 2 });
+    }
     return [...defaults, ...placement.constraints];
   });
   const violations: LayoutConstraintViolation[] = [];
@@ -128,6 +138,12 @@ export const SHAPE_CATALOG: Record<RoomCategory, string[]> = {
   wardrobe: WardrobeShapeSchema.options,
   living: LivingShapeSchema.options,
   bedroom: BedroomShapeSchema.options,
+  dining: DiningShapeSchema.options,
+  study: StudyShapeSchema.options,
+  pooja: PoojaShapeSchema.options,
+  utility: UtilityShapeSchema.options,
+  foyer: ['console_wall', 'shoe_storage_wall'],
+  bathroom: ['vanity_wall', 'storage_wall'],
   other: [],
 };
 
@@ -141,17 +157,26 @@ function formatShape(id: string): string {
 
 export function generateCandidates(input: LayoutInput): LayoutCandidate[] {
   const parsed = LayoutInputSchema.parse(input);
-  const shapes = SHAPE_CATALOG[parsed.roomCategory] ?? [];
+  const categoryShapes = SHAPE_CATALOG[parsed.roomCategory] ?? [];
+  // A designer-selected shape is a real generation constraint. Previously
+  // every catalog shape was generated regardless of the selected value.
+  const shapes = categoryShapes.length
+    ? [categoryShapes.includes(parsed.shape) ? parsed.shape : categoryShapes[0]]
+    : [parsed.shape || 'balanced'];
   const candidateTypes = parsed.candidateTypes.length ? parsed.candidateTypes : ['balanced'];
   const candidates: LayoutCandidate[] = [];
 
   for (const candidateType of candidateTypes as CandidateType[]) {
     for (const shape of shapes) {
-      const placements = derivePlacements({ ...parsed, shape, candidateType });
+      const placements = normalizeGeneratedPlacements(
+        derivePlacements({ ...parsed, shape, candidateType }),
+        parsed,
+        `${candidateType}-${shape}`,
+      );
       const validation = validatePlacements(parsed, placements);
       const score = scoreCandidate({ ...parsed, shape, candidateType }, placements, validation);
       candidates.push(LayoutCandidateSchema.parse({
-        id: `${parsed.spaceId}-${candidateType}-${shape}-${Date.now().toString(36)}`,
+        id: `${parsed.spaceId}-${candidateType}-${shape}`,
         category: parsed.roomCategory,
         shape,
         candidateType,
@@ -163,6 +188,75 @@ export function generateCandidates(input: LayoutInput): LayoutCandidate[] {
   }
 
   return candidates.sort((a, b) => b.score.weighted - a.score.weighted);
+}
+
+/**
+ * Converts symbolic family proposals into measured placements inside the
+ * approved room. This is intentionally deterministic: refreshing Layout
+ * Studio produces the same IDs, wall anchors and coordinates.
+ */
+function normalizeGeneratedPlacements(
+  placements: Placement[],
+  input: LayoutInput,
+  candidateKey: string,
+): Placement[] {
+  const room = input.roomBoundingBoxMm;
+  const walls = [...input.usableWalls].sort((a, b) => wallLength(b) - wallLength(a));
+  let roomIndex = 0;
+  let wallIndex = 0;
+
+  return placements.map((placement, index) => {
+    const id = `${input.spaceId}-${candidateKey}-${placement.templateFamily}-${index + 1}`;
+    if (placement.anchor === 'wall') {
+      const requestedWall = placement.wallRef ? walls.find((wall) => wall.id === placement.wallRef) : undefined;
+      const wall = requestedWall ?? walls[wallIndex++ % Math.max(1, walls.length)];
+      if (!wall) {
+        const fitted = fitRoomDimensions(room, placement);
+        return PlacementSchema.parse({ ...placement, ...fitted, id, anchor: 'room', wallRef: undefined, positionMm: centredRoomPosition(room, { ...placement, ...fitted }, roomIndex++) });
+      }
+      const horizontal = Math.abs(wall.maxX - wall.minX) >= Math.abs(wall.maxY - wall.minY);
+      const capacity = Math.max(300, wallLength(wall) - 300);
+      const widthMm = Math.min(placement.widthMm, capacity);
+      const rotationYawDeg = horizontal ? 0 : 90;
+      const x = horizontal
+        ? clamp((wall.minX + wall.maxX - widthMm) / 2, room.minX, Math.max(room.minX, room.maxX - widthMm))
+        : clamp(wall.minX <= room.minX + 250 ? wall.minX : wall.maxX - placement.depthMm, room.minX, Math.max(room.minX, room.maxX - placement.depthMm));
+      const y = horizontal
+        ? clamp(wall.minY <= room.minY + 250 ? wall.minY : wall.maxY - placement.depthMm, room.minY, Math.max(room.minY, room.maxY - placement.depthMm))
+        : clamp((wall.minY + wall.maxY - widthMm) / 2, room.minY, Math.max(room.minY, room.maxY - widthMm));
+      return PlacementSchema.parse({ ...placement, id, wallRef: wall.id, widthMm, rotationYawDeg, positionMm: [x, y, 0] });
+    }
+    const fitted = fitRoomDimensions(room, placement);
+    return PlacementSchema.parse({ ...placement, ...fitted, id, positionMm: centredRoomPosition(room, { ...placement, ...fitted }, roomIndex++) });
+  });
+}
+
+function fitRoomDimensions(room: LayoutInput['roomBoundingBoxMm'], placement: Placement) {
+  return {
+    widthMm: Math.min(placement.widthMm, Math.max(300, room.maxX - room.minX - 200)),
+    depthMm: Math.min(placement.depthMm, Math.max(300, room.maxY - room.minY - 200)),
+  };
+}
+
+function centredRoomPosition(room: LayoutInput['roomBoundingBoxMm'], placement: Placement, index: number): [number, number, number] {
+  const usableWidth = room.maxX - room.minX;
+  const usableDepth = room.maxY - room.minY;
+  const widthMm = Math.min(placement.widthMm, Math.max(300, usableWidth - 200));
+  const depthMm = Math.min(placement.depthMm, Math.max(300, usableDepth - 200));
+  const offset = index === 0 ? 0 : (index % 2 === 0 ? -1 : 1) * Math.min(usableWidth * 0.18, 700);
+  return [
+    clamp(room.minX + (usableWidth - widthMm) / 2 + offset, room.minX + 100, Math.max(room.minX + 100, room.maxX - widthMm - 100)),
+    clamp(room.minY + (usableDepth - depthMm) / 2, room.minY + 100, Math.max(room.minY + 100, room.maxY - depthMm - 100)),
+    0,
+  ];
+}
+
+function wallLength(wall: LayoutInput['usableWalls'][number]) {
+  return Math.hypot(wall.maxX - wall.minX, wall.maxY - wall.minY);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
 function derivePlacements(input: LayoutInput & { shape: string; candidateType: CandidateType }): Placement[] {
@@ -178,7 +272,7 @@ function derivePlacements(input: LayoutInput & { shape: string; candidateType: C
     return tvUnitPlacements(shape as TvUnitShape, widthMm, depthMm, baseClearance, candidateType);
   }
   if (roomCategory === 'wardrobe') {
-    return wardrobePlacements(shape as WardrobeShape, widthMm, depthMm, baseClearance, candidateType);
+    return wardrobePlacements(shape as WardrobeShape, widthMm, depthMm, baseClearance, candidateType, usableWalls);
   }
   if (roomCategory === 'living') {
     return livingPlacements(shape as LivingShape, widthMm, depthMm, baseClearance, candidateType);
@@ -186,6 +280,25 @@ function derivePlacements(input: LayoutInput & { shape: string; candidateType: C
   if (roomCategory === 'bedroom') {
     return bedroomPlacements(shape as BedroomShape, widthMm, depthMm, baseClearance, candidateType);
   }
+  if (roomCategory === 'dining') {
+    const tableWidth = Math.min(widthMm * 0.55, candidateType === 'best_circulation' ? 1600 : 2100);
+    const dining = roomPlacement('dining-table', tableWidth, Math.min(1000, depthMm * 0.35), 760, baseClearance, []);
+    if (shape === 'crockery_focused') return [dining, wallPlacement('crockery-unit', usableWalls[0], Math.min(widthMm * 0.45, 2400), 450, 2400, baseClearance, ['power'])];
+    if (shape === 'wall_side_dining') return [wallPlacement('dining-bench', usableWalls[0], tableWidth, 500, 900, baseClearance, []), dining];
+    return [dining];
+  }
+  if (roomCategory === 'study') {
+    return [wallPlacement(shape === 'study_plus_storage' ? 'study-storage' : 'study-unit', usableWalls[0], Math.min(widthMm * 0.65, 2400), 600, shape === 'full_wall_study' ? 2400 : 750, baseClearance, ['power', 'natural_light'])];
+  }
+  if (roomCategory === 'pooja') {
+    return [wallPlacement('pooja-unit', usableWalls[0], Math.min(widthMm * 0.55, 1800), 450, shape === 'wall_mounted' ? 1500 : 2400, baseClearance, ['power'])];
+  }
+  if (roomCategory === 'utility') {
+    const first = wallPlacement('utility-unit', usableWalls[0], Math.min(widthMm * 0.7, 2400), 600, 2100, baseClearance, ['plumbing', 'power']);
+    return shape === 'parallel_utility' ? [first, wallPlacement('utility-storage', usableWalls[1], Math.min(widthMm * 0.5, 1800), 450, 2100, baseClearance, [])] : [first];
+  }
+  if (roomCategory === 'foyer') return [wallPlacement('foyer-console', usableWalls[0], Math.min(widthMm * 0.5, 1800), 350, 900, baseClearance, [])];
+  if (roomCategory === 'bathroom') return [wallPlacement('vanity-unit', usableWalls[0], Math.min(widthMm * 0.45, 1500), 500, 850, baseClearance, ['plumbing'])];
 
   return [
     PlacementSchema.parse({
@@ -247,24 +360,26 @@ function tvUnitPlacements(shape: TvUnitShape, widthMm: number, depthMm: number, 
   return [roomPlacement('tv-unit', widthMm * 0.6, baseDepth, 600, clearanceMm, ['power']), roomPlacement('crockery', widthMm * 0.3, 400, 1200, clearanceMm, [])];
 }
 
-function wardrobePlacements(shape: WardrobeShape, widthMm: number, depthMm: number, clearanceMm: number, candidateType: CandidateType): Placement[] {
+function wardrobePlacements(shape: WardrobeShape, widthMm: number, depthMm: number, clearanceMm: number, candidateType: CandidateType, usableWalls: LayoutInput['usableWalls']): Placement[] {
   const baseDepth = candidateType === 'maximum_storage' ? 700 : 600;
+  const wallA = usableWalls[0];
+  const wallB = usableWalls[1] ?? wallA;
   if (shape === 'linear') {
-    return [wallPlacement('wardrobe', null, widthMm, baseDepth, 2400, clearanceMm, [])];
+    return [wallPlacement('wardrobe', wallA, widthMm, baseDepth, 2400, clearanceMm, [])];
   }
   if (shape === 'l_shaped') {
-    return [wallPlacement('wardrobe', null, widthMm, baseDepth, 2400, clearanceMm, []), wallPlacement('wardrobe', null, depthMm * 0.35, baseDepth, 2400, clearanceMm, [])];
+    return [wallPlacement('wardrobe', wallA, widthMm, baseDepth, 2400, clearanceMm, []), wallPlacement('wardrobe', wallB, depthMm * 0.35, baseDepth, 2400, clearanceMm, [])];
   }
   if (shape === 'walk_in') {
     return [roomPlacement('walk-in-wardrobe', widthMm * 0.55, depthMm * 0.45, 2400, clearanceMm, [])];
   }
   if (shape === 'wardrobe_plus_dresser') {
-    return [wallPlacement('wardrobe', null, widthMm * 0.7, baseDepth, 2400, clearanceMm, []), roomPlacement('dresser', widthMm * 0.25, 450, 750, clearanceMm, [])];
+    return [wallPlacement('wardrobe', wallA, widthMm * 0.7, baseDepth, 2400, clearanceMm, []), roomPlacement('dresser', widthMm * 0.25, 450, 750, clearanceMm, [])];
   }
   if (shape === 'wardrobe_plus_study') {
-    return [wallPlacement('wardrobe', null, widthMm * 0.65, baseDepth, 2400, clearanceMm, []), roomPlacement('study', widthMm * 0.3, 550, 750, clearanceMm, ['power'])];
+    return [wallPlacement('wardrobe', wallA, widthMm * 0.65, baseDepth, 2400, clearanceMm, []), roomPlacement('study', widthMm * 0.3, 550, 750, clearanceMm, ['power'])];
   }
-  return [wallPlacement('wardrobe', null, widthMm * 0.6, baseDepth, 2400, clearanceMm, []), roomPlacement('tv-unit', widthMm * 0.35, 400, 600, clearanceMm, ['power'])];
+  return [wallPlacement('wardrobe', wallA, widthMm * 0.6, baseDepth, 2400, clearanceMm, []), roomPlacement('tv-unit', widthMm * 0.35, 400, 600, clearanceMm, ['power'])];
 }
 
 function livingPlacements(shape: LivingShape, widthMm: number, depthMm: number, clearanceMm: number, candidateType: CandidateType): Placement[] {
@@ -302,14 +417,14 @@ function bedroomPlacements(shape: BedroomShape, widthMm: number, depthMm: number
   return [wallPlacement('wardrobe', null, widthMm * 0.45, 600, 2400, clearanceMm, []), roomPlacement('study', widthMm * 0.4, 550, 750, clearanceMm, ['power', 'natural_light'])];
 }
 
-function wallPlacement(templateFamily: string, wall: { minX?: number; minY?: number; maxX?: number; maxY?: number } | null | undefined, widthMm: number, depthMm: number, heightMm: number, clearanceMm: number, requiredServicePoints: string[]): Placement {
+function wallPlacement(templateFamily: string, wall: { id?: string; minX?: number; minY?: number; maxX?: number; maxY?: number } | null | undefined, widthMm: number, depthMm: number, heightMm: number, clearanceMm: number, requiredServicePoints: string[]): Placement {
   const positionMm: [number, number, number] = wall ? [(wall.minX ?? 0), (wall.minY ?? 0), 0] : [0, 0, 0];
   return PlacementSchema.parse({
     id: `${templateFamily}-${Date.now().toString(36)}`,
     category: inferCategory(templateFamily),
     templateFamily,
     anchor: 'wall',
-    wallRef: wall ? 'wall-1' : undefined,
+    wallRef: wall?.id,
     positionMm,
     rotationYawDeg: 0,
     widthMm,
@@ -338,17 +453,23 @@ function roomPlacement(templateFamily: string, widthMm: number, depthMm: number,
 
 function inferCategory(templateFamily: string): LayoutCandidate['category'] {
   if (templateFamily.startsWith('kitchen')) return 'kitchen';
-  if (templateFamily.startsWith('tv') || templateFamily.startsWith('crockery')) return 'tv_unit';
+  if (templateFamily.startsWith('tv')) return 'tv_unit';
   if (templateFamily.startsWith('wardrobe') || templateFamily.startsWith('walk-in') || templateFamily.startsWith('dresser')) return 'wardrobe';
-  if (templateFamily.startsWith('sofa') || templateFamily.startsWith('partition') || templateFamily.startsWith('dining')) return 'living';
-  if (templateFamily.startsWith('bed') || templateFamily.startsWith('study')) return 'bedroom';
+  if (templateFamily.startsWith('sofa') || templateFamily.startsWith('partition')) return 'living';
+  if (templateFamily.startsWith('dining') || templateFamily.startsWith('crockery')) return 'dining';
+  if (templateFamily.startsWith('bed')) return 'bedroom';
+  if (templateFamily.startsWith('study')) return 'study';
+  if (templateFamily.startsWith('pooja')) return 'pooja';
+  if (templateFamily.startsWith('utility')) return 'utility';
+  if (templateFamily.startsWith('foyer') || templateFamily.startsWith('shoe')) return 'foyer';
+  if (templateFamily.startsWith('vanity')) return 'bathroom';
   return 'other';
 }
 
 export function validatePlacements(input: LayoutInput, placements: Placement[]): ValidationResult {
   const issues: ValidationIssue[] = [];
-  for (const placement of placements) {
-    issues.push(...validatePlacement(input, placement, placements));
+  for (let index = 0; index < placements.length; index += 1) {
+    issues.push(...validatePlacement(input, placements[index], placements.slice(index + 1)));
   }
   return ValidationResultSchema.parse({ valid: issues.filter((issue) => issue.severity === 'blocking').length === 0, issues });
 }
@@ -404,7 +525,10 @@ function validatePlacement(input: LayoutInput, placement: Placement, allPlacemen
 
 function placementBox(placement: Placement) {
   const [cx, cy] = placement.positionMm;
-  return { minX: cx, minY: cy, maxX: cx + placement.widthMm, maxY: cy + placement.depthMm };
+  const quarterTurn = Math.abs(Math.round(placement.rotationYawDeg / 90)) % 2 === 1;
+  const width = quarterTurn ? placement.depthMm : placement.widthMm;
+  const depth = quarterTurn ? placement.widthMm : placement.depthMm;
+  return { minX: cx, minY: cy, maxX: cx + width, maxY: cy + depth };
 }
 
 function fitsInRoom(room: { minX: number; minY: number; maxX: number; maxY: number }, box: { minX: number; minY: number; maxX: number; maxY: number }): boolean {

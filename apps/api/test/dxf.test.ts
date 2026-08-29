@@ -134,7 +134,9 @@ test('cutlist route creates review-required rectangular panel parts from an appr
     assert.equal(payload.cutlist.partCount, 7);
     assert.equal(payload.cutlist.parts[0].status, 'review_required');
     assert.equal(payload.cutlist.parts[0].lengthMm, 2400);
-    assert.equal(payload.cutlist.parts[0].edgeBandMm, 0);
+    assert.equal(payload.cutlist.parts[0].thicknessMm, 18);
+    assert.equal(payload.cutlist.parts[0].partInstanceId, 'module-1-part-1');
+    assert.equal(payload.cutlist.fabricationRules.backPanelThicknessMm, 6);
   });
 });
 

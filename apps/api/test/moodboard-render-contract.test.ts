@@ -25,8 +25,10 @@ test('catalog vault exposes finished crockery compositions and room filters', ()
   const vault = getCatalogVault();
   const tvUnits = vault.modules.filter((module) => module.family === 'tv-unit');
   const crockeryUnits = vault.modules.filter((module) => module.family === 'crockery');
-  assert.equal(tvUnits.length, 10);
-  assert.equal(crockeryUnits.length, 5);
+  // The catalogue deliberately grows as production-ready archetypes are
+  // added. Keep this a coverage guard, not a stale fixed inventory count.
+  assert.ok(tvUnits.length >= 10);
+  assert.ok(crockeryUnits.length >= 5);
   assert.ok(crockeryUnits.some((module) => module.id === 'crockery-1800'));
   assert.ok(tvUnits.every((module) => module.materialSlots.includes('shutter')));
   assert.ok(listCatalog('dining').some((module) => module.family === 'crockery'));

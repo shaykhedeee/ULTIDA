@@ -144,7 +144,13 @@ test('plan analyzer sends a plan to one primary provider unless verification is 
   const calls: string[] = [];
   globalThis.fetch = (async (input: string | URL | Request) => {
     calls.push(String(input));
-    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ proposals: [{ kind: 'wall', confidence: 0.9, geometry: { x1: 10, y1: 10, x2: 900, y2: 10 }, note: 'Visible exterior wall.' }] }) }] } }] });
+    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ proposals: [
+      { kind: 'room', confidence: 0.9, geometry: { x: 10, y: 10, width: 890, height: 700 }, note: 'Visible room zone.' },
+      { kind: 'wall', confidence: 0.9, geometry: { x1: 10, y1: 10, x2: 900, y2: 10 }, note: 'Visible exterior wall.' },
+      { kind: 'wall', confidence: 0.9, geometry: { x1: 900, y1: 10, x2: 900, y2: 710 }, note: 'Visible exterior wall.' },
+      { kind: 'wall', confidence: 0.9, geometry: { x1: 900, y1: 710, x2: 10, y2: 710 }, note: 'Visible exterior wall.' },
+      { kind: 'wall', confidence: 0.9, geometry: { x1: 10, y1: 710, x2: 10, y2: 10 }, note: 'Visible exterior wall.' },
+    ] }) }] } }] });
   }) as typeof fetch;
   try {
     const result = await analyzePlanWithProvider({
@@ -169,7 +175,13 @@ test('plan analyzer falls back only after the primary provider fails', async () 
     const url = String(input);
     calls.push(url);
     if (url.includes('generativelanguage.googleapis.com')) return new Response('{}', { status: 500 });
-    if (url.includes('api.cloudflare.com')) return Response.json({ success: true, result: { response: JSON.stringify({ proposals: [{ kind: 'room', confidence: 0.8, geometry: { x: 20, y: 20, width: 300, height: 200 }, note: 'Visible room zone.' }] }) } });
+    if (url.includes('api.cloudflare.com')) return Response.json({ success: true, result: { response: JSON.stringify({ proposals: [
+      { kind: 'room', confidence: 0.8, geometry: { x: 20, y: 20, width: 300, height: 200 }, note: 'Visible room zone.' },
+      { kind: 'wall', confidence: 0.8, geometry: { x1: 20, y1: 20, x2: 320, y2: 20 }, note: 'Visible wall.' },
+      { kind: 'wall', confidence: 0.8, geometry: { x1: 320, y1: 20, x2: 320, y2: 220 }, note: 'Visible wall.' },
+      { kind: 'wall', confidence: 0.8, geometry: { x1: 320, y1: 220, x2: 20, y2: 220 }, note: 'Visible wall.' },
+      { kind: 'wall', confidence: 0.8, geometry: { x1: 20, y1: 220, x2: 20, y2: 20 }, note: 'Visible wall.' },
+    ] }) } });
     throw new Error(`Unexpected URL ${url}`);
   }) as typeof fetch;
   try {
@@ -182,7 +194,13 @@ test('plan analyzer falls back only after the primary provider fails', async () 
     }, { dataUrl: 'data:image/png;base64,aW1hZ2U=', fileName: 'plan.png', mimeType: 'image/png' });
     assert.equal(result.provider, 'cloudflare');
     assert.deepEqual(result.providerRuns.map((run) => [run.provider, run.status]), [['gemini', 'failed'], ['cloudflare', 'succeeded']]);
-    assert.equal(calls.length, 2);
+    // Gemini receives one compact structural retry before a different provider
+    // is allowed to take over; this prevents a long valid drawing from failing
+    // solely because its first JSON response was truncated.
+    assert.equal(calls.length, 3);
+    assert.match(calls[0], /generativelanguage\.googleapis\.com/);
+    assert.match(calls[1], /generativelanguage\.googleapis\.com/);
+    assert.match(calls[2], /api\.cloudflare\.com/);
   } finally {
     globalThis.fetch = originalFetch;
   }

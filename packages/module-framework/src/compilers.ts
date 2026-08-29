@@ -58,12 +58,57 @@ export function compileCrockery(input: TemplateCompileInput): TemplateCompileRes
   const totalW = p.totalWidthMm, totalH = p.totalHeightMm ?? 2100, totalD = p.totalDepthMm ?? 400;
   const blocking: string[] = []; const warning: string[] = [];
   if (totalW > wallW) blocking.push(`Crockery width ${totalW}mm exceeds wall ${wallW}mm.`);
-  const parts = baseParts(input, instanceId, wallW, wallH, totalW, totalH, totalD, COMPAT.carcass, COMPAT.shutter);
-  const drawers = p.drawerCount ?? 2; const dh = DEFAULT_DRAWER_HEIGHT_MM;
-  for (let i = 0; i < drawers; i++) parts.push({ id: `${instanceId}-drawer-${i + 1}`, templateVersionId: input.templateVersionId, instanceId, name: `Drawer ${i + 1}`, transform: { xMm: 0, yMm: 0, zMm: DEFAULT_CARCASS_THICKNESS_MM + i * dh, rotationDeg: 0 }, size: { widthMm: totalW - DEFAULT_CARCASS_THICKNESS_MM * 2, depthMm: totalD - 50, heightMm: dh }, anchor: { face: 'front' }, meta: { semanticType: 'drawer', parentId: `${instanceId}-carcass-bottom`, materialSlot: { id: COMPAT.shutter, code: COMPAT.shutter, name: 'Drawer Front' }, drawing: { layer: 'A-MOD-DRAWER', sortOrder: 3 }, bom: { sku: 'DRAWER-BOX', qty: 1, unit: 'pc', lengthMm: totalW - 36, heightMm: dh } } });
-  const shutterCount = p.shutterCount ?? Math.max(1, Math.round(totalW / TARGET_SHUTTER_WIDTH_MM));
-  const shutterW = totalW / shutterCount; const shutterH = totalH - DEFAULT_CARCASS_THICKNESS_MM * 2 - drawers * dh;
-  for (let i = 0; i < shutterCount; i++) parts.push(...shutterRow(instanceId, input.templateVersionId, i, i * shutterW, shutterW, shutterH, DEFAULT_CARCASS_THICKNESS_MM + drawers * dh, COMPAT.shutter, totalD));
+  if (wallH > 0 && totalH > wallH) blocking.push(`Crockery height ${totalH}mm exceeds wall height ${wallH}mm.`);
+
+  // A crockery unit is deliberately divided into a durable low cabinet, a
+  // display band, and an upper storage/display zone. This keeps its scene
+  // geometry legible instead of turning a detailed composition into one box.
+  const t = DEFAULT_CARCASS_THICKNESS_MM;
+  const bp = DEFAULT_BACK_PANEL_THICKNESS_MM;
+  const drawers = Math.max(0, Math.min(3, p.drawerCount ?? 2));
+  const baseH = Math.min(860, Math.max(640, Math.round(totalH * 0.34)));
+  const displayBandH = Math.min(420, Math.max(260, Math.round(totalH * 0.16)));
+  const upperH = totalH - baseH - displayBandH;
+  const shutterCount = Math.max(2, p.shutterCount ?? Math.round(totalW / TARGET_SHUTTER_WIDTH_MM));
+  const shutterW = (totalW - (shutterCount - 1) * 3) / shutterCount;
+  const profileGlass = p.profileGlassOption === true || p.glassProfile === true || p.shutterStyle === 'profile-glass';
+  const parts: Part[] = [];
+  const add = (id: string, name: string, xMm: number, yMm: number, zMm: number, widthMm: number, depthMm: number, heightMm: number, semanticType: Part['meta']['semanticType'], materialId: string, layer: string, sku: string) => parts.push({
+    id: `${instanceId}-${id}`, templateVersionId: input.templateVersionId, instanceId, name,
+    transform: { xMm, yMm, zMm, rotationDeg: 0 }, size: { widthMm, depthMm, heightMm }, anchor: { face: 'front' },
+    meta: { semanticType, parentId: null, materialSlot: { id: materialId, code: materialId, name: name.includes('Glass') ? 'Profile Glass' : 'Assigned Finish' }, drawing: { layer, sortOrder: parts.length + 1 }, bom: { sku, qty: 1, unit: 'pc', lengthMm: widthMm, widthMm: depthMm, heightMm, thicknessMm: depthMm <= 30 ? depthMm : t } },
+  });
+
+  add('back', 'Crockery Feature Back Panel', 0, totalD - bp, 0, totalW, bp, totalH, 'back_panel', COMPAT.back, 'A-MOD-BACK', 'CROCKERY-BACK');
+  add('base-bottom', 'Crockery Base Bottom Panel', 0, 0, 0, totalW, totalD, t, 'carcass', COMPAT.carcass, 'A-MOD-CARCASS', 'CROCKERY-BASE-BOTTOM');
+  add('base-top', 'Crockery Base Top Panel', 0, 0, baseH - t, totalW, totalD, t, 'carcass', COMPAT.carcass, 'A-MOD-CARCASS', 'CROCKERY-BASE-TOP');
+  for (let drawer = 0; drawer < drawers; drawer += 1) {
+    add(`drawer-${drawer + 1}`, `Crockery Drawer ${drawer + 1}`, t, 0, t + drawer * DEFAULT_DRAWER_HEIGHT_MM, totalW - t * 2, totalD - 50, DEFAULT_DRAWER_HEIGHT_MM, 'drawer', COMPAT.shutter, 'A-MOD-DRAWER', 'CROCKERY-DRAWER');
+  }
+  const baseShutterH = Math.max(160, baseH - t * 2 - drawers * DEFAULT_DRAWER_HEIGHT_MM);
+  for (let index = 0; index < shutterCount; index += 1) {
+    const xMm = index * (shutterW + 3);
+    add(`base-shutter-${index + 1}`, `Crockery Base Shutter ${index + 1}`, xMm, 0, t + drawers * DEFAULT_DRAWER_HEIGHT_MM, shutterW, t, baseShutterH, 'shutter', COMPAT.shutter, 'A-MOD-SHUTTER', 'CROCKERY-BASE-SHUTTER');
+    add(`handle-${index + 1}`, `Crockery Profile Handle ${index + 1}`, xMm + shutterW - 34, 9, baseH / 2, 18, 18, 160, 'hardware', COMPAT.hardware, 'A-ANNO-HARDWARE', 'PROFILE-HANDLE');
+  }
+
+  add('display-counter', 'Crockery Display Counter', 0, 0, baseH, totalW, totalD, 25, 'countertop', COMPAT.counter, 'A-MOD-COUNTER', 'CROCKERY-COUNTER');
+  add('display-shelf', 'Open Crockery Display Shelf', t, 80, baseH + displayBandH - t, totalW - t * 2, totalD - 120, t, 'shelf', COMPAT.shelf, 'A-MOD-SHELF', 'CROCKERY-DISPLAY-SHELF');
+  if (p.lighting === 'profile_led' || p.lighting === 'both') add('display-led', 'Warm Display LED Channel', t + 40, totalD - 24, baseH + displayBandH - 28, totalW - t * 2 - 80, 12, 12, 'lighting_channel', COMPAT.led, 'A-ANNO-LIGHTING', 'LED-3000K');
+
+  const upperZ = baseH + displayBandH;
+  const upperDoorH = Math.max(220, upperH - t * 2);
+  for (let index = 0; index < shutterCount; index += 1) {
+    const xMm = index * (shutterW + 3);
+    if (profileGlass && index >= shutterCount - Math.max(1, Math.ceil(shutterCount / 2))) {
+      add(`upper-glass-${index + 1}`, `Profile Glass Display Door ${index + 1}`, xMm + t, 0, upperZ + t, shutterW - t * 2, 4, upperDoorH, 'glass', COMPAT.glass, 'A-MOD-GLASS', 'CROCKERY-GLASS-DOOR');
+      add(`upper-profile-${index + 1}`, `Aluminium Display Profile ${index + 1}`, xMm, 4, upperZ, shutterW, 20, upperH, 'profile', COMPAT.profile, 'A-MOD-PROFILE', 'ALU-PROFILE');
+    } else {
+      add(`upper-shutter-${index + 1}`, `Crockery Upper Shutter ${index + 1}`, xMm, 0, upperZ + t, shutterW, t, upperDoorH, 'shutter', COMPAT.shutter, 'A-MOD-SHUTTER', 'CROCKERY-UPPER-SHUTTER');
+    }
+  }
+  for (let shelf = 0; shelf < 2; shelf += 1) add(`upper-shelf-${shelf + 1}`, `Upper Display Shelf ${shelf + 1}`, t, 90, upperZ + 230 + shelf * Math.max(260, Math.round(upperH / 3)), totalW - t * 2, totalD - 120, t, 'shelf', COMPAT.shelf, 'A-MOD-SHELF', 'CROCKERY-UPPER-SHELF');
+  if (p.includeLoft) add('top-filler', 'Crockery Top Filler', 0, 0, totalH - 50, totalW, totalD, 50, 'filler', COMPAT.carcass, 'A-MOD-FILLER', 'CROCKERY-TOP-FILLER');
   return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts };
 }
 
@@ -115,17 +160,46 @@ export function compileKitchen(input: TemplateCompileInput): TemplateCompileResu
   return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts };
 }
 
-// ── Bed (bed base + headboard) ──────────────────────────────
+// ── Bed (panel-built storage bed + headboard) ───────────────
 export function compileBed(input: TemplateCompileInput): TemplateCompileResult {
   const p = input.parameters as any;
   const instanceId = input.instanceId ?? 'bed-1';
   const wallW = input.wall.widthMm, wallH = input.wall.heightMm;
-  const totalW = p.totalWidthMm ?? 1600, totalH = p.totalHeightMm ?? 450, totalD = p.totalDepthMm ?? 2000;
-  const blocking: string[] = []; if (totalW > wallW) blocking.push(`Bed width ${totalW}mm exceeds wall ${wallW}mm.`);
+  const totalW = p.totalWidthMm ?? 1600, platformH = Math.max(350, p.platformHeightMm ?? Math.min(450, p.totalHeightMm ?? 450)), totalD = p.totalDepthMm ?? 2100;
+  const headboardH = Math.max(900, p.headboardHeightMm ?? (p.totalHeightMm && p.totalHeightMm > 700 ? p.totalHeightMm : 1100));
+  const t = DEFAULT_CARCASS_THICKNESS_MM;
+  const blocking: string[] = [];
+  const warning: string[] = [];
+  if (totalW > wallW) blocking.push(`Bed width ${totalW}mm exceeds wall ${wallW}mm.`);
+  if (wallH > 0 && headboardH > wallH) blocking.push(`Headboard height ${headboardH}mm exceeds wall height ${wallH}mm.`);
+  if (totalD < 1850) warning.push('Bed length below 1850mm requires mattress verification.');
   const parts: Part[] = [];
-  parts.push({ id: `${instanceId}-base`, templateVersionId: input.templateVersionId, instanceId, name: 'Bed Base', transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: totalD, heightMm: totalH }, anchor: { face: 'bottom' }, meta: { semanticType: 'carcass', parentId: null, materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Bed Base' }, drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 }, bom: { sku: 'BED-BASE', qty: 1, unit: 'pc', lengthMm: totalW, widthMm: totalD, thicknessMm: totalH } } });
-  parts.push({ id: `${instanceId}-headboard`, templateVersionId: input.templateVersionId, instanceId, name: 'Headboard', transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: 80, heightMm: 1100 }, anchor: { face: 'back' }, meta: { semanticType: 'panel', parentId: `${instanceId}-base`, materialSlot: { id: COMPAT.panel, code: COMPAT.panel, name: 'Headboard' }, drawing: { layer: 'A-MOD-PANEL', sortOrder: 5 }, bom: { sku: 'HEADBOARD', qty: 1, unit: 'pc', lengthMm: totalW, heightMm: 1100, thicknessMm: 80 } } });
-  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: [], parts };
+  const addPanel = (id: string, name: string, xMm: number, yMm: number, zMm: number, widthMm: number, depthMm: number, heightMm: number, semanticType: Part['meta']['semanticType'], materialId = COMPAT.carcass, sku = 'BED-PANEL-18MM') => parts.push({
+    id: `${instanceId}-${id}`, templateVersionId: input.templateVersionId, instanceId, name,
+    transform: { xMm, yMm, zMm, rotationDeg: 0 }, size: { widthMm, depthMm, heightMm }, anchor: { face: 'bottom' },
+    meta: { semanticType, parentId: null, materialSlot: { id: materialId, code: materialId, name: semanticType === 'panel' ? 'Headboard finish' : 'Bed carcass' }, drawing: { layer: semanticType === 'panel' ? 'A-MOD-PANEL' : 'A-MOD-CARCASS', sortOrder: parts.length + 1 }, bom: { sku, qty: 1, unit: 'pc', lengthMm: Math.max(widthMm, depthMm, heightMm), widthMm: [widthMm, depthMm, heightMm].sort((a, b) => b - a)[1], thicknessMm: t } },
+  });
+
+  // Exact sheet parts: the visible bed envelope is reconstructed from these
+  // rails and deck panels by scene.v1, so render geometry and fabrication data
+  // stay in sync.
+  addPanel('left-rail', 'Left Storage Bed Side Rail', 0, 0, 0, t, totalD, platformH, 'carcass');
+  addPanel('right-rail', 'Right Storage Bed Side Rail', totalW - t, 0, 0, t, totalD, platformH, 'carcass');
+  addPanel('foot-rail', 'Storage Bed Foot Rail', t, totalD - t, 0, totalW - t * 2, t, platformH, 'carcass');
+  addPanel('head-rail', 'Storage Bed Head Rail', t, 0, 0, totalW - t * 2, t, platformH, 'carcass');
+  addPanel('centre-partition', 'Hydraulic Storage Centre Partition', totalW / 2 - t / 2, t, 0, t, totalD - t * 2, platformH - t, 'carcass');
+  const deckGap = 4;
+  const deckWidth = (totalW - t * 2 - deckGap) / 2;
+  addPanel('deck-left', 'Hydraulic Bed Deck Left', t, t, platformH - t, deckWidth, totalD - t * 2, t, 'panel', COMPAT.panel, 'BED-DECK-18MM');
+  addPanel('deck-right', 'Hydraulic Bed Deck Right', t + deckWidth + deckGap, t, platformH - t, deckWidth, totalD - t * 2, t, 'panel', COMPAT.panel, 'BED-DECK-18MM');
+  addPanel('headboard-panel', 'Bed Headboard Panel', 0, 0, 0, totalW, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-PANEL-18MM');
+  if (p.headboardStyle === 'extended' || p.archetype === 'extended_headboard') {
+    const wingWidth = Math.min(450, Math.max(300, Math.round(totalW * 0.22)));
+    addPanel('headboard-wing-left', 'Extended Headboard Left Wing', -wingWidth, 0, 0, wingWidth, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-WING-18MM');
+    addPanel('headboard-wing-right', 'Extended Headboard Right Wing', totalW, 0, 0, wingWidth, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-WING-18MM');
+  }
+  parts.push({ id: `${instanceId}-hydraulic-pair`, templateVersionId: input.templateVersionId, instanceId, name: 'Hydraulic Lift Mechanism Pair', transform: { xMm: totalW / 2, yMm: totalD / 2, zMm: platformH - 80, rotationDeg: 0 }, size: { widthMm: 40, depthMm: 420, heightMm: 80 }, anchor: { face: 'center' }, meta: { semanticType: 'hardware', parentId: null, materialSlot: { id: COMPAT.hardware, code: COMPAT.hardware, name: 'Hydraulic hardware' }, drawing: { layer: 'A-ANNO-HARDWARE', sortOrder: parts.length + 1 }, bom: { sku: 'HW-BED-HYDRAULIC-PAIR', qty: 1, unit: 'set' } } });
+  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts };
 }
 
 // ── Utility (tall units + sink base) ────────────────────────

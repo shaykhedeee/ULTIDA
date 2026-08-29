@@ -4,8 +4,8 @@ import './layout-config.css';
 import { shapeCatalogFor, generateCandidates, validatePlacements, approveLayout, invalidateDownstream, type LayoutCandidate, type CandidateScore } from '@ultida/layout-core';
 
 // ─── Types ───────────────────────────────────────────────────────
-export type RoomShape = 'rectangular' | 'l-shape' | 'u-shape' | 'irregular';
-export type FurnitureTemplate = 'tv-unit' | 'kitchen-l' | 'kitchen-u' | 'kitchen-straight' | 'wardrobe' | 'dining' | 'study';
+export type RoomShape = string;
+export type FurnitureTemplate = 'tv-unit' | 'kitchen-l' | 'kitchen-u' | 'kitchen-straight' | 'wardrobe' | 'dining' | 'crockery' | 'bed' | 'study' | 'pooja' | 'utility';
 export type StylePreset = 'japandi' | 'contemporary-indian' | 'industrial' | 'parisian' | 'coastal';
 export type WallOrientation = 'north' | 'south' | 'east' | 'west';
 
@@ -19,7 +19,7 @@ export type LayoutConfig = {
   wallOrientation: WallOrientation;
 };
 
-export type RoomCategory = 'kitchen' | 'tv_unit' | 'wardrobe' | 'living' | 'bedroom' | 'other';
+export type RoomCategory = 'kitchen' | 'tv_unit' | 'wardrobe' | 'living' | 'bedroom' | 'dining' | 'study' | 'pooja' | 'utility' | 'foyer' | 'bathroom' | 'other';
 
 // ─── Existing room shape + template catalog ──────────────────────
 const ROOM_SHAPES: Array<{ id: RoomShape; label: string; sub: string; svgPath: string }> = [
@@ -75,13 +75,14 @@ type Props = {
   onGenerateCandidates?: (config: LayoutConfig, roomCategory: RoomCategory, roomRequirements: Record<string, unknown>, spaceId: string) => Promise<LayoutCandidate[]>;
   onLoadDrafts?: (spaceId: string) => Promise<LayoutCandidate[]>;
   onApproveCandidate?: (candidate: LayoutCandidate, config: LayoutConfig) => Promise<void> | void;
+  onEditSpace?: () => void;
 };
 
-export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomCategory = 'other', roomRequirements = {}, rooms = [], selectedSpaceId, onSpaceChange, onGenerate, onGenerateCandidates, onLoadDrafts, onApproveCandidate }: Props) {
+export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomCategory = 'other', roomRequirements = {}, rooms = [], selectedSpaceId, onSpaceChange, onGenerate, onGenerateCandidates, onLoadDrafts, onApproveCandidate, onEditSpace }: Props) {
   const [config, setConfig] = useState<LayoutConfig>({
     ...DEFAULT_CONFIG,
-    ...(detectedDimensions ? { lengthMm: detectedDimensions.lengthMm, widthMm: detectedDimensions.widthMm, heightMm: detectedDimensions.heightMm } : {}),
     ...initialConfig,
+    ...(detectedDimensions ? { lengthMm: detectedDimensions.lengthMm, widthMm: detectedDimensions.widthMm, heightMm: detectedDimensions.heightMm } : {}),
   });
   const [activeStep, setActiveStep] = useState<'shape' | 'dimensions' | 'template' | 'style' | 'orientation' | 'candidates' | 'review'>('shape');
   const [candidates, setCandidates] = useState<LayoutCandidate[]>([]);
@@ -89,6 +90,8 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
   const [showClearances, setShowClearances] = useState(false);
   const [showViolations, setShowViolations] = useState(false);
   const [approvalState, setApprovalState] = useState('');
+  const [layoutApproved, setLayoutApproved] = useState(false);
+  const [busy, setBusy] = useState<'generate' | 'approve' | null>(null);
 
   function update<K extends keyof LayoutConfig>(key: K, value: LayoutConfig[K]) {
     setConfig((prev) => ({ ...prev, [key]: value }));
@@ -109,32 +112,61 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
     }).catch(() => undefined);
   }, [selectedSpaceId]);
 
+  useEffect(() => {
+    if (!detectedDimensions) return;
+    const firstValidShape = shapeCatalogFor(roomCategory)[0]?.id;
+    const firstTemplate = templatesForCategory(roomCategory)[0]?.id;
+    setConfig((current) => ({
+      ...current,
+      lengthMm: detectedDimensions.lengthMm,
+      widthMm: detectedDimensions.widthMm,
+      heightMm: detectedDimensions.heightMm,
+      shape: firstValidShape && !shapeCatalogFor(roomCategory).some((shape) => shape.id === current.shape) ? firstValidShape : current.shape,
+      template: firstTemplate && !templatesForCategory(roomCategory).some((template) => template.id === current.template) ? firstTemplate : current.template,
+    }));
+    setCandidates([]);
+    setSelectedCandidateId(null);
+    setApprovalState('Room changed. Dimensions are loaded from the approved plan.');
+    setLayoutApproved(false);
+  }, [selectedSpaceId, roomCategory, detectedDimensions?.lengthMm, detectedDimensions?.widthMm, detectedDimensions?.heightMm]);
+
   function templatesForCategory(cat: RoomCategory) {
     if (cat === 'kitchen') return TEMPLATES.filter((t) => ['kitchen-l', 'kitchen-u'].includes(t.id));
     if (cat === 'tv_unit') return TEMPLATES.filter((t) => ['tv-unit'].includes(t.id));
     if (cat === 'wardrobe') return TEMPLATES.filter((t) => ['wardrobe'].includes(t.id));
-    if (cat === 'living') return TEMPLATES.filter((t) => ['tv-unit', 'dining'].includes(t.id));
+    if (cat === 'living') return TEMPLATES.filter((t) => ['tv-unit'].includes(t.id));
     if (cat === 'bedroom') return TEMPLATES.filter((t) => ['wardrobe', 'study'].includes(t.id));
-    return TEMPLATES;
+    if (cat === 'dining') return TEMPLATES.filter((t) => ['dining'].includes(t.id));
+    if (cat === 'study') return TEMPLATES.filter((t) => ['study'].includes(t.id));
+    if (cat === 'pooja') return TEMPLATES.filter((t) => ['tv-unit'].includes(t.id));
+    if (cat === 'utility') return TEMPLATES.filter((t) => ['wardrobe'].includes(t.id));
+    if (cat === 'foyer') return TEMPLATES.filter((t) => ['wardrobe'].includes(t.id));
+    if (cat === 'bathroom') return TEMPLATES.filter((t) => ['study'].includes(t.id));
+    return [];
   }
 
   async function generateLayoutCandidates() {
+    if (busy) return;
     if (config.lengthMm <= 0 || config.widthMm <= 0 || config.heightMm <= 0) {
       setApprovalState('Enter verified room length, width, and ceiling height in millimetres before generating candidates.');
       setActiveStep('dimensions');
       return;
     }
     if (onGenerateCandidates) {
+      setBusy('generate');
       setApprovalState('Generating candidates from the approved plan geometry...');
       try {
         if (!selectedSpaceId) throw new Error('Select a room from the approved floor plan before generating candidates.');
         const generated = await onGenerateCandidates(config, roomCategory, roomRequirements, selectedSpaceId);
-        setCandidates(generated);
-        setSelectedCandidateId(generated[0]?.id ?? null);
+      setCandidates(generated);
+      setSelectedCandidateId(generated[0]?.id ?? null);
+      setLayoutApproved(false);
         setApprovalState(generated.length ? '' : 'No valid candidates were found for the approved room geometry.');
         setActiveStep(generated.length ? 'candidates' : 'dimensions');
       } catch (error) {
         setApprovalState(error instanceof Error ? error.message : 'Canonical layout generation failed.');
+      } finally {
+        setBusy(null);
       }
       return;
     }
@@ -162,19 +194,38 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
   }
 
   async function handleApprove() {
-    if (!selectedCandidate) return;
+    if (!selectedCandidate || busy) return;
     if (!onApproveCandidate) {
       setApprovalState('Approval connection is unavailable.');
       return;
     }
+    setBusy('approve');
     setApprovalState('Saving and approving layout...');
     try {
       await onApproveCandidate(selectedCandidate, config);
       setApprovalState('Layout approved. Downstream outputs are marked for recompilation.');
+      setLayoutApproved(true);
       setActiveStep('review');
     } catch (error) {
       setApprovalState(error instanceof Error ? error.message : 'Layout approval failed.');
+    } finally {
+      setBusy(null);
     }
+  }
+
+  if (onGenerateCandidates && rooms.length === 0) {
+    return (
+      <div className="layout-config-workspace">
+        <section className="layout-empty-state">
+          <LayoutGrid size={24} />
+          <div>
+            <h2>Set up a room before Layout Studio</h2>
+            <p>Layout candidates need one configured Space with measured geometry, a ceiling height, and at least one required modular category.</p>
+          </div>
+          {onEditSpace && <button type="button" className="btn-generate" onClick={onEditSpace}>Open Spaces <ArrowRight size={16} /></button>}
+        </section>
+      </div>
+    );
   }
 
   return (
@@ -204,6 +255,22 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
         </div>
       )}
 
+      <section className="layout-input-summary" aria-label="Selected room inputs">
+        <div>
+          <span>Measured room</span>
+          <strong>{rooms.find((room) => room.id === selectedSpaceId)?.name ?? 'Select a room'}</strong>
+        </div>
+        <div>
+          <span>Authoritative dimensions</span>
+          <strong>{detectedDimensions ? `${detectedDimensions.lengthMm} × ${detectedDimensions.widthMm} × ${detectedDimensions.heightMm} mm` : 'Unavailable'}</strong>
+        </div>
+        <div>
+          <span>Required modules</span>
+          <strong>{Array.isArray(roomRequirements.requiredFurniture) && roomRequirements.requiredFurniture.length ? roomRequirements.requiredFurniture.map(String).join(', ').replaceAll('_', ' ') : 'Not set'}</strong>
+        </div>
+        {onEditSpace && <button type="button" className="layout-edit-space" onClick={onEditSpace}>Edit room setup</button>}
+      </section>
+
       <div className="layout-steps">
         {(['shape', 'dimensions', 'template', 'style', 'orientation', 'candidates', 'review'] as const).map((step, i) => (
           <div key={step} className={`layout-step ${activeStep === step ? 'active' : ''}`} onClick={() => setActiveStep(step)}>
@@ -219,17 +286,17 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
           <div className="layout-section-header">
             <div className="section-icon"><LayoutGrid size={16} /></div>
             <div>
-              <strong style={{ fontSize: '14px' }}>Room Layout Shape</strong>
-              <p style={{ margin: 0, fontSize: '12px' }}>Pick the layout shape for {roomCategory || 'this room'} before generating candidates.</p>
+              <strong style={{ fontSize: '14px' }}>Furniture arrangement strategy</strong>
+              <p style={{ margin: 0, fontSize: '12px' }}>The measured room polygon stays unchanged. Choose how furniture should be arranged inside this {roomCategory || 'room'}.</p>
             </div>
           </div>
           <div className="layout-section-body">
             <div className="shape-grid">
               {(categoryShapes.length ? categoryShapes : ROOM_SHAPES).map((shape) => (
-                <div key={shape.id} className={`shape-card`}>
+                <button key={shape.id} type="button" className={`shape-card ${config.shape === shape.id ? 'selected' : ''}`} onClick={() => update('shape', shape.id)}>
                   <div style={{ padding: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>{shape.label}</div>
                   <div style={{ padding: '0 12px 12px', fontSize: '11px', color: 'var(--text-muted)' }}>{shape.sub}</div>
-                </div>
+                </button>
               ))}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
@@ -246,14 +313,14 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
             <div className="section-icon"><Layers3 size={16} /></div>
             <div>
               <strong style={{ fontSize: '14px' }}>Room Dimensions</strong>
-              <p style={{ margin: 0, fontSize: '12px' }}>Verified room dimensions in millimetres. These boxes constrain candidate placement.</p>
+              <p style={{ margin: 0, fontSize: '12px' }}>These measurements come from the approved Space. Correct them in Spaces before generating a new layout.</p>
             </div>
           </div>
           <div className="layout-section-body">
             <div className="dimension-grid">
-              <div className="dim-field"><label>Length <span className="dim-unit">(mm)</span></label><input type="number" value={config.lengthMm} onChange={(e) => update('lengthMm', Number(e.target.value) || 5200)} min="1000" max="20000" step="50" /><span className="dim-unit">{(config.lengthMm / 1000).toFixed(2)} m</span></div>
-              <div className="dim-field"><label>Width <span className="dim-unit">(mm)</span></label><input type="number" value={config.widthMm} onChange={(e) => update('widthMm', Number(e.target.value) || 3800)} min="1000" max="20000" step="50" /><span className="dim-unit">{(config.widthMm / 1000).toFixed(2)} m</span></div>
-              <div className="dim-field"><label>Ceiling Height <span className="dim-unit">(mm)</span></label><input type="number" value={config.heightMm} onChange={(e) => update('heightMm', Number(e.target.value) || 2700)} min="2100" max="5000" step="50" /><span className="dim-unit">{(config.heightMm / 1000).toFixed(2)} m</span></div>
+              <div className="dim-field"><label>Length <span className="dim-unit">(mm)</span></label><input type="number" value={config.lengthMm} readOnly aria-readonly="true" /><span className="dim-unit">{(config.lengthMm / 1000).toFixed(2)} m</span></div>
+              <div className="dim-field"><label>Width <span className="dim-unit">(mm)</span></label><input type="number" value={config.widthMm} readOnly aria-readonly="true" /><span className="dim-unit">{(config.widthMm / 1000).toFixed(2)} m</span></div>
+              <div className="dim-field"><label>Ceiling Height <span className="dim-unit">(mm)</span></label><input type="number" value={config.heightMm} readOnly aria-readonly="true" /><span className="dim-unit">{(config.heightMm / 1000).toFixed(2)} m</span></div>
             </div>
             <div style={{ marginTop: '16px', padding: '14px 18px', background: 'var(--cream-mid)', borderRadius: '8px', border: '1px solid var(--line)', display: 'flex', gap: '24px' }}>
               <div><div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '2px' }}>FLOOR AREA</div><strong style={{ fontSize: '18px' }}>{((config.lengthMm * config.widthMm) / 1000000).toFixed(2)} m²</strong></div>
@@ -363,7 +430,7 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
               <button className="btn-generate" style={{ fontSize: '12px', padding: '8px 12px' }} onClick={() => setShowClearances((v) => !v)}>{showClearances ? 'Hide clearances' : 'Show clearances'}</button>
               <button className="btn-generate" style={{ fontSize: '12px', padding: '8px 12px' }} onClick={() => setShowViolations((v) => !v)}>{showViolations ? 'Hide violations' : 'Show violations'}</button>
-              <button className="btn-generate" style={{ fontSize: '12px', padding: '8px 12px', background: 'var(--surface-raised)', color: 'var(--brown-mid)', border: '1px solid var(--line)', boxShadow: 'none' }} onClick={generateLayoutCandidates}><RotateCw size={16} /> Regenerate</button>
+              <button className="btn-generate" style={{ fontSize: '12px', padding: '8px 12px', background: 'var(--surface-raised)', color: 'var(--brown-mid)', border: '1px solid var(--line)', boxShadow: 'none' }} disabled={Boolean(busy)} onClick={generateLayoutCandidates}><RotateCw size={16} /> {busy === 'generate' ? 'Generating…' : 'Regenerate'}</button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
@@ -371,6 +438,8 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
                 <CandidateCard
                   key={candidate.id}
                   candidate={candidate}
+                  roomLengthMm={config.lengthMm}
+                  roomWidthMm={config.widthMm}
                   selected={candidate.id === selectedCandidateId}
                   showClearances={showClearances}
                   showViolations={showViolations}
@@ -381,8 +450,9 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
               <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px', background: 'var(--surface-raised)', color: 'var(--brown-mid)', border: '1px solid var(--line)', boxShadow: 'none' }} onClick={() => setActiveStep('orientation')}>← Back</button>
-              <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} disabled={!selectedCandidateId} onClick={handleApprove}><ShieldCheck size={18} /> Approve layout version</button>
+              <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} disabled={Boolean(busy) || !selectedCandidateId || !selectedCandidate?.validation.valid} onClick={handleApprove}><ShieldCheck size={18} /> {busy === 'approve' ? 'Approving…' : selectedCandidate?.validation.valid ? 'Approve layout version' : 'Resolve blocking constraints'}</button>
             </div>
+            {!selectedCandidate?.validation.valid && selectedCandidate && <p role="status" style={{ margin: '12px 0 0', fontSize: '12px', color: 'var(--danger)' }}>This candidate has blocking constraints. Select a valid alternative or adjust the room requirements before approval.</p>}
             {approvalState && <p role="status" style={{ margin: '12px 0 0', fontSize: '12px', color: approvalState.startsWith('Layout approved') ? 'var(--success)' : 'var(--danger)' }}>{approvalState}</p>}
           </div>
         </div>
@@ -429,17 +499,17 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
 
             <div style={{ marginTop: '18px', display: 'flex', justifyContent: 'space-between' }}>
               <button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px', background: 'var(--surface-raised)', color: 'var(--brown-mid)', border: '1px solid var(--line)', boxShadow: 'none' }} onClick={() => setActiveStep('candidates')}>← Back to candidates</button>
-              {onGenerate && (<button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} onClick={() => onGenerate(config)}>Proceed to render <ArrowRight size={16} /></button>)}
+              {onGenerate && (<button className="btn-generate" style={{ fontSize: '13px', padding: '10px 20px' }} onClick={() => onGenerate(config)} disabled={!layoutApproved} title={layoutApproved ? 'Open Module Placement' : 'Approve one layout candidate first'}>Continue to Modules <ArrowRight size={16} /></button>)}
             </div>
           </div>
         </div>
       )}
 
-      {/* Legacy summary + generate CTA */}
+      {/* The approved layout leads into exact parametric module placement. Rendering only becomes available after scene.v1 is compiled. */}
       <div className="generate-cta">
         <div className="generate-cta-info">
-          <h3>Generate 3D Design Render</h3>
-          <p>Use approved symbolic layout to drive deterministic scene compilation and production render pipeline.</p>
+          <h3>Continue to Module Placement</h3>
+          <p>Use the approved layout to place and configure exact modules. Rendering becomes available only after scene.v1 is compiled and approved.</p>
           <div className="generate-summary">
             <span className="gen-tag">📐 {ROOM_SHAPES.find((s) => s.id === config.shape)?.label}</span>
             <span className="gen-tag">📏 {config.lengthMm} × {config.widthMm} mm</span>
@@ -449,8 +519,8 @@ export function LayoutConfigWorkspace({ initialConfig, detectedDimensions, roomC
           </div>
         </div>
         {onGenerate && (
-          <button className="btn-generate" onClick={() => onGenerate(config)}>
-            <Sparkles size={18} /> Generate 3D Render <ArrowRight size={16} />
+          <button className="btn-generate" onClick={() => onGenerate(config)} disabled={!layoutApproved} title={layoutApproved ? 'Open Module Placement' : 'Approve one layout candidate first'}>
+            <Sparkles size={18} /> Continue to Modules <ArrowRight size={16} />
           </button>
         )}
       </div>
@@ -462,8 +532,11 @@ function inferCategoryFromTemplate(template: FurnitureTemplate): RoomCategory {
   if (template.startsWith('kitchen')) return 'kitchen';
   if (template === 'tv-unit') return 'tv_unit';
   if (template === 'wardrobe') return 'wardrobe';
-  if (template === 'dining') return 'living';
-  if (template === 'study') return 'bedroom';
+  if (template === 'dining' || template === 'crockery') return 'dining';
+  if (template === 'bed') return 'bedroom';
+  if (template === 'study') return 'study';
+  if (template === 'pooja') return 'pooja';
+  if (template === 'utility') return 'utility';
   return 'other';
 }
 
@@ -480,13 +553,15 @@ function InfoTile({ label, value }: InfoTileProps) {
 
 type CandidateCardProps = {
   candidate: LayoutCandidate;
+  roomLengthMm: number;
+  roomWidthMm: number;
   selected: boolean;
   showClearances: boolean;
   showViolations: boolean;
   onSelect: () => void;
 };
 
-function CandidateCard({ candidate, selected, showClearances, showViolations, onSelect }: CandidateCardProps) {
+function CandidateCard({ candidate, roomLengthMm, roomWidthMm, selected, showClearances, showViolations, onSelect }: CandidateCardProps) {
   const blocking = candidate.validation.issues.filter((i) => i.severity === 'blocking');
   const warnings = candidate.validation.issues.filter((i) => i.severity === 'warning');
   return (
@@ -498,6 +573,8 @@ function CandidateCard({ candidate, selected, showClearances, showViolations, on
       <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
         {candidate.placements.length} placements &nbsp;|&nbsp; score {(candidate.score.weighted * 100).toFixed(0)}% &nbsp;|&nbsp; {candidate.validation.valid ? 'Valid ✅' : `${blocking.length} blocking`}
       </div>
+
+      <CandidatePlanPreview candidate={candidate} roomLengthMm={roomLengthMm} roomWidthMm={roomWidthMm} />
 
       {showClearances && (
         <div style={{ fontSize: '12px', marginBottom: '8px' }}>
@@ -520,5 +597,50 @@ function CandidateCard({ candidate, selected, showClearances, showViolations, on
         <button onClick={onSelect} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid var(--line)', background: selected ? 'var(--gold)' : 'var(--surface-raised)', color: selected ? '#fff' : 'var(--brown-mid)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>{selected ? 'Selected' : 'Select'}</button>
       </div>
     </div>
+  );
+}
+
+function CandidatePlanPreview({ candidate, roomLengthMm, roomWidthMm }: { candidate: LayoutCandidate; roomLengthMm: number; roomWidthMm: number }) {
+  type PreviewContext = { roomPolygon?: Array<{ xMm: number; yMm: number }>; walls?: Array<{ id: string; minX: number; minY: number; maxX: number; maxY: number }>; openings?: Array<{ id: string; type: 'door' | 'window'; xMm: number; yMm: number; widthMm: number }>; structuralElements?: Array<{ id: string; xMm: number; yMm: number; widthMm: number; depthMm: number }> };
+  const context = (candidate as LayoutCandidate & { previewContext?: PreviewContext }).previewContext;
+  const polygon = context?.roomPolygon ?? [];
+  const xs = polygon.length ? polygon.map((point) => point.xMm) : candidate.placements.map((placement) => placement.positionMm[0]);
+  const ys = polygon.length ? polygon.map((point) => point.yMm) : candidate.placements.map((placement) => placement.positionMm[1]);
+  const minX = xs.length ? Math.min(...xs) : 0;
+  const minY = ys.length ? Math.min(...ys) : 0;
+  const maxX = polygon.length ? Math.max(...xs) : minX + Math.max(1, roomLengthMm);
+  const maxY = polygon.length ? Math.max(...ys) : minY + Math.max(1, roomWidthMm);
+  const width = Math.max(1, maxX - minX);
+  const depth = Math.max(1, maxY - minY);
+  const inset = 8;
+  const drawW = 224 - inset * 2;
+  const drawH = 132 - inset * 2;
+  const scale = Math.min(drawW / width, drawH / depth);
+  const originX = (224 - width * scale) / 2;
+  const originY = (132 - depth * scale) / 2;
+  const projectX = (value: number) => originX + (value - minX) * scale;
+  const projectY = (value: number) => originY + (value - minY) * scale;
+  return (
+    <svg className="candidate-plan-preview" viewBox="0 0 224 132" role="img" aria-label={`${candidate.candidateType.replace(/_/g, ' ')} top view`}>
+      {polygon.length >= 3 ? <polygon points={polygon.map((point) => `${projectX(point.xMm)},${projectY(point.yMm)}`).join(' ')} className="candidate-room-shell" /> : <rect x={originX} y={originY} width={width * scale} height={depth * scale} className="candidate-room-shell" />}
+      {context?.walls?.map((wall, index) => <g key={wall.id}><line x1={projectX(wall.minX)} y1={projectY(wall.minY)} x2={projectX(wall.maxX)} y2={projectY(wall.maxY)} className="candidate-wall"/><text x={projectX((wall.minX + wall.maxX) / 2)} y={projectY((wall.minY + wall.maxY) / 2) - 3} className="candidate-wall-label">Wall {String.fromCharCode(65 + index)}</text></g>)}
+      {context?.openings?.map((opening) => <line key={opening.id} x1={projectX(opening.xMm)} y1={projectY(opening.yMm)} x2={projectX(opening.xMm + opening.widthMm)} y2={projectY(opening.yMm)} className={`candidate-opening candidate-${opening.type}`}><title>{opening.type} · {opening.widthMm} mm</title></line>)}
+      {context?.structuralElements?.map((item) => <rect key={item.id} x={projectX(item.xMm)} y={projectY(item.yMm)} width={Math.max(3,item.widthMm*scale)} height={Math.max(3,item.depthMm*scale)} className="candidate-structure"/>)}
+      {candidate.placements.map((placement, index) => {
+        const quarterTurn = Math.abs(Math.round(placement.rotationYawDeg / 90)) % 2 === 1;
+        const placementWidth = quarterTurn ? placement.depthMm : placement.widthMm;
+        const placementDepth = quarterTurn ? placement.widthMm : placement.depthMm;
+        const x = projectX(placement.positionMm[0]);
+        const y = projectY(placement.positionMm[1]);
+        return (
+          <g key={placement.id}>
+            <rect x={x} y={y} width={Math.max(3, placementWidth * scale)} height={Math.max(3, placementDepth * scale)} rx="2" className={`candidate-placement candidate-placement-${index % 4}`} />
+            <text x={x + 3} y={y + 9} className="candidate-placement-label">{placement.templateFamily.replaceAll('-', ' ')}</text>
+            <title>{placement.templateFamily}: {placement.widthMm} × {placement.depthMm} mm</title>
+          </g>
+        );
+      })}
+      <text x={originX + 4} y={originY + 11} className="candidate-plan-label">{Math.round(width)} × {Math.round(depth)} mm</text>
+    </svg>
   );
 }

@@ -59,6 +59,13 @@ function isRetryableStatus(status: number) {
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
+function detectImageMime(bytes: Buffer): string | null {
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
+  if (bytes.length >= 3 && bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) return 'image/jpeg';
+  if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
 function geminiImageKey(environment: Environment) {
   return environment.GEMINI_IMAGE_API_KEY || environment.GEMINI_API_KEY || environment.GOOGLE_AI_STUDIO_KEY_1 || environment.GOOGLE_AI_STUDIO_KEY_2;
 }
@@ -113,13 +120,14 @@ export function createProviderGateway(environment: Environment) {
   const getProviders = (): ProviderCapabilityStatus[] => {
     const env = environment;
     const cloudflareModel = env.CLOUDFLARE_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-4b';
+    const cloudflareFinalModel = env.CLOUDFLARE_FINAL_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-9b';
     const cloudflareOperations: VisualProposalRequest['operation'][] = cloudflareModel.includes('flux-2')
       ? ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance']
       : ['generate'];
     return [
       { id: 'free-image-worker', name: 'Cloudflare free image worker', configured: Boolean(env.FREE_IMAGE_WORKER_URL && env.FREE_IMAGE_WORKER_API_KEY), operations: ['generate'], details: `${env.FREE_IMAGE_WORKER_MODEL ?? '@cf/black-forest-labs/flux-1-schnell'} text-to-image only; not geometry-preserving.` },
       { id: 'gemini-nano-banana-2', name: 'Gemini image generation', configured: Boolean(geminiImageKey(env)), operations: ['generate'], details: 'The current adapter is text-to-image only.' },
-      { id: 'cloudflare', name: 'Cloudflare Workers AI', configured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN), operations: cloudflareOperations, details: `${cloudflareModel} (${cloudflareModel.includes('flux-2') ? 'generation and image editing' : 'text-to-image only'})` },
+      { id: 'cloudflare', name: 'Cloudflare Workers AI', configured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN), operations: cloudflareOperations, details: `Draft/review: ${cloudflareModel}; final: ${cloudflareFinalModel} (generation and image editing)` },
       { id: 'openai-dall-e-3', name: 'OpenAI DALL-E 3', configured: Boolean(env.OPENAI_API_KEY), operations: ['generate'], details: 'DALL-E 3 does not support image editing.' },
       { id: 'openai-gpt-image-1', name: 'OpenAI GPT Image 1', configured: Boolean(env.OPENAI_API_KEY && env.OPENAI_IMAGE_MODEL === 'gpt-image-1'), operations: ['generate'], details: 'Image editing remains unavailable until the edits endpoint is connected.' },
       { id: 'localai', name: 'LocalAI self-hosted image generation', configured: Boolean(localAiBaseUrl(env) && env.LOCALAI_IMAGE_MODEL), operations: ['generate'], details: 'Optional private, OpenAI-compatible endpoint. It is used only for new renders; geometry-locked revisions stay on ComfyUI or Cloudflare.' },
@@ -167,7 +175,9 @@ export function createProviderGateway(environment: Environment) {
   async function executeCloudflare(request: VisualProposalRequest, attemptedProviders: string[]): Promise<ProviderResult> {
     const accountId = environment.CLOUDFLARE_ACCOUNT_ID;
     const token = environment.CLOUDFLARE_AI_TOKEN;
-    const model = environment.CLOUDFLARE_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-4b';
+    const model = request.quality === 'final'
+      ? environment.CLOUDFLARE_FINAL_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-9b'
+      : environment.CLOUDFLARE_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-4b';
 
     if (!accountId || !token) {
       return { status: 'failed', code: 'CLOUDFLARE_NOT_CONFIGURED', message: 'Cloudflare Workers AI is not configured.', retryable: false, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
@@ -206,11 +216,35 @@ export function createProviderGateway(environment: Environment) {
         body = JSON.stringify({ prompt, steps: model.includes('schnell') ? 8 : 4, seed: Math.floor(Math.random() * 2147483647) });
       }
       const response = await fetch(endpoint, { method: 'POST', headers, body });
+      const contentType = response.headers.get('content-type')?.split(';')[0] ?? '';
 
-      const payload = (await response.json()) as { success?: boolean; result?: { image?: string }; errors?: Array<{ message?: string }> };
+      // Workers AI normally returns the model result in its JSON envelope, but
+      // some gateway/compatibility paths return the encoded image as the HTTP
+      // response itself. Accept both shapes so a valid image can never be
+      // mistaken for a JSON parse error and leave the UI polling forever.
+      if (response.ok && (contentType.startsWith('image/') || contentType === 'application/octet-stream')) {
+        const bytes = Buffer.from(await response.arrayBuffer());
+        const detectedMime = detectImageMime(bytes);
+        if (bytes.byteLength >= 256 && (contentType.startsWith('image/') || detectedMime)) {
+          return {
+            status: 'succeeded',
+            synthetic: false,
+            provider: 'cloudflare',
+            model,
+            image: { encoding: 'base64', data: bytes.toString('base64'), mimeType: detectedMime ?? contentType },
+            sourceSceneVersionId: request.sceneVersionId,
+            operation: request.operation,
+            attemptedProviders
+          };
+        }
+      }
 
-      if (!response.ok || !payload.success || !payload.result?.image) {
-        const errorMsg = payload.errors?.map((e) => e.message).join(', ') || `Cloudflare returned HTTP ${response.status}`;
+      const payload = await response.json().catch(() => null) as { success?: boolean; result?: { image?: string | { data?: string; mimeType?: string } } | string; errors?: Array<{ message?: string }> } | null;
+      const resultImage = typeof payload?.result === 'string' ? payload.result : payload?.result?.image;
+      const imageData = typeof resultImage === 'string' ? resultImage : resultImage?.data;
+      const imageMime = typeof resultImage === 'string' ? 'image/jpeg' : resultImage?.mimeType ?? 'image/jpeg';
+      if (!response.ok || !payload?.success || !imageData) {
+        const errorMsg = payload?.errors?.map((e) => e.message).join(', ') || `Cloudflare returned HTTP ${response.status}${contentType ? ` (${contentType})` : ''}`;
         return { status: 'failed', code: 'CLOUDFLARE_EXECUTION_FAILED', message: errorMsg, retryable: isRetryableStatus(response.status), sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
       }
 
@@ -219,7 +253,7 @@ export function createProviderGateway(environment: Environment) {
         synthetic: false,
         provider: 'cloudflare',
         model,
-        image: { encoding: 'base64', data: payload.result.image, mimeType: 'image/jpeg' },
+        image: { encoding: 'base64', data: imageData, mimeType: imageMime },
         sourceSceneVersionId: request.sceneVersionId,
         operation: request.operation,
         attemptedProviders

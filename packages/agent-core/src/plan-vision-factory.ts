@@ -19,11 +19,7 @@ export function getVisionProvider(env: Env, preferred?: 'openai' | 'gemini' | 'c
   if (env.GEMINI_VISION_API_KEY || env.GEMINI_API_KEY || env.GOOGLE_AI_STUDIO_KEY_1 || env.GOOGLE_AI_STUDIO_KEY_2) {
     providers.push({ key: 'gemini', make: () => new GeminiVisionProvider(env) });
   }
-  if (
-    env.CLOUDFLARE_ACCOUNT_ID &&
-    env.CLOUDFLARE_AI_TOKEN &&
-    (env.CLOUDFLARE_VISION_MODEL || env.CLOUDFLARE_PLAN_MODEL)
-  ) {
+  if (env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN) {
     providers.push({ key: 'cloudflare', make: () => new CloudflareVisionProvider(env) });
   }
 
@@ -34,8 +30,9 @@ export function getVisionProvider(env: Env, preferred?: 'openai' | 'gemini' | 'c
     if (found) return found.make();
   }
 
-  // Cloud providers remain authoritative by default; the research-model adapter is an opt-in fallback.
-  const order: Array<'openai' | 'gemini' | 'cloudflare' | 'structured-floorplan'> = ['openai', 'gemini', 'cloudflare', 'structured-floorplan'];
+  // The shared Cloudflare path is the hosted default. Other providers require
+  // deliberate selection so a missing quota cannot silently alter a job.
+  const order: Array<'openai' | 'gemini' | 'cloudflare' | 'structured-floorplan'> = ['cloudflare', 'gemini', 'openai', 'structured-floorplan'];
   for (const key of order) {
     const match = providers.find((p) => p.key === key);
     if (match) return match.make();

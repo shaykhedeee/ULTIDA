@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import sharp from 'sharp';
 import { executeRenderJob, type RenderJobInput } from '../src/job.js';
 import { renderBaseArtifacts, renderScenePerspectiveArtifacts } from '../src/base-render.js';
 
@@ -133,13 +134,21 @@ test('deterministic base render hash remains stable for identical scene input', 
   assert.ok(second.proof.latencyMs >= 0);
 });
 
-test('perspective scene renderer derives a stable base and masks from wall openings and module geometry', () => {
+test('perspective scene renderer derives decodable stable base and masks from wall openings and module geometry', async () => {
   const first = renderScenePerspectiveArtifacts(PERSPECTIVE_SCENE, { width: 160, height: 120, cameraId: 'camera-1' });
   const second = renderScenePerspectiveArtifacts(PERSPECTIVE_SCENE, { width: 160, height: 120, cameraId: 'camera-1' });
   assert.match(first.baseHash, /^[a-f0-9]{64}$/);
   assert.equal(first.baseHash, second.baseHash);
   assert.equal(first.objectMasks[0]?.id, 'tv-1');
   assert.equal(first.materialRegions[0]?.materialId, 'mat-tv');
+  const artifacts = [first.rgb, first.edgeMap, first.depth, ...first.objectMasks, ...first.materialRegions];
+  for (const artifact of artifacts) {
+    const bytes = Buffer.from(artifact.url.split(',')[1] ?? '', 'base64');
+    const metadata = await sharp(bytes).metadata();
+    assert.equal(metadata.format, 'png');
+    assert.ok((metadata.width ?? 0) > 0);
+    assert.ok((metadata.height ?? 0) > 0);
+  }
 });
 
 test('render jobs choose the perspective scene renderer when an approved scene is supplied', async () => {

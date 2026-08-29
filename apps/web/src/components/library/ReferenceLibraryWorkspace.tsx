@@ -1,5 +1,6 @@
-import { BookOpen, Library as LibraryIcon, Loader2, Palette, Search, Upload } from 'lucide-react';
+import { BookOpen, Library as LibraryIcon, Loader2, Palette, Search, Upload, Sparkles, Plus, Trash2, Layers, Move, Download, Layout, Check, ArrowRight, Home } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 import { ModulePreview } from './ModulePreview';
@@ -43,7 +44,176 @@ type Material = {
   edge_band_thickness_mm?: number | null;
   edge_band_material?: string | null;
   edge_band_status?: string | null;
+  metadata?: {
+    colourHex?: string;
+    colorHex?: string;
+    texture?: string;
+    laminateFace?: string;
+  } | null;
 };
+
+export type MoodboardItem = {
+  id: string;
+  type: 'module' | 'material' | 'swatch';
+  title: string;
+  subtitle?: string;
+  colorHex?: string;
+  module?: CatalogModule;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  zIndex: number;
+};
+
+const MOODBOARD_PRESETS: Record<string, MoodboardItem[]> = {
+  living: [
+    { id: 'mb-tv', type: 'module', title: 'Fluted TV Wall (2400mm)', subtitle: 'Floating console with warm LED', x: 40, y: 40, width: 280, height: 180, zIndex: 2, module: { id: 'tv-fluted-2400', family: 'tv-unit', name: '2400 fluted media wall with floating console', roomTypes: ['living'], widthMm: 2400, depthMm: 400, heightMm: 2400, sku: 'ULT-TV-FLT-2400', tags: ['tv-wall', 'fluted'], production: { cutlistSupported: true } } },
+    { id: 'mb-sofa', type: 'module', title: 'Curved Bouclé Sectional', subtitle: 'Sculptural organic contours in soft sand', x: 360, y: 50, width: 280, height: 170, zIndex: 1, module: { id: 'sofa-curved-boucle-2800', family: 'sofa', name: '2800 curved bouclé sectional sofa', roomTypes: ['living'], widthMm: 2800, depthMm: 1600, heightMm: 800, sku: 'ULT-SF-CRV-2800', tags: ['sofa', 'sectional', 'boucle'], production: { cutlistSupported: false } } },
+    { id: 'mb-mat1', type: 'swatch', title: 'Smoked Oak Veneer', subtitle: 'Feature wall accent', colorHex: '#5A473B', x: 60, y: 250, width: 140, height: 100, zIndex: 3 },
+    { id: 'mb-mat2', type: 'swatch', title: 'Botticino Marble', subtitle: 'Tabletop & floor sheen', colorHex: '#E8DFD0', x: 220, y: 250, width: 140, height: 100, zIndex: 4 },
+    { id: 'mb-mat3', type: 'swatch', title: 'Brushed Brass PVD', subtitle: 'Hardware & trim metal', colorHex: '#C59C2D', x: 380, y: 250, width: 140, height: 100, zIndex: 5 },
+  ],
+  bedroom: [
+    { id: 'mb-bed', type: 'module', title: 'Floating King Storage Bed', subtitle: '1800×2100mm with fluted headboard', x: 50, y: 40, width: 280, height: 180, zIndex: 2, module: { id: 'bed-floating-led-1800', family: 'bed', name: '1800 floating king bed with concealed LED', roomTypes: ['bedroom'], widthMm: 1800, depthMm: 2100, heightMm: 1100, sku: 'ULT-BD-FLT-1800', tags: ['bed', 'floating', 'hydraulic'], production: { cutlistSupported: true } } },
+    { id: 'mb-wd', type: 'module', title: 'Profile-Glass Walk-In Closet', subtitle: 'Tinted fluted glass with sensor lighting', x: 360, y: 40, width: 270, height: 200, zIndex: 1, module: { id: 'wardrobe-walkin-glass-3000', family: 'wardrobe', name: '3000 profile-glass walk-in closet', roomTypes: ['bedroom'], widthMm: 3000, depthMm: 600, heightMm: 2700, sku: 'ULT-WD-WIK-3000', tags: ['wardrobe', 'walk-in', 'glass'], production: { cutlistSupported: true } } },
+    { id: 'mb-mat4', type: 'swatch', title: 'Blush Ivory Linen', subtitle: 'Internal carcass fabric', colorHex: '#E8D9CC', x: 60, y: 250, width: 140, height: 100, zIndex: 3 },
+    { id: 'mb-mat5', type: 'swatch', title: 'Natural Oak Grain', subtitle: 'External shutter laminate', colorHex: '#A77B5B', x: 220, y: 250, width: 140, height: 100, zIndex: 4 },
+  ],
+  dining: [
+    { id: 'mb-dn', type: 'module', title: 'Calacatta Gold Dining Table', subtitle: '2100mm marble slab on fluted pedestals', x: 50, y: 40, width: 280, height: 180, zIndex: 2, module: { id: 'dining-calacatta-gold-2100', family: 'dining', name: '2100 Calacatta gold marble dining table', roomTypes: ['dining'], widthMm: 2100, depthMm: 1000, heightMm: 750, sku: 'ULT-DN-CAL-2100', tags: ['dining', 'marble'], production: { cutlistSupported: false } } },
+    { id: 'mb-cr', type: 'module', title: 'Crockery & Bar Unit', subtitle: '1800mm display with fluted glass & bar niche', x: 360, y: 40, width: 260, height: 200, zIndex: 1, module: { id: 'crockery-1800', family: 'crockery', name: '1800 full-wall crockery and bar', roomTypes: ['dining'], widthMm: 1800, depthMm: 450, heightMm: 2400, sku: 'ULT-CR-1800', tags: ['crockery', 'bar'], production: { cutlistSupported: true } } },
+    { id: 'mb-mat6', type: 'swatch', title: 'Calacatta Vein Marble', subtitle: 'Table surface', colorHex: '#F0EFE9', x: 60, y: 250, width: 140, height: 100, zIndex: 3 },
+    { id: 'mb-mat7', type: 'swatch', title: 'Smoked Walnut Finish', subtitle: 'Pedestal base & cabinetry', colorHex: '#453326', x: 220, y: 250, width: 140, height: 100, zIndex: 4 },
+  ],
+};
+
+const MODULE_REFERENCE_IMAGES: Record<string, string[]> = {
+  kitchen: ['/reference-vault/003-1f61a8aabde4.png', '/reference-vault/006-e36e2c7c9b1a.png', '/reference-vault/039-1786da704c5a.png', '/reference-vault/042-7eaf3dbfd306.png', '/reference-vault/048-ac94a44309b6.png', '/reference-vault/050-a2b533693ac2.png', '/reference-vault/052-1d6904ef55a3.png', '/reference-vault/053-edfb0eca9b46.png', '/reference-vault/055-e94b19f0e93f.png', '/reference-vault/056-3bb2275767d2.png', '/reference-vault/057-da6cb4575090.png', '/reference-vault/059-28205fff47ae.png'],
+  'kitchen-base': ['/reference-vault/006-e36e2c7c9b1a.png', '/reference-vault/039-1786da704c5a.png', '/reference-vault/042-7eaf3dbfd306.png', '/reference-vault/050-a2b533693ac2.png', '/reference-vault/053-edfb0eca9b46.png', '/reference-vault/055-e94b19f0e93f.png', '/reference-vault/057-da6cb4575090.png'],
+  'kitchen-wall': ['/reference-vault/006-e36e2c7c9b1a.png', '/reference-vault/039-1786da704c5a.png', '/reference-vault/050-a2b533693ac2.png', '/reference-vault/053-edfb0eca9b46.png'],
+  'kitchen-tall': ['/reference-vault/003-1f61a8aabde4.png', '/reference-vault/048-ac94a44309b6.png', '/reference-vault/052-1d6904ef55a3.png', '/reference-vault/056-3bb2275767d2.png', '/reference-vault/059-28205fff47ae.png'],
+  'kitchen-corner': ['/reference-vault/042-7eaf3dbfd306.png', '/reference-vault/055-e94b19f0e93f.png', '/reference-vault/057-da6cb4575090.png'],
+  'tv-unit': ['/reference-vault/013-52a29a1053dc.png', '/reference-vault/014-685f67e3ff6f.png', '/reference-vault/015-5705e2ee9cb1.png', '/reference-vault/016-f106846da92c.png', '/reference-vault/017-cd2b9919c856.png', '/reference-vault/026-ebca5fba9a3f.png', '/reference-vault/051-999d353af1d8.png', '/reference-vault/058-b3d36c0c874b.png'],
+  wardrobe: ['/reference-vault/007-2b9d568ff444.png', '/reference-vault/008-5fd497f005d8.png', '/reference-vault/009-f68e47674ead.png', '/reference-vault/010-a0dbdf361a50.png', '/reference-vault/012-5c60a01e5b86.png', '/reference-vault/023-ae1e9b70744f.png', '/reference-vault/025-adb09122c8d1.png', '/reference-vault/035-78733d79d595.png', '/reference-vault/038-73c6d08adf93.png', '/reference-vault/040-a7dcd66e4242.png', '/reference-vault/041-6770bf54ce43.png', '/reference-vault/043-71833d244d0d.png', '/reference-vault/044-577ed741688e.png', '/reference-vault/045-7ec65f321496.png', '/reference-vault/054-c8fa00bd2c4b.png'],
+  crockery: ['/reference-vault/002-cab37cfa0bb2.png', '/reference-vault/004-ee04b56efde7.png', '/reference-vault/018-b7dd5f1492fe.png'],
+  sofa: ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/034-355f624f691c.png'],
+  bed: ['/reference-vault/047-c1ce4511e83d.png', '/reference-vault/049-d1a18590223e.png', '/reference-vault/060-70075531f7e7.png'],
+  dining: ['/reference-vault/002-cab37cfa0bb2.png', '/reference-vault/004-ee04b56efde7.png', '/reference-vault/018-b7dd5f1492fe.png'],
+  pooja: ['/reference-vault/019-a06a89855436.png', '/reference-vault/020-ea872c640df6.png', '/reference-vault/021-5a47b71bad49.png'],
+  study: ['/reference-vault/011-6c55d3439149.png', '/reference-vault/022-d6f4e9ee57d1.png', '/reference-vault/024-5976bb27ca03.png', '/reference-vault/033-9d09b620a75e.png', '/reference-vault/044-577ed741688e.png', '/reference-vault/054-c8fa00bd2c4b.png'],
+  utility: ['/reference-vault/005-7919b88e0dc1.png', '/reference-vault/036-de959cf3df44.png'],
+  bathroom: ['/reference-vault/027-3ee9dcdaca5c.png', '/reference-vault/028-a8f62ab3d392.png', '/reference-vault/029-640527178f8d.png'],
+  vanity: ['/reference-vault/027-3ee9dcdaca5c.png', '/reference-vault/028-a8f62ab3d392.png', '/reference-vault/029-640527178f8d.png', '/reference-vault/030-7bd7e8a977bf.png', '/reference-vault/031-6f3948f48928.png', '/reference-vault/032-ae224c73b5dc.png'],
+  'feature-wall': ['/reference-vault/034-355f624f691c.png', '/reference-vault/037-4dd8b6a25dc7.png', '/reference-vault/046-fe27dfd45c96.png'],
+  storage: ['/reference-vault/008-5fd497f005d8.png', '/reference-vault/040-a7dcd66e4242.png', '/reference-vault/041-6770bf54ce43.png'],
+};
+
+const CURATED_VAULT_REFERENCES = [
+  { id: 'ref-001', img: '/reference-vault/001-ddc1891636f7.png', room: 'living', family: 'sofa', title: '2800mm Sectional Sofa & Dark Oak Coffee Table', tags: ['living', 'sofa', 'sectional', 'l-shaped'] },
+  { id: 'ref-002', img: '/reference-vault/002-cab37cfa0bb2.png', room: 'dining', family: 'crockery', title: '1800mm Fluted Crockery Console & Glass Overhead Bar', tags: ['dining', 'crockery', 'fluted', 'bar'] },
+  { id: 'ref-003', img: '/reference-vault/003-1f61a8aabde4.png', room: 'kitchen', family: 'kitchen-tall', title: 'Modular Kitchen with Dual Microwave/Oven Tall Tower', tags: ['kitchen', 'tall-unit', 'appliance', 'microwave'] },
+  { id: 'ref-004', img: '/reference-vault/004-ee04b56efde7.png', room: 'dining', family: 'crockery', title: 'Dining Bar & Display Console with Fluted Louvers', tags: ['dining', 'bar', 'crockery', 'display'] },
+  { id: 'ref-005', img: '/reference-vault/005-7919b88e0dc1.png', room: 'utility', family: 'utility', title: 'Technical CAD Elevation: 1596mm Utility Wall Unit', tags: ['utility', 'cad-elevation', 'sink', 'washing-machine'] },
+  { id: 'ref-006', img: '/reference-vault/006-e36e2c7c9b1a.png', room: 'kitchen', family: 'kitchen-base', title: 'Modular Kitchen Counter with Tandem Pot Drawers', tags: ['kitchen', 'base-unit', 'drawers', 'fluted-glass'] },
+  { id: 'ref-007', img: '/reference-vault/007-2b9d568ff444.png', room: 'bedroom', family: 'wardrobe', title: '2-Door Sliding Wardrobe with Fluted Glass & Study Desk', tags: ['bedroom', 'wardrobe', 'sliding', 'study'] },
+  { id: 'ref-008', img: '/reference-vault/008-5fd497f005d8.png', room: 'bedroom', family: 'wardrobe', title: '2000mm 4-Door Natural Oak Wardrobe with Lofts', tags: ['bedroom', 'wardrobe', 'oak', 'swing-door'] },
+  { id: 'ref-009', img: '/reference-vault/009-f68e47674ead.png', room: 'bedroom', family: 'wardrobe', title: 'Suede Ivory 4-Door Wardrobe with Pinboard Study Desk', tags: ['bedroom', 'wardrobe', 'study', 'pinboard'] },
+  { id: 'ref-010', img: '/reference-vault/010-a0dbdf361a50.png', room: 'bedroom', family: 'wardrobe', title: 'Blush Pink & White Arched 4-Door Kids Wardrobe & Desk', tags: ['bedroom', 'wardrobe', 'kids', 'arched', 'pink'] },
+  { id: 'ref-011', img: '/reference-vault/011-6c55d3439149.png', room: 'study', family: 'study', title: '1500mm Floating Study Desk with Fluted Wall Cabinet', tags: ['study', 'desk', 'floating', 'fluted'] },
+  { id: 'ref-012', img: '/reference-vault/012-5c60a01e5b86.png', room: 'bedroom', family: 'wardrobe', title: '2400mm Minimalist Gola Handleless Profile Wardrobe', tags: ['bedroom', 'wardrobe', 'gola', 'handleless'] },
+  { id: 'ref-013', img: '/reference-vault/013-52a29a1053dc.png', room: 'living', family: 'tv-unit', title: '2400mm Fluted TV Console Wall with Backlit Louvers', tags: ['living', 'tv-unit', 'fluted', 'backlit'] },
+  { id: 'ref-014', img: '/reference-vault/014-685f67e3ff6f.png', room: 'living', family: 'tv-unit', title: 'Minimalist Floating Backlit Media Wall', tags: ['living', 'tv-unit', 'floating'] },
+  { id: 'ref-015', img: '/reference-vault/015-5705e2ee9cb1.png', room: 'living', family: 'tv-unit', title: 'TV Wall with Open Display Bookshelf & Acoustic Slats', tags: ['living', 'tv-unit', 'bookshelf'] },
+  { id: 'ref-016', img: '/reference-vault/016-f106846da92c.png', room: 'living', family: 'tv-unit', title: 'Acoustic Slat Partition TV Media Wall', tags: ['living', 'tv-unit', 'partition'] },
+  { id: 'ref-017', img: '/reference-vault/017-cd2b9919c856.png', room: 'living', family: 'tv-unit', title: 'Curved Asymmetric Plaster & Wood TV Unit', tags: ['living', 'tv-unit', 'curved'] },
+  { id: 'ref-018', img: '/reference-vault/018-b7dd5f1492fe.png', room: 'dining', family: 'crockery', title: '1800mm Full Height Bar & Wine Cabinet with Fluted Backing', tags: ['dining', 'bar', 'crockery', 'fluted'] },
+  { id: 'ref-019', img: '/reference-vault/019-a06a89855436.png', room: 'pooja', family: 'pooja', title: 'Modular Pooja Mandir Unit (Open & Shutter Variations)', tags: ['pooja', 'mandir', 'jaali', 'shutter'] },
+  { id: 'ref-020', img: '/reference-vault/020-ea872c640df6.png', room: 'pooja', family: 'pooja', title: 'Traditional Backlit Pooja Mandir with CNC Jaali Archway', tags: ['pooja', 'mandir', 'cnc-jaali', 'backlit'] },
+  { id: 'ref-021', img: '/reference-vault/021-5a47b71bad49.png', room: 'pooja', family: 'pooja', title: 'Isolated Product: 1000mm Mandir with Gold OM Mandala', tags: ['pooja', 'mandir', 'gold-om', 'isolated'] },
+  { id: 'ref-022', img: '/reference-vault/022-d6f4e9ee57d1.png', room: 'study', family: 'study', title: 'Floating Study Desk with Fluted Dark Oak Shutter & Bookshelf', tags: ['study', 'desk', 'fluted', 'bookshelf'] },
+  { id: 'ref-023', img: '/reference-vault/023-ae1e9b70744f.png', room: 'bedroom', family: 'wardrobe', title: '3200mm Beige Arched 4-Door Wardrobe & Floating Desk', tags: ['bedroom', 'wardrobe', 'arched', 'study'] },
+  { id: 'ref-024', img: '/reference-vault/024-5976bb27ca03.png', room: 'study', family: 'study', title: 'Study Workstation with Linear Ceiling Profile Lighting', tags: ['study', 'desk', 'workstation', 'lighting'] },
+  { id: 'ref-025', img: '/reference-vault/025-adb09122c8d1.png', room: 'bedroom', family: 'wardrobe', title: 'Sage Green Arched 4-Door Wardrobe with Glass LED Shelf', tags: ['bedroom', 'wardrobe', 'sage-green', 'glass-led'] },
+  { id: 'ref-026', img: '/reference-vault/026-ebca5fba9a3f.png', room: 'living', family: 'tv-unit', title: 'Living Hallway TV Wall with Marble & Emerald Flank Trims', tags: ['living', 'tv-unit', 'wainscoting', 'marble'] },
+  { id: 'ref-027', img: '/reference-vault/027-3ee9dcdaca5c.png', room: 'bathroom', family: 'vanity', title: '900mm Bathroom Vanity Ledge & Overhead Double-Shutter', tags: ['bathroom', 'vanity', 'cistern', 'overhead'] },
+  { id: 'ref-028', img: '/reference-vault/028-a8f62ab3d392.png', room: 'bathroom', family: 'vanity', title: '1200mm Concealed Cistern Vanity & Wall-Hung Basin', tags: ['bathroom', 'toilet', 'vanity', 'wall-hung'] },
+  { id: 'ref-029', img: '/reference-vault/029-640527178f8d.png', room: 'bathroom', family: 'vanity', title: '1500mm Bathroom Suite with Oval Backlit Mirror & Shutter', tags: ['bathroom', 'vanity', 'mirror', 'storage'] },
+  { id: 'ref-030', img: '/reference-vault/030-7bd7e8a977bf.png', room: 'bathroom', family: 'vanity', title: '1200mm Bathroom Concealed Cistern Wall & Cabinet', tags: ['bathroom', 'vanity', 'cistern', 'cabinet'] },
+  { id: 'ref-031', img: '/reference-vault/031-6f3948f48928.png', room: 'bathroom', family: 'vanity', title: '900mm Toilet Cistern Wall with Overhead Storage Cabinet', tags: ['bathroom', 'toilet', 'overhead-cabinet'] },
+  { id: 'ref-032', img: '/reference-vault/032-ae224c73b5dc.png', room: 'bathroom', family: 'vanity', title: '900mm Cistern Vanity Unit with Dual Shutter Loft', tags: ['bathroom', 'toilet', 'loft-storage'] },
+  { id: 'ref-033', img: '/reference-vault/033-9d09b620a75e.png', room: 'study', family: 'study', title: 'Architectural CAD Elevation: Study & Wardrobe Release', tags: ['study', 'cad-elevation', 'dimensions'] },
+  { id: 'ref-034', img: '/reference-vault/034-355f624f691c.png', room: 'living', family: 'feature-wall', title: 'Living Room Acoustic Slat Divider with Backlit Niches', tags: ['living', 'partition', 'slat-wall', 'backlit'] },
+  { id: 'ref-035', img: '/reference-vault/035-78733d79d595.png', room: 'bedroom', family: 'wardrobe', title: 'Sage Green Arched Wardrobe with Integrated Desk & LED Shelf', tags: ['bedroom', 'wardrobe', 'arched', 'desk'] },
+  { id: 'ref-036', img: '/reference-vault/036-de959cf3df44.png', room: 'utility', family: 'utility', title: '1800mm Laundry Counter with Washing Machine & Lofts', tags: ['utility', 'laundry', 'washing-machine', 'dishwasher'] },
+  { id: 'ref-037', img: '/reference-vault/037-4dd8b6a25dc7.png', room: 'bedroom', family: 'feature-wall', title: 'Bedroom Feature Wall with Recessed LED Cove Lighting', tags: ['bedroom', 'feature-wall', 'cove-lighting', 'lofts'] },
+  { id: 'ref-038', img: '/reference-vault/038-73c6d08adf93.png', room: 'bedroom', family: 'wardrobe', title: 'Arched Shutter Kids Wardrobe with Built-In Study & Shelf', tags: ['bedroom', 'wardrobe', 'kids', 'study'] },
+  { id: 'ref-039', img: '/reference-vault/039-1786da704c5a.png', room: 'kitchen', family: 'kitchen-base', title: '2400mm Kitchen Base & Fluted Glass Overhead Cabinets', tags: ['kitchen', 'base', 'overhead', 'terrazzo'] },
+  { id: 'ref-040', img: '/reference-vault/040-a7dcd66e4242.png', room: 'bedroom', family: 'wardrobe', title: '2000mm 4-Door Suede & Dark Oak Corridor Wardrobe', tags: ['bedroom', 'wardrobe', 'corridor', 'suede'] },
+  { id: 'ref-041', img: '/reference-vault/041-6770bf54ce43.png', room: 'bedroom', family: 'wardrobe', title: '2000mm 4-Door Stepped Two-Tone Passage Wardrobe', tags: ['bedroom', 'wardrobe', 'two-tone', 'lofts'] },
+  { id: 'ref-042', img: '/reference-vault/042-7eaf3dbfd306.png', room: 'kitchen', family: 'kitchen-base', title: 'L-Shaped Kitchen with White Base, Oak Overheads & Lofts', tags: ['kitchen', 'l-shaped', 'acrylic', 'oak'] },
+  { id: 'ref-043', img: '/reference-vault/043-71833d244d0d.png', room: 'bedroom', family: 'wardrobe', title: '2900mm Wardrobe with Integrated Desk & Backlit Niche', tags: ['bedroom', 'wardrobe', 'study', 'lofts'] },
+  { id: 'ref-044', img: '/reference-vault/044-577ed741688e.png', room: 'bedroom', family: 'wardrobe', title: 'CAD Release: 2900W × 2790H Wardrobe & Study Elevation', tags: ['bedroom', 'wardrobe', 'cad-elevation', 'dimensions'] },
+  { id: 'ref-045', img: '/reference-vault/045-7ec65f321496.png', room: 'bedroom', family: 'wardrobe', title: 'Sage Green Wardrobe Suite with Glass LED Display Tower', tags: ['bedroom', 'wardrobe', 'sage-green', 'display-tower'] },
+  { id: 'ref-046', img: '/reference-vault/046-fe27dfd45c96.png', room: 'bedroom', family: 'feature-wall', title: 'Master Bed Feature Wall with Vertical LED Lighting Strip', tags: ['bedroom', 'feature-wall', 'led-strip', 'lofts'] },
+  { id: 'ref-047', img: '/reference-vault/047-c1ce4511e83d.png', room: 'bedroom', family: 'bed', title: 'Master Bedroom Suite: King Bed, Fluted 4-Door Wardrobe & Vanity', tags: ['bedroom', 'bed', 'wardrobe', 'vanity'] },
+  { id: 'ref-048', img: '/reference-vault/048-ac94a44309b6.png', room: 'kitchen', family: 'kitchen-tall', title: 'Kitchen Counter with Fluted Glass & Rolling Shutter Garage', tags: ['kitchen', 'rolling-shutter', 'appliance-garage', 'drawers'] },
+  { id: 'ref-049', img: '/reference-vault/049-d1a18590223e.png', room: 'bedroom', family: 'bed', title: 'Master Bedroom Dossier: Floor Plan, 3D Elevation & Swatches', tags: ['bedroom', 'floor-plan', 'dossier', 'material-swatch'] },
+  { id: 'ref-050', img: '/reference-vault/050-a2b533693ac2.png', room: 'kitchen', family: 'kitchen-base', title: 'Kitchen Base & Glass Overheads with Wood Slats Feature', tags: ['kitchen', 'fluted-glass', 'wood-slats', 'terrazzo'] },
+  { id: 'ref-051', img: '/reference-vault/051-999d353af1d8.png', room: 'living', family: 'tv-unit', title: '2700mm TV Media Wall with Travertine, Louvers & Glass Cabinet', tags: ['living', 'tv-unit', 'travertine', 'louvers', 'glass-cabinet'] },
+  { id: 'ref-052', img: '/reference-vault/052-1d6904ef55a3.png', room: 'kitchen', family: 'kitchen-tall', title: 'Minimalist Kitchen with Built-In Dual Oven Tower & Plinth LED', tags: ['kitchen', 'tall-tower', 'built-in-oven', 'plinth-led'] },
+  { id: 'ref-053', img: '/reference-vault/053-edfb0eca9b46.png', room: 'kitchen', family: 'kitchen-base', title: 'Kitchen Sink Counter with Fluted Glass Overheads & Wood Niche', tags: ['kitchen', 'sink-unit', 'fluted-glass', 'open-shelf'] },
+  { id: 'ref-054', img: '/reference-vault/054-c8fa00bd2c4b.png', room: 'bedroom', family: 'wardrobe', title: '2500mm 3-Door Wardrobe with Integrated Study & Pinboard', tags: ['bedroom', 'wardrobe', 'study', 'pedestal-drawers'] },
+  { id: 'ref-055', img: '/reference-vault/055-e94b19f0e93f.png', room: 'kitchen', family: 'kitchen-base', title: 'L-Shaped Kitchen with White Base, Teak Overheads & Fridge Bay', tags: ['kitchen', 'l-shaped', 'refrigerator-bay', 'teak'] },
+  { id: 'ref-056', img: '/reference-vault/056-3bb2275767d2.png', room: 'kitchen', family: 'kitchen-tall', title: 'Straight Kitchen with Microwave Tall Unit & Fluted Glass Display', tags: ['kitchen', 'microwave-unit', 'fluted-glass', 'straight-line'] },
+  { id: 'ref-057', img: '/reference-vault/057-da6cb4575090.png', room: 'kitchen', family: 'kitchen-base', title: 'L-Shaped Kitchen with Marble Top, Bronze Tap & Teak Overheads', tags: ['kitchen', 'marble', 'bronze-faucet', 'l-shaped'] },
+  { id: 'ref-058', img: '/reference-vault/058-b3d36c0c874b.png', room: 'living', family: 'tv-unit', title: '2600mm TV Panel with White Fluted Surround & Halo LED Light', tags: ['living', 'tv-unit', 'halo-light', 'floating-console'] },
+  { id: 'ref-059', img: '/reference-vault/059-28205fff47ae.png', room: 'kitchen', family: 'kitchen-tall', title: 'Minimalist Kitchen with Dual Oven Tower & Gas Cooktop', tags: ['kitchen', 'tall-tower', 'cooktop', 'microwave'] },
+  { id: 'ref-060', img: '/reference-vault/060-70075531f7e7.png', room: 'bedroom', family: 'bed', title: 'Master Bedroom Suite: King Bed, 6-Door Wardrobe & Study Desk', tags: ['bedroom', 'suite', 'king-bed', '6-door-wardrobe'] },
+];
+
+const DEFAULT_PROJECT_MATERIALS: Material[] = [
+  // ─── HIGH-GLOSS & ACRYLIC ───
+  { id: 'mat-gloss-1', name: 'Mirror High-Gloss Pure White Acrylic', code: 'ROY-HG-WHT', category: 'laminate', finish: 'High-Gloss Acrylic Sheen (1.2mm)', thickness_mm: 1.2, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#FFFFFF' } },
+  { id: 'mat-gloss-2', name: 'Ultra High-Gloss Cashmere Acrylic', code: 'ROY-HG-CSH', category: 'laminate', finish: 'Ultra-Gloss Acrylic (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#E3DAC9' } },
+  { id: 'mat-gloss-3', name: 'Ultra High-Gloss Anthracite Acrylic', code: 'ROY-HG-ANT', category: 'laminate', finish: 'Mirror Gloss Acrylic (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#2C3038' } },
+
+  // ─── SUPER-MATTE ───
+  { id: 'mat-matte-1', name: 'Zero-G Anti-Fingerprint Sandstone Matte', code: 'MER-ZG-SND', category: 'laminate', finish: 'Soft-Touch Zero-G Matte (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Merino', availability: 'in_stock', metadata: { colorHex: '#C9B59B' } },
+  { id: 'mat-matte-2', name: 'Deep Nero Ingo Super-Matte', code: 'FNX-SM-NERO', category: 'laminate', finish: 'Thermal Healing Super-Matte (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Fenix NTM', availability: 'in_stock', metadata: { colorHex: '#18181B' } },
+  { id: 'mat-matte-3', name: 'Silk Touch Velvet Sage Matte', code: 'ROY-ST-SGE', category: 'laminate', finish: 'Silk Touch Soft Matte (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#8A9A86' } },
+
+  // ─── WOODGRAIN & FLUTED ───
+  { id: 'mat-wood-1', name: 'Smoked Crown Walnut Veneer', code: 'CBX-WG-WLN', category: 'laminate', finish: 'Synchronized Natural Grain (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Cubex', availability: 'in_stock', metadata: { colorHex: '#654230' } },
+  { id: 'mat-wood-2', name: 'Natural Dune Oak Textured', code: 'VRG-WG-OAK', category: 'laminate', finish: 'Natural Dune Woodgrain (0.8mm)', thickness_mm: 0.8, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Virgo', availability: 'in_stock', metadata: { colorHex: '#A77B5B' } },
+  { id: 'mat-flute-1', name: 'Fluted Charcoal Matte PU Panel', code: 'ROY-FLUTE-PU', category: 'laminate', finish: 'Fluted Suede PU Touch (18mm)', thickness_mm: 18, edge_band_status: 'not_required', supplier: 'Royal Crown', availability: 'in_stock', metadata: { colorHex: '#332F2C' } },
+
+  // ─── STONE, GLASS & HARDWARE ───
+  { id: 'mat-slab-1', name: 'Calacatta Gold Sintered Porcelain Slab', code: 'SLAB-CAL-GOLD', category: 'countertop', finish: 'Bookmatched Polished (12mm)', thickness_mm: 12, edge_band_status: 'not_required', supplier: 'Laminam', availability: 'in_stock', metadata: { colorHex: '#F4F1EA' } },
+  { id: 'mat-slab-2', name: 'Roman Travertine Honed Stone Slab', code: 'SLAB-TRAV-ROMAN', category: 'countertop', finish: 'Honed Matte Unfilled (20mm)', thickness_mm: 20, edge_band_status: 'not_required', supplier: 'Artisan Stone Works', availability: 'in_stock', metadata: { colorHex: '#CFBC9F' } },
+  { id: 'mat-glas-1', name: 'Tinted Fluted Aluminium Profile Glass', code: 'GLAS-FLUTED-TINT', category: 'profile_glass', finish: 'Graphite Anodized Profile (8mm)', thickness_mm: 8, edge_band_status: 'not_required', supplier: 'Hafele Glass', availability: 'in_stock', metadata: { colorHex: '#4D5557' } },
+  { id: 'mat-hard-4', name: 'Hettich Sensys Obsidian Soft-Close Hinges', code: 'HARD-HET-SENSYS', category: 'hardware', finish: 'Concealed Obsidian Black Hinge', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Hettich Germany', availability: 'in_stock', metadata: { colorHex: '#94A3B8' } },
+
+  // ─── BASE PLY & SUBSTRATES ───
+  { id: 'mat-core-1', name: 'Action TESA 18mm HDHMR Green Core Board', code: 'CORE-HDHMR-18', category: 'core_panel', finish: 'High Density Moisture Resistant (850 kg/m³)', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Action TESA', availability: 'in_stock', metadata: { colorHex: '#6E8B76' } },
+  { id: 'mat-core-3', name: 'CenturyPly 19mm Club Prime 710 BWP Marine Ply', code: 'CORE-BWP-19', category: 'core_panel', finish: 'Boiling Water Proof Calibrated Hardwood', thickness_mm: 19, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'CenturyPly', availability: 'in_stock', metadata: { colorHex: '#9B744A' } },
+];
+
+function stableImageForModule(module: CatalogModule) {
+  const isVanity = /vanity|washroom|cistern|toilet/i.test(`${module.id} ${module.name} ${module.tags.join(' ')}`);
+  const images = (isVanity ? MODULE_REFERENCE_IMAGES.vanity : undefined)
+    ?? MODULE_REFERENCE_IMAGES[module.family]
+    ?? MODULE_REFERENCE_IMAGES[module.family.split('-')[0]];
+  if (!images?.length) return null;
+  const seed = [...module.id].reduce((total, character) => total + character.charCodeAt(0), 0);
+  return images[seed % images.length];
+}
+
+function moduleSupportsRoom(module: CatalogModule, room: string) {
+  if (module.roomTypes.includes(room)) return true;
+  if (room === 'master_bedroom' || room === 'kids_bedroom') return module.roomTypes.includes('bedroom');
+  return false;
+}
 
 function apiBase() {
   const configured = String(import.meta.env.VITE_API_BASE ?? '').trim();
@@ -53,31 +223,114 @@ function apiBase() {
 }
 
 function materialSubtitle(material: Material) {
-  const thickness = material.thickness_mm ? `${material.thickness_mm}mm sheet` : '';
-  const edge = material.edge_band_status === 'not_required' ? 'edge band integrated' : material.edge_band_thickness_mm ? `${material.edge_band_thickness_mm}mm edge` : '';
-  return [material.category, material.finish, thickness, edge, material.supplier, material.availability]
+  const thickness = material.thickness_mm ? `${material.thickness_mm}mm` : '';
+  const edge = material.edge_band_status === 'not_required' ? 'Seamless' : material.edge_band_thickness_mm ? `${material.edge_band_thickness_mm}mm edge` : '';
+  return [material.supplier, material.finish, thickness, edge]
     .filter(Boolean)
     .join(' · ');
 }
 
+function materialColour(material: Material) {
+  const candidate = material.metadata?.colourHex ?? material.metadata?.colorHex;
+  return /^#[0-9a-f]{6}$/i.test(candidate ?? '') ? candidate! : '#d6c1a7';
+}
+
+const DEFAULT_MODULAR_CATALOG: CatalogModule[] = [
+  // KITCHEN
+  { id: 'kit-base-600', family: 'kitchen-base', name: '600 Base Single-Door Cabinet', roomTypes: ['kitchen'], widthMm: 600, depthMm: 600, heightMm: 750, sku: 'ULT-KB-600', tags: ['kitchen', 'base'], description: 'Standard 600mm base unit with single soft-close shutter and one adjustable shelf.', production: { cutlistSupported: true } },
+  { id: 'kit-base-cutlery-600', family: 'kitchen-base', name: '600 3-Drawer Cutlery & Tandem Base', roomTypes: ['kitchen'], widthMm: 600, depthMm: 600, heightMm: 750, sku: 'ULT-KB-DR3-600', tags: ['kitchen', 'base', 'cutlery', 'tandem'], description: 'Triple drawer stack with top cutlery tray, middle utensil drawer, and deep lower pot drawer.', production: { cutlistSupported: true } },
+  { id: 'kit-base-tandem-2pot-600', family: 'kitchen-base', name: '600 2-Pot Deep Tandem Base', roomTypes: ['kitchen'], widthMm: 600, depthMm: 600, heightMm: 750, sku: 'ULT-KB-TDM2-600', tags: ['kitchen', 'base', 'pots'], description: 'Dual heavy-duty soft-close tandem drawers (65kg rating) for heavy pots.', production: { cutlistSupported: true } },
+  { id: 'kit-base-sink-900', family: 'kitchen-base', name: '900 Waterproof Sink Base with Drip Tray', roomTypes: ['kitchen', 'utility'], widthMm: 900, depthMm: 600, heightMm: 750, sku: 'ULT-KS-900', tags: ['kitchen', 'sink'], description: 'Sink unit with marine-grade core and waterproof bottom tray.', production: { cutlistSupported: true } },
+  { id: 'kit-corner-lemans-1050', family: 'kitchen-corner', name: '1050 LeMans II Blind Corner Carousel', roomTypes: ['kitchen'], widthMm: 1050, depthMm: 600, heightMm: 750, sku: 'ULT-KC-LEM-1050', tags: ['kitchen', 'corner', 'lemans'], description: 'Blind corner unit equipped with smooth double LeMans articulating trays.', production: { cutlistSupported: true } },
+  { id: 'kit-wall-600', family: 'kitchen-wall', name: '600 Single Overhead Shutter Unit', roomTypes: ['kitchen'], widthMm: 600, depthMm: 350, heightMm: 720, sku: 'ULT-KW-600', tags: ['kitchen', 'wall', 'overhead'], description: 'Wall-mounted 600mm overhead cabinet with two adjustable shelves.', production: { cutlistSupported: true } },
+  { id: 'kit-wall-liftup-900', family: 'kitchen-wall', name: '900 Bi-Fold Lift-Up Glass Unit', roomTypes: ['kitchen'], widthMm: 900, depthMm: 350, heightMm: 720, sku: 'ULT-KW-LFT-900', tags: ['kitchen', 'wall', 'lift-up', 'glass'], description: 'Modern bi-fold lift-up overhead unit with tinted glass shutter.', production: { cutlistSupported: true } },
+  { id: 'kit-tall-pantry-600', family: 'kitchen-tall', name: '600 Full-Height Pull-Out Pantry Tower', roomTypes: ['kitchen'], widthMm: 600, depthMm: 600, heightMm: 2100, sku: 'ULT-KT-PNT-600', tags: ['kitchen', 'tall', 'pantry'], description: '6-tier internal pull-out chrome basket pantry tower.', production: { cutlistSupported: true } },
+  { id: 'kit-tall-appliance-600', family: 'kitchen-tall', name: '600 Built-In Oven & Microwave Tall Unit', roomTypes: ['kitchen'], widthMm: 600, depthMm: 600, heightMm: 2100, sku: 'ULT-KT-APP-600', tags: ['kitchen', 'tall', 'oven'], description: 'Dedicated appliance tower with built-in oven and microwave cavities.', production: { cutlistSupported: true } },
+
+  // LIVING & TV UNITS
+  { id: 'tv-profile-2400', family: 'tv-unit', name: '2400 Floating TV Wall with Profile Glass & Warm LED', roomTypes: ['living'], widthMm: 2400, depthMm: 400, heightMm: 2400, sku: 'ULT-TV-PRF-2400', tags: ['tv-wall', 'floating', 'led', 'profile-glass'], description: 'Feature TV media wall with floating console, profile-glass display, and fluted paneling.', production: { cutlistSupported: true } },
+  { id: 'tv-fluted-2100', family: 'tv-unit', name: '2100 Fluted-Panel Floating TV Console', roomTypes: ['living'], widthMm: 2100, depthMm: 400, heightMm: 2300, sku: 'ULT-TV-FLUTE-2100', tags: ['tv-wall', 'fluted'], description: 'Contemporary TV wall with vertical fluted texture and dual push-to-open drawers.', production: { cutlistSupported: true } },
+  { id: 'sofa-curved-boucle-2800', family: 'sofa', name: '2800 Curved Bouclé Sectional Sofa', roomTypes: ['living'], widthMm: 2800, depthMm: 1600, heightMm: 800, sku: 'ULT-SF-CRV-2800', tags: ['sofa', 'sectional', 'boucle'], description: 'Sculptural organic contours in soft cream bouclé fabric with high-density core.', production: { cutlistSupported: false } },
+  { id: 'sofa-l-2800', family: 'sofa', name: '2800 L-Shaped Sectional Cloud Couch', roomTypes: ['living'], widthMm: 2800, depthMm: 1700, heightMm: 850, sku: 'ULT-SF-L2800', tags: ['sofa', 'sectional'], description: 'Deep conversational sectional with feather-blend cushions and hardwood frame.', production: { cutlistSupported: false } },
+
+  // BEDROOM & WARDROBES
+  { id: 'wardrobe-2100-four-shutter', family: 'wardrobe', name: '2100 Four-Shutter Wardrobe with Overhead Loft', roomTypes: ['bedroom', 'master_bedroom'], widthMm: 2100, depthMm: 600, heightMm: 2700, sku: 'ULT-WD-4S-2100', tags: ['wardrobe', 'swing', 'loft'], description: 'Floor-to-ceiling 4-shutter wardrobe with 600mm overhead loft and internal drawers.', production: { cutlistSupported: true } },
+  { id: 'wardrobe-sliding-2400', family: 'wardrobe', name: '2400 2-Door Soft-Close Sliding Wardrobe', roomTypes: ['bedroom', 'master_bedroom'], widthMm: 2400, depthMm: 650, heightMm: 2400, sku: 'ULT-WD-SLD-2400', tags: ['wardrobe', 'sliding'], description: 'Smooth bottom-running sliding wardrobe with anti-jump rollers and full-length mirror.', production: { cutlistSupported: true } },
+  { id: 'wardrobe-walkin-glass-3000', family: 'wardrobe', name: '3000 Luxury Profile-Glass Walk-In Closet', roomTypes: ['bedroom', 'master_bedroom'], widthMm: 3000, depthMm: 600, heightMm: 2700, sku: 'ULT-WD-WIK-3000', tags: ['wardrobe', 'walk-in', 'glass'], description: 'Tinted glass shutters with integrated vertical LED profiles and leatherette shelving.', production: { cutlistSupported: true } },
+  { id: 'bed-floating-led-1800', family: 'bed', name: '1800 King Floating Bed with Concealed Underglow', roomTypes: ['bedroom', 'master_bedroom'], widthMm: 1800, depthMm: 2100, heightMm: 1100, sku: 'ULT-BD-FLT-1800', tags: ['bed', 'floating', 'hydraulic'], description: 'Anti-gravity cantilevered frame with warm LED ground wash and hydraulic storage base.', production: { cutlistSupported: true } },
+  { id: 'bed-1800-extended-headboard', family: 'bed', name: '1800 King Bed with Extended Fluted Headboard & Nightstands', roomTypes: ['bedroom', 'master_bedroom'], widthMm: 2800, depthMm: 2100, heightMm: 1200, sku: 'ULT-BD-EXT-1800', tags: ['bed', 'headboard', 'fluted'], description: 'Full-wall upholstered headboard panel with integrated floating bedside ledges.', production: { cutlistSupported: true } },
+
+  // DINING & CROCKERY
+  { id: 'dining-calacatta-gold-2100', family: 'dining', name: '2100 Calacatta Gold Marble Dining Table', roomTypes: ['dining'], widthMm: 2100, depthMm: 1000, heightMm: 750, sku: 'ULT-DN-CAL-2100', tags: ['dining', 'marble'], description: '20mm sintered marble slab table with rounded bullnose edges on dual fluted pedestals.', production: { cutlistSupported: false } },
+  { id: 'dining-1600', family: 'dining', name: '1600 Solid Oak Six-Seat Dining Ensemble', roomTypes: ['dining'], widthMm: 1600, depthMm: 900, heightMm: 750, sku: 'ULT-DN-OAK-1600', tags: ['dining', 'oak'], description: 'Mid-century solid oak table with 6 matching bucket dining chairs.', production: { cutlistSupported: false } },
+  { id: 'crockery-1800', family: 'crockery', name: '1800 Full-Wall Crockery & Wine Bar Unit', roomTypes: ['dining', 'living'], widthMm: 1800, depthMm: 450, heightMm: 2400, sku: 'ULT-CR-1800', tags: ['crockery', 'bar', 'wine'], description: 'Fluted glass display cabinet with stemware racks and bottle drawers below.', production: { cutlistSupported: true } },
+
+  // POOJA & MANDIR
+  { id: 'pooja-jaali-1200', family: 'pooja', name: '1200 CNC Jaali Teakwood Pooja Mandir', roomTypes: ['pooja', 'living'], widthMm: 1200, depthMm: 600, heightMm: 2100, sku: 'ULT-PJ-JAL-1200', tags: ['pooja', 'mandir', 'jaali'], description: 'Sacred mandir with CNC back-lit jaali panel, brass bell inlays, and pull-out diya tray.', production: { cutlistSupported: true } },
+
+  // STUDY, FOYER & WASHROOM
+  { id: 'study-1500', family: 'study', name: '1500 Floating Wall-Mounted Study Desk & Shelf', roomTypes: ['study', 'bedroom'], widthMm: 1500, depthMm: 600, heightMm: 2400, sku: 'ULT-ST-FLT-1500', tags: ['study', 'desk', 'floating'], description: 'Heavy-duty wall mounted study workstation with wire grommets and pinboard niche.', production: { cutlistSupported: true } },
+  { id: 'foyer-shoe-1200', family: 'storage', name: '1200 Foyer Shoe Storage Bench with Cushion', roomTypes: ['foyer', 'living'], widthMm: 1200, depthMm: 400, heightMm: 1800, sku: 'ULT-ST-FOY-1200', tags: ['storage', 'shoe-rack', 'foyer'], description: 'Entryway console with 16-pair ventilated shoe cabinet and coat hooks.', production: { cutlistSupported: true } },
+  { id: 'washroom-shutter-vanity-900', family: 'utility', name: '900 Washroom Concealed Cistern Vanity & Overhead Shutter Unit', roomTypes: ['utility', 'master_bedroom'], widthMm: 900, depthMm: 450, heightMm: 2100, sku: 'ULT-WR-VS-900', tags: ['washroom', 'vanity', 'overhead-shutter', 'toilet'], description: 'Washroom composition with wall-hung vanity washbasin counter, concealed cistern ledge, open niche, and top 2-door overhead shutter cabinet.', production: { cutlistSupported: true } },
+];
+
 export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { organizationId?: string | null; projectId?: string | null }) {
-  const [activeTab, setActiveTab] = useState<'templates' | 'modules' | 'materials'>('modules');
+  const navigate = useNavigate();
+  const { projectId: urlProjectId } = useParams<{ projectId?: string }>();
+  const activeProjectId = projectId ?? urlProjectId ?? null;
+
+  const [activeTab, setActiveTab] = useState<'templates' | 'modules' | 'moodboard' | 'materials'>('modules');
+  const [moduleImageMode, setModuleImageMode] = useState<'photo' | 'nobg'>('nobg');
   const [items, setItems] = useState<LibraryItem[]>([]);
+  // Templates come from the canonical catalogue API. Do not briefly show the
+  // legacy in-memory list: it may contain retired IDs that cannot be placed.
   const [modules, setModules] = useState<CatalogModule[]>([]);
-  const [materials, setMaterials] = useState<Material[]>([]);
+  const [materials, setMaterials] = useState<Material[]>(DEFAULT_PROJECT_MATERIALS);
+  const [moodboardItems, setMoodboardItems] = useState<MoodboardItem[]>(MOODBOARD_PRESETS.living);
+  const [moodboardBg, setMoodboardBg] = useState<'linen' | 'clay' | 'dark' | 'white'>('linen');
+  const [selectedMbItem, setSelectedMbItem] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referenceTags, setReferenceTags] = useState('');
   const [uploadingReference, setUploadingReference] = useState(false);
-  const [libraryLoading, setLibraryLoading] = useState(true);
-  const [status, setStatus] = useState('Loading modular catalog…');
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [status, setStatus] = useState('Modular catalog loaded.');
   const [vault, setVault] = useState<VaultEntry[]>([]);
   const [vaultRoom, setVaultRoom] = useState('all');
   const [vaultFamily, setVaultFamily] = useState('all');
   const [vaultState, setVaultState] = useState('all');
   const [moduleFamily, setModuleFamily] = useState('all');
   const [moduleRoom, setModuleRoom] = useState('all');
+  const [materialCategory, setMaterialCategory] = useState('all');
   const [archiveTarget, setArchiveTarget] = useState<VaultEntry | null>(null);
+  const [addingStarterMaterials, setAddingStarterMaterials] = useState(false);
+  const [previewModalItem, setPreviewModalItem] = useState<{
+    title: string;
+    image: string;
+    family?: string;
+    dimensions?: string;
+    description?: string;
+    sku?: string;
+    module?: CatalogModule;
+  } | null>(null);
+
+  function placeModuleInProjectWallPicker(mod: CatalogModule) {
+    const prepared = {
+      schema: 'ultida.module-plan.v1',
+      templateId: mod.id,
+      family: mod.family,
+      name: mod.name,
+      dimensionsMm: { width: mod.widthMm, depth: mod.depthMm, height: mod.heightMm },
+      wallWidthMm: 3000,
+      clearanceMm: 900,
+    };
+    window.localStorage.setItem('ultida.pendingModulePlan.v1', JSON.stringify(prepared));
+    if (activeProjectId) {
+      navigate(`/projects/${activeProjectId}/spaces?tab=modules`);
+    } else {
+      navigate('/projects?placeModule=1');
+    }
+  }
 
   useEffect(() => {
     let live = true;
@@ -97,22 +350,21 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       if (supabase && organizationId) {
         const client = supabase;
         tasks.push((async () => {
-            const result = await client
-              .from('reference_library_items')
-              .select('id,title,kind,tags,notes,source,metadata,asset:project_assets(storage_path,mime_type)')
-              .eq('organization_id', organizationId)
-              .order('created_at', { ascending: false });
-            if (result.error) throw result.error;
-            const prepared = await Promise.all(((result.data ?? []) as unknown as Array<LibraryItem & { asset?: Array<{ storage_path: string; mime_type: string }> }>).map(async (raw) => {
-              const item = { ...raw, asset: raw.asset?.[0] ?? null } as LibraryItem;
-              if (!item.asset?.storage_path || !item.asset.mime_type.startsWith('image/')) return item;
-              const signed = await client.storage.from('project-assets').createSignedUrl(item.asset.storage_path, 3600);
-              return { ...item, metadata: { ...item.metadata, previewUrl: signed.data?.signedUrl } };
-            }));
-            if (live) setItems(prepared);
-          })());
-      }
-      if (supabase) {
+          const result = await client
+            .from('reference_library_items')
+            .select('id,title,kind,tags,notes,source,metadata,asset:project_assets(storage_path,mime_type)')
+            .eq('organization_id', organizationId)
+            .order('created_at', { ascending: false });
+          if (result.error) throw result.error;
+          const prepared = await Promise.all(((result.data ?? []) as unknown as Array<LibraryItem & { asset?: Array<{ storage_path: string; mime_type: string }> }>).map(async (raw) => {
+            const item = { ...raw, asset: raw.asset?.[0] ?? null } as LibraryItem;
+            if (!item.asset?.storage_path || !item.asset.mime_type.startsWith('image/')) return item;
+            const signed = await client.storage.from('project-assets').createSignedUrl(item.asset.storage_path, 3600);
+            return { ...item, metadata: { ...item.metadata, previewUrl: signed.data?.signedUrl } };
+          }));
+          if (live) setItems(prepared);
+        })());
+
         tasks.push((async () => {
           const user = (await supabase.auth.getUser()).data.user;
           if (!user) return;
@@ -152,8 +404,31 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     const matches = !search || `${item.title} ${item.kind} ${item.tags.join(' ')} ${item.notes}`.toLowerCase().includes(search);
     return matches && item.kind !== 'material' && item.kind !== 'module';
   }), [items, search]);
-  const visibleModules = useMemo(() => modules.filter((item) => (moduleFamily === 'all' || item.family === moduleFamily) && (moduleRoom === 'all' || item.roomTypes.includes(moduleRoom)) && (!search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search))), [modules, search, moduleFamily, moduleRoom]);
-  const visibleMaterials = useMemo(() => materials.filter((item) => !search || `${item.name} ${item.code} ${item.category} ${item.supplier ?? ''}`.toLowerCase().includes(search)), [materials, search]);
+  const visibleModules = useMemo(() => modules.filter((item) => (moduleFamily === 'all' || item.family === moduleFamily) && (moduleRoom === 'all' || moduleSupportsRoom(item, moduleRoom)) && (!search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search))), [modules, search, moduleFamily, moduleRoom]);
+  const visibleMaterials = useMemo(() => {
+    const allMaterials = materials.length ? materials : DEFAULT_PROJECT_MATERIALS;
+    return allMaterials.filter((item) => {
+      const matchesSearch = !search || `${item.name} ${item.code} ${item.category} ${item.finish ?? ''} ${item.supplier ?? ''}`.toLowerCase().includes(search);
+      if (!matchesSearch) return false;
+      if (materialCategory === 'all') return true;
+      if (materialCategory === 'glossy') {
+        return /gloss|acrylic|polygloss|mirror/i.test(`${item.name} ${item.finish} ${item.code}`);
+      }
+      if (materialCategory === 'matte') {
+        return /matte|suede|zero-g|anti-fingerprint|soft-touch|velvet/i.test(`${item.name} ${item.finish} ${item.code}`) && !/gloss/i.test(`${item.name} ${item.finish}`);
+      }
+      if (materialCategory === 'woodgrain') {
+        return /wood|oak|walnut|teak|birch|grain|veneer|flute|boiserie|slat/i.test(`${item.name} ${item.finish} ${item.category}`);
+      }
+      if (materialCategory === 'countertop') {
+        return /countertop|slab|marble|travertine|porcelain|granite|sintered|terrazzo|stone|glass|profile|hardware|hinge|bracket/i.test(`${item.name} ${item.category} ${item.finish}`);
+      }
+      if (materialCategory === 'core_panel') {
+        return /core|hdhmr|ply|plywood|marine|bwp|bwr|mdf|particle/i.test(`${item.name} ${item.category} ${item.code}`);
+      }
+      return item.category === materialCategory;
+    });
+  }, [materials, search, materialCategory]);
   const visibleVault = useMemo(() => vault.filter((entry) => (vaultRoom === 'all' || entry.room === vaultRoom) && (vaultFamily === 'all' || entry.module_family === vaultFamily) && (vaultState === 'all' || entry.review_state === vaultState) && (!search || `${entry.title} ${entry.source_path} ${entry.room} ${entry.module_family} ${entry.style} ${(entry.material_tags ?? []).join(' ')} ${JSON.stringify(entry.metadata ?? {})}`.toLowerCase().includes(search))), [vault, vaultRoom, vaultFamily, vaultState, search]);
   const vaultValues = (field: 'room' | 'module_family' | 'review_state') => [...new Set(vault.map((entry) => entry[field]).filter(Boolean))].sort();
   async function updateVault(id: string, patch: Partial<VaultEntry>) { if (!supabase) return; const { error } = await supabase.from('reference_vault_entries').update(patch).eq('id', id); if (!error) setVault((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry)); }
@@ -195,34 +470,239 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     } finally { setUploadingReference(false); }
   }
 
+  async function addStarterMaterials() {
+    if (!projectId || !supabase) {
+      setStatus('Open this library from a project before creating its shared material palette.');
+      return;
+    }
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) { setStatus('Sign in before creating a project material palette.'); return; }
+    setAddingStarterMaterials(true);
+    setStatus('Adding the curated laminate and edge-band starter palette…');
+    try {
+      const response = await fetch(`${apiBase()}/projects/${projectId}/material-library/starter`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${session.access_token}`, 'content-type': 'application/json' },
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) throw new Error(payload?.message ?? 'The starter material palette could not be created.');
+      setMaterials(Array.isArray(payload.materials) ? payload.materials : []);
+      setActiveTab('materials');
+      setStatus(payload.note ?? 'Starter materials are ready for component-level assignment. Confirm supplier SKU and technical sheets before production.');
+    } catch (error: any) {
+      setStatus(error?.message ?? 'The starter material palette could not be created.');
+    } finally {
+      setAddingStarterMaterials(false);
+    }
+  }
+
   function emptyState(message: string) {
     return <div style={{ padding: '28px 0', color: '#78716c', fontSize: 14 }}>{message}</div>;
   }
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 1400, margin: '0 auto' }}>
-      {archiveTarget && <div role="presentation" style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(28,25,23,.38)', display: 'grid', placeItems: 'center', padding: 20 }} onMouseDown={(event) => { if (event.target === event.currentTarget) setArchiveTarget(null); }}>
-        <section role="dialog" aria-modal="true" aria-labelledby="archive-reference-title" style={{ width: 'min(420px, 100%)', background: '#fff', borderRadius: 12, padding: 22, boxShadow: '0 20px 60px rgba(28,25,23,.2)' }}>
-          <h2 id="archive-reference-title" style={{ margin: '0 0 8px', fontSize: 18, color: '#1c1917' }}>Archive this reference?</h2>
-          <p style={{ margin: '0 0 18px', color: '#57534e', fontSize: 13, lineHeight: 1.5 }}>{archiveTarget.title} will leave active vault results but remain recoverable as archived.</p>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button type="button" onClick={() => setArchiveTarget(null)} style={{ border: '1px solid #d6d3d1', background: '#fff', color: '#57534e', borderRadius: 6, padding: '8px 12px', fontWeight: 700 }}>Cancel</button>
-            <button type="button" onClick={() => void deleteVault(archiveTarget.id)} style={{ border: 0, background: '#991b1b', color: '#fff', borderRadius: 6, padding: '8px 12px', fontWeight: 700 }}>Archive reference</button>
+    <div style={{ padding: '24px 32px', maxWidth: 1440, margin: '0 auto' }}>
+      {/* Lightbox Modal for High-Resolution Visual Inspection */}
+      {previewModalItem && (
+        <div
+          role="presentation"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            background: 'rgba(9, 9, 11, 0.85)',
+            backdropFilter: 'blur(10px)',
+            display: 'grid',
+            placeItems: 'center',
+            padding: 24,
+          }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setPreviewModalItem(null);
+          }}
+        >
+          <div
+            style={{
+              width: 'min(900px, 95vw)',
+              background: '#18181b',
+              border: '1.5px solid #3f3f46',
+              borderRadius: 20,
+              overflow: 'hidden',
+              boxShadow: '0 25px 70px rgba(0, 0, 0, 0.8)',
+              color: '#f4f4f5',
+              display: 'grid',
+              gridTemplateColumns: '1fr 340px',
+            }}
+          >
+            {/* Image Preview Container */}
+            <div style={{ position: 'relative', height: 480, background: '#09090b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <img
+                src={previewModalItem.image}
+                alt={previewModalItem.title}
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              />
+              <span style={{ position: 'absolute', top: 16, left: 16, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
+                {previewModalItem.family?.replace('-', ' ') ?? 'Studio Reference'}
+              </span>
+            </div>
+
+            {/* Technical Detail Sidebar */}
+            <div style={{ padding: 24, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderLeft: '1px solid #27272a' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <h3 style={{ fontSize: 18, fontWeight: 800, color: '#fff', margin: '0 0 6px' }}>
+                    {previewModalItem.title}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewModalItem(null)}
+                    style={{ border: 0, background: 'transparent', color: '#a1a1aa', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {previewModalItem.dimensions && (
+                  <div style={{ marginTop: 12, padding: '10px 12px', background: '#27272a', borderRadius: 8, border: '1px solid #3f3f46' }}>
+                    <small style={{ display: 'block', color: '#a1a1aa', fontSize: 10, textTransform: 'uppercase', fontWeight: 700 }}>
+                      Parametric Dimensions
+                    </small>
+                    <strong style={{ fontSize: 13, fontFamily: 'monospace', color: '#34d399' }}>
+                      {previewModalItem.dimensions}
+                    </strong>
+                  </div>
+                )}
+
+                {previewModalItem.sku && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: '#a1a1aa', fontFamily: 'monospace' }}>
+                    SKU: <span style={{ color: '#fff' }}>{previewModalItem.sku}</span>
+                  </div>
+                )}
+
+                <p style={{ marginTop: 16, fontSize: 12, color: '#d4d4d8', lineHeight: 1.5 }}>
+                  {previewModalItem.description ?? 'Curated manufacturing-ready modular specification with verifiable technical clearances and panel cutlists.'}
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {previewModalItem.module && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const mod = previewModalItem.module!;
+                        const newItem: MoodboardItem = {
+                          id: `mb-${Date.now()}`,
+                          type: 'module',
+                          title: mod.name,
+                          subtitle: `${mod.widthMm}×${mod.heightMm}mm`,
+                          x: 80 + Math.random() * 80,
+                          y: 80 + Math.random() * 80,
+                          width: 260,
+                          height: 160,
+                          zIndex: moodboardItems.length + 1,
+                          module: mod,
+                        };
+                        setMoodboardItems((prev) => [...prev, newItem]);
+                        setPreviewModalItem(null);
+                        setActiveTab('moodboard');
+                      }}
+                      style={{
+                        padding: '12px 16px',
+                        borderRadius: 10,
+                        background: 'linear-gradient(135deg, #10b981, #059669)',
+                        color: '#000',
+                        fontWeight: 800,
+                        fontSize: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        border: 0,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Plus size={15} /> Add to Active Moodboard
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const mod = previewModalItem.module!;
+                        setPreviewModalItem(null);
+                        placeModuleInProjectWallPicker(mod);
+                      }}
+                      style={{
+                        padding: '12px 16px',
+                        borderRadius: 10,
+                        background: 'linear-gradient(135deg, #c59c2d, #a0782c)',
+                        color: '#fff',
+                        fontWeight: 800,
+                        fontSize: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        border: 0,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Home size={15} /> 📐 Place in Room &amp; Wall Picker
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPreviewModalItem(null)}
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    background: '#27272a',
+                    border: '1px solid #3f3f46',
+                    color: '#d4d4d8',
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close Inspection
+                </button>
+              </div>
+            </div>
           </div>
-        </section>
-      </div>}
+        </div>
+      )}
+
+      {archiveTarget && (
+        <div role="presentation" style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(28,25,23,.38)', display: 'grid', placeItems: 'center', padding: 20 }} onMouseDown={(event) => { if (event.target === event.currentTarget) setArchiveTarget(null); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="archive-reference-title" style={{ width: 'min(420px, 100%)', background: '#fff', borderRadius: 12, padding: 22, boxShadow: '0 20px 60px rgba(28,25,23,.2)' }}>
+            <h2 id="archive-reference-title" style={{ margin: '0 0 8px', fontSize: 18, color: '#1c1917' }}>Archive this reference?</h2>
+            <p style={{ margin: '0 0 18px', color: '#57534e', fontSize: 13, lineHeight: 1.5 }}>{archiveTarget.title} will leave active vault results but remain recoverable as archived.</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button type="button" onClick={() => setArchiveTarget(null)} style={{ border: '1px solid #d6d3d1', background: '#fff', color: '#57534e', borderRadius: 6, padding: '8px 12px', fontWeight: 700 }}>Cancel</button>
+              <button type="button" onClick={() => void deleteVault(archiveTarget.id)} style={{ border: 0, background: '#991b1b', color: '#fff', borderRadius: 6, padding: '8px 12px', fontWeight: 700 }}>Archive reference</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* Header & Live Search Bar */}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'end', flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1c1917', margin: '0 0 6px' }}>Design Library</h1>
-          <p style={{ color: '#78716c', fontSize: 14, margin: 0 }}>Studio references, validated modular templates, and project finishes.</p>
+          <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1c1917', margin: '0 0 6px' }}>Design Library & Moodboard Studio</h1>
+          <p style={{ color: '#78716c', fontSize: 14, margin: 0 }}>Verified System 32 modular furniture, curated reference renders, and live project finish boards.</p>
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, width: 300, border: '1px solid #d6d3d1', borderRadius: 6, background: '#fff', padding: '8px 10px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, width: 320, border: '1.5px solid #d6d3d1', borderRadius: 10, background: '#fff', padding: '10px 12px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <Search size={16} color="#78716c" />
-          <input aria-label="Search design library" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search library" style={{ border: 0, outline: 0, width: '100%', fontSize: 14 }} />
+          <input aria-label="Search design library" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search furniture, SKUs, finishes..." style={{ border: 0, outline: 0, width: '100%', fontSize: 13, color: '#1c1917' }} />
         </label>
       </div>
-      <p role="status" style={{ margin: '0 0 16px', color: status.includes('could not') ? '#b45309' : '#78716c', fontSize: 12, display: 'flex', alignItems: 'center', gap: 7 }}>{libraryLoading && <Loader2 className="ultida-spinner" size={14} aria-hidden="true" />}{status}</p>
 
+      <p role="status" style={{ margin: '0 0 16px', color: status.includes('could not') ? '#b45309' : '#78716c', fontSize: 12, display: 'flex', alignItems: 'center', gap: 7 }}>
+        {libraryLoading && <Loader2 className="ultida-spinner" size={14} aria-hidden="true" />}
+        {status}
+      </p>
+
+      {/* Add Reference Card */}
       <Card className="workflow" style={{ marginBottom: 20 }}>
         <CardContent style={{ display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap', padding: 16 }}>
           <div style={{ flex: '1 1 260px' }}>
@@ -243,37 +723,918 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
         </CardContent>
       </Card>
 
-      <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e7e5e4', marginBottom: 24 }}>
+      {/* Main Tab Navigation */}
+      <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e7e5e4', marginBottom: 20, overflowX: 'auto' }}>
         {([
-          ['templates', 'Studio References', BookOpen, visibleTemplates.length],
           ['modules', 'Modular Templates', LibraryIcon, visibleModules.length],
+          ['moodboard', 'Moodboard Studio', Sparkles, moodboardItems.length],
+          ['templates', 'Studio References', BookOpen, CURATED_VAULT_REFERENCES.length],
           ['materials', 'Project Materials', Palette, visibleMaterials.length],
         ] as const).map(([id, label, Icon, count]) => (
-          <button key={id} onClick={() => setActiveTab(id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', fontSize: 14, fontWeight: 700, color: activeTab === id ? '#3d2a1a' : '#78716c', borderBottom: activeTab === id ? '2px solid #3d2a1a' : '2px solid transparent', background: 'none', borderTop: 0, borderLeft: 0, borderRight: 0, cursor: 'pointer' }}>
-            <Icon size={16} /> {label} <span style={{ color: '#a8a29e', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
+          <button key={id} onClick={() => setActiveTab(id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', fontSize: 14, fontWeight: 700, color: activeTab === id ? '#8a6244' : '#78716c', borderBottom: activeTab === id ? '2.5px solid #c59c2d' : '2.5px solid transparent', background: activeTab === id ? 'rgba(197,156,45,0.06)' : 'none', borderRadius: '8px 8px 0 0', borderTop: 0, borderLeft: 0, borderRight: 0, cursor: 'pointer', transition: 'all 0.15s ease' }}>
+            <Icon size={16} color={activeTab === id ? '#c59c2d' : '#78716c'} /> {label} <span style={{ color: activeTab === id ? '#c59c2d' : '#a8a29e', background: activeTab === id ? 'rgba(197,156,45,0.14)' : '#f3efe7', padding: '2px 7px', borderRadius: 999, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>{count}</span>
           </button>
         ))}
       </div>
 
-      {activeTab === 'templates' && <Card className="workflow">
-        <CardContent style={{display:'flex',gap:8,flexWrap:'wrap',padding:'14px 16px',borderBottom:'1px solid #e7e5e4'}}><strong style={{marginRight:8}}>Reference vault</strong>{[['room',vaultRoom,setVaultRoom],['module_family',vaultFamily,setVaultFamily],['review_state',vaultState,setVaultState]].map(([field,value,setter])=><select key={field as string} aria-label={`Filter by ${field}`} value={value as string} onChange={e=>(setter as (value:string)=>void)(e.target.value)} style={{padding:'7px 9px',border:'1px solid #d6d3d1',borderRadius:6}}><option value="all">All {String(field).replace('_',' ')}</option>{vaultValues(field as any).map(v=><option key={v} value={v}>{v}</option>)}</select>)}<Badge tone="neutral">{visibleVault.length} indexed</Badge></CardContent>
-        <CardContent>{visibleVault.length ? <div className="library-grid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:12}}>{visibleVault.map(entry=><article key={entry.id} style={{border:'1px solid #e7e5e4',borderRadius:8,padding:12}}><strong>{entry.title}</strong><small style={{display:'block',color:'#78716c',marginTop:5}}>{entry.room} · {entry.module_family} · {entry.review_state}</small><small style={{display:'block',color:'#a8a29e',marginTop:5,overflowWrap:'anywhere'}}>{entry.source_path}</small><div style={{display:'flex',gap:6,marginTop:10}}><select aria-label={`Review state for ${entry.title}`} value={entry.review_state} onChange={e=>void updateVault(entry.id,{review_state:e.target.value})} style={{padding:5,border:'1px solid #d6d3d1',borderRadius:5}}><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="archived">Archived</option></select><button type="button" onClick={()=>setArchiveTarget(entry)} style={{padding:'5px 8px',border:'1px solid #fecaca',background:'#fff1f2',color:'#991b1b',borderRadius:5}}>Archive</button></div></article>)}</div>:emptyState('No indexed references match these filters.')}</CardContent>
-      </Card>}
-      {activeTab === 'templates' && <Card className="workflow">
-        <CardHeader className="section-title"><div><small>STUDIO REFERENCES</small><h2>Approved references and reusable compositions</h2></div><Badge tone="neutral">{visibleTemplates.length} saved</Badge></CardHeader>
-        <CardContent>{visibleTemplates.length ? <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>{visibleTemplates.map((item) => <article key={item.id} className="library-item" style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8, overflow: 'hidden' }}>{item.metadata.previewUrl ? <img src={item.metadata.previewUrl} alt="" style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }} /> : <div style={{ background: '#f5f5f4', height: 140, display: 'grid', placeItems: 'center' }}><BookOpen size={28} color="#a8a29e" /></div>}<div style={{ padding: 14 }}><strong style={{ display: 'block', fontSize: 14, color: '#1c1917' }}>{item.title}</strong><span style={{ fontSize: 12, color: '#78716c' }}>{item.kind}</span><small style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#78716c' }}>{item.tags.join(' · ') || item.notes || 'No tags added'}</small></div></article>)}</div> : emptyState('No studio references are saved yet. Add approved project images or compositions to create a reusable reference library.')}</CardContent>
-      </Card>}
+      {/* TAB 1: MODULAR TEMPLATES */}
+      {activeTab === 'modules' && (
+        <Card className="workflow">
+          {/* Quick Filter Category Chips */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>
+            {[
+              ['all', '✨ All Categories', null, null],
+              ['living', '🛋️ Living & Lounges', null, 'living'],
+              ['bedroom', '🛏️ Bedrooms & Beds', null, 'bedroom'],
+              ['wardrobe', '🚪 Wardrobes', 'wardrobe', null],
+              ['tv-unit', '📺 TV & Media Walls', 'tv-unit', null],
+              ['kitchen', '🍳 Modular Kitchens', null, 'kitchen'],
+              ['dining', '🍽️ Dining & Bars', null, 'dining'],
+              ['pooja', '🪔 Sacred Mandirs', 'pooja', null],
+              ['study', '💼 Study & Desks', 'study', null],
+              ['lighting', '💡 Lighting & Decor', 'lighting', null],
+              ['washroom', '🚿 Washrooms & Vanity', 'utility', 'utility'],
+            ].map(([k, label, fFam, fRoom]) => {
+              const isActive = (fFam ? moduleFamily === fFam : moduleRoom === (fRoom ?? 'all'));
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => {
+                    if (fFam) {
+                      setModuleFamily(moduleFamily === fFam ? 'all' : fFam);
+                      setModuleRoom('all');
+                    } else if (fRoom) {
+                      setModuleRoom(moduleRoom === fRoom ? 'all' : fRoom);
+                      setModuleFamily('all');
+                    } else {
+                      setModuleFamily('all');
+                      setModuleRoom('all');
+                    }
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 999,
+                    border: isActive ? '1.5px solid var(--gold)' : '1px solid #d6d3d1',
+                    background: isActive ? 'rgba(197,156,45,0.12)' : '#fff',
+                    color: isActive ? 'var(--gold-dim)' : '#57534e',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
 
-      {activeTab === 'modules' && <Card className="workflow">
-        <CardContent style={{display:'flex',gap:8,flexWrap:'wrap',padding:'14px 16px',borderBottom:'1px solid #e7e5e4'}}><strong style={{marginRight:8}}>Furniture filters</strong><select aria-label="Filter modules by family" value={moduleFamily} onChange={e=>setModuleFamily(e.target.value)} style={{padding:'7px 9px',border:'1px solid #d6d3d1',borderRadius:6}}><option value="all">All families</option>{[...new Set(modules.map(m=>m.family))].sort().map(f=><option key={f} value={f}>{f.replaceAll('-',' ')}</option>)}</select><select aria-label="Filter modules by room" value={moduleRoom} onChange={e=>setModuleRoom(e.target.value)} style={{padding:'7px 9px',border:'1px solid #d6d3d1',borderRadius:6}}><option value="all">All rooms</option>{[...new Set(modules.flatMap(m=>m.roomTypes))].sort().map(r=><option key={r} value={r}>{r}</option>)}</select></CardContent>
-        <CardHeader className="section-title"><div><small>PARAMETRIC MODULES</small><h2>Manufacturing-aware modular furniture templates</h2></div><Badge tone="success">{visibleModules.filter((module) => module.production.cutlistSupported).length} cutlist-ready</Badge></CardHeader>
-        <CardContent>{visibleModules.length ? <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>{visibleModules.map((module) => <article key={module.id} className="library-item" style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 10, padding: 12, boxShadow: '0 1px 2px rgba(28,25,23,.04)' }}><ModulePreview module={module} /><div style={{ padding: '12px 4px 3px' }}><strong style={{ display: 'block', fontSize: 14, color: '#1c1917' }}>{module.name}</strong><span style={{ fontSize: 12, color: '#78716c', textTransform: 'capitalize' }}>{module.family.replaceAll('-', ' ')}</span><small style={{ display: 'block', marginTop: 8, fontSize: 11, color: '#78716c', fontVariantNumeric: 'tabular-nums' }}>{module.widthMm}W × {module.depthMm}D × {module.heightMm}H mm</small><small style={{ display: 'block', marginTop: 4, fontSize: 11, color: '#a8a29e' }}>{module.sku} · {module.roomTypes.join(', ')}</small></div></article>)}</div> : emptyState('The modular catalog is unavailable. Check the API health and catalog route before placing modules.')}</CardContent>
-      </Card>}
+          <CardHeader className="section-title">
+            <div>
+              <small>PARAMETRIC MODULES + PRODUCTION GEOMETRY</small>
+              <h2>Professional furniture catalog backed by System 32 standards</h2>
+              <p style={{ margin: '5px 0 0', fontSize: 12, color: '#78716c' }}>
+                Click any render reference for high-resolution inspection. Switch between photorealistic renders and transparent isolated schematics.
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ display: 'inline-flex', background: '#f5f5f4', padding: 3, borderRadius: 8, border: '1px solid #e7e5e4' }}>
+                <button
+                  type="button"
+                  onClick={() => setModuleImageMode('photo')}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: moduleImageMode === 'photo' ? '#fff' : 'transparent',
+                    color: moduleImageMode === 'photo' ? '#1c1917' : '#78716c',
+                    fontWeight: moduleImageMode === 'photo' ? 700 : 500,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    boxShadow: moduleImageMode === 'photo' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  }}
+                >
+                  🖼️ Photorealistic Renders
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModuleImageMode('nobg')}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: moduleImageMode === 'nobg' ? '#fff' : 'transparent',
+                    color: moduleImageMode === 'nobg' ? '#1c1917' : '#78716c',
+                    fontWeight: moduleImageMode === 'nobg' ? 700 : 500,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    boxShadow: moduleImageMode === 'nobg' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  }}
+                >
+                  📐 Isolated 3D Modules (No BG)
+                </button>
+              </div>
+              <Badge tone="success">{visibleModules.filter((module) => module.production.cutlistSupported).length} cutlist-ready</Badge>
+            </div>
+          </CardHeader>
 
-      {activeTab === 'materials' && <Card className="workflow">
-        <CardHeader className="section-title"><div><small>PROJECT MATERIALS</small><h2>Persisted finishes and hardware for this project</h2></div><Badge tone="neutral">{visibleMaterials.length} saved</Badge></CardHeader>
-        <CardContent>{!projectId ? emptyState('Open this library from a project to see its persisted material library.') : visibleMaterials.length ? <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>{visibleMaterials.map((material) => <article key={material.id} className="library-item" style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8, padding: 16 }}><div style={{ background: '#f5f5f4', borderRadius: 6, height: 96, display: 'grid', placeItems: 'center', marginBottom: 12 }}><Palette size={28} color="#a8a29e" /></div><strong style={{ display: 'block', fontSize: 14, color: '#1c1917' }}>{material.name}</strong><span style={{ fontSize: 12, color: '#78716c' }}>{materialSubtitle(material) || 'Finish details pending'}</span><small style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#a8a29e' }}>Code: {material.code}</small></article>)}</div> : emptyState('No materials are saved for this project. Add a finish through Design Studio to create a versioned material assignment.')}</CardContent>
-      </Card>}
+          <CardContent>
+            {visibleModules.length ? (
+              <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}>
+                {visibleModules.map((module) => {
+                  const referenceImage = stableImageForModule(module);
+                  return (
+                    <article key={module.id} className="library-item module-catalog-card">
+                      <div
+                        className="module-reference-frame"
+                        style={{
+                          cursor: referenceImage ? 'pointer' : 'default',
+                          background: moduleImageMode === 'nobg' ? 'radial-gradient(circle at center, #ffffff 0%, #f4f2ee 100%)' : undefined,
+                        }}
+                        onClick={() => {
+                          if (referenceImage) {
+                            setPreviewModalItem({
+                              title: module.name,
+                              image: referenceImage,
+                              family: module.family,
+                              dimensions: `${module.widthMm}W × ${module.depthMm}D × ${module.heightMm}H mm`,
+                              description: module.description,
+                              sku: module.sku,
+                              module,
+                            });
+                          }
+                        }}
+                      >
+                        {moduleImageMode === 'nobg' || !referenceImage ? (
+                          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+                            <ModulePreview module={module} />
+                          </div>
+                        ) : (
+                          <img
+                            src={referenceImage}
+                            alt={`${module.name} approved visual reference`}
+                            loading="lazy"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              const sibling = e.currentTarget.parentElement?.querySelector('.module-preview-fallback') as HTMLElement | null;
+                              if (sibling) sibling.style.display = 'flex';
+                            }}
+                          />
+                        )}
+                        <div className="module-preview-fallback" style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+                          <ModulePreview module={module} />
+                        </div>
+                        <span>{moduleImageMode === 'nobg' ? '📐 3D Parametric CAD Schematic (No BG)' : 'Approved style reference (click to inspect)'}</span>
+                      </div>
+                      <div className="module-technical-strip">
+                        <ModulePreview module={module} compact />
+                        <div>
+                          <strong>Parametric build</strong>
+                          <small>{module.widthMm}W × {module.depthMm}D × {module.heightMm}H mm</small>
+                          <small>{module.production.cutlistSupported ? 'Scene + cutlist ready' : 'Concept configuration'}</small>
+                        </div>
+                      </div>
+                      <div className="module-card-copy">
+                        <strong>{module.name}</strong>
+                        <span>{module.family.replaceAll('-', ' ')}</span>
+                        <p>{module.description ?? 'Configurable modular assembly with editable dimensions and component-level finishes.'}</p>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                          <small>{module.sku} · {module.roomTypes.join(', ')}</small>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newItem: MoodboardItem = {
+                                  id: `mb-${Date.now()}`,
+                                  type: 'module',
+                                  title: module.name,
+                                  subtitle: `${module.widthMm}×${module.heightMm}mm`,
+                                  x: 100 + Math.random() * 60,
+                                  y: 100 + Math.random() * 60,
+                                  width: 260,
+                                  height: 160,
+                                  zIndex: moodboardItems.length + 1,
+                                  module,
+                                };
+                                setMoodboardItems((prev) => [...prev, newItem]);
+                                setActiveTab('moodboard');
+                              }}
+                              style={{
+                                border: '1px solid var(--gold)',
+                                background: 'rgba(197,156,45,0.1)',
+                                color: 'var(--gold-dim)',
+                                borderRadius: 6,
+                                padding: '5px 8px',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <Plus size={12} /> Board
+                            </button>
+                            {!module.tags.includes('scene-asset') && <button
+                              type="button"
+                              onClick={() => {
+                                try {
+                                  window.localStorage.setItem('ultida.pendingModulePlan.v1', JSON.stringify({
+                                    schema: 'ultida.module-plan.v1',
+                                    templateId: module.id,
+                                    family: module.family,
+                                    name: module.name,
+                                    dimensionsMm: { width: module.widthMm, depth: module.depthMm, height: module.heightMm },
+                                    wallWidthMm: module.widthMm,
+                                    clearanceMm: 50,
+                                  }));
+                                } catch {
+                                  // ignore
+                                }
+                                if (projectId) {
+                                  navigate(`/projects/${projectId}/spaces?tab=modules&pendingModule=1`);
+                                } else {
+                                  navigate('/projects');
+                                }
+                              }}
+                              style={{
+                                border: '1px solid #16a34a',
+                                background: 'rgba(22,163,74,0.1)',
+                                color: '#15803d',
+                                borderRadius: 6,
+                                padding: '5px 8px',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                              title="Place this module directly on measured space wall elevation"
+                            >
+                              <Home size={12} /> Use in Room
+                            </button>}
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              emptyState('No furniture modules match your search.')
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* TAB 2: MOODBOARD STUDIO */}
+      {activeTab === 'moodboard' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 20, alignItems: 'start' }}>
+          <Card className="workflow">
+            <CardHeader className="section-title">
+              <div>
+                <small>CUTOUT ASSETS</small>
+                <h3 style={{ margin: '4px 0 0', fontSize: 15 }}>Add Items to Board</h3>
+              </div>
+            </CardHeader>
+            <CardContent style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <strong style={{ display: 'block', fontSize: 11, color: '#78716c', textTransform: 'uppercase', marginBottom: 8 }}>Preset Themes</strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <button type="button" onClick={() => setMoodboardItems(MOODBOARD_PRESETS.living)} style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #ebdccb', background: '#fff', textAlign: 'left', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>🛋️ Warm Contemporary Living</span>
+                    <span style={{ color: '#c59c2d' }}>5 items</span>
+                  </button>
+                  <button type="button" onClick={() => setMoodboardItems(MOODBOARD_PRESETS.bedroom)} style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #ebdccb', background: '#fff', textAlign: 'left', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>🛏️ Luxe Neutral Master Suite</span>
+                    <span style={{ color: '#c59c2d' }}>4 items</span>
+                  </button>
+                  <button type="button" onClick={() => setMoodboardItems(MOODBOARD_PRESETS.dining)} style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #ebdccb', background: '#fff', textAlign: 'left', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>🍽️ Calacatta Gold Dining</span>
+                    <span style={{ color: '#c59c2d' }}>4 items</span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <strong style={{ display: 'block', fontSize: 11, color: '#78716c', textTransform: 'uppercase', marginBottom: 8 }}>Quick Add Cutouts</strong>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <button type="button" onClick={() => {
+                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'module', title: 'Fluted TV Wall', subtitle: '2400mm floating unit', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 260, height: 160, zIndex: moodboardItems.length + 1, module: { id: 'tv-fluted-2400', family: 'tv-unit', name: '2400 fluted media wall with floating console', roomTypes: ['living'], widthMm: 2400, depthMm: 400, heightMm: 2400, sku: 'ULT-TV-FLT-2400', tags: ['tv-wall', 'fluted'], production: { cutlistSupported: true } } };
+                    setMoodboardItems(prev => [...prev, newItem]);
+                  }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #e7e5e4', background: '#faf8f5', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
+                    + Fluted TV Wall
+                  </button>
+                  <button type="button" onClick={() => {
+                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'module', title: 'Curved Sofa', subtitle: '2800mm Boucle sectional', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 270, height: 160, zIndex: moodboardItems.length + 1, module: { id: 'sofa-curved-boucle-2800', family: 'sofa', name: 'Curved Boucle Sofa', roomTypes: ['living'], widthMm: 2800, depthMm: 1600, heightMm: 800, sku: 'ULT-SF-CRV-2800', tags: ['sofa'], production: { cutlistSupported: false } } };
+                    setMoodboardItems(prev => [...prev, newItem]);
+                  }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #e7e5e4', background: '#faf8f5', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
+                    + Curved Sofa
+                  </button>
+                  <button type="button" onClick={() => {
+                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'module', title: 'Storage Bed', subtitle: '1800mm Hydraulic bed', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 260, height: 160, zIndex: moodboardItems.length + 1, module: { id: 'bed-1800', family: 'bed', name: 'Hydraulic Storage Bed', roomTypes: ['bedroom'], widthMm: 1800, depthMm: 2100, heightMm: 1200, sku: 'ULT-BED-1800', tags: ['bed'], production: { cutlistSupported: true } } };
+                    setMoodboardItems(prev => [...prev, newItem]);
+                  }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #e7e5e4', background: '#faf8f5', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
+                    + King Bed
+                  </button>
+                  <button type="button" onClick={() => {
+                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'module', title: '4-Shutter Wardrobe', subtitle: '2100mm loft wardrobe', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 260, height: 180, zIndex: moodboardItems.length + 1, module: { id: 'wardrobe-2100', family: 'wardrobe', name: '2100 4-Shutter Wardrobe', roomTypes: ['bedroom'], widthMm: 2100, depthMm: 600, heightMm: 2700, sku: 'ULT-WD-2100', tags: ['wardrobe'], production: { cutlistSupported: true } } };
+                    setMoodboardItems(prev => [...prev, newItem]);
+                  }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #e7e5e4', background: '#faf8f5', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
+                    + Wardrobe
+                  </button>
+                  <button type="button" onClick={() => {
+                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'module', title: 'Crockery & Bar', subtitle: '1800mm display unit', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 250, height: 160, zIndex: moodboardItems.length + 1, module: { id: 'crockery-1800', family: 'crockery', name: '1800 Crockery Unit', roomTypes: ['dining'], widthMm: 1800, depthMm: 450, heightMm: 2400, sku: 'ULT-CR-1800', tags: ['crockery'], production: { cutlistSupported: true } } };
+                    setMoodboardItems(prev => [...prev, newItem]);
+                  }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #e7e5e4', background: '#faf8f5', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
+                    + Crockery Unit
+                  </button>
+                  <button type="button" onClick={() => {
+                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'module', title: 'Linen Floor Lamp', subtitle: '1650mm · warm 2700K', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 180, height: 180, zIndex: moodboardItems.length + 1, module: { id: 'light-floor-linen-1650', family: 'lighting', name: '1650 Linen Shade Floor Lamp', roomTypes: ['living'], widthMm: 380, depthMm: 380, heightMm: 1650, sku: 'ULT-LGT-FLR-1650', tags: ['scene-asset', 'lighting', 'floor-lamp'], production: { cutlistSupported: false } } };
+                    setMoodboardItems(prev => [...prev, newItem]);
+                  }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #f0cf83', background: '#fff8eb', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
+                    + Linen Floor Lamp
+                  </button>
+                  <button type="button" onClick={() => {
+                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'module', title: 'Bronze Pendant', subtitle: '360mm · warm 3000K', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 180, height: 180, zIndex: moodboardItems.length + 1, module: { id: 'light-pendant-bronze-360', family: 'lighting', name: '360 Bronze Dining Pendant', roomTypes: ['dining'], widthMm: 360, depthMm: 360, heightMm: 1650, sku: 'ULT-LGT-PND-360', tags: ['scene-asset', 'lighting', 'pendant'], production: { cutlistSupported: false } } };
+                    setMoodboardItems(prev => [...prev, newItem]);
+                  }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #f0cf83', background: '#fff8eb', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
+                    + Bronze Pendant
+                  </button>
+                  <button type="button" onClick={() => {
+                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'swatch', title: 'Italian Marble', subtitle: 'Polished Botticino', colorHex: '#E8DFD0', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 140, height: 100, zIndex: moodboardItems.length + 1 };
+                    setMoodboardItems(prev => [...prev, newItem]);
+                  }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #e7e5e4', background: '#faf8f5', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
+                    + Marble Swatch
+                  </button>
+                </div>
+              </div>
+
+              <p style={{ margin: 0, padding: '8px 10px', borderRadius: 7, background: '#fff8eb', color: '#7c5a22', fontSize: 10.5, lineHeight: 1.45 }}>
+                Lighting assets are visual scene ingredients. They enrich moodboards and the compiled 3D schedule, and are deliberately excluded from fabrication cutlists.
+              </p>
+
+              <div>
+                <strong style={{ display: 'block', fontSize: 11, color: '#78716c', textTransform: 'uppercase', marginBottom: 8 }}>Canvas Background</strong>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                  {[
+                    ['linen', '#f5f0e8', 'Linen'],
+                    ['clay', '#ebe1d3', 'Clay'],
+                    ['dark', '#221e1b', 'Dark'],
+                    ['white', '#ffffff', 'White'],
+                  ].map(([k, hex, label]) => (
+                    <button key={k} type="button" onClick={() => setMoodboardBg(k as any)} style={{ padding: '6px 4px', borderRadius: 6, border: moodboardBg === k ? '2px solid var(--gold)' : '1px solid #d6d3d1', background: hex, color: k === 'dark' ? '#fff' : '#000', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button type="button" onClick={() => setMoodboardItems([])} style={{ marginTop: 8, padding: '8px', borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', color: '#991b1b', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Trash2 size={13} /> Clear Moodboard
+              </button>
+            </CardContent>
+          </Card>
+
+          <div style={{ background: moodboardBg === 'linen' ? '#f5f0e8' : moodboardBg === 'clay' ? '#ebe1d3' : moodboardBg === 'dark' ? '#1c1815' : '#ffffff', border: '1.5px solid #dfd5c7', borderRadius: 16, minHeight: 620, position: 'relative', overflow: 'hidden', padding: 24, boxShadow: '0 12px 36px rgba(0,0,0,0.08)' }}>
+            <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 100, display: 'flex', gap: 8 }}>
+              <span style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)', fontSize: 11, fontWeight: 700, color: '#635243', border: '1px solid rgba(0,0,0,0.08)' }}>
+                {moodboardItems.length} Cutout Assets Layered
+              </span>
+            </div>
+
+            <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 560 }}>
+              {moodboardItems.map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => setSelectedMbItem(item.id)}
+                  style={{
+                    position: 'absolute',
+                    left: item.x,
+                    top: item.y,
+                    width: item.width,
+                    zIndex: item.zIndex,
+                    background: item.type === 'swatch' ? item.colorHex : 'rgba(255,255,255,0.92)',
+                    backdropFilter: item.type === 'swatch' ? undefined : 'blur(8px)',
+                    border: selectedMbItem === item.id ? '2px solid var(--gold)' : '1px solid rgba(0,0,0,0.12)',
+                    borderRadius: item.type === 'swatch' ? 12 : 14,
+                    padding: item.type === 'swatch' ? 12 : 10,
+                    boxShadow: selectedMbItem === item.id ? '0 12px 28px rgba(197,156,45,0.25)' : '0 8px 24px rgba(0,0,0,0.12)',
+                    cursor: 'grab',
+                    transition: 'box-shadow 0.15s ease',
+                  }}
+                >
+                  {item.type === 'module' && item.module && (
+                    <div>
+                      <div style={{ height: 110, background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <ModulePreview module={item.module} style={{ border: 0, background: 'transparent' }} />
+                      </div>
+                      <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ display: 'block', fontSize: 11, color: '#1c1917' }}>{item.title}</strong>
+                          <small style={{ fontSize: 9.5, color: '#78716c' }}>{item.subtitle}</small>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMoodboardItems(prev => prev.filter(x => x.id !== item.id));
+                          }}
+                          style={{ border: 0, background: 'transparent', color: '#991b1b', cursor: 'pointer', padding: 2 }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {item.type === 'swatch' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%', color: '#1c1917' }}>
+                      <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', background: 'rgba(255,255,255,0.85)', padding: '2px 6px', borderRadius: 4, width: 'fit-content' }}>
+                        Material
+                      </span>
+                      <div style={{ marginTop: 24, background: 'rgba(255,255,255,0.88)', padding: '4px 6px', borderRadius: 6 }}>
+                        <strong style={{ display: 'block', fontSize: 11 }}>{item.title}</strong>
+                        <small style={{ fontSize: 9.5, color: '#57534e' }}>{item.subtitle}</small>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* TAB 3: STUDIO REFERENCES (ALL 60 PRODUCTION VAULT RENDERS) */}
+      {activeTab === 'templates' && (
+        <Card className="workflow">
+          {/* Quick Filter Category Chips */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>
+            {([
+              ['all', '✨ All References', 'all'],
+              ['living', '🛋️ Living & TV Walls', 'living'],
+              ['bedroom', '🛏️ Bedrooms & Wardrobes', 'bedroom'],
+              ['kitchen', '🍳 Kitchens', 'kitchen'],
+              ['dining', '🍽️ Dining & Bars', 'dining'],
+              ['bathroom', '🚿 Bathrooms & Vanity', 'bathroom'],
+              ['pooja', '🪔 Sacred Mandirs', 'pooja'],
+              ['study', '💼 Study & Desks', 'study'],
+              ['utility', '🧺 Utility & Laundry', 'utility'],
+            ] as const).map(([k, label, fRoom]) => {
+              const isActive = (vaultRoom === fRoom);
+              const chipCount = fRoom === 'all' ? CURATED_VAULT_REFERENCES.length : CURATED_VAULT_REFERENCES.filter(r => r.room === fRoom || r.family === fRoom).length;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setVaultRoom(isActive && fRoom !== 'all' ? 'all' : fRoom)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 999,
+                    border: isActive ? '1.5px solid var(--gold)' : '1px solid #d6d3d1',
+                    background: isActive ? 'rgba(197,156,45,0.12)' : '#fff',
+                    color: isActive ? 'var(--gold-dim)' : '#57534e',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                  }}
+                >
+                  {label}
+                  <span style={{ fontSize: 10, opacity: 0.7, background: isActive ? 'rgba(197,156,45,0.2)' : '#f3efe7', borderRadius: 99, padding: '1px 5px' }}>{chipCount}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <CardContent style={{ padding: 16 }}>
+            {(() => {
+              const filteredReferences = CURATED_VAULT_REFERENCES.filter((ref) => {
+                const matchRoom = vaultRoom === 'all' || ref.room === vaultRoom || ref.family === vaultRoom;
+                const matchQuery = !search || `${ref.title} ${ref.room} ${ref.family} ${ref.tags.join(' ')}`.toLowerCase().includes(search);
+                return matchRoom && matchQuery;
+              });
+
+              if (!filteredReferences.length) {
+                return emptyState('No studio references match your search.');
+              }
+
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+                  {filteredReferences.map((ref) => (
+                    <article
+                      key={ref.id}
+                      style={{
+                        background: '#fff',
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                        border: '1px solid #e7e5e4',
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div
+                        onClick={() => {
+                          setPreviewModalItem({
+                            image: ref.img,
+                            title: ref.title,
+                            family: ref.family,
+                            description: `Curated masterclass design reference for ${ref.room.toUpperCase()} - ${ref.tags.join(', ')}.`,
+                          });
+                        }}
+                        style={{ position: 'relative', height: 190, background: '#1c1917', cursor: 'pointer', overflow: 'hidden' }}
+                      >
+                        <img
+                          src={ref.img}
+                          alt={ref.title}
+                          loading="lazy"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease' }}
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                        <span
+                          style={{
+                            position: 'absolute',
+                            left: 10,
+                            bottom: 10,
+                            padding: '4px 8px',
+                            borderRadius: 999,
+                            background: 'rgba(0,0,0,0.75)',
+                            backdropFilter: 'blur(6px)',
+                            color: '#fff',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          {ref.room} · {ref.family}
+                        </span>
+                      </div>
+
+                      <div style={{ padding: '12px 14px 14px' }}>
+                        <strong style={{ display: 'block', fontSize: 13.5, color: '#1c1917', marginBottom: 4 }}>
+                          {ref.title}
+                        </strong>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
+                          {ref.tags.map((tag) => (
+                            <span key={tag} style={{ background: '#f5f5f4', color: '#78716c', padding: '2px 6px', borderRadius: 4, fontSize: 10 }}>
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewModalItem({
+                                image: ref.img,
+                                title: ref.title,
+                                family: ref.family,
+                                description: `Curated masterclass design reference for ${ref.room.toUpperCase()} - ${ref.tags.join(', ')}.`,
+                              });
+                            }}
+                            style={{
+                              border: 0,
+                              background: 'transparent',
+                              color: '#c59c2d',
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              padding: 0,
+                            }}
+                          >
+                            Inspect Full-Res ↗
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newItem: MoodboardItem = {
+                                id: `mb-${Date.now()}`,
+                                type: 'swatch',
+                                title: ref.title,
+                                subtitle: `${ref.room.toUpperCase()} Reference`,
+                                colorHex: '#c59c2d',
+                                x: 100 + Math.random() * 60,
+                                y: 100 + Math.random() * 60,
+                                width: 200,
+                                height: 120,
+                                zIndex: moodboardItems.length + 1,
+                              };
+                              setMoodboardItems((prev) => [...prev, newItem]);
+                              setActiveTab('moodboard');
+                            }}
+                            style={{
+                              border: '1px solid var(--gold)',
+                              background: 'rgba(197,156,45,0.1)',
+                              color: 'var(--gold-dim)',
+                              borderRadius: 6,
+                              padding: '4px 8px',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <Plus size={11} /> + To Board
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* TAB 4: PROJECT MATERIALS */}
+      {activeTab === 'materials' && (
+        <Card className="workflow">
+          {/* Quick Filter Category Chips for Materials */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>
+            {[
+              ['all', '✨ All', 'all'],
+              ['glossy', '💎 High-Gloss & Acrylic', 'glossy'],
+              ['matte', '🛡️ Super-Matte', 'matte'],
+              ['woodgrain', '🪵 Woodgrain & Fluted', 'woodgrain'],
+              ['countertop', '🏛️ Stone, Glass & Hardware', 'countertop'],
+              ['core_panel', '🪵 Base Ply & Core', 'core_panel'],
+            ].map(([k, label, fCat]) => {
+              const isActive = (materialCategory === fCat);
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setMaterialCategory(fCat)}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 999,
+                    border: isActive ? '1.5px solid var(--gold)' : '1px solid #d6d3d1',
+                    background: isActive ? 'rgba(197,156,45,0.12)' : '#fff',
+                    color: isActive ? 'var(--gold-dim)' : '#57534e',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
+          <CardHeader className="section-title">
+            <div>
+              <small>PALETTE, FINISHES &amp; SUBSTRATE SPECIFICATIONS</small>
+              <h3 style={{ margin: '4px 0 0', fontSize: 16 }}>Curated Materials Library &amp; Board Specifications</h3>
+              <p style={{ margin: '4px 0 0', fontSize: 12, color: '#78716c' }}>
+                Governed laminate finishes, high-density green core substrates, and certified architectural hardware.
+              </p>
+            </div>
+            <Badge tone="success">{visibleMaterials.length} materials curated</Badge>
+          </CardHeader>
+          <CardContent style={{ padding: 16 }}>
+            {(() => {
+              if (!visibleMaterials.length) {
+                return emptyState('No materials match your search or selected filter.');
+              }
+
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: 14 }}>
+                  {visibleMaterials.map((mat) => {
+                    const color = materialColour(mat);
+                    const isGloss = /gloss|acrylic|polygloss|mirror/i.test(`${mat.name} ${mat.finish}`);
+                    const isMatte = /matte|suede|zero-g|anti-fingerprint|soft-touch/i.test(`${mat.name} ${mat.finish}`);
+                    const isWood = /wood|oak|walnut|teak|birch|grain|veneer/i.test(`${mat.name} ${mat.finish}`);
+                    const isCore = /hdhmr|ply|plywood|marine|bwp|bwr|mdf/i.test(`${mat.name} ${mat.category}`);
+                    const isStone = /marble|travertine|porcelain|granite|sintered|terrazzo|slab/i.test(`${mat.name} ${mat.category}`);
+
+                    return (
+                      <article
+                        key={mat.id}
+                        style={{
+                          background: '#fff',
+                          borderRadius: 12,
+                          overflow: 'hidden',
+                          border: '1px solid #e7e5e4',
+                          padding: 14,
+                          boxShadow: '0 4px 14px rgba(0,0,0,0.05)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          position: 'relative',
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10 }}>
+                            <div
+                              style={{
+                                width: 50,
+                                height: 50,
+                                borderRadius: 10,
+                                background: color,
+                                border: '1.5px solid rgba(0,0,0,0.15)',
+                                flexShrink: 0,
+                                boxShadow: isGloss ? '0 4px 12px rgba(255,255,255,0.4), inset 0 2px 6px rgba(255,255,255,0.6)' : 'inset 0 1px 4px rgba(0,0,0,0.2)',
+                                position: 'relative',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {/* Gloss Sheen Reflection */}
+                              {isGloss && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    background: 'linear-gradient(135deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.1) 40%, transparent 60%)',
+                                    pointerEvents: 'none',
+                                  }}
+                                />
+                              )}
+                              {/* Wood Grain Lines */}
+                              {isWood && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    opacity: 0.25,
+                                    backgroundImage: 'repeating-linear-gradient(90deg, #000 0px, #000 1px, transparent 1px, transparent 6px)',
+                                    pointerEvents: 'none',
+                                  }}
+                                />
+                              )}
+                              {/* Core Board Green / Layer Stamp */}
+                              {isCore && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    bottom: 2,
+                                    right: 2,
+                                    fontSize: 8,
+                                    fontWeight: 900,
+                                    color: '#fff',
+                                    background: '#15803d',
+                                    padding: '1px 3px',
+                                    borderRadius: 3,
+                                  }}
+                                >
+                                  CORE
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <strong style={{ fontSize: 13, color: '#1c1917', display: 'block', lineHeight: 1.3 }}>{mat.name}</strong>
+                              <small style={{ fontSize: 10.5, color: '#78716c', fontFamily: 'monospace' }}>{mat.code}</small>
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: 11.5, color: '#57534e', marginBottom: 12, lineHeight: 1.4 }}>
+                            {materialSubtitle(mat)}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px solid #f5f5f4' }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '2px 6px', borderRadius: 4 }}>
+                            {mat.supplier ?? 'Certified'} • {mat.availability ?? 'In Stock'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newItem: MoodboardItem = {
+                                id: `mb-${Date.now()}`,
+                                type: 'swatch',
+                                title: mat.name,
+                                subtitle: mat.code,
+                                colorHex: color,
+                                x: 100 + Math.random() * 60,
+                                y: 100 + Math.random() * 60,
+                                width: 140,
+                                height: 100,
+                                zIndex: moodboardItems.length + 1,
+                              };
+                              setMoodboardItems((prev) => [...prev, newItem]);
+                              setActiveTab('moodboard');
+                            }}
+                            style={{
+                              border: '1px solid var(--gold)',
+                              background: 'rgba(197,156,45,0.1)',
+                              color: 'var(--gold-dim)',
+                              borderRadius: 6,
+                              padding: '4px 8px',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <Plus size={11} /> + To Board
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sleek Fixed Bottom Stage Progression Bar */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 90,
+          height: 54,
+          padding: '0 24px',
+          background: 'rgba(20, 18, 16, 0.94)',
+          backdropFilter: 'blur(16px)',
+          borderTop: '1px solid rgba(197, 156, 45, 0.3)',
+          boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 16,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#c59c2d', boxShadow: '0 0 8px #c59c2d' }} />
+          <div>
+            <strong style={{ color: '#fff', fontSize: 12.5, display: 'inline', marginRight: 8 }}>
+              Design Library &amp; Materials Vault
+            </strong>
+            <span style={{ color: '#a8a29e', fontSize: 11.5 }}>
+              • {visibleModules.length} Parametric Modules • {visibleMaterials.length} Curated Laminates &amp; Base Plies.
+            </span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => navigate(activeProjectId ? `/projects/${activeProjectId}/plan` : '/projects')}
+            style={{
+              background: '#2b2622',
+              color: '#e7e5e4',
+              border: '1px solid #44403c',
+              borderRadius: 7,
+              padding: '6px 14px',
+              fontWeight: 600,
+              fontSize: 12,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              height: 34,
+            }}
+          >
+            Back to Studio
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (activeProjectId) {
+                navigate(`/projects/${activeProjectId}/spaces`);
+              } else {
+                navigate('/projects');
+              }
+            }}
+            style={{
+              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+              color: '#1c1917',
+              border: 0,
+              borderRadius: 7,
+              padding: '6px 16px',
+              fontWeight: 800,
+              fontSize: 12.5,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              height: 34,
+              boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
+            }}
+          >
+            Open Configured Spaces <ArrowRight size={14} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

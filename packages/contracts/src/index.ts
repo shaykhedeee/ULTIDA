@@ -6,6 +6,13 @@ export const VisualProposalRequestSchema = z.object({
   sceneVersionId: z.string().uuid(),
   idempotencyKey: z.string().min(8).max(160).optional(),
   roomId: z.string().min(1),
+  // A material revision is never a freeform whole-room redraw. These identifiers
+  // bind the request to a scene module and its named component group so the
+  // renderer can select the exact deterministic mask generated from scene.v1.
+  targetModuleId: z.string().min(1).optional(),
+  targetComponentId: z.string().min(1).optional(),
+  targetMaterialId: z.string().min(1).optional(),
+  targetSemanticSlot: z.enum(['carcass', 'shutter', 'back_panel', 'countertop', 'profile', 'glass', 'hardware', 'flooring', 'wall', 'ceiling', 'lighting']).optional(),
   sourceAssets: z.array(z.string()).min(1),
   referenceAssets: z.array(z.string()).default([]),
   masks: z.array(z.string()).default([]),

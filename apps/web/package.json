@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.55.0",
     "@types/three": "^0.185.1",
     "@ultida/contracts": "^0.1.0",
+    "@ultida/catalog-core": "^0.1.0",
     "@ultida/scene-core": "^0.1.0",
     "lucide-react": "^0.468.0",
     "react": "^19.1.0",

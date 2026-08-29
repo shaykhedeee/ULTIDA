@@ -1,10 +1,11 @@
 import {
   FolderKanban, MapPin, Home, Calendar, User,
   Plus, X, ChevronRight, RefreshCw,
-  Building2, Clock, AlertCircle, Sparkles, CheckCircle2, ArrowUpRight
+  Building2, Clock, AlertCircle, Sparkles, CheckCircle2, ArrowUpRight,
+  Archive, ArchiveRestore
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import './projects.css';
 
@@ -176,6 +177,38 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
         </div>
 
         <form onSubmit={handleSubmit}>
+          {/* Quick-Start Templates */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>
+              ✨ Quick-Start Project Templates
+            </label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[
+                { name: 'Sharma Residence (3BHK)', client: 'Rohit & Ananya Sharma', loc: 'Pali Hill, Bandra West, Mumbai', type: 'apartment' },
+                { name: 'Skyline Penthouse (4BHK)', client: 'Dr. Sameer Roy', loc: 'Indiranagar, Bengaluru', type: 'penthouse' },
+                { name: 'Japandi Villa Minimalist', client: 'Ayesha Mehta', loc: 'Golf Links, New Delhi', type: 'villa' },
+              ].map((tmpl, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setForm({ name: tmpl.name, client_name: tmpl.client, location: tmpl.loc, property_type: tmpl.type })}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 6,
+                    border: '1px solid #e7e5e4',
+                    background: '#fafaf9',
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    color: '#44403c',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {tmpl.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="form-grid-2">
             <div className="form-field" style={{ gridColumn: '1 / -1' }}>
               <label>Project Name *</label>
@@ -230,12 +263,25 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
 }
 
 // ─── Project Card ─────────────────────────────────────────────────
-function ProjectCard({ project, index, onClick }: { project: Project; index: number; onClick: () => void }) {
+function ProjectCard({ project, index, onClick, onArchive }: { project: Project; index: number; onClick: () => void; onArchive: () => void }) {
   const stages = getStageStatuses(project.workflow_stage);
   const progress = getProgressPercent(project.workflow_stage);
 
   return (
-    <div className="project-card" onClick={onClick}>
+    <div
+      className="project-card"
+      role="link"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      aria-label={`Open ${project.name}`}
+    >
       {/* Thumbnail */}
       <div className="card-thumb" style={{ background: getThumbBg(index) }}>
         <div className="card-thumb-placeholder">
@@ -297,6 +343,10 @@ function ProjectCard({ project, index, onClick }: { project: Project; index: num
           <span>{timeAgo(project.updated_at)}</span>
         </div>
         <div className="card-footer-actions">
+          <button className={`card-action-btn archive${project.project_status === 'archived' ? ' restore' : ''}`} onClick={(e) => { e.stopPropagation(); onArchive(); }}>
+            {project.project_status === 'archived' ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+            {project.project_status === 'archived' ? 'Restore' : 'Trash'}
+          </button>
           <button className="card-action-btn primary" onClick={(e) => { e.stopPropagation(); onClick(); }}>
             Open <ChevronRight size={12} />
           </button>
@@ -346,7 +396,12 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showNew, setShowNew] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<Project | null>(null);
+  const [updatingProjectId, setUpdatingProjectId] = useState<string | null>(null);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const placingPreparedModule = searchParams.get('placeModule') === '1';
+  const attachingRoomDraft = searchParams.get('attachRoom') === '1';
 
   const load = useCallback(async () => {
     if (!supabase) { setError('Supabase is not configured.'); setLoading(false); return; }
@@ -385,19 +440,214 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
     }
   }, []);
 
+  const [loadingDemo, setLoadingDemo] = useState(false);
+
+  const handleLoadDemoProject = async () => {
+    setLoadingDemo(true);
+    setError('');
+    try {
+      if (!supabase) throw new Error('Supabase not configured');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not signed in');
+
+      const { data: membership } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .limit(1)
+        .single();
+
+      let organizationId = membership?.organization_id as string | undefined;
+      if (!organizationId) {
+        const { data: organization } = await supabase
+          .from('organizations')
+          .insert({ name: 'ULTIDA Studio', slug: `studio-${user.id.slice(0, 8)}`, created_by: user.id })
+          .select('id')
+          .single();
+        if (organization) {
+          await supabase.from('organization_members').insert({ organization_id: organization.id, user_id: user.id, role: 'owner' });
+          organizationId = organization.id;
+        }
+      }
+
+      // Check if Sharma project already exists
+      const { data: existing } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('name', 'Sharma Luxury Residence (3BHK)')
+        .limit(1)
+        .maybeSingle();
+
+      let demoProjectId = existing?.id;
+
+      if (!demoProjectId) {
+        demoProjectId = crypto.randomUUID();
+        const { error: insertErr } = await supabase.from('projects').insert({
+          id: demoProjectId,
+          organization_id: organizationId,
+          name: 'Sharma Luxury Residence (3BHK)',
+          client_name: 'Rohit & Ananya Sharma',
+          location: 'Pali Hill, Bandra West, Mumbai',
+          property_type: 'apartment',
+          created_by: user.id,
+          workflow_stage: 'plan',
+          project_status: 'draft',
+        });
+        if (insertErr) throw insertErr;
+      }
+
+      // Seed standard scene version if not exists
+      const { data: existingScene } = await supabase
+        .from('scene_versions')
+        .select('id')
+        .eq('project_id', demoProjectId)
+        .limit(1)
+        .maybeSingle();
+
+      if (!existingScene) {
+        const demoScenePayload = {
+          schema: 'scene.v1',
+          units: 'mm',
+          rooms: [
+            {
+              id: 'room-living',
+              name: 'Living & Dining Room',
+              boundary: [
+                { xMm: 0, yMm: 0 },
+                { xMm: 6300, yMm: 0 },
+                { xMm: 6300, yMm: 4800 },
+                { xMm: 0, yMm: 4800 },
+                { xMm: 0, yMm: 0 },
+              ],
+            },
+            {
+              id: 'room-master-bed',
+              name: 'Master Bedroom',
+              boundary: [
+                { xMm: 6600, yMm: 0 },
+                { xMm: 11400, yMm: 0 },
+                { xMm: 11400, yMm: 4800 },
+                { xMm: 6600, yMm: 4800 },
+                { xMm: 6600, yMm: 0 },
+              ],
+            },
+            {
+              id: 'room-kitchen',
+              name: 'Modular Kitchen',
+              boundary: [
+                { xMm: 0, yMm: 5100 },
+                { xMm: 4500, yMm: 5100 },
+                { xMm: 4500, yMm: 9000 },
+                { xMm: 0, yMm: 9000 },
+                { xMm: 0, yMm: 5100 },
+              ],
+            },
+          ],
+          walls: [
+            { id: 'w1', start: { xMm: 0, yMm: 0 }, end: { xMm: 6300, yMm: 0 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w2', start: { xMm: 0, yMm: 0 }, end: { xMm: 0, yMm: 4800 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w3', start: { xMm: 0, yMm: 4800 }, end: { xMm: 6300, yMm: 4800 }, thicknessMm: 150, heightMm: 2700 },
+            { id: 'w4', start: { xMm: 6300, yMm: 0 }, end: { xMm: 6300, yMm: 4800 }, thicknessMm: 150, heightMm: 2700 },
+            { id: 'w5', start: { xMm: 6600, yMm: 0 }, end: { xMm: 11400, yMm: 0 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w6', start: { xMm: 11400, yMm: 0 }, end: { xMm: 11400, yMm: 4800 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w7', start: { xMm: 6600, yMm: 4800 }, end: { xMm: 11400, yMm: 4800 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w8', start: { xMm: 0, yMm: 5100 }, end: { xMm: 0, yMm: 9000 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w9', start: { xMm: 0, yMm: 9000 }, end: { xMm: 4500, yMm: 9000 }, thicknessMm: 230, heightMm: 2700 },
+            { id: 'w10', start: { xMm: 4500, yMm: 5100 }, end: { xMm: 4500, yMm: 9000 }, thicknessMm: 150, heightMm: 2700 },
+          ],
+          openings: [
+            { id: 'op-1', wallId: 'w2', offsetMm: 1200, widthMm: 1050, heightMm: 2400, kind: 'door' },
+            { id: 'op-2', wallId: 'w1', offsetMm: 2400, widthMm: 1800, heightMm: 1800, sillHeightMm: 600, kind: 'window' },
+            { id: 'op-3', wallId: 'w6', offsetMm: 1500, widthMm: 1500, heightMm: 1500, sillHeightMm: 900, kind: 'window' },
+          ],
+          modules: [
+            { id: 'mod-kit-base-1', family: 'kitchen-base', widthMm: 2400, depthMm: 600, heightMm: 860, position: { xMm: 1200, yMm: 8700 }, rotationDeg: 0, materialId: 'mat-acrylic-pearl' },
+            { id: 'mod-wardrobe-1', family: 'wardrobe', widthMm: 2100, depthMm: 600, heightMm: 2400, position: { xMm: 9000, yMm: 300 }, rotationDeg: 0, materialId: 'mat-smoked-oak' },
+            { id: 'mod-bed-1', family: 'bed-king', widthMm: 1950, depthMm: 2100, heightMm: 1100, position: { xMm: 9000, yMm: 2600 }, rotationDeg: 0, materialId: 'mat-linen-warm' },
+            { id: 'mod-tv-1', family: 'tv-console', widthMm: 2400, depthMm: 400, heightMm: 450, position: { xMm: 3150, yMm: 300 }, rotationDeg: 0, materialId: 'mat-fluted-walnut' },
+          ],
+          moduleParts: [],
+          materials: [
+            { id: 'mat-acrylic-pearl', name: 'High-Gloss Pearl White Acrylic', code: 'LAM-HG-01', finish: 'High Gloss' },
+            { id: 'mat-smoked-oak', name: 'Smoked Crown Oak Veneer', code: 'LAM-WD-04', finish: 'Velvet Matte' },
+            { id: 'mat-linen-warm', name: 'Warm Beige Bouclé Upholstery', code: 'FAB-BC-01', finish: 'Fabric' },
+            { id: 'mat-fluted-walnut', name: 'Architectural Fluted Walnut Panel', code: 'FLT-WL-01', finish: 'Woodgrain' },
+          ],
+          cameras: [
+            { id: 'cam-1', name: 'Living Perspective', position: { xMm: 3150, yMm: 3000, zMm: 1600 }, target: { xMm: 3150, yMm: 0, zMm: 900 }, lensMm: 28 },
+          ],
+        };
+
+        try {
+          await supabase.from('scene_versions').insert({
+            id: crypto.randomUUID(),
+            project_id: demoProjectId,
+            version_number: 1,
+            status: 'approved',
+            scene: demoScenePayload,
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      navigate(`/projects/${demoProjectId}/plan`);
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to load demo project');
+    } finally {
+      setLoadingDemo(false);
+    }
+  };
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (searchParams.get('new') === '1') setShowNew(true); }, [searchParams]);
 
   const filtered = projects.filter((p) => {
     const matchSearch = !search ||
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.client_name.toLowerCase().includes(search.toLowerCase()) ||
       (p.location ?? '').toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === 'all' || p.project_status === statusFilter;
+    // Archived work is recoverable, but deliberately kept out of the active
+    // portfolio until the user chooses the Archived filter.
+    const matchStatus = statusFilter === 'all'
+      ? p.project_status !== 'archived'
+      : p.project_status === statusFilter;
     return matchSearch && matchStatus;
   });
 
   function openProject(project: Project) {
-    navigate(`/projects/${project.id}/brief`);
+    if (placingPreparedModule) {
+      navigate(`/projects/${project.id}/design?pendingModule=1`);
+      return;
+    }
+    if (attachingRoomDraft) {
+      navigate(`/projects/${project.id}/spaces?roomDraft=1`);
+      return;
+    }
+    if (project.project_status === 'archived') {
+      setArchiveTarget(project);
+      return;
+    }
+    const stage = STAGE_ORDER.includes(project.workflow_stage) ? project.workflow_stage : 'brief';
+    navigate(`/projects/${project.id}/${stage}`);
+  }
+
+  async function updateProjectArchive(project: Project) {
+    if (!supabase) { setError('Supabase is not configured.'); return; }
+    const nextStatus = project.project_status === 'archived' ? 'draft' : 'archived';
+    setUpdatingProjectId(project.id);
+    setError('');
+    try {
+      const { error: updateError } = await supabase.from('projects').update({ project_status: nextStatus }).eq('id', project.id);
+      if (updateError) throw updateError;
+      setProjects((current) => current.map((item) => item.id === project.id ? { ...item, project_status: nextStatus, updated_at: new Date().toISOString() } : item));
+      setArchiveTarget(null);
+      if (nextStatus === 'archived' && statusFilter !== 'archived') setStatusFilter('all');
+    } catch (updateError: any) {
+      setError(updateError?.message ?? 'Project status could not be updated.');
+    } finally {
+      setUpdatingProjectId(null);
+    }
   }
 
   return (
@@ -414,6 +664,27 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
           </div>
           <div className="page-header-actions">
             <button
+              onClick={handleLoadDemoProject}
+              disabled={loadingDemo}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 15px',
+                background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+                color: '#1c1917',
+                border: 0,
+                borderRadius: 8,
+                fontSize: 12.5,
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
+              }}
+              title="Instant 1-click launcher with pre-configured 3BHK Sharma Residence"
+            >
+              <Sparkles size={14} /> {loadingDemo ? 'Launching Demo…' : '✨ Launch Demo Project'}
+            </button>
+            <button
               onClick={load}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--surface)', fontSize: 13, cursor: 'pointer', color: 'var(--text-secondary)' }}
             >
@@ -427,6 +698,12 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
             </button>
           </div>
         </div>
+
+        {attachingRoomDraft && (
+          <div className="projects-room-draft-note" role="status">
+            <strong>Measured Room Builder draft ready.</strong> Choose a project to open Spaces. The draft remains editable and will never overwrite an approved plan automatically.
+          </div>
+        )}
 
         {/* Filter bar */}
         <div className="filter-bar">
@@ -472,17 +749,26 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
                   : 'Create your first project to start designing with AI-assisted modular interior design.'}
               </p>
               {!search && statusFilter === 'all' && (
-                <button
-                  onClick={() => setShowNew(true)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'var(--brown-mid)', color: '#fff', border: 0, borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 8 }}
-                >
-                  <Plus size={15} /> Create First Project
-                </button>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', marginTop: 12 }}>
+                  <button
+                    onClick={() => setShowNew(true)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'var(--brown-mid)', color: '#fff', border: 0, borderRadius: 8, fontSize: 13.5, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    <Plus size={15} /> Create Custom Project
+                  </button>
+                  <button
+                    onClick={handleLoadDemoProject}
+                    disabled={loadingDemo}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'linear-gradient(135deg, #c59c2d, #a88220)', color: '#1c1917', border: 0, borderRadius: 8, fontSize: 13.5, fontWeight: 800, cursor: 'pointer', boxShadow: '0 2px 8px rgba(197,156,45,0.3)' }}
+                  >
+                    <Sparkles size={15} /> {loadingDemo ? 'Preparing Demo Residence…' : '✨ Launch Sample 3BHK Residence'}
+                  </button>
+                </div>
               )}
             </div>
           ) : (
             filtered.map((p, i) => (
-              <ProjectCard key={p.id} project={p} index={i} onClick={() => openProject(p)} />
+              <ProjectCard key={p.id} project={p} index={i} onClick={() => openProject(p)} onArchive={() => setArchiveTarget(p)} />
             ))
           )}
         </div>
@@ -498,6 +784,14 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
           }}
         />
       )}
+
+      {archiveTarget && <div className="modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget && !updatingProjectId) setArchiveTarget(null); }}>
+        <section className="modal-card project-archive-dialog" role="dialog" aria-modal="true" aria-labelledby="project-archive-title">
+          <div className="modal-header"><div><small>{archiveTarget.project_status === 'archived' ? 'Restore project' : 'Move project to trash'}</small><h2 id="project-archive-title">{archiveTarget.project_status === 'archived' ? 'Restore this project?' : 'Archive this project?'}</h2></div><button className="modal-close" onClick={() => setArchiveTarget(null)} disabled={!!updatingProjectId}><X size={18} /></button></div>
+          <p className="project-archive-copy">{archiveTarget.project_status === 'archived' ? `${archiveTarget.name} will return to your active portfolio as a draft. Its history, files, scene versions and approvals remain intact.` : `${archiveTarget.name} will leave your active dashboard but remain recoverable from the Archived filter. No project files, plans, scene versions, renders, or production records will be deleted.`}</p>
+          <div className="project-archive-actions"><button type="button" className="btn-secondary" onClick={() => setArchiveTarget(null)} disabled={!!updatingProjectId}>Cancel</button><button type="button" className={archiveTarget.project_status === 'archived' ? 'btn-primary' : 'btn-danger'} onClick={() => void updateProjectArchive(archiveTarget)} disabled={!!updatingProjectId}>{updatingProjectId ? 'Saving…' : archiveTarget.project_status === 'archived' ? 'Restore project' : 'Move to trash'}</button></div>
+        </section>
+      </div>}
     </>
   );
 }

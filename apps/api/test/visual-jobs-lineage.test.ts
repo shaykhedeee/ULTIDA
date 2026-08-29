@@ -14,3 +14,12 @@ test('render input fingerprints change when a render contract changes', () => {
   assert.notEqual(first, second);
   assert.match(first, /^[a-f0-9]{64}$/);
 });
+
+test('a laminate revision fingerprint is unique to the selected module and component group', () => {
+  const base = { sceneVersionId: 'scene-1', roomId: 'room-living', operation: 'material-swap', targetMaterialId: 'laminate-sage' };
+  const shutters = renderInputFingerprint({ ...base, targetModuleId: 'module-tv-1', targetSemanticSlot: 'shutter' });
+  const carcass = renderInputFingerprint({ ...base, targetModuleId: 'module-tv-1', targetSemanticSlot: 'carcass' });
+  const otherModule = renderInputFingerprint({ ...base, targetModuleId: 'module-crockery-1', targetSemanticSlot: 'shutter' });
+  assert.notEqual(shutters, carcass);
+  assert.notEqual(shutters, otherModule);
+});

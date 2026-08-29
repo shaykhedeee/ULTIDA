@@ -56,7 +56,57 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* ═══════════════════════════════════════════════════
+   THEMED LUXURY SCROLLBARS
+   ═══════════════════════════════════════════════════ */
+
+/* Firefox standard */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(197, 156, 45, 0.45) transparent;
+}
+
+/* Chrome, Edge, Safari WebKit */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(197, 156, 45, 0.35);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(197, 156, 45, 0.75);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Dark mode / Sidebar scrollbars */
+aside::-webkit-scrollbar-thumb,
+.dark-panel::-webkit-scrollbar-thumb,
+[data-theme="dark"]::-webkit-scrollbar-thumb {
+  background: rgba(197, 156, 45, 0.4);
+}
+
+aside::-webkit-scrollbar-thumb:hover,
+.dark-panel::-webkit-scrollbar-thumb:hover,
+[data-theme="dark"]::-webkit-scrollbar-thumb:hover {
+  background: rgba(197, 156, 45, 0.85);
+}
+
 *, *::before, *::after { box-sizing: border-box; }
+html, body, #root { min-width: 0; max-width: 100%; overflow-x: clip; }
 body { margin: 0; }
 @keyframes ultida-spin { to { transform: rotate(360deg); } }
 .ultida-spinner { animation: ultida-spin 1s linear infinite; }
@@ -68,6 +118,7 @@ body { margin: 0; }
   grid-template-columns: 240px 1fr;
   transition: grid-template-columns .25s cubic-bezier(.4,0,.2,1);
 }
+.app-shell > * { min-width: 0; }
 
 .nav-collapsed { grid-template-columns: 68px 1fr; }
 
@@ -205,7 +256,8 @@ nav button span { font-size: 10px; color: #3e4259; font-weight: 700; flex-shrink
 /* ─── Main Content ──────────────────────────────── */
 main {
   padding: 28px 36px;
-  overflow: auto;
+  overflow-x: clip;
+  overflow-y: auto;
   min-width: 0;
   background: var(--bg);
 }
@@ -269,6 +321,26 @@ h2 {
 h3 { margin: 4px 0; font-size: 16px; color: var(--text-primary); }
 p { color: var(--text-secondary); line-height: 1.55; margin: 6px 0; font-size: 14px; }
 .lede { font-size: 13px; color: var(--text-muted); }
+
+/* Dark container typography override for high-contrast luxury UI */
+.studio-hero h1,
+.aura-hero h1,
+.dark-hero h1,
+.hero-card h1,
+[style*="background: #1c1917"] h1,
+[style*="background: #1c1917"] h2,
+[style*="background: linear-gradient"] h1,
+[style*="background: linear-gradient(135deg, #1c1917"] h1,
+[style*="background: linear-gradient(135deg, #1c1917"] h2 {
+  color: #fffdf9 !important;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+
+.studio-hero p:not(.studio-kicker),
+.aura-hero span,
+.dark-hero p {
+  color: rgba(255, 253, 249, 0.88) !important;
+}
 
 /* ─── Cards ─────────────────────────────────────── */
 .card {

@@ -4,6 +4,7 @@ import { compileRenderBrief } from '@ultida/agent-core';
 import type { VisualProposalRequest } from '@ultida/contracts';
 import { renderScenePerspectiveArtifacts, type BaseRenderArtifacts } from '@ultida/render-pipeline';
 import { SceneV1Schema } from '@ultida/scene-core';
+import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord } from './reference-retrieval.js';
 
 type Gateway = {
   createVisualProposal(request: VisualProposalRequest): Promise<any>;
@@ -135,7 +136,7 @@ async function persistTechnicalArtifacts(
   };
 }
 
-async function storeImage(client: SupabaseClient, context: { organizationId: string; projectId: string; sceneVersionId: string; actorId?: string; jobId?: string; technicalArtifacts?: Record<string, unknown>; inputFingerprint?: string }, result: any, prompt: Record<string, unknown>) {
+async function storeImage(client: SupabaseClient, context: { organizationId: string; projectId: string; sceneVersionId: string; actorId?: string; jobId?: string; technicalArtifacts?: Record<string, unknown>; inputFingerprint?: string; revision?: Record<string, unknown> }, result: any, prompt: Record<string, unknown>) {
   let bytes: Buffer;
   let mimeType = 'image/png';
   if (result.image?.encoding === 'base64') {
@@ -160,7 +161,8 @@ async function storeImage(client: SupabaseClient, context: { organizationId: str
     sourceSceneVersionId: context.sceneVersionId,
     inputFingerprint: context.inputFingerprint,
     schemaVersion: 'render-artifact.v1',
-    lockedElements: ['wall positions', 'door positions', 'window positions', 'ceiling height', 'camera pose'],
+    lockedElements: ['room shell', 'wall positions', 'door positions', 'window positions', 'ceiling height', 'camera pose', 'module bounds', 'shutter count'],
+    materialRevision: context.revision ?? null,
     prompt,
     technicalArtifacts: context.technicalArtifacts,
     synthetic: false,
@@ -188,9 +190,38 @@ async function jobContext(client: SupabaseClient, request: VisualProposalRequest
   if (project.error || !project.data) throw new Error('Project context was not found.');
   const sceneRow = await client.from('scene_versions').select('id,project_id,status,scene').eq('id', request.sceneVersionId).eq('project_id', request.projectId).single();
   if (sceneRow.error || !sceneRow.data) throw new Error('Scene context was not found.');
-  if (!['approved', 'locked'].includes(String(sceneRow.data.status))) throw new Error('Only approved or locked scenes can generate production-linked visuals.');
+  if (!['approved', 'locked', 'draft'].includes(String(sceneRow.data.status))) throw new Error('Only approved, locked or active draft scenes can generate visuals.');
   const scene = SceneV1Schema.parse(sceneRow.data.scene);
   return { project: project.data, scene };
+}
+
+async function renderReferenceGuidance(
+  client: SupabaseClient,
+  organizationId: string,
+  scene: import('@ultida/scene-core').SceneV1,
+  roomId: string,
+  style: string,
+) {
+  const room = scene.rooms.find((candidate) => candidate.id === roomId || candidate.type === roomId);
+  const roomModules = scene.modules.filter((module) => module.roomId === roomId || module.roomId === room?.id);
+  const moduleFamily = roomModules.length === 1 ? roomModules[0].family : undefined;
+  const result = await client.from('reference_vault_entries')
+    .select('id,title,source_path,room,module_family,style,material_tags,viewpoint,review_state,metadata')
+    .eq('organization_id', organizationId)
+    .eq('review_state', 'approved')
+    .limit(180);
+  if (result.error) return { prompt: '', ids: [] as string[] };
+  const references = retrieveReferences((result.data ?? []) as ReferenceVaultRecord[], {
+    text: `${style} ${room?.name ?? ''} ${roomModules.map((module) => module.family).join(' ')}`,
+    room: room?.type,
+    moduleFamily,
+    limit: 6,
+  });
+  const context = compileReferenceContext(references);
+  return {
+    prompt: references.length ? `\nStudio reference guidance (visual only; never override scene geometry):\n${context.summary}\n${context.rules.join(' ')}` : '',
+    ids: references.map((reference) => reference.id),
+  };
 }
 
 export async function createVisualJob(environment: Record<string, string | undefined>, gateway: Gateway, request: VisualProposalRequest, actorId?: string, clientOverride?: SupabaseClient) {
@@ -218,8 +249,16 @@ export async function createVisualJob(environment: Record<string, string | undef
   try {
     const context = preflight ?? await jobContext(client, request);
     const brief = compileRenderBrief({ scene: context.scene, sceneVersionId: request.sceneVersionId, roomId: request.roomId, style: request.style, quality: request.quality, camera: request.camera });
-    const normalizedRequest: VisualProposalRequest = { ...request, roomId: brief.roomId, structuredPrompt: brief.positivePrompt, negativePrompt: brief.negativePrompt, promptVersion: brief.version };
-    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, style: brief.style, quality: brief.quality, camera: request.camera, references: request.referenceAssets, structuredPrompt: brief.positivePrompt, negativePrompt: brief.negativePrompt, promptVersion: brief.version });
+    const referenceGuidance = await renderReferenceGuidance(client, context.project.organization_id, context.scene, brief.roomId, brief.style);
+    const materialSwapInstruction = request.operation === 'material-swap'
+      ? `\nMATERIAL REVISION LOCK: edit only the pixels inside the supplied mask for module ${request.targetModuleId} (${request.targetSemanticSlot ?? 'selected finish'}). Apply material ${request.targetMaterialId ?? 'selected by the studio'}. Do not alter any pixels outside that mask. Preserve the room shell, openings, ceiling, camera, module footprint, shutter count, hardware, lighting, and every unaffected finish.`
+      : '';
+    const structuredPrompt = `${brief.positivePrompt}${referenceGuidance.prompt}${materialSwapInstruction}`;
+    const negativePrompt = request.operation === 'material-swap'
+      ? `${brief.negativePrompt}, changed architecture, moved door, moved window, changed room proportions, changed ceiling, changed camera, changed module layout, changed shutters, changed hardware, changed lighting, change outside selected mask`
+      : brief.negativePrompt;
+    const normalizedRequest: VisualProposalRequest = { ...request, roomId: brief.roomId, structuredPrompt, negativePrompt, promptVersion: brief.version };
+    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, style: brief.style, quality: brief.quality, camera: request.camera, references: referenceGuidance.ids, structuredPrompt, negativePrompt, promptVersion: brief.version });
     const idempotencyKey = request.idempotencyKey ?? `render:${inputFingerprint}`;
     
     const job = await client.from('jobs').insert({ organization_id: context.project.organization_id, project_id: request.projectId, kind: 'visual_proposal', status: 'queued', idempotency_key: idempotencyKey, input: { ...normalizedRequest, renderBrief: brief }, output: { reviewStatus: 'pending' }, attempts: 1, created_by: actorId ?? null }).select('id').single();
@@ -240,26 +279,35 @@ export async function createVisualJob(environment: Record<string, string | undef
       jobId: job.data.id,
       actorId,
     }, baseArtifacts);
+    const selectedObjectMask = request.operation === 'material-swap'
+      ? baseArtifacts.objectMasks.find((mask) => mask.id === request.targetModuleId)
+      : undefined;
+    if (request.operation === 'material-swap' && !selectedObjectMask) {
+      await client.from('jobs').update({ status: 'failed', error: 'The selected module has no deterministic scene mask. Recompile the scene before requesting a laminate revision.' }).eq('id', job.data.id);
+      return { status: 'failed' as const, jobId: job.data.id, code: 'RENDER_TARGET_MASK_UNAVAILABLE', message: 'The selected module has no deterministic scene mask. Recompile the scene before requesting a laminate revision.', retryable: false };
+    }
     const providerRequest: VisualProposalRequest = {
       ...normalizedRequest,
       sourceAssets: [baseArtifacts.rgb.url],
-      masks: [baseArtifacts.edgeMap.url, ...baseArtifacts.objectMasks.map((mask) => mask.url), ...baseArtifacts.materialRegions.map((mask) => mask.url)],
+      masks: request.operation === 'material-swap'
+        ? [baseArtifacts.edgeMap.url, selectedObjectMask!.url]
+        : [baseArtifacts.edgeMap.url, ...baseArtifacts.objectMasks.map((mask) => mask.url), ...baseArtifacts.materialRegions.map((mask) => mask.url)],
       conditioningMaps: {
         depthMapUrl: baseArtifacts.depth.url,
         cannyEdgeMapUrl: baseArtifacts.edgeMap.url,
         materialKeyMapUrl: baseArtifacts.materialRegions[0]?.url,
-        objectMaskUrl: baseArtifacts.objectMasks[0]?.url,
+        objectMaskUrl: selectedObjectMask?.url ?? baseArtifacts.objectMasks[0]?.url,
       },
-      // A studio-local ComfyUI workflow may provide the strongest geometry locks.
-      // LocalAI is an optional self-hosted new-render path; Cloudflare FLUX.2
-      // remains the hosted fallback and handles locked visual revisions.
-      providerPreference: ['comfyui', 'localai', 'cloudflare'],
+      // Cloudflare FLUX.2 is the only automatic hosted path for both draft
+      // generation and geometry-locked material revisions. A studio-local
+      // provider must be deliberately selected by a future explicit control.
+      providerPreference: ['cloudflare'],
     };
     await client.from('jobs').update({
       status: 'running',
       started_at: new Date().toISOString(),
-      input: { ...providerRequest, renderBrief: brief, technicalArtifacts },
-      output: { reviewStatus: 'pending', technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint },
+      input: { ...providerRequest, renderBrief: brief, technicalArtifacts, referenceIds: referenceGuidance.ids },
+      output: { reviewStatus: 'pending', technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, referenceIds: referenceGuidance.ids, materialRevision: request.operation === 'material-swap' ? { targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, maskId: selectedObjectMask?.id } : null },
     }).eq('id', job.data.id);
     const result = await gateway.createVisualProposal(providerRequest);
 
@@ -274,7 +322,7 @@ export async function createVisualJob(environment: Record<string, string | undef
     }
     
     if (result.status === 'succeeded') {
-      const stored = await storeImage(client, { organizationId: context.project.organization_id, projectId: request.projectId, sceneVersionId: request.sceneVersionId, actorId, jobId: job.data.id, technicalArtifacts, inputFingerprint }, result, brief);
+      const stored = await storeImage(client, { organizationId: context.project.organization_id, projectId: request.projectId, sceneVersionId: request.sceneVersionId, actorId, jobId: job.data.id, technicalArtifacts, inputFingerprint, revision: request.operation === 'material-swap' ? { targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, maskId: selectedObjectMask?.id } : undefined }, result, brief);
       const output = { ...result, ...stored, promptVersion: brief.version, technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, renderStatus: 'completed_with_warnings' };
       await client.from('jobs').update({ status: 'succeeded', output }).eq('id', job.data.id);
       return { status: 'succeeded' as const, jobId: job.data.id, ...output };
@@ -327,6 +375,12 @@ export async function getVisualJob(environment: Record<string, string | undefine
           jobId,
           technicalArtifacts: job.data.output?.technicalArtifacts,
           inputFingerprint: job.data.output?.inputFingerprint,
+          revision: job.data.input?.operation === 'material-swap' ? {
+            targetModuleId: job.data.input?.targetModuleId,
+            targetComponentId: job.data.input?.targetComponentId,
+            targetMaterialId: job.data.input?.targetMaterialId,
+            targetSemanticSlot: job.data.input?.targetSemanticSlot,
+          } : undefined,
         }, { ...job.data.output, ...polled }, job.data.input?.renderBrief ?? {});
         const output = { ...job.data.output, ...polled, ...stored, renderStatus: 'completed_with_warnings' };
         await client.from('jobs').update({ status: 'succeeded', output }).eq('id', jobId);

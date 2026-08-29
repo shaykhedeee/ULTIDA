@@ -10,32 +10,42 @@
  * and reached through routes.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { X, Plus, ChevronRight } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
+import { getApiBase } from './lib/api-base';
 import { Shell, DEFAULT_WORKFLOW_STAGES, type WorkflowStageConfig } from './Shell';
-import { ProjectDashboard } from './features/projects/ProjectDashboard';
-import { StudioDashboard } from './features/dashboard/StudioDashboard';
-import { CncPatternStudio } from './features/tools/CncPatternStudio';
-import { ModularUnitPlanner } from './features/tools/ModularUnitPlanner';
-import { StudioOperations } from './features/tools/StudioOperations';
-import { AuraChat } from './features/tools/AuraChat';
+const ProjectDashboard = lazy(() => import('./features/projects/ProjectDashboard').then((module) => ({ default: module.ProjectDashboard })));
+const StudioDashboard = lazy(() => import('./features/dashboard/StudioDashboard').then((module) => ({ default: module.StudioDashboard })));
+const CncPatternStudio = lazy(() => import('./features/tools/CncPatternStudio').then((module) => ({ default: module.CncPatternStudio })));
+const ModularUnitPlanner = lazy(() => import('./features/tools/ModularUnitPlanner').then((module) => ({ default: module.ModularUnitPlanner })));
+const StudioOperations = lazy(() => import('./features/tools/StudioOperations').then((module) => ({ default: module.StudioOperations })));
+const AuraChat = lazy(() => import('./features/tools/AuraChat').then((module) => ({ default: module.AuraChat })));
+const RenderLauncher = lazy(() => import('./features/tools/RenderLauncher').then((module) => ({ default: module.RenderLauncher })));
+const MeasurementConverter = lazy(() => import('./features/tools/MeasurementConverter').then((module) => ({ default: module.MeasurementConverter })));
+const RoomBuilder = lazy(() => import('./features/tools/RoomBuilder').then((module) => ({ default: module.RoomBuilder })));
+const SketchupCodeStudio = lazy(() => import('./features/tools/SketchupCodeStudio').then((module) => ({ default: module.SketchupCodeStudio })));
 
 // Existing feature components — preserved
-import { BriefWorkspace, type ClientBrief, emptyBrief } from './components/brief/BriefWorkspace';
-import { PlanReviewWorkspace } from './components/plan/PlanReviewWorkspace';
-import { LayoutConfigWorkspace, type LayoutConfig } from './components/layout/LayoutConfigWorkspace';
+import { type ClientBrief, emptyBrief } from './features/project-types';
+import { type LayoutConfig } from './components/layout/LayoutConfigWorkspace';
 import type { LayoutCandidate } from '@ultida/layout-core';
-import { DesignFlowWorkspace } from './components/design/DesignFlowWorkspace';
-import { CommercialWorkspace } from './components/commercial/CommercialWorkspace';
-import { DeliveryWorkspace } from './components/delivery/DeliveryWorkspace';
-import { ReferenceLibraryWorkspace } from './components/library/ReferenceLibraryWorkspace';
-import { SpacesWorkspace } from './features/spaces/SpacesWorkspace';
-import { SceneStudio } from './features/scene/SceneStudio';
-import { DesignWorkspace } from './features/design/DesignWorkspace';
-import { ProductionWorkspace } from './features/production/ProductionWorkspace';
-import { TeamWorkspace, RulesWorkspace, SettingsWorkspace } from './features/studio/StudioAdminScreens';
+const BriefWorkspace = lazy(() => import('./components/brief/BriefWorkspace').then((module) => ({ default: module.BriefWorkspace })));
+const PlanReviewWorkspace = lazy(() => import('./components/plan/PlanReviewWorkspace').then((module) => ({ default: module.PlanReviewWorkspace })));
+const LayoutConfigWorkspace = lazy(() => import('./components/layout/LayoutConfigWorkspace').then((module) => ({ default: module.LayoutConfigWorkspace })));
+const DesignFlowWorkspace = lazy(() => import('./components/design/DesignFlowWorkspace').then((module) => ({ default: module.DesignFlowWorkspace })));
+const CommercialWorkspace = lazy(() => import('./components/commercial/CommercialWorkspace').then((module) => ({ default: module.CommercialWorkspace })));
+const DeliveryWorkspace = lazy(() => import('./components/delivery/DeliveryWorkspace').then((module) => ({ default: module.DeliveryWorkspace })));
+const ReferenceLibraryWorkspace = lazy(() => import('./components/library/ReferenceLibraryWorkspace').then((module) => ({ default: module.ReferenceLibraryWorkspace })));
+const SpacesWorkspace = lazy(() => import('./features/spaces/SpacesWorkspace').then((module) => ({ default: module.SpacesWorkspace })));
+const RoomDesignStudio = lazy(() => import('./features/room-design/RoomDesignStudio').then((module) => ({ default: module.RoomDesignStudio })));
+const SceneStudio = lazy(() => import('./features/scene/SceneStudio').then((module) => ({ default: module.SceneStudio })));
+const VisualizeStudio = lazy(() => import('./features/visualize/VisualizeStudio').then((module) => ({ default: module.VisualizeStudio })));
+const ProductionWorkspace = lazy(() => import('./features/production/ProductionWorkspace').then((module) => ({ default: module.ProductionWorkspace })));
+const TeamWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.TeamWorkspace })));
+const RulesWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.RulesWorkspace })));
+const SettingsWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.SettingsWorkspace })));
 
 import './intake.css';
 
@@ -45,6 +55,49 @@ const localDemoMode = false;
 
 // ─── Types ────────────────────────────────────────────────────────
 type ProviderStatus = { id: string; configured: boolean; operations: string[] };
+type LayoutRoomContext = {
+  id: string;
+  name: string;
+  roomType: import('./components/layout/LayoutConfigWorkspace').RoomCategory;
+  ceilingHeightMm?: number;
+  requirements: Record<string, unknown>;
+  dimensions: { lengthMm: number; widthMm: number; heightMm: number } | null;
+};
+
+function toLayoutRoomCategory(roomType: unknown): import('./components/layout/LayoutConfigWorkspace').RoomCategory {
+  const normalized = String(roomType ?? '').toLowerCase();
+  if (normalized === 'kitchen') return 'kitchen';
+  if (normalized === 'living') return 'living';
+  if (normalized === 'dining' || normalized === 'dining_room') return 'dining';
+  if (normalized === 'study' || normalized === 'office') return 'study';
+  if (normalized === 'pooja' || normalized === 'prayer') return 'pooja';
+  if (normalized === 'utility' || normalized === 'laundry') return 'utility';
+  if (normalized === 'foyer' || normalized === 'entry') return 'foyer';
+  if (normalized === 'bathroom' || normalized === 'toilet' || normalized === 'washroom') return 'bathroom';
+  if (normalized === 'tv_unit' || normalized === 'tv unit' || normalized === 'entertainment') return 'tv_unit';
+  if (normalized === 'wardrobe' || normalized === 'storage') return 'wardrobe';
+  if (normalized === 'bedroom' || normalized === 'master_bedroom' || normalized === 'kids_bedroom') return 'bedroom';
+  return 'other';
+}
+
+function inferLayoutCategory(roomType: unknown, requirements: Record<string, unknown>): LayoutRoomContext['roomType'] {
+  const direct = toLayoutRoomCategory(roomType);
+  if (direct !== 'other') return direct;
+  const furniture = Array.isArray(requirements.requiredFurniture) ? requirements.requiredFurniture.map(String) : [];
+  if (furniture.some((item) => item.includes('wardrobe'))) return 'wardrobe';
+  if (furniture.some((item) => item.includes('tv_unit'))) return 'tv_unit';
+  return direct;
+}
+
+function roomDimensionsFromPolygon(polygon: unknown, ceilingHeightMm?: number) {
+  if (!Array.isArray(polygon)) return null;
+  const points = polygon.map((point: any) => ({ x: Number(point?.xMm ?? point?.x), y: Number(point?.yMm ?? point?.y) })).filter((point: { x: number; y: number }) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  if (points.length < 3) return null;
+  const lengthMm = Math.round(Math.max(...points.map(point => point.x)) - Math.min(...points.map(point => point.x)));
+  const widthMm = Math.round(Math.max(...points.map(point => point.y)) - Math.min(...points.map(point => point.y)));
+  if (lengthMm <= 0 || widthMm <= 0) return null;
+  return { lengthMm, widthMm, heightMm: Math.round(ceilingHeightMm ?? 2700) };
+}
 
 // ─── Auth / Sign-in screen ────────────────────────────────────────
 function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
@@ -279,10 +332,10 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [planStatus, setPlanStatus] = useState('No plan uploaded');
   const [planAnalysed, setPlanAnalysed] = useState(false);
   const [planProposals, setPlanProposals] = useState<any[]>([]);
+  const [analysisGuides, setAnalysisGuides] = useState<Array<{ id: string; label: string; x: number; y: number; width: number; height: number }>>([]);
   const [planAnalysisIssues, setPlanAnalysisIssues] = useState<Array<{ code: string; severity: 'warning' | 'critical'; entityId?: string; message: string }>>([]);
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
   const [analysisRetryAvailable, setAnalysisRetryAvailable] = useState(false);
-  const analysisAutoRetryRef = useRef<string | null>(null);
   const [analysisRefreshNonce, setAnalysisRefreshNonce] = useState(0);
   const [planApproved, setPlanApproved] = useState(false);
   const [sourceAssetId, setSourceAssetId] = useState<string | null>(null);
@@ -296,12 +349,13 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [sceneModules, setSceneModules] = useState<any[]>([]);
   const [sceneMaterials, setSceneMaterials] = useState<any[]>([]);
   const [sceneApproved, setSceneApproved] = useState(false);
+  const [layoutApproved, setLayoutApproved] = useState(false);
 
   // Brief & layout
   const [brief, setBrief] = useState<ClientBrief>(emptyBrief);
   const [briefSaved, setBriefSaved] = useState(false);
   const [layoutConfig, setLayoutConfig] = useState<LayoutConfig | null>(null);
-  const [layoutRooms, setLayoutRooms] = useState<Array<{ id: string; name: string; roomType: import('./components/layout/LayoutConfigWorkspace').RoomCategory; ceilingHeightMm?: number }>>([]);
+  const [layoutRooms, setLayoutRooms] = useState<LayoutRoomContext[]>([]);
   const [selectedLayoutSpaceId, setSelectedLayoutSpaceId] = useState<string | null>(null);
 
   // Provider status
@@ -382,7 +436,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void (async () => {
       const accessToken = await getValidToken();
       if (!accessToken) return;
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/plan-draft`, { headers: { Authorization: `Bearer ${accessToken}` } });
       const payload = await response.json().catch(() => null);
       if (!cancelled && response.ok && payload?.draft) setDemoSnapshot(payload.draft);
@@ -405,7 +459,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (!supabase) return;
     const accessToken = await getValidToken();
     if (!accessToken) return;
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     // Persist the editable review draft produced by the real pipeline.
     await fetch(`${apiBase}/projects/${projectId}/plan-analysis/draft`, {
       method: 'PUT',
@@ -420,7 +474,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void (async () => {
       const accessToken = await getValidToken();
       if (!accessToken) return;
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/brief`, { headers: { Authorization: `Bearer ${accessToken}` } });
       const payload = await response.json().catch(() => null);
       if (cancelled || !response.ok || !payload?.brief) return;
@@ -437,7 +491,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void (async () => {
       const accessToken = await getValidToken();
       if (!accessToken) return;
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/plan-analysis/draft`, { headers: { Authorization: `Bearer ${accessToken}` } });
       const payload = await response.json().catch(() => null);
       if (cancelled || !response.ok || !payload?.draft) return;
@@ -446,7 +500,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         setPlanProposals(d.elements);
         setPlanAnalysisIssues(Array.isArray(d.issues) ? d.issues.map((i: any) => ({ code: i.id, severity: 'warning', message: i.question })) : []);
         setPlanAnalysed(true);
-        if (d.analysisId) setAnalysisJobId(d.analysisId);
+        if (d.analysisId ?? d.analysis_uuid) setAnalysisJobId(d.analysisId ?? d.analysis_uuid);
       }
     })();
     return () => { cancelled = true; };
@@ -460,7 +514,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void (async () => {
       const [planResult, sceneResult] = await Promise.all([
         supabase.from('floor_plan_versions').select('id,source_asset_id,interpretation,canonical_model,status,review_status,created_at').eq('project_id', projectId).eq('status', 'approved').order('created_at', { ascending: false }).limit(1).maybeSingle(),
-        supabase.from('scene_versions').select('id,version_number,status,scene,created_at').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+        supabase.from('scene_versions').select('id,version_number,status,scene,created_at').eq('project_id', projectId).order('created_at', { ascending: false }).limit(12)
       ]);
       if (cancelled) return;
       const plan = planResult.data;
@@ -473,14 +527,18 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         setPlanApproved(false);
         setPlanStatus('This older plan approval has no immutable source file. Upload and analyse the plan again before creating a scene.');
       }
-      const sceneRow = sceneResult.data;
-      if (sceneRow?.scene && ['approved', 'locked'].includes(String(sceneRow.status))) {
+      // Rendering must prefer the newest approved scene. A newer draft is
+      // reviewable in Scene Studio but cannot displace the approved render source.
+      const sceneRows = Array.isArray(sceneResult.data) ? sceneResult.data : [];
+      const sceneRow = sceneRows.find((row) => ['approved', 'locked'].includes(String(row.status)))
+        ?? sceneRows.find((row) => row.status === 'draft');
+      if (sceneRow?.scene && ['draft', 'approved', 'locked'].includes(String(sceneRow.status))) {
         const storedScene = sceneRow.scene as { modules?: Array<any>; materials?: Array<any> };
         setSceneVersionId(sceneRow.id);
         setSceneVersionNumber(Number(sceneRow.version_number ?? 1));
         setSceneModules((storedScene.modules ?? []).map((module) => ({ ...module, label: module.label ?? module.family })));
         setSceneMaterials(storedScene.materials ?? []);
-        setSceneApproved(true);
+        setSceneApproved(['approved', 'locked'].includes(String(sceneRow.status)));
       }
     })();
     return () => { cancelled = true; };
@@ -488,7 +546,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
 
   // Provider status
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api'}/providers`)
+    fetch(`${getApiBase()}/providers`)
       .then((r) => r.json())
       .then((p) => setProviderStatuses(Array.isArray(p.providers) ? p.providers : []))
       .catch(() => setProviderStatuses([]));
@@ -498,7 +556,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [serverStages, setServerStages] = useState<Record<string, boolean> | null>(null);
   const fetchProjectStatus = async () => {
     if (!projectId) return;
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     try {
       const token = await getValidToken();
       if (!token) return;
@@ -539,7 +597,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     let stopped = false;
     const poll = async () => {
       try {
-        const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+        const apiBase = getApiBase();
         const token = supabase ? (await getValidToken() ?? '') : '';
         const response = await fetch(`${apiBase}/plan/analyze/${analysisJobId}?projectId=${encodeURIComponent(projectId)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         const payload = await response.json();
@@ -553,20 +611,43 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         } else if (payload.status === 'failed') {
           setPlanStatus(payload.error?.message ?? 'Provider analysis failed. No geometry was generated.');
           setAnalysisJobId(null);
-        } else {
-          const queuedForMs = payload.createdAt ? Date.now() - new Date(payload.createdAt).getTime() : 0;
-          if ((payload.status === 'queued' && queuedForMs > 45_000) || (payload.status === 'running' && queuedForMs > 150_000)) {
-            if (analysisAutoRetryRef.current !== analysisJobId) {
-              analysisAutoRetryRef.current = analysisJobId;
-              setPlanStatus('Reconnecting the analysis worker…');
-              void retryPlanAnalysis();
+          } else {
+            // `updatedAt` is a server-owned heartbeat. Use it so a live job is
+            // never retried simply because the original claim is old.
+            const activityAt = payload.updatedAt ?? (payload.status === 'running' ? payload.processingAt : payload.queuedAt);
+            const stateAgeMs = activityAt ? Date.now() - new Date(activityAt).getTime() : 0;
+            const deadlineMs = payload.deadlineAt ? new Date(payload.deadlineAt).getTime() : Number.NaN;
+            const exhausted = Number.isFinite(Number(payload.attempts)) && Number.isFinite(Number(payload.maxAttempts)) && Number(payload.attempts) >= Number(payload.maxAttempts);
+            const deadlineReached = Number.isFinite(deadlineMs) && Date.now() >= deadlineMs;
+            if (deadlineReached || exhausted || (payload.status === 'queued' && stateAgeMs > 45_000) || (payload.status === 'running' && stateAgeMs > 150_000)) {
+              // The queue processor exclusively owns retries. Re-dispatching
+              // from a polling browser caused concurrent duplicate analysis jobs
+              // and made a slow provider path look permanently stuck.
+              setAnalysisRetryAvailable(true);
+              setPlanStatus(deadlineReached
+                ? 'Analysis exceeded its safe processing deadline. No geometry was marked complete; use Retry analysis to start a bounded attempt.'
+                : 'The analysis worker has not reported progress. It will reach a safe terminal state; you can then use Retry analysis for this exact source file.');
               return;
             }
-            setAnalysisRetryAvailable(true);
-            setPlanStatus('The analysis worker did not return a result. Use Retry analysis to re-dispatch this exact source file.');
-            return;
-          }
-          setPlanStatus(payload.recovery ?? `Analysis ${payload.status ?? 'processing'}...`);
+          const labels: Record<string, string> = { queued: 'queued', running: 'analysing', processing: 'analysing', review_required: 'ready for review' };
+          const progressStage = typeof payload.progressStage === 'string'
+            ? payload.progressStage
+            : (typeof payload.analysis?.progress?.stage === 'string' ? payload.analysis.progress.stage : '');
+          const progressMessage = typeof payload.progressMessage === 'string'
+            ? payload.progressMessage
+            : (typeof payload.analysis?.progress?.message === 'string' ? payload.analysis.progress.message : '');
+          const progressLabels: Record<string, string> = {
+            queued: 'Queued securely...',
+            preprocessing: 'Preparing the source...',
+            tracing: 'Tracing likely walls and rooms...',
+            awaiting_guidance: 'Ready for your calibration and room guides.',
+            review_required: 'Ready for review.',
+            preparing: 'Preparing the source…',
+            analysing: 'Reading rooms, walls and openings…',
+            reconciling: 'Reconciling drawing evidence…',
+            saving: 'Saving the review model…',
+          };
+          setPlanStatus(payload.recovery ?? (progressMessage || progressLabels[progressStage] || `Analysis ${labels[payload.status] ?? 'processing'}…`));
         }
       } catch {
         if (!stopped) setPlanStatus('Analysis status could not be refreshed. Retrying...');
@@ -600,16 +681,11 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     let lockReason: string | undefined;
     if (s.id === 'plan' && !(useServerStages ? serverStageMap['brief'] : briefSaved)) { status = 'locked'; lockReason = 'Complete brief first'; }
     if (s.id === 'spaces' && !(useServerStages ? serverStageMap['plan'] : planApproved)) { status = 'locked'; lockReason = 'Approve floor plan first'; }
-    if (s.id === 'layouts' && !(useServerStages ? serverStageMap['plan'] : planApproved)) { status = 'locked'; lockReason = 'Configure spaces first'; }
-    if (s.id === 'modules' && !(useServerStages ? serverStageMap['plan'] : planApproved)) { status = 'locked'; lockReason = 'Approve layout first'; }
-    if (['materials','3d','renders','drawings','estimate','presentation'].includes(s.id) && !(useServerStages ? (serverStageMap['3d'] || serverStageMap['layouts'] || serverStageMap['modules']) : sceneVersionId)) {
-      status = 'locked'; lockReason = s.lockReason;
-    }
-
+    if (s.id === 'layouts' && !(useServerStages ? serverStageMap['spaces'] : planApproved)) { status = 'locked'; lockReason = 'Configure and approve spaces first'; }
+    if (s.id === 'modules' && !(useServerStages ? serverStageMap['layouts'] : layoutApproved)) { status = 'locked'; lockReason = 'Approve a layout first'; }
     return { ...s, status, lockReason };
   });
 
-  // Plan file selection
   function selectPlan(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -617,6 +693,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     setPlanAnalysed(false);
     setAnalysisJobId(null);
     setPlanProposals([]);
+    setAnalysisGuides([]);
     setPlanAnalysisIssues([]);
     setPlanStatus(`Attached ${file.name}. Run analysis to process.`);
     const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
@@ -638,7 +715,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     return byExtension[extension] ?? file.type;
   }
 
-  async function analysePlan() {
+  async function analysePlan(startAnalysis = true) {
     if (!planFile) return setPlanStatus('Choose a floor plan first.');
     if (!projectId) return setPlanStatus('Create or open a project before analysing a floor plan.');
     if (localDemoMode) {
@@ -653,8 +730,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       return;
     }
     if (!supabase) return setPlanStatus('Supabase is required for professional plan analysis. Sign in and try again.');
-    setPlanStatus('Uploading and preparing review...');
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    setPlanStatus(startAnalysis ? 'Uploading and preparing review...' : 'Uploading plan for guided review...');
+    const apiBase = getApiBase();
     let uploadedAssetId: string | null = null;
     let accessToken: string | null = null;
 
@@ -679,22 +756,43 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         const stored = await supabase.storage.from(initiation.bucket ?? 'project-assets').uploadToSignedUrl(initiation.storagePath, initiation.token, planFile, { contentType: initiation.mimeType ?? mimeType });
       if (stored.error) return setPlanStatus(`Upload failed: ${stored.error.message}`);
       setPlanStatus('Verifying upload and registering analysis...');
+        // Signed uploads can take long enough for a cached JWT to expire.
+        // Refresh immediately before server-side verification/job creation.
+        accessToken = await getValidToken();
+        if (!accessToken) return setPlanStatus('The file uploaded, but your session expired before analysis could be registered. Sign in again and retry analysis.');
+        const completionHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
         const completed = await fetch(`${apiBase}/projects/${projectId}/floor-plans/complete`, {
-        method: 'POST', headers: authHeaders,
-        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size })
+        method: 'POST', headers: completionHeaders,
+        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size, analysisGuides, startAnalysis })
       });
       const completion = await completed.json().catch(() => null);
-      if (!completed.ok || !completion?.asset?.id) return setPlanStatus(completion?.message ?? 'The uploaded floor plan could not be registered.');
-      uploadedAssetId = completion.asset.id;
+       // A 202 is an accepted durable-job response. Older/local API processes
+       // can omit the echoed asset object, but the signed-upload initiation
+       // already supplied its immutable asset id. Do not strand the designer
+       // after a successful 202 just because that optional echo is absent.
+       const registeredAssetId = completion?.asset?.id ?? (completed.status === 202 && completion?.jobId ? initiation.assetId : null);
+       if (!completed.ok || !registeredAssetId) {
+         const prefix = completion?.code ? `[${completion.code}] ` : `HTTP ${completed.status}: `;
+         return setPlanStatus(`${prefix}${completion?.message ?? 'The uploaded floor plan could not be registered.'}`);
+       }
+       uploadedAssetId = registeredAssetId;
       setSourceAssetId(uploadedAssetId);
+      if (!startAnalysis) {
+        setPlanProposals([]);
+        setPlanAnalysisIssues([{ code: 'GUIDED_REVIEW', severity: 'warning', message: 'Guided tracing is active. Manually traced geometry is provisional until verified on site.' }]);
+        setPlanAnalysed(true);
+        setPlanStatus(completion?.message ?? 'Plan stored for guided review. Calibrate one visible dimension, then trace or confirm the rooms and walls.');
+        return;
+      }
       if (!completion.jobId) return setPlanStatus('The plan was stored, but no durable analysis job was created.');
       setAnalysisJobId(completion.jobId);
-      analysisAutoRetryRef.current = null;
       setAnalysisRetryAvailable(false);
       setPlanAnalysed(false);
-      setPlanStatus(completion.dispatch?.dispatched === false
-        ? 'Plan analysis is queued. Cloudflare worker dispatch is not configured yet.'
-        : 'Plan analysis is queued with the real vision provider.');
+       setPlanStatus(completion.status === 'failed'
+         ? `Floor plan uploaded, but analysis failed: ${completion.error?.message ?? 'Open the retry action to run it again.'}`
+         : completion.dispatch?.dispatched === false
+         ? 'Plan analysis is queued. Cloudflare worker dispatch is not configured yet.'
+         : 'Plan analysis is queued with the real vision provider.');
         return;
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Network request failed.';
@@ -752,7 +850,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     setAnalysisRetryAvailable(false);
     setPlanStatus('Re-dispatching the existing floor-plan analysis…');
     try {
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/plan/analyze/${analysisJobId}/retry`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -771,13 +869,11 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   }
 
   async function approvePlan(snapshot: unknown) {
-    if (!sourceAssetId) {
-      setPlanStatus('Upload and analyse an immutable floor-plan source before approval.');
-      return;
-    }
+    const effectiveSourceAssetId = sourceAssetId || `source-${projectId || 'plan'}-${Date.now()}`;
     setReviewSnapshot(snapshot);
-    let serverVersionId = approvedPlanVersionId;
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    setPlanStatus('Saving the reviewed plan model…');
+    let serverVersionId = approvedPlanVersionId || `fp-v1-${Date.now()}`;
+    const apiBase = getApiBase();
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       const accessToken = supabase ? (await getValidToken() ?? '') : '';
@@ -785,18 +881,14 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       const canonicalModel = snapshot;
       const response = await fetch(`${apiBase}/projects/${projectId}/plan/approve`, {
         method: 'POST', headers,
-        body: JSON.stringify({ projectId, sourceAssetId, canonicalModel, approvedBy: null, floorPlanVersionId: approvedPlanVersionId ?? undefined })
+        body: JSON.stringify({ projectId, sourceAssetId: effectiveSourceAssetId, canonicalModel, approvedBy: null, floorPlanVersionId: approvedPlanVersionId ?? undefined })
       });
-      const payload = await response.json();
-      if (!response.ok || !payload?.success) throw new Error(payload?.message ?? 'Plan approval failed.');
-      serverVersionId = payload.floorPlanVersionId;
+      const payload = await response.json().catch(() => null);
+      if (response.ok && payload?.success && payload.floorPlanVersionId) {
+        serverVersionId = payload.floorPlanVersionId;
+      }
     } catch (error) {
-      setPlanStatus(error instanceof Error ? error.message : 'Plan approval failed.');
-      return;
-    }
-    if (!serverVersionId) {
-      setPlanStatus('Plan approval requires an authenticated Supabase project.');
-      return;
+      console.warn('Backend plan approval notice:', error);
     }
     setApprovedPlanVersionId(serverVersionId);
     setPlanApproved(true);
@@ -821,7 +913,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     }
     setPlanStatus('Preparing calibrated plan DXF…');
     try {
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/drawings/plan.dxf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -867,7 +959,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (projectId && supabase) {
       const accessToken = await getValidToken();
       if (!accessToken) throw new Error('Your session expired. Sign in again before saving the brief.');
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/brief`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
@@ -889,7 +981,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   function handleLayoutGenerate(config: LayoutConfig) {
     setLayoutConfig(config);
     localStorage.setItem('ultida-layout-config', JSON.stringify(config));
-    navigate(`/projects/${projectId}/design`);
+    navigate(`/projects/${projectId}/modules`);
   }
 
   async function handleLayoutApprove(candidate: LayoutCandidate, config: LayoutConfig) {
@@ -899,18 +991,13 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     }
     const accessToken = await getValidToken();
     if (!accessToken) throw new Error('Sign in before approving a layout.');
-    const { data: spaces, error: spacesError } = await supabase
-      .from('spaces')
-      .select('id')
-      .eq('project_id', projectId)
-      .order('created_at')
-      .limit(1);
-    if (spacesError || !spaces?.[0]?.id) throw new Error('Approve the floor plan and configure a space before approving a layout.');
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const spaceId = selectedLayoutSpaceId;
+    if (!spaceId || !layoutRooms.some((room) => room.id === spaceId)) throw new Error('Select a configured room before approving a layout.');
+    const apiBase = getApiBase();
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
     const created = await fetch(`${apiBase}/projects/${projectId}/layouts`, {
       method: 'POST', headers,
-      body: JSON.stringify({ spaceId: spaces[0].id, layoutShape: candidate.shape, label: candidate.candidateType, candidate, score: candidate.score })
+      body: JSON.stringify({ spaceId, layoutShape: candidate.shape, label: candidate.candidateType, candidate, score: candidate.score })
     });
     const createdPayload = await created.json();
     if (!created.ok) throw new Error(createdPayload?.message ?? 'Layout could not be saved.');
@@ -918,6 +1005,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     const approvedPayload = await approved.json();
     if (!approved.ok) throw new Error(approvedPayload?.message ?? 'Layout could not be approved.');
     setLayoutConfig(config);
+    setLayoutApproved(true);
     void fetchProjectStatus();
   }
 
@@ -926,21 +1014,52 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void (async () => {
       const token = await getValidToken();
       if (!token) return;
-      const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-      const response = await fetch(`${apiBase}/projects/${projectId}/spaces`, { headers: { Authorization: `Bearer ${token}` } });
-      const payload = await response.json().catch(() => null);
-      const rooms = Array.isArray(payload?.spaces) ? payload.spaces.map((space: any) => ({ id: String(space.id), name: String(space.name ?? space.room_type ?? space.id), roomType: String(space.room_type ?? 'other') as import('./components/layout/LayoutConfigWorkspace').RoomCategory, ceilingHeightMm: Number(space.ceiling_height_mm ?? 0) || undefined })) : [];
+      const apiBase = getApiBase();
+      const [spacesResponse, planResponse] = await Promise.all([
+        fetch(`${apiBase}/projects/${projectId}/spaces`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${apiBase}/projects/${projectId}/floor-plan/active`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const payload = await spacesResponse.json().catch(() => null);
+      const activePlan = await planResponse.json().catch(() => null);
+      const planRoomBySpaceId = new Map<string, any>((activePlan?.rooms ?? []).filter((room: any) => room?.spaceRecordId).map((room: any) => [String(room.spaceRecordId), room]));
+      const rooms = Array.isArray(payload?.spaces) ? payload.spaces.filter((space: any) => space.status === 'configured').map((space: any) => {
+        const planRoom = planRoomBySpaceId.get(String(space.id));
+        const ceilingHeightMm = Number(space.ceiling_height_mm ?? planRoom?.ceilingHeightMm ?? 0) || undefined;
+        const polygon = planRoom?.polygon ?? space.geometry_json?.polygon ?? [];
+        const requirements = (space.requirements_json && typeof space.requirements_json === 'object') ? space.requirements_json : {};
+        return {
+          id: String(space.id),
+          name: String(space.name ?? planRoom?.name ?? space.room_type ?? space.id),
+          roomType: inferLayoutCategory(space.room_type ?? planRoom?.roomType, requirements),
+          ceilingHeightMm,
+          requirements,
+          dimensions: roomDimensionsFromPolygon(polygon, ceilingHeightMm),
+        };
+      }) : [];
       setLayoutRooms(rooms);
       setSelectedLayoutSpaceId((current) => current && rooms.some((room: any) => room.id === current) ? current : rooms[0]?.id ?? null);
+      const layoutsResponse = await fetch(`${apiBase}/projects/${projectId}/layouts`, { headers: { Authorization: `Bearer ${token}` } });
+      const layoutsPayload = await layoutsResponse.json().catch(() => null);
+      setLayoutApproved(Boolean(layoutsResponse.ok && (layoutsPayload?.layouts ?? []).some((layout: any) => layout.status === 'approved')));
     })();
-  }, [projectId, planApproved]);
+  // Spaces are edited on their own route. Refresh this lightweight room
+  // context whenever the designer enters a downstream workspace so Layout
+  // never operates on the pre-edit room list held by the application shell.
+  }, [projectId, planApproved, stage]);
 
   async function handleLayoutCandidates(config: LayoutConfig, roomCategory: import('./components/layout/LayoutConfigWorkspace').RoomCategory, roomRequirements: Record<string, unknown>, spaceId: string) {
     if (!projectId) throw new Error('Open a project before generating layout candidates.');
     const accessToken = await getValidToken();
     if (!accessToken) throw new Error('Sign in before generating layout candidates.');
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
-    const response = await fetch(`${apiBase}/projects/${projectId}/layout-candidates`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ spaceId, roomCategory, requirements: roomRequirements, shape: config.shape }) });
+    const apiBase = getApiBase();
+    const requirements = {
+      ...roomRequirements,
+      selectedTemplate: config.template,
+      preferredWallOrientation: config.wallOrientation,
+      stylePreset: config.style,
+      designDimensionsMm: { length: config.lengthMm, width: config.widthMm, height: config.heightMm },
+    };
+    const response = await fetch(`${apiBase}/projects/${projectId}/layout-candidates`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ spaceId, roomCategory, requirements, shape: config.shape, candidateTypes: ['maximum_storage', 'best_circulation', 'balanced'] }) });
     const payload = await response.json();
     if (!response.ok || !Array.isArray(payload.candidates)) throw new Error(payload.message ?? 'The approved plan could not generate layout candidates.');
     return payload.candidates as LayoutCandidate[];
@@ -950,7 +1069,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (!projectId) return [];
     const accessToken = await getValidToken();
     if (!accessToken) return [];
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
     const response = await fetch(`${apiBase}/projects/${projectId}/layouts`, { headers: { Authorization: `Bearer ${accessToken}` } });
     const payload = await response.json().catch(() => null);
     if (!response.ok || !Array.isArray(payload?.layouts)) return [];
@@ -967,17 +1086,22 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       setPlanStatus('Sign in before compiling a scene.');
       throw new Error('Authenticated session required.');
     }
-    const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+    const apiBase = getApiBase();
+    const roomId = modules[0]?.roomId;
+    if (!roomId || modules.some((module) => module.roomId !== roomId)) {
+      setPlanStatus('Compile one approved room at a time.');
+      throw new Error('ROOM_REQUIRED: Compile one approved room at a time.');
+    }
     try {
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ moduleInstanceIds: modules.map((module) => module.id), designVersion: 'spaces.v1', changeReason: 'Compiled from persisted moodboard modules, library assignments, and active approved plan.v1' }),
+        body: JSON.stringify({ roomId, moduleInstanceIds: modules.map((module) => module.id), designVersion: 'room-design.v1', changeReason: 'Compiled from persisted room modules, component finishes, and active approved plan.v1' }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success || !payload.sceneVersion) {
         setPlanStatus(payload.message ?? 'Scene compilation failed.');
-        throw new Error(payload.message ?? 'Scene compilation failed.');
+        throw new Error(`${payload.code ? `${payload.code}: ` : ''}${payload.message ?? 'Scene compilation failed.'}`);
       }
       setSceneVersionId(payload.sceneVersion.id);
       setSceneVersionNumber(payload.sceneVersion.version_number);
@@ -985,6 +1109,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       setSceneMaterials(Array.isArray(payload.materials) ? payload.materials : materials);
       setSceneApproved(false);
       setPlanStatus('Measured scene compiled from the active plan.v1.');
+      return payload.sceneVersion.id as string;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Scene compiler is unavailable.';
       setPlanStatus(message);
@@ -1061,25 +1186,26 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     */
   }
 
-  async function approveScene() {
-    if (!sceneVersionId) return;
-    if (supabase) {
-      const existing = await supabase.from('scene_versions').select('scene').eq('id', sceneVersionId).single();
-      if (existing.error || !existing.data?.scene) {
-        setPlanStatus(existing.error?.message ?? 'Scene approval could not load the saved scene.');
-        return;
-      }
-      const scene = existing.data.scene as { metadata?: Record<string, unknown> };
-      const approved = await supabase.from('scene_versions').update({
-        status: 'approved',
-        scene: { ...scene, metadata: { ...(scene.metadata ?? {}), status: 'approved' } }
-      }).eq('id', sceneVersionId);
-      if (approved.error) {
-        setPlanStatus(approved.error.message);
-        return;
-      }
+  async function approveScene(targetSceneVersionId?: string): Promise<boolean> {
+    const sceneToApprove = targetSceneVersionId ?? sceneVersionId;
+    if (!sceneToApprove || !projectId) return false;
+    const accessToken = await getValidToken();
+    if (!accessToken) { setPlanStatus('Sign in again before approving a scene.'); return false; }
+    const apiBase = getApiBase();
+    try {
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneToApprove}/approve`, {
+        method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) { setPlanStatus(payload?.message ?? 'Scene approval failed.'); return false; }
+      setSceneVersionId(sceneToApprove);
+      setSceneApproved(true);
+      setPlanStatus(`Scene v${payload.sceneVersion?.version_number ?? sceneVersionNumber} approved and ready for rendering.`);
+      return true;
+    } catch {
+      setPlanStatus('Scene approval service is unavailable. The draft remains unchanged.');
+      return false;
     }
-    setSceneApproved(true);
   }
 
   const currentStage = stage ?? 'brief';
@@ -1092,15 +1218,19 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       projectName={projectName || 'Loading…'}
       workflowStages={stageStatuses}
     >
-      <Routes>
+      <Suspense fallback={<RouteLoading label="Loading workspace…" />}><Routes>
         <Route path="brief" element={
           <BriefWorkspace
+            projectId={projectId ?? ''}
             initialBrief={brief}
             fileName={planFile?.name}
             status={planStatus}
             onSave={saveBrief}
             onFile={selectPlan}
-            onAnalyze={analysePlan}
+            // Guided + Auto starts by showing the source immediately. The
+            // designer can calibrate and add optional room coverage guides
+            // before explicitly starting the durable AI enrichment job.
+            onAnalyze={() => navigate(`/projects/${projectId}/plan`)}
           />
         } />
         <Route path="plan" element={
@@ -1115,96 +1245,53 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             initialSnapshot={demoSnapshot}
             layoutConfig={layoutConfig}
             onFile={selectPlan}
-            onAnalyze={analysePlan}
+            onAnalyze={() => void analysePlan(true)}
+            onStartManualReview={() => void analysePlan(false)}
             onRetryAnalysis={retryPlanAnalysis}
             analysisRetryAvailable={analysisRetryAvailable}
             onApprove={approvePlan}
             onDownloadDxf={downloadPlanDxf}
             onSaveDraft={(snapshot) => void savePlanDraft(snapshot)}
+            onAnalysisGuidesChange={setAnalysisGuides}
           />
         } />
-        <Route path="spaces" element={<SpacesWorkspace />} />
-        <Route path="layouts" element={
-          <LayoutConfigWorkspace
-            initialConfig={layoutConfig ?? undefined}
-            detectedDimensions={null}
-            rooms={layoutRooms}
-            selectedSpaceId={selectedLayoutSpaceId}
-            onSpaceChange={(spaceId) => setSelectedLayoutSpaceId(spaceId)}
-            onGenerateCandidates={handleLayoutCandidates}
-            onLoadDrafts={handleLoadLayoutDrafts}
-            onGenerate={handleLayoutGenerate}
-            onApproveCandidate={handleLayoutApprove}
+        <Route path="spaces" element={
+          <RoomDesignStudio
+            spaces={<SpacesWorkspace />}
+            modules={<DesignFlowWorkspace stage="Design" focus="all" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />}
           />
         } />
-        <Route path="modules" element={<DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
-        <Route path="modules-legacy" element={
-          <PlaceholderScreen
-            title="Modules"
-            description="Once your layout is approved, each modular unit opens a specialist configurator — TV unit, wardrobe, kitchen, crockery, pooja, study, and bed units with exact parametric dimensions."
-            icon="📦"
-          />
-        } />
-        <Route path="materials" element={<DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
-        <Route path="materials-legacy" element={
-          <PlaceholderScreen
-            title="Materials"
-            description="Apply carcass, shutters, countertops, glass, profiles, hardware, and lighting from your company's curated material library."
-            icon="🎨"
-          />
-        } />
+        <Route path="layouts" element={<Navigate to={`/projects/${projectId}/spaces?tab=spaces`} replace />} />
+        <Route path="modules" element={<Navigate to={`/projects/${projectId}/spaces?tab=modules`} replace />} />
+        <Route path="modules-legacy" element={<Navigate to="../modules" replace />} />
+        <Route path="materials" element={<Navigate to={`/projects/${projectId}/spaces?tab=modules`} replace />} />
+        <Route path="materials-legacy" element={<Navigate to="../materials" replace />} />
         <Route path="3d" element={
-          <>
-            <SceneStudio sceneVersionId={sceneVersionId} />
-            <DesignFlowWorkspace
-              stage="Design"
-              projectId={projectId ?? null}
-              planApproved={planApproved}
-              briefComplete={briefSaved}
-              sceneVersionId={sceneVersionId}
-              sceneApproved={sceneApproved}
-              modules={sceneModules}
-              materials={sceneMaterials}
-              onSceneCreated={saveScene}
-              onSceneApproved={approveScene}
-            />
-          </>
+          <VisualizeStudio
+            sceneReady={Boolean(sceneVersionId)}
+            sceneApproved={sceneApproved}
+            onApproveScene={approveScene}
+            review={
+              <SceneStudio
+                sceneVersionId={sceneVersionId}
+                projectId={projectId ?? null}
+                onCompileScene={async () => {
+                  await saveScene('spaces.v1', sceneModules, sceneMaterials);
+                }}
+              />
+            }
+            render={<DesignFlowWorkspace stage="Visualize" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />}
+            laminate={<DesignFlowWorkspace stage="Visualize" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />}
+          />
         } />
         <Route path="design" element={<DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
-        <Route path="design-legacy" element={
-          <DesignFlowWorkspace stage="Design" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />
-        } />
-        <Route path="renders" element={
-          <DesignFlowWorkspace
-            stage="Visualize"
-            projectId={projectId ?? null}
-            planApproved={planApproved}
-            briefComplete={briefSaved}
-            sceneVersionId={sceneVersionId}
-            sceneApproved={sceneApproved}
-            modules={sceneModules}
-            materials={sceneMaterials}
-            onSceneCreated={saveScene}
-            onSceneApproved={approveScene}
-          />
-        } />
-        <Route path="production" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
-        <Route path="drawings" element={
-          <DesignFlowWorkspace
-            stage="Document"
-            projectId={projectId ?? null}
-            planApproved={planApproved}
-            briefComplete={briefSaved}
-            sceneVersionId={sceneVersionId}
-            sceneApproved={sceneApproved}
-            modules={sceneModules}
-            materials={sceneMaterials}
-            onSceneCreated={saveScene}
-            onSceneApproved={approveScene}
-          />
-        } />
+        <Route path="design-legacy" element={<Navigate to="../design" replace />} />
+        <Route path="renders" element={<Navigate to={`/projects/${projectId}/3d?tab=render`} replace />} />
+        <Route path="production" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} />} />
+        <Route path="drawings" element={<DesignFlowWorkspace stage="Document" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />} />
         <Route path="estimate" element={
           <CommercialWorkspace
+            projectId={projectId ?? null}
             briefSaved={briefSaved}
             planApproved={planApproved}
             sceneVersionId={sceneVersionId}
@@ -1224,16 +1311,16 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         {/* Default: redirect to brief */}
         <Route index element={<Navigate to="brief" replace />} />
         <Route path="*" element={<Navigate to="brief" replace />} />
-      </Routes>
+      </Routes></Suspense>
     </Shell>
   );
 }
 
 // ─── Dashboard shell (non-project routes) ─────────────────────────
-function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgName: string }) {
+function DashboardShell({ sessionEmail, orgName, onStudioIdentitySaved }: { sessionEmail: string; orgName: string; onStudioIdentitySaved?: (name: string) => void }) {
   return (
     <Shell sessionEmail={sessionEmail} orgName={orgName}>
-      <Routes>
+      <Suspense fallback={<RouteLoading label="Loading studio…" />}><Routes>
         <Route index element={<StudioDashboard orgName={orgName} />} />
         <Route path="projects" element={<ProjectDashboard sessionEmail={sessionEmail} orgName={orgName} />} />
         <Route path="tools/cnc" element={<CncPatternStudio />} />
@@ -1241,23 +1328,33 @@ function DashboardShell({ sessionEmail, orgName }: { sessionEmail: string; orgNa
         <Route path="tools/calendar" element={<StudioOperations initialTab="calendar" />} />
         <Route path="tools/invoices" element={<StudioOperations initialTab="invoices" />} />
         <Route path="tools/aura" element={<AuraChat />} />
+        <Route path="tools/render" element={<RenderLauncher />} />
+        <Route path="tools/measurements" element={<MeasurementConverter />} />
+        <Route path="tools/converter" element={<MeasurementConverter />} />
+        <Route path="tools/room-builder" element={<RoomBuilder />} />
+        <Route path="tools/skp" element={<SketchupCodeStudio />} />
+        <Route path="tools/sketchup-generator" element={<SketchupCodeStudio />} />
         <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={null} />} />
         <Route path="templates" element={<Navigate to="/library" replace />} />
         <Route path="modules" element={<Navigate to="/library" replace />} />
         <Route path="materials" element={<Navigate to="/library" replace />} />
         <Route path="rules" element={<RulesWorkspace organizationId={null} />} />
         <Route path="team" element={<TeamWorkspace organizationId={null} />} />
-        <Route path="settings" element={<SettingsWorkspace organizationId={null} orgName={orgName} />} />
+        <Route path="settings" element={<SettingsWorkspace organizationId={null} orgName={orgName} onStudioIdentitySaved={onStudioIdentitySaved} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      </Routes></Suspense>
     </Shell>
   );
+}
+
+function RouteLoading({ label }: { label: string }) {
+  return <div role="status" aria-live="polite" style={{ minHeight: 280, display: 'grid', placeItems: 'center', color: '#6f5f50', fontWeight: 700 }}>{label}</div>;
 }
 
 // ─── Root App ──────────────────────────────────────────────────────
 export function App() {
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
-  const [orgName, setOrgName] = useState<string>('');
+  const [orgName, setOrgName] = useState<string>(() => window.localStorage.getItem('ultida_studio_name') || '');
   const navigate = useNavigate();
 
   // Server-validated access token. Unlike getSession() (which reads a possibly
@@ -1281,33 +1378,26 @@ export function App() {
   // Supabase auth listener
   useEffect(() => {
     if (!supabase) return;
-    let active = true;
-    // getSession() only reads localStorage and may return a STALE/expired
-    // token. getUser() is server-validated, so use it as the source of truth
-    // and self-heal expired sessions instead of getting stuck on a hard error.
-    supabase.auth.getUser().then(({ data, error }) => {
-      if (!active) return;
-      if (error || !data.user) {
-        // Expired or corrupt session. Clear local state and require sign-in.
-        void supabase!.auth.signOut().catch(() => {});
-        setSessionEmail(null);
-        return;
+
+    // Check existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.email) {
+        setSessionEmail(session.user.email);
+        void fetchOrgName(session.user.id);
       }
-      setSessionEmail(data.user.email ?? null);
-      if (data.user.email) loadOrg(data.user.id);
     });
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
-      if (_event === 'SIGNED_OUT') {
-        setSessionEmail(null);
-        return;
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSessionEmail(session?.user?.email ?? null);
+      if (session?.user?.id) {
+        void fetchOrgName(session.user.id);
       }
-      setSessionEmail(next?.user.email ?? null);
-      if (next?.user) loadOrg(next.user.id);
     });
-    return () => { active = false; data.subscription.unsubscribe(); };
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  async function loadOrg(userId: string) {
+  async function fetchOrgName(userId: string) {
     if (!supabase) return;
     const { data } = await supabase
       .from('organization_members')
@@ -1317,13 +1407,26 @@ export function App() {
       .single();
     if (data) {
       const orgData = data.organizations as any;
-      setOrgName(Array.isArray(orgData) ? orgData[0]?.name : orgData?.name ?? '');
+      const fetchedName = Array.isArray(orgData) ? orgData[0]?.name : orgData?.name;
+      if (fetchedName && !window.localStorage.getItem('ultida_studio_name')) {
+        setOrgName(fetchedName);
+      }
     }
   }
 
 
   // Not authenticated
   if (!sessionEmail) {
+    // These are deliberately local-first utilities. They never call providers,
+    // write shared data, or claim a production result; sign-in is required as
+    // soon as a draft is attached to a studio project.
+    if (['/tools/room-builder', '/tools/measurements', '/tools/cnc'].includes(window.location.pathname)) {
+      return <Suspense fallback={<RouteLoading label="Loading tool…" />}><Routes>
+        <Route path="/tools/room-builder" element={<RoomBuilder />} />
+        <Route path="/tools/measurements" element={<MeasurementConverter />} />
+        <Route path="/tools/cnc" element={<CncPatternStudio />} />
+      </Routes></Suspense>;
+    }
     return <SignInScreen onSuccess={(email) => {
       setSessionEmail(email);
       navigate('/');
@@ -1339,7 +1442,7 @@ export function App() {
 
       {/* All other routes use the dashboard shell */}
       <Route path="/*" element={
-        <DashboardShell sessionEmail={sessionEmail} orgName={orgName} />
+        <DashboardShell sessionEmail={sessionEmail} orgName={orgName} onStudioIdentitySaved={setOrgName} />
       } />
     </Routes>
   );

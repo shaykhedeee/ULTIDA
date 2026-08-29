@@ -1,5 +1,6 @@
-import { CheckCircle2, CircleAlert, ClipboardCheck, LockKeyhole, Save } from 'lucide-react';
+import { CheckCircle2, CircleAlert, ClipboardCheck, LockKeyhole, Save, ArrowLeft, Check } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Badge, Card, CardContent, CardHeader, Button } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 
@@ -31,11 +32,13 @@ const defaultDelivery: DeliveryData = {
 };
 
 export function DeliveryWorkspace({ briefSaved, planApproved, sceneVersionId, moduleCount, providerReady, projectId }: Props) {
+  const navigate = useNavigate();
   const [delivery, setDelivery] = useState<DeliveryData>(defaultDelivery);
   const [saving, setSaving] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
 
   const [hasApprovedQuote, setHasApprovedQuote] = useState(false);
+  const [approvedStages, setApprovedStages] = useState<string[]>([]);
 
   useEffect(() => {
     if (!supabase || !projectId) return;
@@ -60,6 +63,13 @@ export function DeliveryWorkspace({ briefSaved, planApproved, sceneVersionId, mo
           setHasApprovedQuote(true);
         }
       });
+    supabase.auth.getSession().then(async ({ data: session }) => {
+      if (!session.session) return;
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/operations`, { headers: { authorization: `Bearer ${session.session.access_token}` } });
+      if (!response.ok) return;
+      const payload = await response.json();
+      setApprovedStages((payload.reviews ?? []).filter((review: any) => review.status === 'approved').map((review: any) => review.stage));
+    });
   }, [projectId]);
 
   async function handleSave() {
@@ -143,7 +153,13 @@ export function DeliveryWorkspace({ briefSaved, planApproved, sceneVersionId, mo
                   <input 
                     type="checkbox" 
                     checked={delivery.productionReleased} 
-                    onChange={(e) => setDelivery({ ...delivery, productionReleased: e.target.checked })} 
+                  onChange={(e) => {
+                    if (e.target.checked && !(briefSaved && planApproved && sceneVersionId && moduleCount && hasApprovedQuote && ['plan', 'scene', 'cutlist', 'quote'].every((stage) => approvedStages.includes(stage)))) {
+                      setStatusMsg('Production release is locked until plan, scene, cutlist, and quote approvals are recorded.');
+                      return;
+                    }
+                    setDelivery({ ...delivery, productionReleased: e.target.checked });
+                  }}
                   />
                   <strong>Production Released (Approve drawings, DXF, cutlist, quote)</strong>
                 </label>
@@ -236,6 +252,66 @@ export function DeliveryWorkspace({ briefSaved, planApproved, sceneVersionId, mo
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Bottom Stage Progression Bar */}
+      <div style={{ marginTop: 24, padding: '16px 20px', background: '#1c1917', borderRadius: 12, border: '1px solid #332d29', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <strong style={{ color: '#fff', fontSize: 13, display: 'block' }}>
+            Step 8 of 8: Client Presentation, Handover &amp; Production Release
+          </strong>
+          <small style={{ color: '#a8a29e', fontSize: 11 }}>
+            Project design gates, commercial approvals, and delivery records are tracked in real-time.
+          </small>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (projectId) {
+                navigate(`/projects/${projectId}/estimate`);
+              }
+            }}
+            style={{
+              background: '#2b2622',
+              color: '#e7e5e4',
+              border: '1px solid #44403c',
+              borderRadius: 8,
+              padding: '10px 16px',
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <ArrowLeft size={15} /> Back to Commercial Estimate
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (projectId) {
+                navigate(`/projects/${projectId}/drawings`);
+              }
+            }}
+            style={{
+              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+              color: '#1c1917',
+              border: 0,
+              borderRadius: 8,
+              padding: '10px 18px',
+              fontWeight: 800,
+              fontSize: 13,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Check size={15} /> View Technical CAD Drawings
+          </button>
+        </div>
       </div>
     </section>
   );

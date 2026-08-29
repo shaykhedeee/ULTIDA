@@ -527,7 +527,7 @@ export function generateWallElevationsPdf(scene: SceneV1, outStream: any, option
   return generateProjectionPdf(buildDrawingProjection(scene), outStream);
 }
 
-export function generateProjectionPdf(projection: DrawingPackageProjection, outStream: NodeJS.WritableStream) {
+export function generateProjectionPdf(projection: DrawingPackageProjection, outStream: NodeJS.WritableStream, production?: ProductionSnapshotV1) {
   const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 24, info: { Title: `ULTIDA Production Drawings - ${projection.floorPlanVersionId}`, Author: 'ULTIDA', Subject: 'Approved scene production drawing package' } });
   doc.pipe(outStream);
   const pageWidth = 842; const pageHeight = 595;
@@ -543,7 +543,8 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
   };
   // Only walls carrying furniture/modules receive an elevation sheet.
   const furnitureWalls = projection.elevations.filter((wall) => wall.modules.length > 0);
-  const totalSheets = Math.max(1, furnitureWalls.length + 1);
+  const productionSheetCount = production ? 1 + Math.max(1, Math.ceil(production.parts.length / 25)) : 0;
+  const totalSheets = Math.max(1, furnitureWalls.length + 1 + productionSheetCount);
   drawFrame('DRAWING INDEX AND FLOOR PLAN', 1, totalSheets, 'Generated from immutable drawing.projection.v1. Verify all review warnings before release.');
   doc.font('Helvetica-Bold').fontSize(24).fillColor('#38291f').text('Production Drawing Package', 48, 50);
   doc.font('Helvetica').fontSize(10).fillColor('#53463d').text('Floor plan overview and wall elevation register', 48, 82);
@@ -575,23 +576,134 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
   if (projection.warnings.length) doc.font('Helvetica-Bold').fontSize(7).fillColor('#9b2c2c').text(`REVIEW REQUIRED: ${projection.warnings.join(' ')}`, 42, 465, { width: 740 });
   furnitureWalls.forEach((wall, index) => {
     doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
-    drawFrame(`WALL ELEVATION - ${wall.wallId}`, index + 2, totalSheets, 'Module faces and opening positions are projected from the approved scene.');
-    doc.font('Helvetica-Bold').fontSize(19).fillColor('#38291f').text(`Wall ${wall.wallId}`, 48, 52);
-    doc.font('Helvetica').fontSize(10).fillColor('#53463d').text(`${Math.round(wall.lengthMm)} mm long x ${wall.heightMm} mm high`, 48, 78);
-    const originX = 48; const originY = 110; const availableWidth = 730; const availableHeight = 385;
+    drawFrame(`WALL ELEVATION - ${wall.wallId}`, index + 2, totalSheets, 'System 32 parametric module faces, datum lines and opening clearances projected from the approved scene.');
+    doc.font('Helvetica-Bold').fontSize(19).fillColor('#38291f').text(`Wall ${wall.wallId}`, 48, 50);
+    doc.font('Helvetica').fontSize(9.5).fillColor('#53463d').text(`${Math.round(wall.lengthMm)} mm length × ${wall.heightMm} mm ceiling height  |  Scale: 1:25 (Fit to Sheet)  |  Layer: A-ELEV-OUTL`, 48, 74);
+    const originX = 48; const originY = 100; const availableWidth = 730; const availableHeight = 370;
     const scale = Math.min(availableWidth / wall.lengthMm, availableHeight / wall.heightMm);
-    doc.rect(originX, originY, wall.lengthMm * scale, wall.heightMm * scale).lineWidth(1.5).stroke('#38291f');
+
+    // Outer Wall Outline (A-WALL-INTR / A-WALL-EXTR)
+    doc.rect(originX, originY, wall.lengthMm * scale, wall.heightMm * scale).lineWidth(1.75).stroke('#2d211b');
+
+    // Horizontal Datum Reference Lines (Plinth 100mm, Counter 850mm, Wall Unit 1450mm, Loft Top 2170mm)
+    const plinthY = originY + (wall.heightMm - 100) * scale;
+    const counterY = originY + (wall.heightMm - 850) * scale;
+    const wallUnitY = originY + (wall.heightMm - 1450) * scale;
+    const loftY = originY + (wall.heightMm - 2170) * scale;
+
+    doc.save().dash(2, { space: 3 }).strokeColor('#bdaea0').lineWidth(0.5);
+    doc.moveTo(originX, plinthY).lineTo(originX + wall.lengthMm * scale, plinthY).stroke();
+    doc.moveTo(originX, counterY).lineTo(originX + wall.lengthMm * scale, counterY).stroke();
+    doc.moveTo(originX, wallUnitY).lineTo(originX + wall.lengthMm * scale, wallUnitY).stroke();
+    doc.moveTo(originX, loftY).lineTo(originX + wall.lengthMm * scale, loftY).stroke();
+    doc.undash().restore();
+
+    // Datum Labels
+    doc.font('Helvetica').fontSize(6).fillColor('#8c7b6f');
+    doc.text('PLINTH (100mm)', originX + wall.lengthMm * scale - 75, plinthY - 7);
+    doc.text('COUNTER (850mm)', originX + wall.lengthMm * scale - 82, counterY - 7);
+    doc.text('DADO CLEAR (1450mm)', originX + wall.lengthMm * scale - 98, wallUnitY - 7);
+    doc.text('WALL UNIT (2170mm)', originX + wall.lengthMm * scale - 90, loftY - 7);
+
+    // Openings (A-DOOR / A-GLAZ)
     for (const opening of wall.openings) {
       doc.rect(originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.heightMm) * scale, opening.widthMm * scale, opening.heightMm * scale).lineWidth(1.2).stroke('#9b2c2c');
-      doc.font('Helvetica').fontSize(7).fillColor('#9b2c2c').text(`${opening.kind} ${Math.round(opening.widthMm)}`, originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.heightMm) * scale - 12);
+      doc.font('Helvetica-Bold').fontSize(7).fillColor('#9b2c2c').text(`${opening.kind.toUpperCase()} ${Math.round(opening.widthMm)}mm`, originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.heightMm) * scale - 11);
     }
+
+    // Modular Units (A-FURN-BASE / A-FURN-OVER / A-FURN-SHUT)
     for (const module of wall.modules) {
-      doc.rect(originX + (module.offsetAlongWallMm ?? 0) * scale, originY + (wall.heightMm - module.heightMm) * scale, module.widthMm * scale, module.heightMm * scale).fillOpacity(0.18).fillAndStroke('#c59c2d', '#38291f').fillOpacity(1);
-      doc.font('Helvetica').fontSize(7).fillColor('#38291f').text(`${module.family} ${Math.round(module.widthMm)}`, originX + (module.offsetAlongWallMm ?? 0) * scale + 4, originY + (wall.heightMm - module.heightMm) * scale + 6, { width: Math.max(35, module.widthMm * scale - 8) });
+      const isBase = module.family.includes('base') || module.family.includes('kitchen-base') || module.heightMm <= 850;
+      const isTall = module.heightMm > 1800 || module.family.includes('tall') || module.family.includes('wardrobe');
+      const isFeature = module.family.includes('feature') || module.family.includes('wall-');
+      const layerTag = isTall ? 'A-FURN-TALL' : isBase ? 'A-FURN-BASE' : isFeature ? 'A-WALL-FEAT' : 'A-FURN-OVER';
+      const modFill = isTall ? '#3b2f27' : isBase ? '#c59c2d' : isFeature ? '#4a5568' : '#e6c66e';
+
+      doc.rect(originX + (module.offsetAlongWallMm ?? 0) * scale, originY + (wall.heightMm - module.heightMm) * scale, module.widthMm * scale, module.heightMm * scale)
+        .fillOpacity(0.22)
+        .fillAndStroke(modFill, '#2d211b')
+        .fillOpacity(1);
+
+      doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#2d211b').text(`${module.family}`, originX + (module.offsetAlongWallMm ?? 0) * scale + 3, originY + (wall.heightMm - module.heightMm) * scale + 4, { width: Math.max(35, module.widthMm * scale - 6) });
+      doc.font('Helvetica').fontSize(5.5).fillColor('#574b41').text(`${Math.round(module.widthMm)}×${Math.round(module.depthMm ?? 600)}×${Math.round(module.heightMm)}mm\n[${layerTag}]`, originX + (module.offsetAlongWallMm ?? 0) * scale + 3, originY + (wall.heightMm - module.heightMm) * scale + 13, { width: Math.max(35, module.widthMm * scale - 6) });
     }
-    doc.save().dash(3, { space: 2 }).strokeColor('#75665c').lineWidth(.5).moveTo(originX, originY + wall.heightMm * scale + 18).lineTo(originX + wall.lengthMm * scale, originY + wall.heightMm * scale + 18).stroke().undash().restore();
-    doc.font('Helvetica').fontSize(8).fillColor('#53463d').text(`${Math.round(wall.lengthMm)} mm`, originX, originY + wall.heightMm * scale + 24, { width: wall.lengthMm * scale, align: 'center' });
+
+    // Linear Bottom Dimension Line (A-DIMS)
+    const dimY = originY + wall.heightMm * scale + 16;
+    doc.save().strokeColor('#4a3b32').lineWidth(0.75).moveTo(originX, dimY).lineTo(originX + wall.lengthMm * scale, dimY).stroke();
+    // Dimension Ticks
+    doc.moveTo(originX, dimY - 4).lineTo(originX, dimY + 4).stroke();
+    doc.moveTo(originX + wall.lengthMm * scale, dimY - 4).lineTo(originX + wall.lengthMm * scale, dimY + 4).stroke();
+    doc.restore();
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#2d211b').text(`${Math.round(wall.lengthMm)} mm [A-DIMS]`, originX, dimY + 6, { width: wall.lengthMm * scale, align: 'center' });
   });
+  if (production) {
+    const firstProductionSheet = furnitureWalls.length + 2;
+    doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
+    drawFrame('PRODUCTION SUMMARY', firstProductionSheet, totalSheets, `Source scene ${production.sceneVersion}. Fabrication rules ${production.fabricationRules.version}.`);
+    doc.font('Helvetica-Bold').fontSize(20).fillColor('#38291f').text('Manufacturing Package Summary', 48, 52);
+    const materialGroups = new Map<string, { count: number; areaSqm: number }>();
+    for (const part of production.parts) {
+      const current = materialGroups.get(part.materialCode) ?? { count: 0, areaSqm: 0 };
+      current.count += 1;
+      current.areaSqm += (part.lengthMm * part.widthMm) / 1_000_000;
+      materialGroups.set(part.materialCode, current);
+    }
+    const metrics = [
+      ['Physical panels', String(production.parts.length)],
+      ['Hardware lines', String(production.hardware.length)],
+      ['Material groups', String(materialGroups.size)],
+      ['Release status', production.status.replaceAll('_', ' ').toUpperCase()],
+    ];
+    metrics.forEach(([label, value], index) => {
+      const x = 48 + index * 188;
+      doc.roundedRect(x, 102, 166, 62, 5).fillAndStroke('#f6f0e8', '#d7c8b7');
+      doc.font('Helvetica').fontSize(7).fillColor('#75665c').text(label.toUpperCase(), x + 12, 115);
+      doc.font('Helvetica-Bold').fontSize(15).fillColor('#38291f').text(value, x + 12, 133, { width: 142 });
+    });
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#38291f').text('MATERIAL / BOARD SUMMARY', 48, 194);
+    let summaryY = 216;
+    for (const [materialCode, group] of [...materialGroups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      doc.rect(48, summaryY, 470, 24).lineWidth(.35).stroke('#d7c8b7');
+      doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#38291f').text(materialCode, 58, summaryY + 8, { width: 250 });
+      doc.font('Helvetica').text(`${group.count} panels`, 320, summaryY + 8, { width: 80 });
+      doc.text(`${group.areaSqm.toFixed(3)} m²`, 410, summaryY + 8, { width: 90, align: 'right' });
+      summaryY += 25;
+    }
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#38291f').text('FABRICATION RULES', 548, 194);
+    const rules = production.fabricationRules;
+    doc.font('Helvetica').fontSize(8).fillColor('#53463d').text([
+      `Board: ${rules.carcassThicknessMm} mm carcass / ${rules.shutterThicknessMm} mm shutter`,
+      `Back: ${rules.backPanelThicknessMm} mm`,
+      `Edging: ${rules.visibleEdgeBandMm} mm visible / ${rules.internalEdgeBandMm} mm internal`,
+      `Stock: ${rules.sheetWidthMm} × ${rules.sheetHeightMm} mm`,
+      `Kerf: ${rules.kerfMm} mm | trim: ${rules.trimMm} mm`,
+    ].join('\n'), 548, 218, { width: 240, lineGap: 7 });
+    if (production.warnings.length) {
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#9b2c2c').text('REVIEW WARNINGS', 548, 350);
+      doc.font('Helvetica').fontSize(7).text(production.warnings.map((warning) => `• ${warning}`).join('\n'), 548, 370, { width: 240, height: 120 });
+    }
+
+    doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
+    drawFrame('PANEL CUTLIST', firstProductionSheet + 1, totalSheets, 'Every row is one traceable physical panel from the approved scene. Dimensions are finished millimetres.');
+    doc.font('Helvetica-Bold').fontSize(18).fillColor('#38291f').text('Scene-linked Panel Cutlist', 48, 48);
+    const columns = [48, 190, 300, 390, 455, 520, 580, 662, 745];
+    const headers = ['PART', 'MODULE', 'MATERIAL', 'L', 'W', 'T', 'GRAIN', 'EDGE', 'STATUS'];
+    headers.forEach((header, index) => doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#38291f').text(header, columns[index], 86, { width: index === 0 ? 138 : 82 }));
+    let rowY = 104;
+    const rowsPerPage = 25;
+    production.parts.forEach((part, index) => {
+      if (index > 0 && index % rowsPerPage === 0) {
+        doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
+        drawFrame('PANEL CUTLIST - CONTINUED', firstProductionSheet + 1 + Math.floor(index / rowsPerPage), totalSheets, 'Continuation sheet. Physical panel IDs remain linked to scene component IDs.');
+        rowY = 52;
+      }
+      if (index % 2 === 0) doc.rect(43, rowY - 4, 755, 16).fill('#faf7f2');
+      const values = [part.partName, part.moduleId, part.materialCode, part.lengthMm, part.widthMm, part.thicknessMm, part.grainDirection ?? 'none', part.edgeSchedule?.tapeType ?? 'none', part.status];
+      values.forEach((value, valueIndex) => doc.font(valueIndex === 0 ? 'Helvetica-Bold' : 'Helvetica').fontSize(5.8).fillColor('#38291f').text(String(value), columns[valueIndex], rowY, { width: valueIndex === 0 ? 138 : valueIndex === 1 ? 105 : 78, ellipsis: true }));
+      rowY += 17;
+    });
+  }
   doc.end();
 }
 
@@ -605,7 +717,10 @@ export type EdgeSchedule = {
 
 export type CutlistPart = {
   id: string;
+  /** Unique physical panel identity. Quantity rows are expanded before nesting. */
+  partInstanceId?: string;
   moduleId: string;
+  roomId?: string;
   family: string;
   partName: string;
   lengthMm: number;
@@ -617,9 +732,105 @@ export type CutlistPart = {
   materialCode: string;
   quantity: number;
   status: string;
+  sourceSceneVersion?: string;
+  semanticType?: string;
+  sourcePartId?: string;
   sheetId?: string;
   placedPos?: { xMm: number; yMm: number; rotated: boolean };
 };
+
+export type FabricationRulesV1 = {
+  schema: 'fabrication.rules.v1';
+  version: string;
+  carcassThicknessMm: 16 | 18;
+  shutterThicknessMm: 16 | 18;
+  backPanelThicknessMm: number;
+  visibleEdgeBandMm: number;
+  internalEdgeBandMm: number;
+  sheetWidthMm: number;
+  sheetHeightMm: number;
+  kerfMm: number;
+  trimMm: number;
+};
+
+export const DEFAULT_FABRICATION_RULES_V1: FabricationRulesV1 = {
+  schema: 'fabrication.rules.v1', version: 'india-modular-v1',
+  carcassThicknessMm: 18, shutterThicknessMm: 18, backPanelThicknessMm: 6,
+  visibleEdgeBandMm: 2, internalEdgeBandMm: 0.8,
+  sheetWidthMm: 2440, sheetHeightMm: 1220, kerfMm: 3, trimMm: 10,
+};
+
+export type ProductionPartInstanceV1 = CutlistPart & {
+  partInstanceId: string;
+  quantity: 1;
+  sourcePartId: string;
+  roomId: string;
+  semanticType: string;
+};
+
+export type ProductionSnapshotV1 = {
+  schema: 'production.snapshot.v1';
+  projectId: string;
+  sceneVersion: string;
+  fabricationRules: FabricationRulesV1;
+  status: 'review_required' | 'approved';
+  parts: ProductionPartInstanceV1[];
+  hardware: HardwareItem[];
+  warnings: string[];
+};
+
+const SHEET_SEMANTICS = new Set(['carcass', 'shutter', 'shelf', 'filler', 'back', 'back_panel', 'panel', 'glass']);
+
+function productionDimensions(part: SceneV1['moduleParts'][number]) {
+  const dimensions = [part.widthMm, part.depthMm, part.heightMm].sort((a, b) => a - b);
+  return { thicknessMm: dimensions[0], widthMm: dimensions[1], lengthMm: dimensions[2] };
+}
+
+function edgePolicy(semanticType: string, lengthMm: number, widthMm: number, rules: FabricationRulesV1): Pick<CutlistPart, 'edging' | 'edgeSchedule'> {
+  if (semanticType === 'back' || semanticType === 'back_panel' || semanticType === 'glass') return { edging: 'none' };
+  if (semanticType === 'shutter' || semanticType === 'panel' || semanticType === 'filler') {
+    return { edging: 'all_sides', edgeSchedule: { l1Mm: lengthMm, l2Mm: lengthMm, w1Mm: widthMm, w2Mm: widthMm, tapeType: `${rules.visibleEdgeBandMm}mm PVC` } };
+  }
+  return { edging: 'front_only', edgeSchedule: { l1Mm: lengthMm, l2Mm: 0, w1Mm: 0, w2Mm: 0, tapeType: `${rules.internalEdgeBandMm}mm PVC` } };
+}
+
+/** Build the sole manufacturing snapshot from exact scene.v1 component geometry. */
+export function buildProductionSnapshot(scene: SceneV1, rules: FabricationRulesV1 = DEFAULT_FABRICATION_RULES_V1): ProductionSnapshotV1 {
+  if (!['approved', 'locked'].includes(scene.metadata.status)) throw new Error('SCENE_NOT_PRODUCTION_READY');
+  if (!scene.moduleParts.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
+  const moduleFamily = new Map(scene.modules.map((module) => [module.id, module.family]));
+  const warnings: string[] = [];
+  const hardware: HardwareItem[] = [];
+  const parts: ProductionPartInstanceV1[] = [];
+  for (const part of scene.moduleParts) {
+    const semanticType = String(part.semanticType || 'component');
+    if (semanticType === 'hardware') {
+      hardware.push({ name: part.name, category: /hinge/i.test(part.name) ? 'hinge' : /slide|runner/i.test(part.name) ? 'slide' : /handle/i.test(part.name) ? 'handle' : 'accessory', quantity: 1, unit: 'each' });
+      continue;
+    }
+    if (!SHEET_SEMANTICS.has(semanticType)) {
+      warnings.push(`${part.name} (${semanticType}) is a non-sheet component and requires a separate purchasing or operation schedule.`);
+      continue;
+    }
+    const dimensions = productionDimensions(part);
+    if (dimensions.thicknessMm > 50) {
+      warnings.push(`${part.name} is not panel-like (${dimensions.thicknessMm} mm minimum dimension) and was withheld from sheet nesting.`);
+      continue;
+    }
+    const materialCode = part.materialId ?? 'material-unassigned';
+    const edge = edgePolicy(semanticType, dimensions.lengthMm, dimensions.widthMm, rules);
+    parts.push({
+      id: part.id, partInstanceId: part.id, sourcePartId: part.id,
+      moduleId: part.moduleId, roomId: part.roomId,
+      family: moduleFamily.get(part.moduleId) ?? 'module-part', semanticType,
+      partName: part.name, ...dimensions, ...edge,
+      grainDirection: semanticType === 'shutter' || semanticType === 'back_panel' || semanticType === 'panel' ? 'vertical' : semanticType === 'glass' ? 'none' : 'horizontal',
+      materialCode, quantity: 1, status: 'review_required', sourceSceneVersion: scene.metadata.designVersion,
+    });
+  }
+  if (!parts.length) throw new Error('NO_SHEET_PARTS_AVAILABLE');
+  return { schema: 'production.snapshot.v1', projectId: scene.projectId, sceneVersion: scene.metadata.designVersion, fabricationRules: rules, status: 'review_required', parts, hardware, warnings };
+}
 
 export type HardwareItem = {
   name: string;
@@ -630,6 +841,7 @@ export type HardwareItem = {
 
 export type PlacedPanel = {
   partId: string;
+  partInstanceId: string;
   partName: string;
   moduleId: string;
   xMm: number;
@@ -671,7 +883,8 @@ export function nestPanels2D(
   parts: CutlistPart[],
   sheetWidthMm = 2440,
   sheetHeightMm = 1220,
-  kerfMm = 3
+  kerfMm = 3,
+  trimMm = 10,
 ): { sheets: NestingSheet[]; updatedParts: CutlistPart[] } {
   const updatedParts = parts.map((p) => ({ ...p }));
   const sheets: NestingSheet[] = [];
@@ -679,16 +892,18 @@ export function nestPanels2D(
   // Group parts by material code & thickness
   const groups = new Map<string, CutlistPart[]>();
   for (const part of updatedParts) {
-    const key = `${part.materialCode || '18mm-plywood'}_${part.thicknessMm}`;
+    const key = `${part.materialCode || '18mm-plywood'}::${part.thicknessMm}`;
     if (!groups.has(key)) groups.set(key, []);
     const list = groups.get(key)!;
     for (let q = 0; q < part.quantity; q++) {
-      list.push(part);
+      list.push({ ...part, partInstanceId: part.quantity > 1 ? `${part.id}#${q + 1}` : (part.partInstanceId ?? part.id), quantity: 1 });
     }
   }
 
   for (const [key, groupParts] of groups.entries()) {
-    const [materialCode, thickStr] = key.split('_');
+    const separator = key.lastIndexOf('::');
+    const materialCode = key.slice(0, separator);
+    const thickStr = key.slice(separator + 2);
     const thicknessMm = Number(thickStr) || 18;
 
     // Sort parts descending by area for efficient packing
@@ -698,7 +913,7 @@ export function nestPanels2D(
     while (unplaced.length > 0) {
       sheetCount++;
       const sheetId = `sheet-${materialCode}-${thicknessMm}mm-#${sheetCount}`;
-      const freeRects = [{ x: 0, y: 0, w: sheetWidthMm, h: sheetHeightMm }];
+      const freeRects = [{ x: trimMm, y: trimMm, w: sheetWidthMm - trimMm * 2, h: sheetHeightMm - trimMm * 2 }];
       const placedPanels: PlacedPanel[] = [];
       let usedAreaSqMm = 0;
 
@@ -747,6 +962,7 @@ export function nestPanels2D(
 
           const placement: PlacedPanel = {
             partId: part.id,
+            partInstanceId: part.partInstanceId ?? part.id,
             partName: part.partName,
             moduleId: part.moduleId,
             xMm: target.x,
@@ -788,6 +1004,10 @@ export function nestPanels2D(
         usedAreaSqm: Math.round((usedAreaSqMm / 1_000_000) * 100) / 100,
         utilizationPercentage: utilization,
       });
+      if (!placedPanels.length) {
+        const blocked = unplaced[0];
+        throw new Error(`PANEL_EXCEEDS_USABLE_SHEET:${blocked.partInstanceId ?? blocked.id}:${blocked.lengthMm}x${blocked.widthMm}`);
+      }
     }
   }
 
@@ -816,7 +1036,8 @@ export function calculateEdgeBandingSummary(parts: CutlistPart[]): EdgeBandingSu
 
     const totalMm = (l1 + l2 + w1 + w2) * count;
     const tapeType = part.edgeSchedule?.tapeType || (part.edging === 'all_sides' ? '2.0mm PVC' : '0.8mm PVC');
-    const thick = tapeType.includes('2.0mm') ? 2 : 0.8;
+    const parsedThickness = Number.parseFloat(tapeType);
+    const thick = Number.isFinite(parsedThickness) ? parsedThickness : 0.8;
 
     if (!summaryMap.has(tapeType)) {
       summaryMap.set(tapeType, { thicknessMm: thick, totalMm: 0 });
@@ -829,6 +1050,44 @@ export function calculateEdgeBandingSummary(parts: CutlistPart[]): EdgeBandingSu
     thicknessMm: data.thicknessMm,
     totalMeters: Math.round((data.totalMm / 1000) * 10) / 10,
   }));
+}
+
+function escapeProductionXml(value: unknown) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** Printable, scene-linked panel labels. The instance ID is the stable QR/barcode payload. */
+export function generateProductionLabelsSvg(snapshot: ProductionSnapshotV1) {
+  const labelWidth = 360;
+  const labelHeight = 190;
+  const columns = 3;
+  const rows = Math.max(1, Math.ceil(snapshot.parts.length / columns));
+  const width = labelWidth * columns;
+  const height = labelHeight * rows;
+  const labels = snapshot.parts.map((part, index) => {
+    const x = (index % columns) * labelWidth;
+    const y = Math.floor(index / columns) * labelHeight;
+    const edge = part.edgeSchedule?.tapeType ?? 'none';
+    return `<g transform="translate(${x} ${y})"><rect x="8" y="8" width="344" height="174" rx="8" fill="#fff" stroke="#171717"/><text x="22" y="35" font-size="14" font-weight="700">${escapeProductionXml(part.partName)}</text><text x="22" y="58" font-size="11">${escapeProductionXml(part.partInstanceId)}</text><text x="22" y="82" font-size="13" font-weight="600">${part.lengthMm} x ${part.widthMm} x ${part.thicknessMm} mm</text><text x="22" y="105" font-size="11">Material: ${escapeProductionXml(part.materialCode)}</text><text x="22" y="126" font-size="11">Edge: ${escapeProductionXml(edge)} | Grain: ${escapeProductionXml(part.grainDirection)}</text><text x="22" y="147" font-size="11">Module: ${escapeProductionXml(part.moduleId)} | Room: ${escapeProductionXml(part.roomId ?? '-')}</text><text x="22" y="168" font-size="9">Scene ${escapeProductionXml(snapshot.sceneVersion)} | scan ID: ${escapeProductionXml(part.partInstanceId)}</text></g>`;
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#f4f1ea"/><g font-family="Arial, sans-serif" fill="#171717">${labels}</g></svg>`;
+}
+
+/** Reproducible cut diagrams using the same deterministic nesting result as the cutlist. */
+export function generateProductionNestingSvg(snapshot: ProductionSnapshotV1) {
+  const { sheets } = nestPanels2D(snapshot.parts, snapshot.fabricationRules.sheetWidthMm, snapshot.fabricationRules.sheetHeightMm, snapshot.fabricationRules.kerfMm, snapshot.fabricationRules.trimMm);
+  const pageWidth = 1000;
+  const sheetDrawWidth = 920;
+  const scale = sheetDrawWidth / snapshot.fabricationRules.sheetWidthMm;
+  const sheetDrawHeight = snapshot.fabricationRules.sheetHeightMm * scale;
+  const sectionHeight = sheetDrawHeight + 100;
+  const pageHeight = Math.max(180, sheets.length * sectionHeight + 40);
+  const sections = sheets.map((sheet, index) => {
+    const y = 30 + index * sectionHeight;
+    const panels = sheet.placedPanels.map((panel) => `<g><rect x="${40 + panel.xMm * scale}" y="${y + 42 + panel.yMm * scale}" width="${panel.widthMm * scale}" height="${panel.lengthMm * scale}" fill="#d8c3a5" stroke="#34271f"/><text x="${44 + panel.xMm * scale}" y="${y + 58 + panel.yMm * scale}" font-size="9">${escapeProductionXml(panel.partInstanceId)}</text><text x="${44 + panel.xMm * scale}" y="${y + 70 + panel.yMm * scale}" font-size="8">${panel.widthMm}x${panel.lengthMm}${panel.rotated ? ' R' : ''}</text></g>`).join('');
+    return `<g><text x="40" y="${y + 18}" font-size="15" font-weight="700">${escapeProductionXml(sheet.sheetId)}</text><text x="760" y="${y + 18}" font-size="12">${escapeProductionXml(sheet.materialCode)} ${sheet.thicknessMm} mm | ${sheet.utilizationPercentage}% used</text><rect x="40" y="${y + 42}" width="${sheetDrawWidth}" height="${sheetDrawHeight}" fill="#fff" stroke="#111" stroke-width="2"/>${panels}</g>`;
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${pageWidth}" height="${pageHeight}" viewBox="0 0 ${pageWidth} ${pageHeight}"><rect width="100%" height="100%" fill="#f4f1ea"/><g font-family="Arial, sans-serif" fill="#171717">${sections || '<text x="40" y="80">No nestable sheet parts were found.</text>'}</g></svg>`;
 }
 
 export function generateFullProductionCutlist(scene: SceneV1) {

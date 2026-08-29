@@ -255,6 +255,20 @@ export interface EditResult {
   derivedVersionId: string;
 }
 
+const MIN_WALL_LENGTH_MM = 10;
+function polygonIsValid(polygon: WorldPoint[]) { return polygon.length >= 3 && Math.abs(computePolygonArea(polygon)) > 0.0001; }
+function wallLength(wall: PlanWall) { return Math.hypot(wall.worldGeometry.end.xMm - wall.worldGeometry.start.xMm, wall.worldGeometry.end.yMm - wall.worldGeometry.start.yMm); }
+function assertEditableFragment(fragment: CanonicalPlanFragment) {
+  const errors: string[] = [];
+  for (const wall of fragment.walls) if (!Number.isFinite(wallLength(wall)) || wallLength(wall) < MIN_WALL_LENGTH_MM) errors.push(`Wall ${wall.id} is shorter than ${MIN_WALL_LENGTH_MM} mm.`);
+  const wallKeys = new Set<string>();
+  for (const wall of fragment.walls) { const a = `${wall.worldGeometry.start.xMm},${wall.worldGeometry.start.yMm}`; const b = `${wall.worldGeometry.end.xMm},${wall.worldGeometry.end.yMm}`; const key = [a, b].sort().join('|'); if (wallKeys.has(key)) errors.push(`Duplicate wall ${wall.id}.`); wallKeys.add(key); }
+  for (const room of fragment.rooms) if (!polygonIsValid(room.worldGeometry.polygon)) errors.push(`Room ${room.id} has an invalid polygon.`);
+  for (const opening of fragment.openings) { const wall = fragment.walls.find((candidate) => candidate.id === opening.wallId); if (!wall) errors.push(`Opening ${opening.id} is orphaned.`); else if (opening.offsetAlongWallMm < 0 || opening.offsetAlongWallMm + (opening.widthMm ?? 900) > wallLength(wall) + 0.5) errors.push(`Opening ${opening.id} is outside its wall.`); }
+  if (errors.length) throw new Error(errors.join(' '));
+}
+export function validateSpaceEdit(fragment: CanonicalPlanFragment) { try { assertEditableFragment(fragment); return { valid: true as const, errors: [] as string[] }; } catch (error) { return { valid: false as const, errors: [error instanceof Error ? error.message : String(error)] }; } }
+
 function newVersionId(): string {
   return "derived-" + Math.random().toString(36).slice(2, 10);
 }
@@ -275,19 +289,23 @@ export function deriveFragment(source: CanonicalPlanFragment, revisionLabel = "s
 export function editAddWall(source: CanonicalPlanFragment, wall: PlanWall): EditResult {
   const f = deriveFragment(source);
   f.walls.push(wall);
+  assertEditableFragment(f);
   return { fragment: f, derivedVersionId: f.derivedFromVersionId + ":" + newVersionId() };
 }
 export function editAddOpening(source: CanonicalPlanFragment, opening: PlanOpening): EditResult {
   const f = deriveFragment(source);
   f.openings.push(opening);
+  assertEditableFragment(f);
   return { fragment: f, derivedVersionId: f.derivedFromVersionId + ":" + newVersionId() };
 }
 export function editAddColumn(source: CanonicalPlanFragment, column: PlanObstacle): EditResult {
   const f = deriveFragment(source);
   f.obstacles = [...(f.obstacles ?? []), column];
+  assertEditableFragment(f);
   return { fragment: f, derivedVersionId: f.derivedFromVersionId + ":" + newVersionId() };
 }
 export function editSplitRoom(source: CanonicalPlanFragment, roomId: string, polygonA: WorldPoint[], polygonB: WorldPoint[]): EditResult {
+  if (!polygonIsValid(polygonA) || !polygonIsValid(polygonB)) throw new Error('Room split requires two valid non-empty polygons.');
   const f = deriveFragment(source);
   f.rooms = f.rooms.flatMap((r) => {
     if (r.id !== roomId) return [r];
@@ -299,15 +317,19 @@ export function editSplitRoom(source: CanonicalPlanFragment, roomId: string, pol
       { ...r, id: r.id + "-b", worldGeometry: { polygon: polygonB }, areaSqm: areaB },
     ].map((x: any) => ({ ...x, ...base }));
   });
+  assertEditableFragment(f);
   return { fragment: f, derivedVersionId: f.derivedFromVersionId + ":" + newVersionId() };
 }
 export function editMergeRooms(source: CanonicalPlanFragment, roomIds: string[], mergedPolygon: WorldPoint[]): EditResult {
+  if (roomIds.length < 2 || new Set(roomIds).size !== roomIds.length || !polygonIsValid(mergedPolygon)) throw new Error('Room merge requires at least two rooms and a valid union polygon.');
+  if (roomIds.some((id) => !source.rooms.some((room) => room.id === id))) throw new Error('Room merge references a room that is not in the active plan.');
   const f = deriveFragment(source);
   const kept = f.rooms.filter((r) => !roomIds.includes(r.id));
   const mergedArea = computePolygonArea(mergedPolygon);
   const base = kept[0] ? { ceilingHeightMm: kept[0].ceilingHeightMm ?? source.ceilingHeightMm } : { ceilingHeightMm: source.ceilingHeightMm };
   kept.push({ id: "merged-" + roomIds.join("_"), worldGeometry: { polygon: mergedPolygon }, areaSqm: mergedArea, ...(base as any) } as any);
   f.rooms = kept;
+  assertEditableFragment(f);
   return { fragment: f, derivedVersionId: f.derivedFromVersionId + ":" + newVersionId() };
 }
 

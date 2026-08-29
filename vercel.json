@@ -6,13 +6,22 @@
   "framework": "vite",
   "functions": {
     "api/[...path].ts": {
-      "includeFiles": "{apps/api/dist/**,packages/**/dist/**,node_modules/@ultida/**}"
+      "includeFiles": "{apps/api/dist/**,packages/**/dist/**,node_modules/@ultida/**}",
+      "maxDuration": 60
+    },
+    "api/plan_cv.py": {
+      "includeFiles": "apps/api/cv/wall_tracer.py",
+      "excludeFiles": "{.git/**,.playwright-browsers/**,docs/**,node_modules/**,apps/web/**,apps/cloudflare-ai-worker/**,apps/worker/**,apps/api/dist/**,apps/api/test/**,packages/**,tmp/**,floorplan analyser/**}"
     }
   },
   "rewrites": [
     {
+      "source": "/internal/cv/plan",
+      "destination": "/api/plan_cv.py"
+    },
+    {
       "source": "/api/:ultidaPath*",
-      "destination": "/api/[...path]?__ultida_path=:ultidaPath*"
+      "destination": "/api/[...path]?__ultida_path=:ultidaPath"
     },
     {
       "source": "/((?!api(?:/|$)).*)",

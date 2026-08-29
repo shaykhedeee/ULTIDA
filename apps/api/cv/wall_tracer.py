@@ -290,7 +290,44 @@ def snap_walls_to_corners(walls, corners, tol=15):
     return out
 
 
-def detect_openings(walls, min_gap_px=15, max_gap_px=140):
+def classify_opening(binary, center, gap_width, axis_is_y):
+    """Classify a wall gap using only visible line evidence.
+
+    Windows commonly retain two or more short rails parallel to the host wall.
+    Hinged doors commonly expose a diagonal leaf/swing stroke. Ambiguous gaps
+    remain unknown so the vision pass or designer can classify them safely.
+    """
+    cx, cy = int(round(center['x'])), int(round(center['y']))
+    radius = max(12, int(round(gap_width * 0.8)))
+    y1, y2 = max(0, cy - radius), min(binary.shape[0], cy + radius + 1)
+    x1, x2 = max(0, cx - radius), min(binary.shape[1], cx + radius + 1)
+    crop = binary[y1:y2, x1:x2]
+    if crop.size == 0:
+        return 'unknown', 0.35, 'No usable pixels were available around this wall gap.'
+    lines = cv2.HoughLinesP(
+        crop, rho=1, theta=np.pi / 180, threshold=max(8, radius // 3),
+        minLineLength=max(8, int(gap_width * 0.25)), maxLineGap=5,
+    )
+    parallel = 0
+    diagonal = 0
+    if lines is not None:
+        for raw in np.asarray(lines).reshape(-1, 4):
+            sx1, sy1, sx2, sy2 = [int(v) for v in raw]
+            angle = abs(math.degrees(math.atan2(sy2 - sy1, sx2 - sx1))) % 180
+            along_wall = min(angle, 180 - angle) <= 12 if axis_is_y else abs(angle - 90) <= 12
+            is_diagonal = 20 <= angle <= 70 or 110 <= angle <= 160
+            if along_wall:
+                parallel += 1
+            elif is_diagonal:
+                diagonal += 1
+    if parallel >= 2 and diagonal == 0:
+        return 'window', min(0.78, 0.55 + parallel * 0.05), 'Parallel window-rail strokes are visible across the wall gap.'
+    if diagonal >= 1:
+        return 'door', min(0.76, 0.58 + diagonal * 0.04), 'A diagonal door-leaf or swing stroke is visible beside the wall gap.'
+    return 'unknown', 0.45, 'A structural wall gap is visible, but door/window semantics are uncertain.'
+
+
+def detect_openings(walls, binary, min_gap_px=15, max_gap_px=140):
     """Find plausible door/window openings as gaps between near-collinear
     wall segments on the same axis -- e.g. two wall segments that share the
     same y (horizontal wall) with a gap of a plausible door/window width
@@ -319,12 +356,14 @@ def detect_openings(walls, min_gap_px=15, max_gap_px=140):
                 if min_gap_px <= gap <= max_gap_px:
                     mid = (min(a_hi, b_hi) + max(a_lo, b_lo)) / 2 if False else (a_hi + b_lo) / 2 if a_hi < b_lo else (b_hi + a_lo) / 2
                     center = {'x': mid, 'y': pos_a} if axis_is_y else {'x': pos_a, 'y': mid}
+                    kind_hint, confidence, evidence = classify_opening(binary, center, gap, axis_is_y)
                     openings.append({
                         'betweenWallIds': [a['id'], b['id']],
                         'approxCenterPx': center,
                         'approxWidthPx': round(gap, 1),
-                        'confidence': 0.6,
-                        'note': 'Gap between collinear wall segments -- plausible door/window, not yet semantically confirmed.',
+                        'kindHint': kind_hint,
+                        'confidence': confidence,
+                        'note': evidence,
                     })
 
     check_axis(horiz, True)
@@ -332,10 +371,26 @@ def detect_openings(walls, min_gap_px=15, max_gap_px=140):
     return openings
 
 
-def trace_walls(image_path: str) -> dict:
-    img = cv2.imread(image_path)
+def trace_image(img: np.ndarray) -> dict:
+    """Trace a decoded OpenCV image.
+
+    Keeping the actual algorithm independent of a filesystem path lets the
+    authenticated serverless CV endpoint use the exact same implementation as
+    local development. There is deliberately no browser-side approximation.
+    """
     if img is None:
-        raise FileNotFoundError(f"Could not read image: {image_path}")
+        raise ValueError("Could not decode the supplied plan image")
+    # Extremely large uploads multiply Hough/connected-component cost without
+    # improving the editable review model. Trace at a bounded working size and
+    # return coordinates in the original source coordinate space so existing
+    # reconciliation and calibration remain exact to the uploaded preview.
+    source_h, source_w = img.shape[:2]
+    longest = max(source_h, source_w)
+    working_limit = 2200
+    scale = 1.0
+    if longest > working_limit:
+        scale = working_limit / float(longest)
+        img = cv2.resize(img, (round(source_w * scale), round(source_h * scale)), interpolation=cv2.INTER_AREA)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     h, w = gray.shape
 
@@ -352,25 +407,52 @@ def trace_walls(image_path: str) -> dict:
     min_wall_len_px = max(20, int(0.015 * max(h, w)))
     walls = [x for x in walls if x['lengthPx'] >= min_wall_len_px]
 
-    openings = detect_openings(walls)
+    openings = detect_openings(walls, binary)
+
+    if scale != 1.0:
+        inverse = 1.0 / scale
+        for wall in walls:
+            for key in ('x1', 'y1', 'x2', 'y2', 'lengthPx', 'thicknessPx'):
+                if key in wall:
+                    wall[key] = round(float(wall[key]) * inverse, 2)
+        for corner in corners:
+            corner['x'] = round(float(corner['x']) * inverse, 2)
+            corner['y'] = round(float(corner['y']) * inverse, 2)
+        for opening in openings:
+            opening['approxCenterPx']['x'] = round(float(opening['approxCenterPx']['x']) * inverse, 2)
+            opening['approxCenterPx']['y'] = round(float(opening['approxCenterPx']['y']) * inverse, 2)
+            opening['approxWidthPx'] = round(float(opening['approxWidthPx']) * inverse, 2)
 
     return {
         'schema': 'PlanAnalysisResultV1.wallCandidates',
-        'sourceImageSize': {'widthPx': w, 'heightPx': h},
+        'sourceImageSize': {'widthPx': source_w, 'heightPx': source_h},
         'corners': corners,
         'walls': walls,
         'wallCount': len(walls),
         'openings': openings,
         'openingCount': len(openings),
         'method': 'deterministic-cv-hough-thickness-pairing',
+        'workingScale': scale,
         'notes': (
             'Candidate geometry only. Not authoritative until reconciled '
             'with vision-model semantics and confirmed by a human reviewer, '
             'per ARCHITECTURE.md invariant #4. Openings are geometric gap '
-            'candidates only -- they are not yet classified as door vs '
-            'window; that classification needs the vision-LLM semantic pass.'
+            'candidates with conservative door/window hints. Unknown hints '
+            'remain reviewable and may be classified by the vision pass.'
         ),
     }
+
+
+def trace_walls(image_path: str) -> dict:
+    img = cv2.imread(image_path)
+    if img is None:
+        raise FileNotFoundError(f"Could not read image: {image_path}")
+    return trace_image(img)
+
+
+def trace_walls_bytes(raw: bytes) -> dict:
+    img = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+    return trace_image(img)
 
 
 def _json_default(o):

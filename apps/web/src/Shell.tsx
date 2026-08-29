@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, FolderKanban, Library, BookOpen,
-  Palette, Settings, Users, Ruler, ChevronRight,
-  PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut,
+  Palette, Settings, Users, Ruler, ChevronRight, Box, Home, Wand2, CalendarDays, Receipt, Compass,
+  PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut, Sparkles, Layers,
   CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -18,6 +18,7 @@ export type WorkflowStageConfig = {
   path: string;
   status: WorkflowStageStatus;
   lockReason?: string;
+  icon?: any;
 };
 
 type Props = {
@@ -35,24 +36,37 @@ const PRIMARY_NAV = [
   { id: 'dashboard', label: 'Dashboard',      path: '/',            icon: LayoutDashboard },
   { id: 'projects',  label: 'Projects',       path: '/projects',    icon: FolderKanban },
   { id: 'library',   label: 'Design Library', path: '/library',     icon: Library },
-  { id: 'rules',     label: 'Company Rules',  path: '/rules',       icon: Ruler },
   { id: 'team',      label: 'Team',           path: '/team',        icon: Users },
-  { id: 'settings',  label: 'Settings',       path: '/settings',    icon: Settings },
+  { id: 'settings',  label: 'Settings & Rules', path: '/settings',   icon: Settings },
+];
+
+const TOOL_NAV = [
+  { label: 'AI & Design Tools', items: [
+    { id: 'aura-ai', label: 'AURA Design AI', path: '/tools/aura', icon: Sparkles },
+    { id: 'skp-generator', label: 'SketchUp Studio', path: '/tools/skp', icon: Layers },
+    { id: 'room-builder', label: 'Room Builder', path: '/tools/room-builder', icon: Home },
+    { id: 'module-planner', label: 'Module Planner', path: '/tools/modules', icon: Box },
+    { id: 'render-studio', label: 'Render Studio', path: '/tools/render', icon: Wand2 },
+  ] },
+  { label: 'Production & CNC', items: [
+    { id: 'cnc-studio', label: 'CNC Patterns', path: '/tools/cnc', icon: Compass },
+    { id: 'measurements', label: 'Measurements', path: '/tools/measurements', icon: Ruler },
+  ] },
+  { label: 'Studio Operations', items: [
+    { id: 'calendar', label: 'Calendar', path: '/tools/calendar', icon: CalendarDays },
+    { id: 'invoices', label: 'Invoices', path: '/tools/invoices', icon: Receipt },
+  ] },
 ];
 
 // ─── Default workflow stages ──────────────────────────────────────
 export const DEFAULT_WORKFLOW_STAGES: WorkflowStageConfig[] = [
-  { id: 'brief',        label: 'Brief',         path: 'brief',        status: 'not_started' },
-  { id: 'plan',         label: 'Floor Plan',    path: 'plan',         status: 'locked', lockReason: 'Complete brief first' },
-  { id: 'spaces',       label: 'Spaces',        path: 'spaces',       status: 'locked', lockReason: 'Approve floor plan first' },
-  { id: 'layouts',      label: 'Layouts',       path: 'layouts',      status: 'locked', lockReason: 'Configure spaces first' },
-  { id: 'modules',      label: 'Modules',       path: 'modules',      status: 'locked', lockReason: 'Approve layout first' },
-  { id: 'materials',    label: 'Materials',     path: 'materials',    status: 'locked', lockReason: 'Place modules first' },
-  { id: '3d',           label: '3D Scene',      path: '3d',           status: 'locked', lockReason: 'Apply materials first' },
-  { id: 'renders',      label: 'Renders',       path: 'renders',      status: 'locked', lockReason: 'Approve 3D scene first' },
-  { id: 'drawings',     label: 'Drawings',      path: 'drawings',     status: 'locked', lockReason: 'Approve renders first' },
-  { id: 'estimate',     label: 'Estimate',      path: 'estimate',     status: 'locked', lockReason: 'Approve drawings first' },
-  { id: 'presentation', label: 'Presentation',  path: 'presentation', status: 'locked', lockReason: 'Complete estimate first' },
+  { id: 'brief',        label: 'Project Brief', path: 'brief',        icon: BookOpen, status: 'not_started' },
+  { id: 'plan',         label: 'Measured Plan', path: 'plan',         icon: Compass, status: 'locked', lockReason: 'Complete project brief first' },
+  { id: 'spaces',       label: 'Rooms & Modules', path: 'spaces',     icon: Home, status: 'locked', lockReason: 'Approve measured plan first' },
+  { id: '3d',           label: 'Scene Studio',  path: '3d',           icon: Wand2, status: 'locked', lockReason: 'Save a room design first' },
+  { id: 'drawings',     label: 'Production Docs', path: 'drawings',   icon: Ruler, status: 'locked', lockReason: 'Compile a scene first' },
+  { id: 'estimate',     label: 'Costing',       path: 'estimate',     icon: Receipt, status: 'locked', lockReason: 'Approve production documents first' },
+  { id: 'presentation', label: 'Presentation',  path: 'presentation', icon: Palette, status: 'locked', lockReason: 'Complete costing first' },
 ];
 
 // ─── Stage status icon ─────────────────────────────────────────────
@@ -133,12 +147,16 @@ export function Shell({
           })}
         </div>
 
+        {!inProject && <div className="sidebar-tool-groups">
+          {TOOL_NAV.map(group => <div className="sidebar-tool-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => { const Icon = item.icon; const active = location.pathname === item.path; return <Link key={item.id} to={item.path} className={`nav-item compact${active ? ' active' : ''}`} onClick={() => setMobileOpen(false)}><span className="nav-icon"><Icon size={15} /></span><span>{item.label}</span></Link>; })}</div>)}
+        </div>}
+
         {/* Project workflow nav */}
         {inProject && (
           <div className="workflow-nav">
             <div className="workflow-nav-header">
               <span className="workflow-nav-title">
-                {projectName ? projectName.slice(0, 18) : 'Current Project'}
+                {projectName || 'Current Project'}
               </span>
               <span className="workflow-count" aria-label={`${workflowStages.filter((stage) => stage.status === 'done').length} of ${workflowStages.length} stages complete`}>
                 {workflowStages.filter((stage) => stage.status === 'done').length}/{workflowStages.length}
@@ -147,6 +165,7 @@ export function Shell({
             {workflowStages.map((stage, i) => {
               const isActive = location.pathname.includes(`/${stage.path}`);
               const isLocked = stage.status === 'locked';
+              const StageItemIcon = stage.icon ?? Home;
               return (
                 <button
                   key={stage.id}
@@ -162,9 +181,9 @@ export function Shell({
                   }}
                   title={isLocked ? stage.lockReason : stage.label}
                 >
-                  <span className="stage-num"><StageIcon status={stage.status} /></span>
+                  <span className="stage-nav-icon"><StageItemIcon size={14} /></span>
                   <span className="stage-label-text">{stage.label}</span>
-                  <span className="stage-status-dot" />
+                  <span className="stage-num"><StageIcon status={stage.status} /></span>
                 </button>
               );
             })}

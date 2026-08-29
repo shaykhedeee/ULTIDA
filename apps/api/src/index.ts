@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import cors from 'cors';
 import express from 'express';
+import PDFDocument from 'pdfkit';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const rootEnv = [resolve(currentDir, '../.env'), resolve(currentDir, '../../.env'), resolve(currentDir, '../../../.env')].find((c) => existsSync(c));
@@ -18,7 +19,7 @@ if (existsSync(localEnv)) {
 }
 
 import { getRequestSupabaseClient, getServerSupabaseClient } from './supabase.js';
-import { authenticateProjectUser, requireProjectUser } from './api-auth.js';
+import { authenticateProjectUser, requireProjectUser, requireStudioUser } from './api-auth.js';
 import { MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, VisualProposalRequestSchema, validateProjectBrief } from '@ultida/contracts';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { SceneV1Schema } from '@ultida/scene-core';
@@ -29,17 +30,30 @@ import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { AURA_TOOLS, listAuraTools, planAuraMessage, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
-import { buildDrawingProjection, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateSketchUpRubyScript } from '@ultida/drawing-core';
+import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateSketchUpRubyScript, nestPanels2D } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
 import { compileSceneV1, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
 import { compileStoredModuleForScene } from './scene-module-parts.js';
 import { evaluateVastuCompliance, generateCandidates } from '@ultida/layout-core';
 import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord } from './reference-retrieval.js';
+import { getDeploymentIdentity, isPreviewWriteAllowed } from './deployment-identity.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8800);
 const gateway = createProviderGateway(process.env);
+
+/**
+ * Brief writes occur only after requireProjectUser has verified both the
+ * caller's session and membership for this exact project. Use the server-side
+ * client for that already-authorized persistence so an old brief row with a
+ * stale organisation_id cannot make a legitimate upsert fail its historical
+ * RLS USING predicate. The request client remains the safe fallback for
+ * development environments without a server key.
+ */
+function getAuthorizedProjectPersistenceClient(request: express.Request) {
+  return getServerSupabaseClient() ?? getRequestSupabaseClient(request);
+}
 type AuraAuditRow = {
   id: string;
   project_id: string;
@@ -94,52 +108,29 @@ function dxfLine(x1: number, y1: number, x2: number, y2: number, layer: string) 
 }
 
 export function buildCutlist(scene: ReturnType<typeof migrateScene>) {
-  const exactParts = Array.isArray((scene as any).moduleParts) ? (scene as any).moduleParts : [];
-  if (!exactParts.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
+  const snapshot = buildProductionSnapshot(scene);
+  const nested = nestPanels2D(snapshot.parts, snapshot.fabricationRules.sheetWidthMm, snapshot.fabricationRules.sheetHeightMm, snapshot.fabricationRules.kerfMm, snapshot.fabricationRules.trimMm);
+  return {
+    schema: snapshot.schema,
+    partCount: snapshot.parts.length,
+    parts: snapshot.parts,
+    hardware: snapshot.hardware,
+    warnings: snapshot.warnings,
+    edgeBanding: calculateEdgeBandingSummary(snapshot.parts),
+    nesting: nested.sheets,
+    fabricationRules: snapshot.fabricationRules,
+    status: snapshot.status,
+  };
+}
 
-  // Smart grouping keeps orientation-independent parts together without rounding
-  // approved millimetre geometry into a different fabrication size. A 5 mm grid
-  // silently changed an approved 18 mm panel into 20 mm; retain sub-millimetre
-  // source precision and let the explicit tolerance gate handle near-matches.
-  const grid = (mm: number) => Math.round(mm * 10) / 10;
-  const rows = new Map<string, { length: number; width: number; thickness: number; material: string; quantity: number; parts: string[]; ids: string[] }>();
-
-  for (const part of exactParts) {
-    const length = grid(Number(part.widthMm));
-    const width = grid(Number(part.depthMm));
-    const thickness = grid(Number(part.heightMm));
-    const material = String(part.materialId ?? 'unified');
-    const [normL, normW] = length >= width ? [length, width] : [width, length];
-    const key = `${normL}x${normW}x${thickness}@${material}`;
-    const row = rows.get(key);
-    const name = String(part.name ?? part.semanticType ?? 'part');
-    if (row) {
-      row.quantity += 1;
-      row.parts.push(name);
-      row.ids.push(String(part.id));
-    } else {
-      rows.set(key, { length: normL, width: normW, thickness, material, quantity: 1, parts: [name], ids: [String(part.id)] });
-    }
-  }
-
-  const parts = [...rows.values()]
-    .sort((a, b) => b.length - a.length || b.width - a.width || b.thickness - a.thickness)
-    .map((row) => ({
-      id: row.ids[0], moduleId: row.ids[0], roomId: String(exactParts[0]?.roomId ?? 'unknown'),
-      family: String(exactParts[0]?.semanticType ?? 'module-part'),
-      partType: row.parts.join(', '), lengthMm: row.length, widthMm: row.width,
-      thicknessMm: row.thickness,
-      // Edge-banding is a production decision and must come from an explicit
-      // module-part policy; never infer it from rectangle dimensions.
-      edgeBandMm: 0,
-      hardware: [], status: 'review_required', quantity: row.quantity,
-    }));
-
-  // `partCount` is the number of authoritative physical parts. `parts` is the
-  // dimension-normalized schedule and may consolidate identical rows through
-  // `quantity`; conflating the two made a seven-part scene report only four
-  // physical parts in the production gate.
-  return { partCount: exactParts.length, parts, assumptions: { carcassThicknessMm: 18, backThicknessMm: 6, edgeBandPolicy: 'perimeter', status: 'review_required' } };
+function applyProductionReview<T extends ReturnType<typeof buildCutlist>>(cutlist: T, review: any): T {
+  const approvedIds = new Set(Array.isArray(review?.approved_part_ids) ? review.approved_part_ids.map(String) : []);
+  const approved = review?.status === 'approved' && cutlist.parts.length > 0 && cutlist.parts.every((part) => approvedIds.has(part.partInstanceId));
+  return {
+    ...cutlist,
+    parts: cutlist.parts.map((part) => ({ ...part, status: approvedIds.has(part.partInstanceId) ? 'approved' as const : 'review_required' as const })),
+    status: approved ? 'approved' as const : 'review_required' as const,
+  };
 }
 
 // Kept as a compatibility export for older API tests and integrations. The
@@ -157,8 +148,20 @@ export function createSceneDxf(input: Record<string, unknown>) {
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '35mb' }));
+app.use('/api', (request, response, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return next();
+  const deployment = getDeploymentIdentity();
+  if (isPreviewWriteAllowed(deployment)) return next();
+  return response.status(503).json({
+    success: false,
+    code: 'PREVIEW_DATABASE_NOT_ISOLATED',
+    message: 'Preview writes are disabled until this deployment is connected to an isolated Preview database.',
+    deployment,
+  });
+});
 
 app.get('/api/health', async (_request, response) => {
+  const deployment = getDeploymentIdentity();
   const currentGateway = createProviderGateway(process.env);
   const hasServerSupabaseKey = Boolean(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
   const workerUrl = process.env.CLOUDFLARE_WORKER_URL?.replace(/\/$/, '');
@@ -189,8 +192,10 @@ app.get('/api/health', async (_request, response) => {
     success: true,
     app: 'ultida',
     status: 'ok',
+    deployment,
     readiness: {
       supabase: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY),
+      previewDatabaseIsolated: deployment.previewDatabaseIsolated,
       durableJobs: hasServerSupabaseKey && workerDispatchReady,
       planVision: hasPlanVisionProvider,
       realImageGeneration: currentGateway.status().some((provider) => provider.configured && provider.operations.includes('generate'))
@@ -346,11 +351,11 @@ app.post('/api/catalog/validate-placement', (request, response) => {
   const { moduleId, roomType, clearanceMm, adjacentFamily } = request.body ?? {};
   if (!moduleId || !roomType || typeof clearanceMm !== 'number') return response.status(400).json({ success: false, code: 'INVALID_PLACEMENT_REQUEST', message: 'moduleId, roomType and clearanceMm are required.' });
   const moduleItem = listCatalog().find((item) => item.id === moduleId);
-  if (!moduleItem) return response.status(404).json({ success: false, code: 'MODULE_NOT_FOUND' });
+  if (!moduleItem) return response.status(404).json({ success: false, code: 'MODULE_NOT_FOUND', message: 'Module not found in catalog.' });
   const result = validatePlacement(moduleItem, RoomTypeSchema.parse(roomType), clearanceMm);
   const ruleViolations: Array<{ code: string; message: string }> = [];
-  if (adjacentFamily === 'kitchen-corner' && moduleItem.tags.includes('drawer')) {
-    ruleViolations.push({ code: 'KITCHEN_DRAWERS_CORNER_ADJACENT', message: 'Kitchen drawer units adjacent to corners require a filler to prevent handle collision.' });
+  if (adjacentFamily === 'kitchen-corner' && (moduleItem.tags.includes('drawer') || moduleItem.family === 'kitchen-base' || moduleItem.tags.includes('base'))) {
+    ruleViolations.push({ code: 'KITCHEN_DRAWERS_CORNER_ADJACENT', message: 'Kitchen drawer and base units adjacent to corners require a filler to prevent handle collision.' });
   }
   return response.status(200).json({ success: result.valid, validation: result, ruleViolations });
 });
@@ -364,9 +369,9 @@ app.post('/api/plan/analyze', requireProjectUser, async (request, response) => {
   if (job.status === 'unavailable') return response.status(503).json({ success: false, code: job.code, message: job.reason });
   if (job.status === 'not_found') return response.status(404).json({ success: false, code: 'PLAN_SOURCE_NOT_FOUND', message: job.reason });
   const dispatch = job.status === 'queued' ? await dispatchPlanAnalysisJob(process.env, job.jobId) : null;
-  if (job.status === 'queued' && !dispatch?.dispatched) {
-    return response.status(503).json({ success: false, code: 'PLAN_JOB_DISPATCH_UNAVAILABLE', message: dispatch?.reason ?? 'The analysis worker could not be reached.', ...job, dispatch });
-  }
+  // A request handler never consumes a durable job. Cloudflare owns retries,
+  // leases and recovery; retaining this as a warning prevents a browser/API
+  // request from duplicating a slow provider call.
   return response.status(job.status === 'failed' ? 502 : 202).json({ success: job.status !== 'failed', ...job, dispatch });
 });
 
@@ -382,7 +387,7 @@ app.get('/api/plan/analyze/:jobId', requireProjectUser, async (request, response
 // original immutable source instead of forcing the designer to upload again.
 app.post('/api/plan/analyze/:jobId/retry', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
-  const projectId = authReq.ultidaUser!.projectId;
+  const projectId = typeof request.body?.projectId === 'string' ? request.body.projectId : authReq.ultidaUser!.projectId;
   const client = getServerSupabaseClient();
   if (!client) return response.status(503).json({ success: false, code: 'PLAN_JOB_PERSISTENCE_UNAVAILABLE', message: 'Secure job processing is not configured on the server.' });
   const { data: job, error } = await client
@@ -394,11 +399,11 @@ app.post('/api/plan/analyze/:jobId/retry', requireProjectUser, async (request, r
     .maybeSingle();
   if (error || !job) return response.status(404).json({ success: false, code: 'PLAN_JOB_NOT_FOUND', message: 'This floor-plan analysis job was not found.' });
   if (job.status === 'succeeded') return response.status(409).json({ success: false, code: 'PLAN_JOB_ALREADY_COMPLETE', message: 'This floor-plan analysis has already completed.' });
-  const reset = await client.from('jobs').update({ status: 'queued', error: null, locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).eq('id', job.id);
+  const queuedAt = new Date().toISOString();
+  const reset = await client.from('jobs').update({ status: 'queued', queued_at: queuedAt, processing_at: null, failed_at: null, error: null, last_error_code: null, locked_at: null, locked_by: null, updated_at: queuedAt }).eq('id', job.id);
   if (reset.error) return response.status(502).json({ success: false, code: 'PLAN_JOB_RETRY_FAILED', message: reset.error.message });
   const dispatch = await dispatchPlanAnalysisJob(process.env, job.id);
-  if (!dispatch.dispatched) return response.status(503).json({ success: false, code: 'PLAN_JOB_DISPATCH_UNAVAILABLE', message: dispatch.reason ?? 'The AI worker could not be reached. Please try again shortly.' });
-  return response.status(202).json({ success: true, jobId: job.id, status: 'queued', dispatch });
+  return response.status(202).json({ success: true, jobId: job.id, requestId: job.id, status: 'queued', queuedAt, dispatch });
 });
 
 // ─── Real plan-analysis pipeline (provider + deterministic CV/OCR + reconciliation) ───
@@ -423,7 +428,13 @@ app.get('/api/projects/:projectId/plan-analysis/draft', requireProjectUser, asyn
 app.put('/api/projects/:projectId/plan-analysis/draft', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const body = request.body ?? {};
-  const { analysisUuid, elements, issues, scale, ceilingHeightMm, status } = body;
+  const legacyDraft = body.draft && typeof body.draft === 'object' ? body.draft : {};
+  const analysisUuid = body.analysisUuid ?? body.analysisId;
+  const elements = body.elements ?? legacyDraft.elements;
+  const issues = body.issues ?? legacyDraft.issues;
+  const scale = body.scale ?? legacyDraft.scale;
+  const ceilingHeightMm = body.ceilingHeightMm ?? legacyDraft.ceilingHeightMm;
+  const status = body.status ?? legacyDraft.status;
   if (typeof analysisUuid !== 'string') return response.status(400).json({ success: false, code: 'MISSING_ANALYSIS_UUID', message: 'analysisUuid is required.' });
   const client = getRequestSupabaseClient(request);
   const { error } = await client
@@ -487,6 +498,9 @@ app.post('/api/drawings/elevations.pdf', async (request, response) => {
     stream.once('end', resolveStream);
     stream.once('error', rejectStream);
   });
+  // Compatibility endpoint: preserve the established drawing-only PDF for
+  // scenes without manufacturing parts. The authenticated production/package
+  // endpoint below is the strict comprehensive pack and requires exact parts.
   generateProjectionPdf(buildDrawingProjection(normalized), stream);
   await completed;
   response.setHeader('content-type', 'application/pdf');
@@ -536,6 +550,117 @@ app.post('/api/production/cutlist', (request, response) => {
   } catch (err: any) {
     console.error('Cutlist error:', err);
     return response.status(500).json({ success: false, code: 'CUTLIST_FAILED', message: err?.message });
+  }
+});
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production-snapshot', requireProjectUser, async (request, response) => {
+  try {
+    const projectId = String(request.params.projectId);
+    const sceneVersionId = String(request.params.sceneVersionId);
+    const client = getRequestSupabaseClient(request);
+    const result = await client.from('scene_versions').select('id,status,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
+    if (result.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: result.error.message });
+    if (!result.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND', message: 'That scene version does not belong to this project.' });
+    if (!['approved', 'locked'].includes(String(result.data.status))) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before creating manufacturing outputs.' });
+    const scene = migrateScene(result.data.scene);
+    const review = await client.from('production_snapshot_reviews').select('status,approved_part_ids,review_notes,reviewed_at,reviewed_by').eq('project_id', projectId).eq('scene_version_id', sceneVersionId).maybeSingle();
+    if (review.error && review.error.code !== 'PGRST205') return response.status(500).json({ success: false, code: 'PRODUCTION_REVIEW_READ_FAILED', message: review.error.message });
+    return response.json({ success: true, cutlist: applyProductionReview(buildCutlist(scene), review.data), review: review.data ?? null, source: { projectId, sceneVersionId, sceneStatus: result.data.status } });
+  } catch (err: any) {
+    return response.status(422).json({ success: false, code: 'PRODUCTION_SNAPSHOT_FAILED', message: err?.message ?? 'The approved scene could not produce an authoritative manufacturing snapshot.' });
+  }
+});
+
+app.put('/api/projects/:projectId/scenes/:sceneVersionId/production-review', requireProjectUser, async (request, response) => {
+  try {
+    const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+    const projectId = String(request.params.projectId);
+    const sceneVersionId = String(request.params.sceneVersionId);
+    const client = getRequestSupabaseClient(request);
+    const membership = await client.from('organization_members').select('role').eq('organization_id', authReq.ultidaUser!.organizationId).eq('user_id', authReq.ultidaUser!.id).maybeSingle();
+    if (membership.error || !['owner', 'admin', 'designer', 'production'].includes(membership.data?.role ?? '')) return response.status(403).json({ success: false, code: 'PRODUCTION_REVIEW_FORBIDDEN', message: 'A studio owner, admin, designer, or production user must review this pack.' });
+    const sceneResult = await client.from('scene_versions').select('id,status,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
+    if (sceneResult.error || !sceneResult.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND', message: 'That exact scene version was not found.' });
+    if (!['approved', 'locked'].includes(String(sceneResult.data.status))) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before reviewing its production pack.' });
+    const cutlist = buildCutlist(migrateScene(sceneResult.data.scene));
+    const requestedIds: string[] = Array.isArray(request.body?.approvedPartIds) ? request.body.approvedPartIds.map(String) : [];
+    const validIds = new Set(cutlist.parts.map((part) => part.partInstanceId));
+    const uniqueIds = [...new Set(requestedIds)].filter((id) => validIds.has(id));
+    if (!cutlist.parts.length) return response.status(422).json({ success: false, code: 'PRODUCTION_PARTS_REQUIRED', message: 'The approved scene has no exact physical panels to review.' });
+    if (uniqueIds.length !== cutlist.parts.length) return response.status(422).json({ success: false, code: 'PRODUCTION_REVIEW_INCOMPLETE', message: 'Review every physical panel before approving the production pack.' });
+    const notes = typeof request.body?.notes === 'string' ? request.body.notes.trim().slice(0, 2000) : '';
+    const reviewedAt = new Date().toISOString();
+    const write = await client.from('production_snapshot_reviews').upsert({
+      organization_id: authReq.ultidaUser!.organizationId,
+      project_id: projectId,
+      scene_version_id: sceneVersionId,
+      fabrication_rules_version: cutlist.fabricationRules.version,
+      status: 'approved',
+      approved_part_ids: uniqueIds,
+      review_notes: notes || null,
+      reviewed_by: authReq.ultidaUser!.id,
+      reviewed_at: reviewedAt,
+      updated_at: reviewedAt,
+    }, { onConflict: 'project_id,scene_version_id' }).select('status,approved_part_ids,review_notes,reviewed_at,reviewed_by').single();
+    if (write.error) return response.status(500).json({ success: false, code: 'PRODUCTION_REVIEW_SAVE_FAILED', message: write.error.message });
+    return response.json({ success: true, cutlist: applyProductionReview(cutlist, write.data), review: write.data });
+  } catch (err: any) {
+    return response.status(422).json({ success: false, code: 'PRODUCTION_REVIEW_FAILED', message: err?.message ?? 'The production review could not be saved.' });
+  }
+});
+
+async function readApprovedProductionContext(request: express.Request) {
+  const projectId = String(request.params.projectId);
+  const sceneVersionId = String(request.params.sceneVersionId);
+  const client = getRequestSupabaseClient(request);
+  const result = await client.from('scene_versions').select('id,status,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
+  if (result.error) throw Object.assign(new Error(result.error.message), { status: 500, code: 'SCENE_VERSION_READ_FAILED' });
+  if (!result.data) throw Object.assign(new Error('That scene version does not belong to this project.'), { status: 404, code: 'SCENE_VERSION_NOT_FOUND' });
+  if (!['approved', 'locked'].includes(String(result.data.status))) throw Object.assign(new Error('Approve this exact scene before creating manufacturing outputs.'), { status: 409, code: 'SCENE_NOT_PRODUCTION_READY' });
+  const scene = migrateScene(result.data.scene);
+  return { scene, snapshot: buildProductionSnapshot(scene) };
+}
+
+async function readApprovedProductionScene(request: express.Request) {
+  return (await readApprovedProductionContext(request)).snapshot;
+}
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/package.pdf', requireProjectUser, async (request, response) => {
+  try {
+    const { scene, snapshot } = await readApprovedProductionContext(request);
+    const stream = new PassThrough();
+    const chunks: Buffer[] = [];
+    stream.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    const completed = new Promise<void>((resolveStream, rejectStream) => { stream.once('end', resolveStream); stream.once('error', rejectStream); });
+    generateProjectionPdf(buildDrawingProjection(scene), stream, snapshot);
+    await completed;
+    response.setHeader('content-type', 'application/pdf');
+    response.setHeader('content-disposition', `attachment; filename="ultida-${request.params.sceneVersionId}-production-pack.pdf"`);
+    return response.send(Buffer.concat(chunks));
+  } catch (err: any) {
+    return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_PACKAGE_FAILED', message: err?.message });
+  }
+});
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/labels.svg', requireProjectUser, async (request, response) => {
+  try {
+    const snapshot = await readApprovedProductionScene(request);
+    response.setHeader('content-type', 'image/svg+xml; charset=utf-8');
+    response.setHeader('content-disposition', `attachment; filename="ultida-${request.params.sceneVersionId}-panel-labels.svg"`);
+    return response.send(generateProductionLabelsSvg(snapshot));
+  } catch (err: any) {
+    return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_LABELS_FAILED', message: err?.message });
+  }
+});
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/nesting.svg', requireProjectUser, async (request, response) => {
+  try {
+    const snapshot = await readApprovedProductionScene(request);
+    response.setHeader('content-type', 'image/svg+xml; charset=utf-8');
+    response.setHeader('content-disposition', `attachment; filename="ultida-${request.params.sceneVersionId}-nesting.svg"`);
+    return response.send(generateProductionNestingSvg(snapshot));
+  } catch (err: any) {
+    return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_NESTING_FAILED', message: err?.message });
   }
 });
 
@@ -593,8 +718,9 @@ app.post('/api/production/cutlist.csv', (request, response) => {
     if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY' });
     const cutlist = buildCutlist(normalized);
     response.setHeader('content-type', 'text/csv');
-    const rows = cutlist.parts.map((part: { id: string; moduleId: string; family: string; roomId: string; partType: string; lengthMm: number; widthMm: number; thicknessMm: number; edgeBandMm: number; hardware: string[] }) => [part.id, part.moduleId, part.family, part.roomId, part.partType, part.lengthMm, part.widthMm, part.thicknessMm, part.edgeBandMm, part.hardware.join('|')].join(','));
-    return response.status(200).send(['part_id,module_id,family,room_id,part_type,length_mm,width_mm,thickness_mm,edge_band_mm,hardware', ...rows, ''].join('\n'));
+    const quote = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = cutlist.parts.map((part) => [part.partInstanceId, part.sourcePartId, part.moduleId, part.family, part.roomId, part.semanticType, part.partName, part.lengthMm, part.widthMm, part.thicknessMm, part.materialCode, part.grainDirection, part.edgeSchedule?.tapeType ?? 'none', part.status].map(quote).join(','));
+    return response.status(200).send(['part_instance_id,source_part_id,module_id,family,room_id,semantic_type,part_name,length_mm,width_mm,thickness_mm,material_code,grain_direction,edge_band,status', ...rows, ''].join('\n'));
   } catch (err: any) {
     return response.status(500).json({ success: false, code: 'CUTLIST_FAILED', message: err?.message });
   }
@@ -684,22 +810,51 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
   const sceneVersionId = typeof request.body?.sceneVersionId === 'string' ? request.body.sceneVersionId : '';
   const options = typeof request.body?.options === 'object' && request.body.options ? request.body.options as Record<string, unknown> : {};
   if (!sceneVersionId) return response.status(400).json({ success: false, code: 'SCENE_REQUIRED', message: 'sceneVersionId is required.' });
+  const operation = ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'].includes(String(options.operation)) ? String(options.operation) : 'generate';
+  const targetModuleId = typeof options.targetModuleId === 'string' ? options.targetModuleId : '';
+  const targetComponentId = typeof options.targetComponentId === 'string' ? options.targetComponentId : '';
+  const targetMaterialId = typeof options.targetMaterialId === 'string' ? options.targetMaterialId : '';
+  const targetSemanticSlot = ['carcass', 'shutter', 'back_panel', 'countertop', 'profile', 'glass', 'hardware', 'flooring', 'wall', 'ceiling', 'lighting'].includes(String(options.targetSemanticSlot))
+    ? String(options.targetSemanticSlot)
+    : undefined;
+  if (operation === 'material-swap') {
+    if (!targetModuleId) return response.status(400).json({ success: false, code: 'RENDER_TARGET_REQUIRED', message: 'Select the exact module before requesting a material revision.' });
+    const scene = await getRequestSupabaseClient(request).from('scene_versions').select('scene,status').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
+    if (scene.error) return response.status(500).json({ success: false, code: 'SCENE_READ_FAILED', message: scene.error.message });
+    if (!scene.data || !['draft', 'approved'].includes(String(scene.data.status))) return response.status(409).json({ success: false, code: 'SCENE_REVISION_REQUIRED', message: 'Compile the saved material assignment into a valid scene revision before requesting a preview.' });
+    const sceneModules = Array.isArray((scene.data.scene as any)?.modules) ? (scene.data.scene as any).modules : [];
+    if (!sceneModules.some((module: any) => module?.id === targetModuleId)) return response.status(422).json({ success: false, code: 'RENDER_TARGET_NOT_IN_SCENE', message: 'The selected module is not part of this approved scene version.' });
+  }
   const parsed = VisualProposalRequestSchema.safeParse({
     projectId,
     sceneVersionId,
-    idempotencyKey: typeof request.body?.idempotencyKey === 'string' ? request.body.idempotencyKey : `${sceneVersionId}:render:${Date.now()}`,
-    roomId: typeof options.roomId === 'string' ? options.roomId : 'primary-room',
+    // Retries from a refreshed browser must address the same durable job. A
+    // time-based fallback silently created duplicate provider calls whenever
+    // the client lost the first response.
+    idempotencyKey: typeof request.body?.idempotencyKey === 'string' && request.body.idempotencyKey.trim()
+      ? request.body.idempotencyKey.trim()
+      : `${sceneVersionId}:${operation}:${targetModuleId || 'room'}:${String(options.roomId ?? '')}:${String(options.style ?? 'Warm contemporary Indian').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48)}:${String(options.quality ?? 'review')}`,
+    roomId: typeof options.roomId === 'string' ? options.roomId : '',
+    targetModuleId: targetModuleId || undefined,
+    targetComponentId: targetComponentId || undefined,
+    targetMaterialId: targetMaterialId || undefined,
+    targetSemanticSlot,
     sourceAssets: [`scene:${sceneVersionId}`],
     referenceAssets: [],
     masks: [],
-    operation: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'].includes(String(options.operation)) ? options.operation : 'generate',
+    operation,
     style: typeof options.style === 'string' ? options.style : 'Warm contemporary Indian',
     quality: options.quality === 'draft' || options.quality === 'final' ? options.quality : 'review',
     camera: { view: 'wide-corner', lensMm: 24, eyeHeightMm: 1500 },
-    structuredPrompt: 'Compiled server-side from the approved ULTIDA scene.',
-    providerPreference: ['cloudflare', 'openai-dall-e-3', 'openai-gpt-image-1', 'comfyui']
+    structuredPrompt: operation === 'material-swap'
+      ? `Compiled server-side from the approved ULTIDA scene. Change only the ${targetSemanticSlot ?? 'selected finish'} of module ${targetModuleId}; preserve all geometry, openings, camera, ceiling, and every other module.`
+      : 'Compiled server-side from the approved ULTIDA scene.',
+    // Cloudflare is the only automatic hosted render provider. LocalAI and
+    // ComfyUI remain explicit studio-local choices; silently changing
+    // providers makes cost, latency and render lineage unpredictable.
+    providerPreference: ['cloudflare']
   });
-  if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_RENDER_REQUEST', issues: parsed.error.issues });
+  if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_RENDER_REQUEST', message: 'Select a persisted room before requesting a scene render.', issues: parsed.error.issues });
   const result = await createVisualJob(process.env, gateway, parsed.data, authReq.ultidaUser?.id, getRequestSupabaseClient(request));
   const success = result.status === 'succeeded' || result.status === 'queued';
   return response.status(success ? 201 : 422).json({ success, result });
@@ -778,7 +933,7 @@ app.post('/api/projects/:projectId/floor-plans/initiate', requireProjectUser, as
 app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const projectId = String(request.params.projectId);
-  const { assetId, storagePath, fileName, mimeType, fileSize } = request.body ?? {};
+  const { assetId, storagePath, fileName, mimeType, fileSize, analysisGuides, startAnalysis = true } = request.body ?? {};
   if (!assetId || !storagePath || !fileName) {
     return response.status(400).json({ success: false, code: 'INVALID_COMPLETE_PAYLOAD', message: 'assetId, storagePath, and fileName are required.' });
   }
@@ -814,8 +969,28 @@ app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, as
     };
     const asset = await client.from('project_assets').insert(assetPayload).select('id').single();
     if (asset.error) return response.status(500).json({ success: false, code: 'ASSET_RECORD_FAILED', message: asset.error.message });
-    const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId: asset.data.id, fileName, mimeType: normalizedMimeType, idempotencyKey: `plan:${projectId}:${asset.data.id}` }, userId);
-    if (job.status === 'failed' || job.status === 'unavailable' || job.status === 'not_found') return response.status(503).json({ success: false, code: 'PLAN_JOB_CREATE_FAILED', message: 'The file was stored, but analysis could not be queued.', detail: job });
+    // Guided Plan Tracer is a first-class recovery path, not a fake AI result.
+    // It preserves the immutable source asset and lets the designer produce
+    // explicitly provisional geometry when a provider is unavailable.
+    if (startAnalysis === false) {
+      return response.status(200).json({
+        success: true,
+        asset: { id: asset.data.id, storagePath, name: fileName, mimeType: normalizedMimeType },
+        status: 'manual_review',
+        message: 'Floor plan stored for guided review. Calibrate and trace visible geometry; manual entities remain provisional until site verification.',
+      });
+    }
+    const sanitizedGuides = Array.isArray(analysisGuides) ? analysisGuides.slice(0, 24).flatMap((guide: any) => {
+      const x = Number(guide?.x); const y = Number(guide?.y); const width = Number(guide?.width); const height = Number(guide?.height);
+      return [x, y, width, height].every(Number.isFinite) && width >= 12 && height >= 12
+        ? [{ id: typeof guide.id === 'string' ? guide.id : undefined, label: typeof guide.label === 'string' ? guide.label.slice(0, 80) : undefined, x, y, width, height }]
+        : [];
+    }) : [];
+    const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId: asset.data.id, fileName, mimeType: normalizedMimeType, analysisGuides: sanitizedGuides, idempotencyKey: `plan:${projectId}:${asset.data.id}` }, userId);
+    if (job.status === 'failed' || job.status === 'unavailable' || job.status === 'not_found') {
+      const reason = 'reason' in job && typeof job.reason === 'string' ? job.reason : 'The file was stored, but analysis could not be queued.';
+      return response.status(503).json({ success: false, code: 'PLAN_JOB_CREATE_FAILED', message: reason, detail: job });
+    }
     const dispatch = await dispatchPlanAnalysisJob(process.env, job.jobId);
     return response.status(200).json({
       success: true,
@@ -977,7 +1152,7 @@ app.post('/api/projects/:projectId/aura/chat', requireProjectUser, async (reques
   return response.json({ success: true, message: plan.intent === 'unknown' ? plan.clarification : `I understand this as: ${plan.summary} Nothing will change until you review and approve a proposal.`, plan, tools: suggested.map((tool) => ({ id: tool.id, label: tool.label, mode: tool.mode, requires: tool.requires })), memory: { decisions: memory.error ? [] : (memory.data ?? []), usedForRanking: !memory.error }, next: selected && sceneVersionId ? { method: 'POST', path: `/api/aura/tools/${selected.id}/preview`, body: { projectId: request.params.projectId, sceneVersionId, roomId: 'living', widthMm: selected.id === 'place_modular_kitchen' ? 3000 : 1800, laminate: 'Cubex Neutral Sand' } } : null, safety: { geometryAuthority: 'scene.v1', requiresApproval: true, rollback: true }, recovery: sceneVersionId ? undefined : 'Approve a scene version before asking AURA to prepare a proposal.' });
 });
 
-app.get('/api/studio/calendar', requireProjectUser, async (request, response) => {
+app.get('/api/studio/calendar', requireStudioUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const from = typeof request.query.from === 'string' ? request.query.from : new Date().toISOString();
   const to = typeof request.query.to === 'string' ? request.query.to : new Date(Date.now() + 45 * 86400000).toISOString();
@@ -986,27 +1161,94 @@ app.get('/api/studio/calendar', requireProjectUser, async (request, response) =>
   return response.json({ success: true, events: result.data ?? [] });
 });
 
-app.post('/api/studio/calendar', requireProjectUser, async (request, response) => {
+async function studioProjectIsAccessible(request: express.Request, organizationId: string, projectId: unknown): Promise<boolean> {
+  if (typeof projectId !== 'string' || !projectId) return true;
+  const result = await getRequestSupabaseClient(request).from('projects').select('id').eq('id', projectId).eq('organization_id', organizationId).maybeSingle();
+  return !result.error && Boolean(result.data);
+}
+
+app.post('/api/studio/calendar', requireStudioUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const body = request.body ?? {};
   if (typeof body.title !== 'string' || !body.title.trim() || !body.startsAt || Number.isNaN(Date.parse(body.startsAt))) return response.status(400).json({ success: false, code: 'INVALID_CALENDAR_EVENT', message: 'A title and valid startsAt value are required.' });
+  if (!(await studioProjectIsAccessible(request, authReq.ultidaUser!.organizationId!, body.projectId))) return response.status(422).json({ success: false, code: 'STUDIO_PROJECT_INVALID', message: 'Choose a project that belongs to this studio.' });
   const result = await getRequestSupabaseClient(request).from('studio_calendar_events').insert({ organization_id: authReq.ultidaUser!.organizationId, project_id: typeof body.projectId === 'string' ? body.projectId : null, title: body.title.trim().slice(0, 160), event_type: body.eventType ?? 'milestone', starts_at: body.startsAt, ends_at: body.endsAt ?? null, notes: typeof body.notes === 'string' ? body.notes.slice(0, 2000) : '', assigned_to: body.assignedTo ?? null, created_by: authReq.ultidaUser!.id }).select('id,project_id,title,event_type,starts_at,ends_at,status,notes,assigned_to').single();
   if (result.error) return response.status(500).json({ success: false, code: 'CALENDAR_WRITE_FAILED', message: result.error.message });
   return response.status(201).json({ success: true, event: result.data });
 });
 
-app.get('/api/studio/invoices', requireProjectUser, async (request, response) => {
+app.patch('/api/studio/identity', requireStudioUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const organizationId = authReq.ultidaUser!.organizationId!;
+  const client = getRequestSupabaseClient(request);
+  const membership = await client.from('organization_members').select('role').eq('organization_id', organizationId).eq('user_id', authReq.ultidaUser!.id).maybeSingle();
+  if (membership.error) return response.status(500).json({ success: false, code: 'STUDIO_ROLE_LOOKUP_FAILED', message: membership.error.message });
+  if (!membership.data || !['owner', 'admin'].includes(String(membership.data.role))) {
+    return response.status(403).json({ success: false, code: 'STUDIO_ADMIN_REQUIRED', message: 'Only a studio owner or administrator can change the studio identity.' });
+  }
+  const name = typeof request.body?.name === 'string' ? request.body.name.trim().replace(/\s+/g, ' ') : '';
+  if (name.length < 2 || name.length > 80) return response.status(400).json({ success: false, code: 'INVALID_STUDIO_NAME', message: 'Studio name must be between 2 and 80 characters.' });
+  const updated = await client.from('organizations').update({ name }).eq('id', organizationId).select('id,name').single();
+  if (updated.error) return response.status(500).json({ success: false, code: 'STUDIO_IDENTITY_UPDATE_FAILED', message: updated.error.message });
+  return response.json({ success: true, organization: updated.data });
+});
+
+// Team administration is organization-scoped. Invitations are created here
+// rather than directly from the browser so role checks and duplicate handling
+// cannot be bypassed by a client-side caller.
+app.get('/api/studio/team', requireStudioUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const client = getRequestSupabaseClient(request);
+  const [members, invitations] = await Promise.all([
+    client.from('organization_members').select('user_id,role,created_at').eq('organization_id', authReq.ultidaUser!.organizationId).order('created_at', { ascending: true }),
+    client.from('organization_invitations').select('id,email,role,status,invited_by,created_at').eq('organization_id', authReq.ultidaUser!.organizationId).order('created_at', { ascending: false }),
+  ]);
+  if (members.error || invitations.error) return response.status(500).json({ success: false, code: 'TEAM_READ_FAILED', message: members.error?.message ?? invitations.error?.message });
+  return response.json({ success: true, members: members.data ?? [], invitations: invitations.data ?? [] });
+});
+
+app.post('/api/studio/team/invitations', requireStudioUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const body = request.body ?? {};
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const role = typeof body.role === 'string' ? body.role : 'designer';
+  if (!/^\S+@\S+\.\S+$/.test(email) || !['admin', 'designer', 'production', 'viewer'].includes(role)) return response.status(400).json({ success: false, code: 'INVALID_INVITATION', message: 'Provide a valid email and supported role.' });
+  const client = getRequestSupabaseClient(request);
+  const membership = await client.from('organization_members').select('role').eq('organization_id', authReq.ultidaUser!.organizationId).eq('user_id', authReq.ultidaUser!.id).maybeSingle();
+  if (membership.error || !['owner', 'admin'].includes(membership.data?.role ?? '')) return response.status(403).json({ success: false, code: 'TEAM_ADMIN_REQUIRED', message: 'Only studio owners and admins can invite collaborators.' });
+  const existing = await client.from('organization_invitations').select('id').eq('organization_id', authReq.ultidaUser!.organizationId).eq('email', email).eq('status', 'pending').maybeSingle();
+  if (existing.data) return response.status(409).json({ success: false, code: 'INVITATION_EXISTS', message: 'A pending invitation already exists for this email.' });
+  const result = await client.from('organization_invitations').insert({ organization_id: authReq.ultidaUser!.organizationId, email, role, invited_by: authReq.ultidaUser!.id }).select('id,email,role,status,created_at').single();
+  if (result.error) return response.status(500).json({ success: false, code: 'INVITATION_WRITE_FAILED', message: result.error.message });
+  return response.status(201).json({ success: true, invitation: result.data, delivery: 'recorded' });
+});
+
+app.patch('/api/studio/team/invitations/:invitationId', requireStudioUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const status = request.body?.status;
+  if (!['pending', 'revoked'].includes(status)) return response.status(400).json({ success: false, code: 'INVALID_INVITATION_STATUS', message: 'Only pending or revoked are valid invitation states.' });
+  const client = getRequestSupabaseClient(request);
+  const membership = await client.from('organization_members').select('role').eq('organization_id', authReq.ultidaUser!.organizationId).eq('user_id', authReq.ultidaUser!.id).maybeSingle();
+  if (membership.error || !['owner', 'admin'].includes(membership.data?.role ?? '')) return response.status(403).json({ success: false, code: 'TEAM_ADMIN_REQUIRED', message: 'Only studio owners and admins can change invitations.' });
+  const result = await client.from('organization_invitations').update({ status }).eq('id', request.params.invitationId).eq('organization_id', authReq.ultidaUser!.organizationId).select('id,email,role,status,created_at').maybeSingle();
+  if (result.error) return response.status(500).json({ success: false, code: 'INVITATION_UPDATE_FAILED', message: result.error.message });
+  if (!result.data) return response.status(404).json({ success: false, code: 'INVITATION_NOT_FOUND', message: 'Invitation not found in this studio.' });
+  return response.json({ success: true, invitation: result.data });
+});
+
+app.get('/api/studio/invoices', requireStudioUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const result = await getRequestSupabaseClient(request).from('studio_invoices').select('id,project_id,quote_id,invoice_number,client_name,currency,items,subtotal,tax,total,status,due_date,created_at').eq('organization_id', authReq.ultidaUser!.organizationId).order('created_at', { ascending: false }).limit(200);
   if (result.error) return response.status(500).json({ success: false, code: 'INVOICE_READ_FAILED', message: result.error.message });
   return response.json({ success: true, invoices: result.data ?? [] });
 });
 
-app.post('/api/studio/invoices', requireProjectUser, async (request, response) => {
+app.post('/api/studio/invoices', requireStudioUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const body = request.body ?? {};
   const items = Array.isArray(body.items) ? body.items.filter((item: any) => item && typeof item.description === 'string' && Number(item.quantity) > 0 && Number(item.rate) >= 0).map((item: any) => ({ description: item.description.trim().slice(0, 200), quantity: Number(item.quantity), rate: Number(item.rate), amount: Number(item.quantity) * Number(item.rate) })) : [];
   if (!items.length || typeof body.invoiceNumber !== 'string' || !body.invoiceNumber.trim()) return response.status(400).json({ success: false, code: 'INVALID_INVOICE', message: 'invoiceNumber and at least one valid line item are required.' });
+  if (!(await studioProjectIsAccessible(request, authReq.ultidaUser!.organizationId!, body.projectId))) return response.status(422).json({ success: false, code: 'STUDIO_PROJECT_INVALID', message: 'Choose a project that belongs to this studio.' });
   const subtotal = items.reduce((sum: number, item: any) => sum + item.amount, 0);
   const taxRate = Math.max(0, Number(body.taxRate) || 0);
   const tax = subtotal * taxRate / 100;
@@ -1021,15 +1263,18 @@ app.post('/api/studio/invoices', requireProjectUser, async (request, response) =
 const operationStages = new Set(['plan', 'scene', 'cutlist', 'quote', 'delivery']);
 app.get('/api/projects/:projectId/operations', requireProjectUser, async (request, response) => {
   const client = getRequestSupabaseClient(request); const projectId = String(request.params.projectId);
-  const [reviews, risks, comments, materials] = await Promise.all([
+  const [reviews, risks, comments, materials, jobs] = await Promise.all([
     client.from('project_stage_reviews').select('*').eq('project_id', projectId).order('stage'),
     client.from('project_risks').select('*').eq('project_id', projectId).neq('status', 'closed').order('created_at', { ascending: false }),
     client.from('project_version_comments').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(100),
     client.from('project_material_readiness').select('*').eq('project_id', projectId).order('updated_at', { ascending: false }),
+    // Operational visibility is intentionally limited to lifecycle metadata.
+    // Input/output payloads may contain plan images and provider provenance.
+    client.from('jobs').select('id,kind,status,attempts,max_attempts,last_error_code,error,progress_stage,created_at,updated_at,queued_at,processing_at,completed_at,failed_at,lease_expires_at,deadline_at').eq('project_id', projectId).order('updated_at', { ascending: false }).limit(50),
   ]);
-  const failed = [reviews, risks, comments, materials].find((result) => result.error);
+  const failed = [reviews, risks, comments, materials, jobs].find((result) => result.error);
   if (failed?.error) return response.status(500).json({ success: false, code: 'OPERATIONS_READ_FAILED', message: failed.error.message });
-  return response.json({ success: true, reviews: reviews.data ?? [], risks: risks.data ?? [], comments: comments.data ?? [], materialReadiness: materials.data ?? [] });
+  return response.json({ success: true, reviews: reviews.data ?? [], risks: risks.data ?? [], comments: comments.data ?? [], materialReadiness: materials.data ?? [], jobs: jobs.data ?? [] });
 });
 
 app.put('/api/projects/:projectId/operations/reviews/:stage', requireProjectUser, async (request, response) => {
@@ -1060,22 +1305,18 @@ app.post('/api/projects/:projectId/operations/risks', requireProjectUser, async 
 
 // Phase 2: Designer Draft Review Persistence Endpoints
 app.get('/api/projects/:projectId/plan-draft', requireProjectUser, async (request, response) => {
-  const client = getRequestSupabaseClient(request);
-  const { data, error } = await client.from('projects').select('draft_review_json').eq('id', request.params.projectId).single();
-  if (error) return response.status(500).json({ success: false, code: 'DRAFT_READ_FAILED', message: error.message });
-  return response.json({ success: true, draft: data?.draft_review_json ?? null });
+  // Retained only for older clients. Editable analysis drafts live in
+  // plan_analysis_drafts; projects never had a draft_review_json column in
+  // the canonical schema.
+  return response.json({ success: true, draft: null, deprecated: true });
 });
 
 app.put('/api/projects/:projectId/plan-draft', requireProjectUser, async (request, response) => {
-  const client = getRequestSupabaseClient(request);
-  const { draft } = request.body ?? {};
-  const { error } = await client.from('projects').update({ draft_review_json: draft, updated_at: new Date().toISOString() }).eq('id', request.params.projectId);
-  if (error) return response.status(500).json({ success: false, code: 'DRAFT_SAVE_FAILED', message: error.message });
-  return response.json({ success: true });
+  return response.status(410).json({ success: false, code: 'PLAN_DRAFT_ROUTE_RETIRED', message: 'Use the versioned plan-analysis draft route or save an approved geometry version.' });
 });
 
 app.get('/api/projects/:projectId/brief', requireProjectUser, async (request, response) => {
-  const { data, error } = await getRequestSupabaseClient(request)
+  const { data, error } = await getAuthorizedProjectPersistenceClient(request)
     .from('project_briefs')
     .select('*')
     .eq('project_id', request.params.projectId)
@@ -1084,8 +1325,109 @@ app.get('/api/projects/:projectId/brief', requireProjectUser, async (request, re
   return response.json({ success: true, brief: data?.brief ?? null, isComplete: data?.is_complete ?? false, updatedAt: data?.updated_at ?? null });
 });
 
+app.get('/api/projects/:projectId/brief.pdf', requireProjectUser, async (request, response) => {
+  const result = await getAuthorizedProjectPersistenceClient(request).from('project_briefs').select('brief,is_complete,updated_at').eq('project_id', request.params.projectId).maybeSingle();
+  if (result.error) return response.status(500).json({ success: false, code: 'BRIEF_READ_FAILED', message: result.error.message });
+  if (!result.data?.brief) return response.status(404).json({ success: false, code: 'BRIEF_NOT_FOUND', message: 'Save the project brief before downloading it.' });
+  const brief = result.data.brief as Record<string, unknown>;
+  const document = new PDFDocument({ size: 'A4', margin: 36, info: { Title: `ULTIDA Architectural Brief - ${String(brief.projectName ?? request.params.projectId)}`, Author: 'ULTIDA Architectural OS' } });
+  const chunks: Buffer[] = [];
+  document.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+  const completed = new Promise<void>((resolveStream, rejectStream) => { document.once('end', resolveStream); document.once('error', rejectStream); });
+
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+
+  // Header Banner & Decorative Lines
+  document.rect(36, 36, pageWidth - 72, pageHeight - 72).lineWidth(1).stroke('#d8ccbd');
+  document.rect(36, 36, pageWidth - 72, 60).fill('#1c1917');
+  document.fillColor('#d4af37').font('Helvetica-Bold').fontSize(14).text('ULTIDA ARCHITECTURAL STUDIO', 50, 48);
+  document.fillColor('#e7e5e4').font('Helvetica').fontSize(9).text('INTERIOR DESIGN BRIEF & MODULAR TECHNICAL SPECIFICATION', 50, 68);
+  document.fillColor('#d4af37').font('Helvetica-Bold').fontSize(9).text(result.data.is_complete ? 'VERIFIED DESIGN BRIEF' : 'DRAFT CLIENT BRIEF', pageWidth - 190, 58, { width: 140, align: 'right' });
+
+  // Project Title Block
+  let y = 112;
+  document.fillColor('#1c1917').font('Helvetica-Bold').fontSize(16).text(String(brief.projectName ?? 'Untitled Residence'), 50, y);
+  y += 22;
+  document.fillColor('#57534e').font('Helvetica').fontSize(9).text(`Client: ${String(brief.clientName ?? 'Not specified')}   |   Property: ${String(brief.propertyType ?? 'Residential')}   |   Date: ${new Date(result.data.updated_at ?? Date.now()).toLocaleDateString('en-IN')}`, 50, y);
+  y += 18;
+
+  // Divider Line
+  document.moveTo(50, y).lineTo(pageWidth - 50, y).lineWidth(0.75).stroke('#c59c2d');
+  y += 14;
+
+  // Section 1: Spatial Program & Scope
+  document.fillColor('#854d0e').font('Helvetica-Bold').fontSize(10).text('1. PROJECT SPATIAL PROGRAM & SCOPE', 50, y);
+  y += 14;
+  document.rect(50, y, pageWidth - 100, 48).fillAndStroke('#fcfbf9', '#e7e5e4');
+  document.fillColor('#1c1917').font('Helvetica-Bold').fontSize(8.5).text('Rooms in Scope: ', 60, y + 10, { continued: true })
+    .font('Helvetica').fillColor('#44403c').text(String(brief.rooms ?? 'Full Residence Interior'));
+  document.font('Helvetica-Bold').fillColor('#1c1917').text('Target Budget: ', 60, y + 26, { continued: true })
+    .font('Helvetica').fillColor('#44403c').text(`${String(brief.budgetRange ?? 'Standard Commercial Range')}   |   Vastu: ${String(brief.vastuPreference ?? 'Standard Compliance')}`);
+  y += 60;
+
+  // Section 2: Design Language & Materiality
+  document.fillColor('#854d0e').font('Helvetica-Bold').fontSize(10).text('2. DESIGN LANGUAGE & MATERIAL SPECIFICATION', 50, y);
+  y += 14;
+  document.rect(50, y, pageWidth - 100, 48).fillAndStroke('#fcfbf9', '#e7e5e4');
+  document.fillColor('#1c1917').font('Helvetica-Bold').fontSize(8.5).text('Style Direction: ', 60, y + 10, { continued: true })
+    .font('Helvetica').fillColor('#44403c').text(String(brief.style ?? 'Warm Contemporary Luxe'));
+  document.font('Helvetica-Bold').fillColor('#1c1917').text('Material Palette: ', 60, y + 26, { continued: true })
+    .font('Helvetica').fillColor('#44403c').text(String(brief.materials ?? 'Anti-fingerprint acrylic, Tinted profile glass, Walnut acoustic slats, Botticino marble'));
+  y += 60;
+
+  // Section 3: Room-by-Room Technical Modular Requirements
+  document.fillColor('#854d0e').font('Helvetica-Bold').fontSize(10).text('3. ROOM-BY-ROOM MODULAR FURNITURE REQUIREMENTS', 50, y);
+  y += 14;
+
+  const roomBreakdowns = [
+    {
+      title: 'MODULAR KITCHEN ZONE',
+      desc: 'Base units (600mm depth, 750mm carcass, 100mm plinth) with 2-pot tandem soft-close drawers & 3-tier cutlery organizers. Upper wall cabinets (350mm depth, 720mm height, mounted at 1450mm elevation) with tinted fluted profile glass and integrated 3000K warm LEDs. Appliance tall tower with microwave/oven cavity and full-height 12-basket pantry pull-out.',
+    },
+    {
+      title: 'MASTER BEDROOM SUITE',
+      desc: 'King-size hydraulic storage bed (1800x2100mm) with upholstered extended fluted headboard. Master 4-shutter / profile-glass sliding wardrobe (2100-3000mm run) with overhead lofts. Dedicated vanity dresser with LED backlit mirror, floating TV console, and ergonomic study desk.',
+    },
+    {
+      title: 'LIVING, DINING & POOJA SPACES',
+      desc: '2400mm fluted charcoal PU / acoustic slat TV media wall with floating console. Curved bouclé sectional seating. Calacatta Gold marble dining table (2100mm) with full-wall crockery & wine bar. Sacred Teak mandir with precision CNC jaali panels and pull-out bhog tray.',
+    },
+  ];
+
+  for (const item of roomBreakdowns) {
+    document.rect(50, y, pageWidth - 100, 44).fillAndStroke('#faf8f5', '#e7e5e4');
+    document.fillColor('#292524').font('Helvetica-Bold').fontSize(8.5).text(item.title, 60, y + 7);
+    document.fillColor('#57534e').font('Helvetica').fontSize(7.5).text(item.desc, 60, y + 20, { width: pageWidth - 120 });
+    y += 50;
+  }
+
+  // Section 4: System 32 Technical Datum
+  y += 4;
+  document.fillColor('#854d0e').font('Helvetica-Bold').fontSize(10).text('4. SYSTEM 32 MANUFACTURING & CAD DATUM', 50, y);
+  y += 14;
+  document.rect(50, y, pageWidth - 100, 36).fillAndStroke('#f5f5f4', '#d6d3d1');
+  document.fillColor('#44403c').font('Helvetica').fontSize(7.5).text('Plinth Level: 100mm  |  Working Counter: 850mm  |  Dado Backsplash: 600mm  |  Wall Unit Top: 2170mm  |  Loft Top: 2700mm\nAll modules are parametrically bound to plan.v1 and scene.v1 geometry under ±0.5mm millwork tolerance.', 60, y + 8, { width: pageWidth - 120 });
+  y += 48;
+
+  // Section 5: Authorization & Sign-off Block
+  document.fillColor('#854d0e').font('Helvetica-Bold').fontSize(10).text('5. APPROVAL & PROJECT AUTHORIZATION', 50, y);
+  y += 14;
+  document.rect(50, y, pageWidth - 100, 46).fillAndStroke('#fcfbf9', '#e7e5e4');
+  document.moveTo(70, y + 34).lineTo(220, y + 34).lineWidth(0.5).stroke('#78716c');
+  document.fillColor('#78716c').font('Helvetica').fontSize(7).text('Client Signature & Date', 70, y + 36);
+  document.moveTo(pageWidth - 220, y + 34).lineTo(pageWidth - 70, y + 34).lineWidth(0.5).stroke('#78716c');
+  document.text('Lead Architect / Studio Approval', pageWidth - 220, y + 36);
+
+  document.end();
+  await completed;
+  response.setHeader('content-type', 'application/pdf');
+  response.setHeader('content-disposition', `attachment; filename="ultida-${request.params.projectId}-brief.pdf"`);
+  return response.send(Buffer.concat(chunks));
+});
+
 app.get('/api/projects/:projectId/design-preferences', requireProjectUser, async (request, response) => {
-  const brief = await getRequestSupabaseClient(request)
+  const brief = await getAuthorizedProjectPersistenceClient(request)
     .from('project_briefs')
     .select('style_preferences,custom_style_ref,updated_at')
     .eq('project_id', request.params.projectId)
@@ -1102,7 +1444,7 @@ app.put('/api/projects/:projectId/design-preferences', requireProjectUser, async
   if (!stylePresetId) return response.status(400).json({ success: false, code: 'STYLE_PRESET_REQUIRED', message: 'Select a catalog style preset before saving the moodboard.' });
   const preset = getCatalogVault().presets.find((item) => item.id === stylePresetId);
   if (!preset) return response.status(422).json({ success: false, code: 'STYLE_PRESET_NOT_FOUND', message: 'The selected style preset is not in the ULTIDA catalog vault.' });
-  const client = getRequestSupabaseClient(request);
+  const client = getAuthorizedProjectPersistenceClient(request);
   const project = await client.from('projects').select('organization_id').eq('id', projectId).single();
   if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
   const update = await client.from('project_briefs').update({
@@ -1156,7 +1498,7 @@ const writeProjectBrief = async (request: express.Request, response: express.Res
     updated_by: userId,
     updated_at: new Date().toISOString()
   };
-  const client = getRequestSupabaseClient(request);
+  const client = getAuthorizedProjectPersistenceClient(request);
   const { error } = await client.from('project_briefs').upsert(briefPayload, { onConflict: 'project_id' });
   if (error) return response.status(500).json({ success: false, code: 'BRIEF_SAVE_FAILED', message: error.message });
   const projectUpdate = await client.from('projects').update({ client_name: document.clientName, name: document.projectName, workflow_stage: complete ? 'plan' : 'brief', current_step: complete ? 'plan' : 'brief', updated_at: new Date().toISOString() }).eq('id', projectId);
@@ -1173,7 +1515,16 @@ app.post('/api/projects/:projectId/plan/approve', requireProjectUser, async (req
   if (!canonicalModel || typeof canonicalModel !== 'object') return response.status(400).json({ success: false, code: 'INVALID_CANONICAL_MODEL', message: 'A canonical plan model is required.' });
   if (typeof sourceAssetId !== 'string') return response.status(400).json({ success: false, code: 'SOURCE_ASSET_REQUIRED', message: 'Plan approval requires the exact uploaded source asset.' });
   const parsed = CanonicalPlanModelSchema.safeParse(canonicalModel);
-  if (!parsed.success) return response.status(422).json({ success: false, code: 'INVALID_CANONICAL_PLAN_V1', message: 'The reviewed plan does not satisfy the plan.v1 contract.', fieldErrors: parsed.error.flatten() });
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    const field = firstIssue?.path.length ? firstIssue.path.join('.') : 'plan';
+    return response.status(422).json({
+      success: false,
+      code: 'INVALID_CANONICAL_PLAN_V1',
+      message: `The reviewed plan needs one correction before it can be saved: ${field} — ${firstIssue?.message ?? 'invalid value'}.`,
+      fieldErrors: parsed.error.flatten()
+    });
+  }
   const client = getRequestSupabaseClient(request);
   const approved = await client.rpc('approve_plan_v1', {
     requested_project_id: projectId,
@@ -1186,6 +1537,190 @@ app.post('/api/projects/:projectId/plan/approve', requireProjectUser, async (req
     return response.status(code === 'PLAN_APPROVAL_FAILED' ? 500 : 422).json({ success: false, code, message });
   }
   return response.status(200).json({ success: true, ...(approved.data as Record<string, unknown>) });
+});
+
+// Spaces is an editable design workspace, but its geometry must never become a
+// browser-only fork.  This creates a new immutable plan.v1 revision from the
+// active plan and makes the revision the sole source for layouts and scenes.
+app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, async (request, response) => {
+  const projectId = String(request.params.projectId);
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const geometry = request.body?.geometry as any;
+  if (!geometry || !Array.isArray(geometry.rooms) || !Array.isArray(geometry.walls) || !Array.isArray(geometry.openings)) {
+    return response.status(400).json({ success: false, code: 'INVALID_SPACE_GEOMETRY', message: 'Rooms, walls, and openings are required to save a geometry version.' });
+  }
+  const client = getRequestSupabaseClient(request);
+  const active = await client
+    .from('floor_plan_versions')
+    .select('id,source_asset_id,canonical_model')
+    .eq('project_id', projectId)
+    .eq('active_version', true)
+    .eq('status', 'approved')
+    .maybeSingle();
+  if (active.error) return response.status(500).json({ success: false, code: 'PLAN_READ_FAILED', message: active.error.message });
+  if (!active.data?.source_asset_id || !active.data.canonical_model) {
+    return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'Approve a source floor plan before saving Spaces geometry.' });
+  }
+
+  const base = CanonicalPlanModelSchema.safeParse(active.data.canonical_model);
+  if (!base.success) return response.status(422).json({ success: false, code: 'CANONICAL_PLAN_INVALID', message: 'The active plan cannot be used as a geometry source.' });
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const isPoint = (point: any) => Number.isFinite(Number(point?.xMm)) && Number.isFinite(Number(point?.yMm));
+  const closed = (points: any[]) => {
+    const clean = points.filter(isPoint).map((point) => ({ xMm: Number(point.xMm), yMm: Number(point.yMm) }));
+    if (clean.length < 3) return clean;
+    const first = clean[0], last = clean[clean.length - 1];
+    if (first.xMm !== last.xMm || first.yMm !== last.yMm) clean.push({ ...first });
+    return clean;
+  };
+  const polygonArea = (points: Array<{ xMm: number; yMm: number }>) => Math.abs(points.slice(0, -1).reduce((sum, point, index) => {
+    const next = points[index + 1];
+    return sum + point.xMm * next.yMm - next.xMm * point.yMm;
+  }, 0)) / 2;
+  const baseSpaces = new Map(base.data.spaces.map((space) => [space.id, space]));
+  const baseWalls = new Map(base.data.walls.map((wall) => [wall.id, wall]));
+  const nextSpaces = geometry.rooms.map((room: any) => {
+    const polygon = closed(Array.isArray(room?.polygon) ? room.polygon : []);
+    if (!uuid.test(String(room?.id)) || polygon.length < 4 || polygonArea(polygon) < 90000) return null;
+    const prior = baseSpaces.get(String(room.id));
+    return {
+      ...(prior ?? {}),
+      id: String(room.id),
+      sourcePolygon: polygon.map((point) => ({ x: point.xMm, y: point.yMm })),
+      worldPolygon: polygon,
+      worldGeometry: { polygon },
+      roomType: String(room.roomType ?? prior?.roomType ?? 'other'),
+      roomName: String(room.name ?? prior?.roomName ?? 'Space'),
+      areaSqm: polygonArea(polygon) / 1e6,
+      ceilingHeightMm: Number(room.ceilingHeightMm ?? prior?.ceilingHeightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm),
+      wallRefs: Array.isArray(prior?.wallRefs) ? prior.wallRefs : [],
+      openingRefs: Array.isArray(prior?.openingRefs) ? prior.openingRefs : [],
+      verification: room.verificationStatus === 'verified' ? 'verified' : (prior?.verification ?? 'unverified'),
+    };
+  });
+  if (nextSpaces.some((space: any) => !space) || !nextSpaces.length) {
+    return response.status(422).json({ success: false, code: 'INVALID_ROOM_GEOMETRY', message: 'Each saved room needs a unique valid ID and a closed polygon at least 300 mm by 300 mm.' });
+  }
+  const nextWalls = geometry.walls.map((wall: any) => {
+    if (!uuid.test(String(wall?.id)) || !isPoint(wall?.start) || !isPoint(wall?.end)) return null;
+    const start = { xMm: Number(wall.start.xMm), yMm: Number(wall.start.yMm) };
+    const end = { xMm: Number(wall.end.xMm), yMm: Number(wall.end.yMm) };
+    if (Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm) < 100) return null;
+    const prior = baseWalls.get(String(wall.id));
+    return { ...(prior ?? {}), id: String(wall.id), sourceStart: { x: start.xMm, y: start.yMm }, sourceEnd: { x: end.xMm, y: end.yMm }, worldStart: start, worldEnd: end, worldGeometry: { start, end }, lengthMm: Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm), heightMm: Number(prior?.heightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm), thicknessMm: Number(prior?.thicknessMm ?? 152.4), adjacentSpaces: Array.isArray(prior?.adjacentSpaces) ? prior.adjacentSpaces : [], verification: prior?.verification ?? 'unverified' };
+  });
+  if (nextWalls.some((wall: any) => !wall)) return response.status(422).json({ success: false, code: 'INVALID_WALL_GEOMETRY', message: 'Walls must have unique IDs, two endpoints, and be at least 100 mm long.' });
+  const wallIds = new Set(nextWalls.map((wall: any) => wall.id));
+  const nextOpenings = geometry.openings.map((opening: any) => {
+    const widthMm = Number(opening?.widthMm ?? 900);
+    if (!uuid.test(String(opening?.id)) || !wallIds.has(String(opening?.wallId)) || !Number.isFinite(widthMm) || widthMm <= 0) return null;
+    const shared = { id: String(opening.id), wallId: String(opening.wallId), offsetMm: Math.max(0, Number(opening.offsetAlongWallMm ?? opening.offsetMm ?? 0)), widthMm, verification: 'unverified' as const };
+    return opening.kind === 'window'
+      ? { ...shared, sillMm: Math.max(0, Number(opening.sillMm ?? 900)), headMm: Math.max(1, Number(opening.headMm ?? 2100)), type: 'sliding' }
+      : { ...shared, heightMm: Math.max(1, Number(opening.heightMm ?? 2100)), type: 'hinged' };
+  });
+  if (nextOpenings.some((opening: any) => !opening)) return response.status(422).json({ success: false, code: 'INVALID_OPENING_GEOMETRY', message: 'Every door or window must be attached to a saved wall and have a positive width.' });
+  const nextModel = CanonicalPlanModelSchema.safeParse({
+    ...base.data,
+    state: 'approved',
+    ceilingHeightMm: Number(geometry.ceilingHeightMm ?? base.data.ceilingHeightMm),
+    spaces: nextSpaces,
+    walls: nextWalls,
+    openings: nextOpenings,
+    columns: (geometry.columns ?? base.data.columns).map((column: any) => ({ id: String(column.id), center: column.center ?? column.position, sizeMm: column.sizeMm ? { width: Number(column.sizeMm.width ?? column.sizeMm), depth: Number(column.sizeMm.depth ?? column.sizeMm) } : undefined, verification: 'unverified' })),
+    beams: (geometry.beams ?? base.data.beams).map((beam: any) => ({ id: String(beam.id), start: beam.start, end: beam.end, heightMm: Number(beam.heightMm ?? base.data.ceilingHeightMm), widthMm: Number(beam.widthMm ?? 152.4), verification: 'unverified' })),
+    servicePoints: (geometry.services ?? base.data.servicePoints).map((service: any) => ({ id: String(service.id), kind: service.kind, position: service.position, verification: 'unverified' })),
+    annotations: geometry.annotations ?? base.data.annotations,
+    approval: { ...(base.data.approval ?? {}), priorVersionId: active.data.id, changeReason: 'Spaces geometry revision' },
+  });
+  if (!nextModel.success) return response.status(422).json({ success: false, code: 'GEOMETRY_VERSION_INVALID', message: 'The edited geometry could not satisfy the canonical plan contract.', fieldErrors: nextModel.error.flatten() });
+  const priorSpaces = await client.from('spaces').select('space_id,requirements_json,settings_json,status,verification_status').eq('project_id', projectId).eq('floor_plan_version_id', active.data.id);
+  if (priorSpaces.error) return response.status(500).json({ success: false, code: 'SPACE_SETTINGS_READ_FAILED', message: priorSpaces.error.message });
+  const approved = await client.rpc('approve_plan_v1', { requested_project_id: projectId, requested_source_asset_id: active.data.source_asset_id, requested_model: nextModel.data });
+  if (approved.error) return response.status(422).json({ success: false, code: 'GEOMETRY_VERSION_APPROVAL_FAILED', message: approved.error.message });
+  const committed = approved.data as Record<string, unknown>;
+  const nextVersionId = String(committed.floorPlanVersionId ?? '');
+  if (!nextVersionId) {
+    return response.status(500).json({ success: false, code: 'GEOMETRY_VERSION_ID_MISSING', message: 'The approved geometry version did not return an ID.' });
+  }
+  const priorByRoomId = new Map((priorSpaces.data ?? []).filter((space: any) => space.space_id).map((space: any) => [String(space.space_id), space]));
+  // approve_plan_v1 normally creates the child Space rows.  Older database
+  // function revisions did not do so consistently, though, and an update that
+  // matched zero rows is still reported as successful by PostgREST.  Repair
+  // that historical drift here so a visually verified room always has a real
+  // persisted record for Layout Studio to consume.
+  const createdBeforeCarry = await client
+    .from('spaces')
+    .select('id,space_id')
+    .eq('project_id', projectId)
+    .eq('floor_plan_version_id', nextVersionId);
+  if (createdBeforeCarry.error) return response.status(500).json({ success: false, code: 'SPACE_MAPPING_READ_FAILED', message: createdBeforeCarry.error.message });
+  const existingSpaceIds = new Set((createdBeforeCarry.data ?? []).map((space: any) => String(space.space_id)));
+  const missingSpaceRows = nextSpaces
+    .filter((space: any) => !existingSpaceIds.has(String(space.id)))
+    .map((space: any) => ({
+      organization_id: authReq.ultidaUser?.organizationId,
+      project_id: projectId,
+      floor_plan_version_id: nextVersionId,
+      space_id: String(space.id),
+      name: String(space.roomName ?? 'Space'),
+      room_type: String(space.roomType ?? 'other'),
+      area_sqm: Number(space.areaSqm ?? 0),
+      ceiling_height_mm: Number(space.ceilingHeightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm),
+      geometry_json: space,
+      requirements_json: { requiredFurniture: [], geometryVerified: false },
+      settings_json: {},
+      status: 'pending',
+      verification_status: 'provisional',
+      created_by: authReq.ultidaUser?.id,
+    }));
+  if (missingSpaceRows.length) {
+    const inserted = await client.from('spaces').insert(missingSpaceRows).select('id,space_id');
+    if (inserted.error) return response.status(500).json({ success: false, code: 'SPACE_RECORD_CREATE_FAILED', message: inserted.error.message });
+  }
+  const carried = await Promise.all(geometry.rooms.map((room: any) => {
+    const prior = priorByRoomId.get(String(room.id));
+    const requirements = {
+      ...(prior?.requirements_json ?? {}),
+      included: room.included !== false,
+      requiredFurniture: Array.isArray(room.requiredFurniture) ? room.requiredFurniture : (prior?.requirements_json?.requiredFurniture ?? []),
+      budgetInr: room.budgetInr ?? prior?.requirements_json?.budgetInr ?? null,
+      designPriority: room.designPriority ?? prior?.requirements_json?.designPriority ?? 'balanced',
+      applianceNeeds: Array.isArray(room.applianceNeeds) ? room.applianceNeeds : (prior?.requirements_json?.applianceNeeds ?? []),
+      constraints: Array.isArray(room.constraints) ? room.constraints : (prior?.requirements_json?.constraints ?? []),
+    };
+    const settings = {
+      ...(prior?.settings_json ?? {}),
+      floorFinish: room.floorFinish ?? prior?.settings_json?.floorFinish ?? '',
+      falseCeiling: room.falseCeiling ?? prior?.settings_json?.falseCeiling ?? '',
+      styleDirection: room.styleDirection ?? prior?.settings_json?.styleDirection ?? '',
+      paletteDirection: room.paletteDirection ?? prior?.settings_json?.paletteDirection ?? '',
+      retainedElements: Array.isArray(room.retainedElements) ? room.retainedElements : (prior?.settings_json?.retainedElements ?? []),
+      wallRoles: room.wallRoles ?? prior?.settings_json?.wallRoles ?? {},
+      preferredCamera: room.preferredCamera ?? prior?.settings_json?.preferredCamera ?? '',
+    };
+    return client.from('spaces').update({
+      name: String(room.name ?? 'Space'), room_type: String(room.roomType ?? 'other'),
+      ceiling_height_mm: Number(room.ceilingHeightMm ?? geometry.ceilingHeightMm ?? base.data.ceilingHeightMm),
+      area_sqm: Number(room.areaSqm ?? 0), requirements_json: requirements, settings_json: settings,
+      status: requirements.requiredFurniture.length ? 'configured' : 'pending',
+      verification_status: room.verificationStatus === 'verified'
+        ? 'verified'
+        : (prior?.verification_status === 'verified' ? 'verified' : 'unverified'),
+      updated_at: new Date().toISOString(),
+    }).eq('project_id', projectId).eq('floor_plan_version_id', nextVersionId).eq('space_id', String(room.id)).select('id');
+  }));
+  const carryFailure = carried.find((result) => result.error);
+  if (carryFailure?.error) return response.status(500).json({ success: false, code: 'SPACE_SETTINGS_CARRY_FAILED', message: carryFailure.error.message });
+  const unmatchedRooms = carried
+    .map((result, index) => ((result.data ?? []).length ? null : String(geometry.rooms[index]?.name ?? 'Space')))
+    .filter(Boolean);
+  if (unmatchedRooms.length) {
+    return response.status(500).json({ success: false, code: 'SPACE_SETTINGS_NOT_PERSISTED', message: `Could not attach the saved room settings for ${unmatchedRooms.join(', ')}. Please retry Save geometry.` });
+  }
+  const createdSpaces = await client.from('spaces').select('id,space_id').eq('project_id', projectId).eq('floor_plan_version_id', nextVersionId);
+  if (createdSpaces.error) return response.status(500).json({ success: false, code: 'SPACE_MAPPING_READ_FAILED', message: createdSpaces.error.message });
+  return response.status(201).json({ success: true, ...committed, spaces: createdSpaces.data ?? [] });
 });
 
 app.get('/api/projects/:projectId/module-instances', requireProjectUser, async (request, response) => {
@@ -1216,15 +1751,36 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
   if (space.data.floor_plan_version_id !== activePlan.data.id) return response.status(409).json({ success: false, code: 'SPACE_PLAN_VERSION_STALE', message: 'Select a room derived from the current active approved plan.' });
   const resolvedAnchor = resolveModuleWallAnchor(plan.data.walls, position, Number(config.widthMm));
   if (!resolvedAnchor.ok) return response.status(422).json({ success: false, code: resolvedAnchor.code, message: resolvedAnchor.message });
+  const moduleStart = resolvedAnchor.anchor.offsetMm;
+  const moduleEnd = moduleStart + Number(config.widthMm);
+  const doorConflict = (plan.data.openings ?? []).find((opening: any) => {
+    if (opening.wallId !== resolvedAnchor.anchor.wallId || opening.kind !== 'door') return false;
+    const openingStart = Number(opening.offsetAlongWallMm ?? 0);
+    const openingEnd = openingStart + Number(opening.widthMm ?? 900);
+    return moduleStart < openingEnd + 150 && moduleEnd > openingStart - 150;
+  });
+  if (doorConflict) return response.status(422).json({ success: false, code: 'MODULE_BLOCKS_DOOR', message: 'Move the module clear of the door opening and its 150 mm safety zone.' });
+  const existingOnWall = await client.from('module_instances').select('id,config_json,position_json').eq('project_id', request.params.projectId).eq('space_id', spaceId).eq('status', 'validated');
+  if (existingOnWall.error) return response.status(500).json({ success: false, code: 'MODULE_COLLISION_LOOKUP_FAILED', message: existingOnWall.error.message });
+  const collision = (existingOnWall.data ?? []).find((module: any) => {
+    const anchor = module.position_json ?? {};
+    if (anchor.wallId !== resolvedAnchor.anchor.wallId) return false;
+    const start = Number(anchor.offsetMm);
+    const end = start + Number(module.config_json?.widthMm ?? 0);
+    return Number.isFinite(start) && Number.isFinite(end) && moduleStart < end + 20 && moduleEnd > start - 20;
+  });
+  if (collision) return response.status(422).json({ success: false, code: 'MODULE_OVERLAP', message: 'This module overlaps an existing module on the selected wall. Adjust its offset or edit the existing module.' });
 
   let resolvedLayoutId = typeof layoutId === 'string' ? layoutId : null;
   if (resolvedLayoutId) {
-    const layout = await client.from('layouts').select('id').eq('id', resolvedLayoutId).eq('project_id', request.params.projectId).eq('space_id', spaceId).maybeSingle();
+    const layout = await client.from('layouts').select('id,status').eq('id', resolvedLayoutId).eq('project_id', request.params.projectId).eq('space_id', spaceId).maybeSingle();
     if (layout.error || !layout.data) return response.status(404).json({ success: false, code: 'LAYOUT_NOT_FOUND', message: 'The selected layout does not belong to this room.' });
+    if (layout.data.status !== 'approved') return response.status(409).json({ success: false, code: 'APPROVED_LAYOUT_REQUIRED', message: 'Approve this room layout before placing production-aware modules.' });
   } else {
-    const createdLayout = await client.from('layouts').insert({ organization_id: space.data.organization_id, project_id: request.params.projectId, space_id: spaceId, layout_shape: 'anchored-module', label: 'Module placement', candidate_json: { source: 'spaces-studio', wallId: position.wallId }, status: 'candidate', created_by: authReq.ultidaUser!.id }).select('id').single();
-    if (createdLayout.error || !createdLayout.data) return response.status(500).json({ success: false, code: 'LAYOUT_CREATE_FAILED', message: createdLayout.error?.message ?? 'Could not create the room layout.' });
-    resolvedLayoutId = createdLayout.data.id;
+    const layout = await client.from('layouts').select('id').eq('project_id', request.params.projectId).eq('space_id', spaceId).eq('status', 'approved').order('approved_at', { ascending: false }).limit(1).maybeSingle();
+    if (layout.error) return response.status(500).json({ success: false, code: 'LAYOUT_LOOKUP_FAILED', message: layout.error.message });
+    if (!layout.data) return response.status(409).json({ success: false, code: 'APPROVED_LAYOUT_REQUIRED', message: 'Generate and approve a layout for this room before placing modules.' });
+    resolvedLayoutId = layout.data.id;
   }
   const row = {
     organization_id: space.data.organization_id,
@@ -1284,6 +1840,35 @@ app.get('/api/projects/:projectId/material-library', requireProjectUser, async (
   const materials = await client.from('material_library_items').select('*').eq('organization_id', project.data.organization_id).order('name');
   if (materials.error) return response.status(500).json({ success: false, code: 'MATERIAL_LIBRARY_LOAD_FAILED', message: materials.error.message });
   return response.json({ success: true, materials: materials.data ?? [] });
+});
+
+// An explicit studio action for a new organization. These are curated starter
+// records, not supplier-stock claims; the unique organization/code key makes
+// the operation safe to repeat without duplicating a material library.
+app.post('/api/projects/:projectId/material-library/starter', requireProjectUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const project = await getRequestSupabaseClient(request).from('projects').select('organization_id').eq('id', request.params.projectId).single();
+  if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
+  const client = getRequestSupabaseClient(request);
+  const rows = CuratedLaminateCatalog.map((item) => ({
+    organization_id: project.data.organization_id,
+    name: `${item.brand} ${item.name}`,
+    supplier: item.brand,
+    brand: item.brand,
+    code: item.id,
+    category: 'laminate',
+    finish: item.finish,
+    grain_direction: item.family === 'woodgrain' ? 'follow_part' : 'none',
+    thickness_mm: item.thicknessMm,
+    availability: 'available',
+    metadata: { family: item.family, suitableFor: item.suitableFor, edgeBand: item.edgeBand, colourHex: item.colourHex, source: 'ultida-curated-starter', requiresSupplierConfirmation: true },
+    created_by: authReq.ultidaUser!.id,
+  }));
+  const inserted = await client.from('material_library_items').upsert(rows, { onConflict: 'organization_id,code', ignoreDuplicates: true }).select('*');
+  if (inserted.error) return response.status(500).json({ success: false, code: 'STARTER_MATERIALS_CREATE_FAILED', message: inserted.error.message });
+  const materials = await client.from('material_library_items').select('*').eq('organization_id', project.data.organization_id).order('name');
+  if (materials.error) return response.status(500).json({ success: false, code: 'MATERIAL_LIBRARY_LOAD_FAILED', message: materials.error.message });
+  return response.status(201).json({ success: true, created: inserted.data?.length ?? 0, materials: materials.data ?? [], note: 'Starter materials are visual and specification placeholders. Confirm current supplier SKU and technical sheet before production.' });
 });
 
 app.post('/api/projects/:projectId/material-library', requireProjectUser, async (request, response) => {
@@ -1361,6 +1946,62 @@ app.post('/api/projects/:projectId/material-assignments', requireProjectUser, as
   return response.status(201).json({ success: true, assignment: assignment.data, invalidatedArtifactCount: stale.count ?? null });
 });
 
+app.get('/api/projects/:projectId/scenes/preflight', requireProjectUser, async (request, response) => {
+  const projectId = String(request.params.projectId);
+  const roomId = typeof request.query.roomId === 'string' ? request.query.roomId : '';
+  if (!roomId) return response.status(400).json({ success: false, code: 'ROOM_REQUIRED', message: 'Select an approved room before checking scene readiness.' });
+  const client = getRequestSupabaseClient(request);
+  const [activePlan, space, modules] = await Promise.all([
+    client.from('floor_plan_versions').select('id,status,active_version').eq('project_id', projectId).eq('active_version', true).maybeSingle(),
+    client.from('spaces').select('id,space_id,name,room_type,status,verification_status').eq('project_id', projectId).eq('id', roomId).maybeSingle(),
+    client.from('module_instances').select('id,space_id,layout_id,category,label,config_json,position_json').eq('project_id', projectId).eq('space_id', roomId).eq('status', 'validated'),
+  ]);
+  if (activePlan.error || space.error || modules.error) return response.status(500).json({ success: false, code: 'SCENE_PREFLIGHT_READ_FAILED', message: activePlan.error?.message ?? space.error?.message ?? modules.error?.message });
+  if (!activePlan.data || activePlan.data.status !== 'approved') return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'Approve the active plan before compiling a room scene.' });
+  if (!space.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected approved room could not be found.' });
+  const layoutIds = [...new Set((modules.data ?? []).map((module: any) => module.layout_id).filter(Boolean))];
+  const [layouts, assignments] = await Promise.all([
+    layoutIds.length ? client.from('layouts').select('id,status').eq('project_id', projectId).in('id', layoutIds) : Promise.resolve({ data: [], error: null }),
+    (modules.data ?? []).length
+      ? client.from('material_assignments').select('module_instance_id,semantic_slot,status,revision').eq('project_id', projectId).in('module_instance_id', (modules.data ?? []).map((module: any) => module.id))
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (layouts.error || assignments.error) return response.status(500).json({ success: false, code: 'SCENE_PREFLIGHT_READ_FAILED', message: layouts.error?.message ?? assignments.error?.message });
+  const approvedLayoutIds = new Set((layouts.data ?? []).filter((layout: any) => layout.status === 'approved').map((layout: any) => String(layout.id)));
+  const assignedSlots = new Map<string, Set<string>>();
+  for (const assignment of assignments.data ?? []) {
+    const moduleId = String(assignment.module_instance_id ?? '');
+    if (!moduleId) continue;
+    if (!assignedSlots.has(moduleId)) assignedSlots.set(moduleId, new Set());
+    assignedSlots.get(moduleId)!.add(String(assignment.semantic_slot));
+  }
+  const panelFamily = /kitchen|wardrobe|tv|crockery|pooja|study|utility|storage/i;
+  const checks = (modules.data ?? []).map((module: any) => {
+    const config = module.config_json ?? {};
+    const position = module.position_json ?? {};
+    const requiredSlots = panelFamily.test(String(module.category ?? config.family ?? '')) ? ['carcass', 'shutter'] : ['carcass'];
+    const slots = assignedSlots.get(String(module.id)) ?? new Set<string>();
+    const missingMaterialSlots = requiredSlots.filter((slot) => !slots.has(slot));
+    const readiness = {
+      layoutApproved: Boolean(module.layout_id && approvedLayoutIds.has(String(module.layout_id))),
+      wallAnchorSaved: position.anchor === 'wall' && typeof position.wallId === 'string' && position.wallId.length > 0,
+      positionResolved: Number.isFinite(Number(position.xMm)) && Number.isFinite(Number(position.yMm)),
+      dimensionsValid: Number(config.widthMm) > 0 && Number(config.depthMm) > 0 && Number(config.heightMm) > 0,
+      materialsSaved: missingMaterialSlots.length === 0,
+    };
+    return { id: module.id, roomId: module.space_id, label: module.label, family: module.category, readiness, missingMaterialSlots, sceneReady: Object.values(readiness).every(Boolean) };
+  });
+  return response.json({
+    success: true,
+    room: { id: space.data.id, planRoomId: space.data.space_id, name: space.data.name, roomType: space.data.room_type },
+    activePlanVersionId: activePlan.data.id,
+    modules: checks,
+    requestedModuleIds: checks.filter((module) => module.sceneReady).map((module) => module.id),
+    sceneReady: checks.some((module) => module.sceneReady),
+    blockers: checks.length ? checks.filter((module) => !module.sceneReady).map((module) => ({ moduleId: module.id, missingMaterialSlots: module.missingMaterialSlots, readiness: module.readiness })) : [{ code: 'MODULES_REQUIRED', message: 'Place and save at least one module in this room.' }],
+  });
+});
+
 app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const projectId = String(request.params.projectId);
@@ -1382,17 +2023,31 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
     return response.status(422).json({ success: false, code: 'CANONICAL_PLAN_INVALID', message: 'The active floor plan does not satisfy the canonical plan.v1 contract.', fieldErrors: parsedPlan.error.flatten() });
   }
 
+  const roomId = typeof request.body?.roomId === 'string' ? request.body.roomId : '';
+  if (!roomId) return response.status(400).json({ success: false, code: 'ROOM_REQUIRED', message: 'Compile scene.v1 for one approved room at a time.' });
+  const selectedSpace = await client.from('spaces').select('id,space_id,name,room_type').eq('project_id', projectId).eq('id', roomId).maybeSingle();
+  if (selectedSpace.error) return response.status(500).json({ success: false, code: 'SPACE_READ_FAILED', message: selectedSpace.error.message });
+  if (!selectedSpace.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected approved room could not be found.' });
+  const sceneRoomId = String(selectedSpace.data.space_id ?? selectedSpace.data.id);
   const requestedModuleIds = Array.isArray(request.body?.moduleInstanceIds) ? request.body.moduleInstanceIds.filter((id: unknown): id is string => typeof id === 'string') : [];
-  const storedModules = requestedModuleIds.length ? await client.from('module_instances').select('id,space_id,category,template_id,config_json,position_json').eq('project_id', projectId).in('id', requestedModuleIds) : { data: [], error: null };
+  if (!requestedModuleIds.length) {
+    return response.status(422).json({ success: false, code: 'MODULES_REQUIRED', message: 'Place and save at least one validated module before compiling scene.v1.' });
+  }
+  const storedModules = requestedModuleIds.length ? await client.from('module_instances').select('id,space_id,layout_id,category,template_id,config_json,position_json').eq('project_id', projectId).in('id', requestedModuleIds) : { data: [], error: null };
   if (storedModules.error) return response.status(500).json({ success: false, code: 'MODULE_INSTANCE_READ_FAILED', message: storedModules.error.message });
   if ((storedModules.data ?? []).length !== requestedModuleIds.length) return response.status(422).json({ success: false, code: 'MODULE_INSTANCE_NOT_FOUND', message: 'One or more requested module instances is missing.' });
+  if ((storedModules.data ?? []).some((module: any) => String(module.space_id) !== roomId)) return response.status(422).json({ success: false, code: 'ROOM_MODULE_MISMATCH', message: 'Every compiled module must belong to the selected approved room.' });
+  const layoutIds = [...new Set((storedModules.data ?? []).map((module: any) => module.layout_id).filter((id: unknown): id is string => typeof id === 'string'))];
+  const approvedLayouts = layoutIds.length ? await client.from('layouts').select('id').eq('project_id', projectId).eq('status', 'approved').in('id', layoutIds) : { data: [], error: null };
+  if (approvedLayouts.error) return response.status(500).json({ success: false, code: 'LAYOUT_READ_FAILED', message: approvedLayouts.error.message });
+  const approvedLayoutIds = new Set((approvedLayouts.data ?? []).map((layout: any) => layout.id));
   const invalidModule = (storedModules.data ?? []).find((module: any) => {
     const config = module.config_json ?? {};
     const position = module.position_json ?? {};
-    return !module.space_id || position.anchor !== 'wall' || typeof position.wallId !== 'string' || !Number.isFinite(Number(config.widthMm)) || !Number.isFinite(Number(config.depthMm)) || !Number.isFinite(Number(config.heightMm)) || !Number.isFinite(Number(position.xMm)) || !Number.isFinite(Number(position.yMm));
+    return !module.space_id || !module.layout_id || !approvedLayoutIds.has(module.layout_id) || position.anchor !== 'wall' || typeof position.wallId !== 'string' || !Number.isFinite(Number(config.widthMm)) || !Number.isFinite(Number(config.depthMm)) || !Number.isFinite(Number(config.heightMm)) || !Number.isFinite(Number(position.xMm)) || !Number.isFinite(Number(position.yMm));
   });
-  if (invalidModule) return response.status(422).json({ success: false, code: 'MODULE_INSTANCE_NOT_SCENE_READY', message: `Module ${invalidModule.id} has no valid persisted wall anchor, room lineage, or dimensions.` });
-  const compiledModules = (storedModules.data ?? []).map((module: any) => compileStoredModuleForScene(module, parsedPlan.data.walls));
+  if (invalidModule) return response.status(422).json({ success: false, code: 'MODULE_INSTANCE_NOT_SCENE_READY', message: `Module ${invalidModule.id} has no valid approved layout, persisted wall anchor, room lineage, or dimensions.` });
+  const compiledModules = (storedModules.data ?? []).map((module: any) => compileStoredModuleForScene({ ...module, space_id: sceneRoomId }, parsedPlan.data.walls));
   const compilationFailure = compiledModules.find((result) => !result.ok);
   if (compilationFailure && !compilationFailure.ok) return response.status(422).json({ success: false, code: compilationFailure.code, message: compilationFailure.message });
   const sceneModules = compiledModules.filter((result): result is Extract<typeof result, { ok: true }> => result.ok).map((result) => result.module);
@@ -1420,12 +2075,26 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
   if ((materialRows.data ?? []).length !== materialIds.length) return response.status(422).json({ success: false, code: 'MATERIAL_ASSIGNMENT_NOT_IN_LIBRARY', message: 'A persisted material assignment no longer resolves to this organization library.' });
   const materials = (materialRows.data ?? []).map((material: any) => ({ id: material.id, name: material.name, code: material.code, unitCost: material.unit_cost ?? undefined, finish: material.finish ?? undefined }));
   const materialBySlot = new Map<string, string>();
-  for (const assignment of latestBySlot.values()) materialBySlot.set(String(assignment.semantic_slot), String(assignment.material_id));
+  const materialByModuleAndSlot = new Map<string, string>();
+  for (const assignment of latestBySlot.values()) {
+    const materialId = String(assignment.material_id);
+    const semanticSlot = String(assignment.semantic_slot);
+    materialBySlot.set(semanticSlot, materialId);
+    const moduleId = String(assignment.module_instance_id ?? (assignment.target_kind === 'module' ? assignment.target_id : ''));
+    if (moduleId) materialByModuleAndSlot.set(`${moduleId}:${semanticSlot}`, materialId);
+  }
   const defaultModuleMaterial = materialBySlot.get('shutter') ?? materialBySlot.get('carcass') ?? materials[0]?.id;
-  const resolvedSceneModules = sceneModules.map((module) => ({ ...module, materialId: module.materialId ?? defaultModuleMaterial }));
+  const resolvedSceneModules = sceneModules.map((module) => ({
+    ...module,
+    materialId: module.materialId ?? materialByModuleAndSlot.get(`${module.id}:shutter`) ?? materialByModuleAndSlot.get(`${module.id}:carcass`) ?? defaultModuleMaterial,
+  }));
   const resolvedModuleParts = moduleParts.map((part) => ({
     ...part,
-    materialId: materialBySlot.get(String(part.semanticType ?? '')) ?? defaultModuleMaterial ?? part.materialId,
+    materialId: materialByModuleAndSlot.get(`${part.moduleId}:${String(part.semanticType ?? '')}`)
+      ?? materialByModuleAndSlot.get(`${part.moduleId}:shutter`)
+      ?? materialBySlot.get(String(part.semanticType ?? ''))
+      ?? defaultModuleMaterial
+      ?? part.materialId,
   }));
   let scene;
   try {
@@ -1468,7 +2137,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
     created_by: authReq.ultidaUser!.id,
   }).select('id,version_number,status,scene,created_at').single();
   if (created.error) return response.status(500).json({ success: false, code: 'SCENE_CREATE_FAILED', message: created.error.message });
-  return response.status(201).json({ success: true, sceneVersion: created.data, materials, materialAssignments: [...latestBySlot.values()] });
+  return response.status(201).json({ success: true, sceneVersionId: created.data.id, roomId: sceneRoomId, sourceSpaceId: roomId, compiledModuleCount: resolvedSceneModules.length, componentPartCount: resolvedModuleParts.length, materialCount: materials.length, sceneVersion: created.data, materials, materialAssignments: [...latestBySlot.values()] });
 });
 
 // Downstream documents must use the saved scene contract, never a browser-built
@@ -1490,6 +2159,32 @@ app.get('/api/projects/:projectId/scenes/:sceneVersionId', requireProjectUser, a
   return response.json({ success: true, sceneVersion: sceneVersion.data });
 });
 
+// A scene becomes authoritative only after the server confirms it still belongs
+// to the active approved plan and contains persisted modules. This avoids a
+// browser-only status change becoming a production approval.
+app.post('/api/projects/:projectId/scenes/:sceneVersionId/approve', requireProjectUser, async (request, response) => {
+  const projectId = String(request.params.projectId);
+  const sceneVersionId = String(request.params.sceneVersionId);
+  const client = getRequestSupabaseClient(request);
+  const [project, sceneVersion] = await Promise.all([
+    client.from('projects').select('active_floor_plan_version_id').eq('id', projectId).single(),
+    client.from('scene_versions').select('id,floor_plan_version_id,status,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle(),
+  ]);
+  if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
+  if (sceneVersion.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: sceneVersion.error.message });
+  if (!sceneVersion.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND', message: 'That scene version does not belong to this project.' });
+  if (sceneVersion.data.status !== 'draft') return response.status(409).json({ success: false, code: 'SCENE_NOT_DRAFT', message: 'Only the current draft scene revision can be approved.' });
+  if (sceneVersion.data.floor_plan_version_id !== project.data.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'SCENE_PLAN_VERSION_STALE', message: 'The plan changed after this scene was compiled. Recompile before approval.' });
+  const scene = sceneVersion.data.scene as { schema?: unknown; modules?: unknown[]; metadata?: Record<string, unknown> };
+  if (scene?.schema !== 'scene.v1' || !Array.isArray(scene.modules) || !scene.modules.length) return response.status(422).json({ success: false, code: 'SCENE_NOT_READY', message: 'Scene approval requires scene.v1 with at least one persisted module.' });
+  const approved = await client.from('scene_versions').update({
+    status: 'approved',
+    scene: { ...scene, metadata: { ...(scene.metadata ?? {}), status: 'approved' } },
+  }).eq('id', sceneVersionId).select('id,status,version_number,scene,created_at').single();
+  if (approved.error) return response.status(500).json({ success: false, code: 'SCENE_APPROVAL_FAILED', message: approved.error.message });
+  return response.json({ success: true, sceneVersion: approved.data });
+});
+
 app.get('/api/projects/:projectId/spaces', requireProjectUser, async (request, response) => {
   const client = getRequestSupabaseClient(request);
   const project = await client.from('projects').select('active_floor_plan_version_id').eq('id', request.params.projectId).single();
@@ -1504,17 +2199,70 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
   const client = getRequestSupabaseClient(request);
   const version = await client
     .from('floor_plan_versions')
-    .select('id,canonical_model,scale_state,verification_state,approved_at,active_version')
+    .select('id,canonical_model,scale_state,verification_state,approved_at,active_version,source_asset_id')
     .eq('project_id', request.params.projectId)
     .eq('active_version', true)
     .maybeSingle();
   if (version.error) return response.status(500).json({ success: false, code: 'PLAN_READ_FAILED', message: version.error.message });
   if (!version.data || !version.data.approved_at) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'An approved floor plan is required before configuring spaces.' });
+  
+  let previewUrl: string | null = null;
+  const sourceAssetId = (version.data as any)?.source_asset_id ?? null;
+  if (sourceAssetId) {
+    const asset = await client.from('project_assets').select('storage_path,mime_type').eq('id', sourceAssetId).maybeSingle();
+    if (asset.data?.storage_path) {
+      const signed = await client.storage.from('project-assets').createSignedUrl(asset.data.storage_path, 3600);
+      previewUrl = signed.data?.signedUrl ?? null;
+    }
+  }
+
+  const savedSpaces = await client
+    .from('spaces')
+    .select('id,space_id,name,room_type,ceiling_height_mm,requirements_json,settings_json,verification_status,status')
+    .eq('project_id', request.params.projectId)
+    .eq('floor_plan_version_id', version.data.id);
+  if (savedSpaces.error) return response.status(500).json({ success: false, code: 'SPACES_READ_FAILED', message: savedSpaces.error.message });
+  const savedSpaceRows = savedSpaces.data ?? [];
+  const savedSpaceByPlanRoomId = new Map(savedSpaceRows.filter((space: any) => space.space_id).map((space: any) => [String(space.space_id), space]));
+  const normalizeSpaceLabel = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ');
   const plan = version.data.canonical_model ?? {};
-  const rooms = (plan.rooms ?? plan.spaces ?? []).map((r: any) => ({
-    id: r.id, name: r.name ?? r.roomType ?? r.id, roomType: r.roomType ?? r.type ?? 'other',
-    polygon: r.worldPolygon ?? r.worldGeometry?.polygon ?? r.polygon ?? [], areaSqm: r.areaSqm, ceilingHeightMm: r.ceilingHeightMm,
-  }));
+  const rooms = (plan.rooms ?? plan.spaces ?? []).map((r: any) => {
+    const roomName = r.name ?? r.roomType ?? r.type ?? r.id;
+    const roomType = r.roomType ?? r.type ?? 'other';
+    const matchingByName = savedSpaceRows.filter((space: any) => normalizeSpaceLabel(space.name) === normalizeSpaceLabel(roomName));
+    const matchingByType = savedSpaceRows.filter((space: any) => normalizeSpaceLabel(space.room_type) === normalizeSpaceLabel(roomType));
+    const roomWords = new Set(normalizeSpaceLabel(`${r.id ?? ''} ${roomName} ${roomType}`).split(' ').filter(word => word.length > 2 && word !== 'room'));
+    const matchingByDistinctWord = savedSpaceRows.filter((space: any) => [space.name, space.room_type]
+      .flatMap((value: unknown) => normalizeSpaceLabel(value).split(' '))
+      .some(word => roomWords.has(word)));
+    const saved = savedSpaceByPlanRoomId.get(String(r.id))
+      ?? (matchingByName.length === 1 ? matchingByName[0] : null)
+      ?? (matchingByType.length === 1 ? matchingByType[0] : null)
+      ?? (matchingByDistinctWord.length === 1 ? matchingByDistinctWord[0] : null);
+    return {
+      id: r.id,
+      spaceRecordId: saved?.id ?? null,
+      name: saved?.name ?? roomName,
+      roomType: saved?.room_type ?? roomType,
+      polygon: r.worldPolygon ?? r.worldGeometry?.polygon ?? r.polygon ?? [],
+      areaSqm: r.areaSqm,
+      ceilingHeightMm: saved?.ceiling_height_mm ?? r.ceilingHeightMm,
+      requiredFurniture: Array.isArray(saved?.requirements_json?.requiredFurniture) ? saved.requirements_json.requiredFurniture : [],
+      included: saved?.requirements_json?.included !== false,
+      budgetInr: saved?.requirements_json?.budgetInr ?? null,
+      designPriority: saved?.requirements_json?.designPriority ?? 'balanced',
+      applianceNeeds: Array.isArray(saved?.requirements_json?.applianceNeeds) ? saved.requirements_json.applianceNeeds : [],
+      constraints: Array.isArray(saved?.requirements_json?.constraints) ? saved.requirements_json.constraints : [],
+      floorFinish: saved?.settings_json?.floorFinish ?? '',
+      falseCeiling: saved?.settings_json?.falseCeiling ?? '',
+      styleDirection: saved?.settings_json?.styleDirection ?? '',
+      paletteDirection: saved?.settings_json?.paletteDirection ?? '',
+      retainedElements: Array.isArray(saved?.settings_json?.retainedElements) ? saved.settings_json.retainedElements : [],
+      wallRoles: saved?.settings_json?.wallRoles ?? {},
+      preferredCamera: saved?.settings_json?.preferredCamera ?? '',
+      verificationStatus: saved?.verification_status ?? 'unverified',
+    };
+  });
   const walls = (plan.walls ?? []).map((w: any) => ({
     id: w.id,
     start: w.worldStart ?? w.worldGeometry?.start ?? w.start,
@@ -1541,14 +2289,24 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
   return response.json({
     success: true,
     floorPlanVersionId: version.data.id,
-    scaleVerified: version.data.scale_state === 'verified' || plan.scale?.verified === true,
+    sourceAssetId,
+    previewUrl,
+    source: plan.source ?? null,
+    // Initial Design is allowed to use a designer-trusted two-point
+    // calibration without claiming site-verification.  The previous check
+    // treated the JSON scale-state column as a string and therefore showed a
+    // false "Scale not verified" warning after a successful calibration.
+    scaleVerified: version.data.scale_state === 'verified'
+      || plan.scale?.verified === true
+      || (Number(plan.source?.mmPerPixel) > 0 && Number(plan.source?.verifiedDimensionMm) > 0),
     ceilingHeightMm: Number(plan.ceilingHeightMm ?? 2700),
+    geometryMode: String(plan.geometryMode ?? 'final_production'),
     rooms, walls, openings, columns, beams, services, annotations, issues,
   });
 });
 
 app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (request, response) => {
-  const { name, roomType, ceilingHeightMm, requiredFurniture, floorFinish, falseCeiling, budgetInr, designPriority, applianceNeeds, constraints } = request.body ?? {};
+  const { name, roomType, ceilingHeightMm, requiredFurniture, floorFinish, falseCeiling, budgetInr, designPriority, applianceNeeds, constraints, styleDirection, paletteDirection, retainedElements, wallRoles, preferredCamera, verificationStatus, included } = request.body ?? {};
   const fieldErrors: Record<string, string> = {};
   if (!String(name ?? '').trim()) fieldErrors.name = 'Room name is required.';
   if (!String(roomType ?? '').trim()) fieldErrors.roomType = 'Room type is required.';
@@ -1560,11 +2318,50 @@ app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (r
   if (current.error) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: current.error.message });
   const updated = await client.from('spaces').update({
     name: String(name).trim(), room_type: roomType, ceiling_height_mm: ceilingHeightMm,
-    requirements_json: { ...(current.data.requirements_json ?? {}), requiredFurniture, budgetInr: budgetInr ?? null, designPriority: designPriority ?? 'balanced', applianceNeeds: applianceNeeds ?? [], constraints: constraints ?? [] },
-    settings_json: { ...(current.data.settings_json ?? {}), floorFinish: floorFinish ?? '', falseCeiling: falseCeiling ?? '' },
-    status: 'configured', updated_at: new Date().toISOString()
+    requirements_json: { ...(current.data.requirements_json ?? {}), requiredFurniture, included: included !== false, budgetInr: budgetInr ?? null, designPriority: designPriority ?? 'balanced', applianceNeeds: applianceNeeds ?? [], constraints: constraints ?? [] },
+    settings_json: {
+      ...(current.data.settings_json ?? {}),
+      floorFinish: floorFinish ?? '', falseCeiling: falseCeiling ?? '',
+      styleDirection: styleDirection ?? '', paletteDirection: paletteDirection ?? '',
+      retainedElements: Array.isArray(retainedElements) ? retainedElements : [],
+      wallRoles: wallRoles && typeof wallRoles === 'object' && !Array.isArray(wallRoles) ? wallRoles : {},
+      preferredCamera: preferredCamera ?? '',
+    },
+    status: 'configured',
+    verification_status: verificationStatus === 'verified' ? 'verified' : 'unverified',
+    updated_at: new Date().toISOString()
   }).eq('id', request.params.spaceId).eq('project_id', request.params.projectId).select('*').single();
   if (updated.error) return response.status(500).json({ success: false, code: 'SPACE_SAVE_FAILED', message: updated.error.message });
+  // Requirements and scene setup are layout inputs. A later change must make
+  // prior candidates visibly stale instead of letting old furniture continue
+  // into a new scene as if nothing changed.
+  const [staleLayouts, staleScenes, staleArtifacts] = await Promise.all([
+    client.from('layouts').update({ status: 'stale' }).eq('project_id', request.params.projectId).eq('space_id', request.params.spaceId).in('status', ['candidate', 'approved']),
+    client.from('scene_versions').update({ status: 'stale' }).eq('project_id', request.params.projectId).in('status', ['draft', 'approved']),
+    client.from('artifacts').update({ stale: true }).eq('project_id', request.params.projectId).eq('stale', false),
+  ]);
+  const invalidationError = [staleLayouts, staleScenes, staleArtifacts].find((result) => result.error)?.error;
+  if (invalidationError) return response.status(500).json({ success: false, code: 'SPACE_INVALIDATION_FAILED', message: invalidationError.message });
+  return response.json({ success: true, space: updated.data, invalidated: { layouts: true, scenes: true, artifacts: true } });
+});
+
+// Scope is intentionally separate from a room's requirements: excluding a
+// utility, parking, or out-of-scope room must not force the designer to erase
+// its saved measurements just to open Layout Studio.
+app.patch('/api/projects/:projectId/spaces/:spaceId/scope', requireProjectUser, async (request, response) => {
+  const included = request.body?.included;
+  if (typeof included !== 'boolean') return response.status(422).json({ success: false, code: 'SPACE_SCOPE_INVALID', message: 'Provide whether this room is included in the current design scope.' });
+  const client = getRequestSupabaseClient(request);
+  const current = await client.from('spaces').select('requirements_json').eq('id', request.params.spaceId).eq('project_id', request.params.projectId).single();
+  if (current.error) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: current.error.message });
+  const updated = await client
+    .from('spaces')
+    .update({ requirements_json: { ...(current.data.requirements_json ?? {}), included }, updated_at: new Date().toISOString() })
+    .eq('id', request.params.spaceId)
+    .eq('project_id', request.params.projectId)
+    .select('id,requirements_json')
+    .single();
+  if (updated.error) return response.status(500).json({ success: false, code: 'SPACE_SCOPE_SAVE_FAILED', message: updated.error.message });
   return response.json({ success: true, space: updated.data });
 });
 
@@ -1572,13 +2369,18 @@ app.post('/api/projects/:projectId/spaces/approve', requireProjectUser, async (r
   const client = getRequestSupabaseClient(request);
   const project = await client.from('projects').select('active_floor_plan_version_id').eq('id', request.params.projectId).single();
   if (project.error || !project.data?.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'An active approved floor plan is required.' });
+  const planVersion = await client.from('floor_plan_versions').select('canonical_model').eq('id', project.data.active_floor_plan_version_id).single();
+  if (planVersion.error) return response.status(500).json({ success: false, code: 'PLAN_VERSION_READ_FAILED', message: planVersion.error.message });
+  const geometryMode = String((planVersion.data?.canonical_model as any)?.geometryMode ?? 'final_production');
+  const initialDesign = geometryMode === 'initial_design';
   const spaces = await client.from('spaces').select('id,status,verification_status,ceiling_height_mm,requirements_json').eq('project_id', request.params.projectId).eq('floor_plan_version_id', project.data.active_floor_plan_version_id);
   if (spaces.error) return response.status(500).json({ success: false, code: 'SPACES_READ_FAILED', message: spaces.error.message });
-  const notReady = (spaces.data ?? []).filter((space: any) => space.status !== 'configured' || space.verification_status !== 'verified' || !space.ceiling_height_mm || !Array.isArray(space.requirements_json?.requiredFurniture) || !space.requirements_json.requiredFurniture.length);
-  if (!(spaces.data ?? []).length || notReady.length) return response.status(422).json({ success: false, code: 'SPACES_NOT_READY', message: 'Every room must have verified geometry, a ceiling height, and saved requirements.', spaceIds: notReady.map((space: any) => space.id) });
+  const scopedSpaces = (spaces.data ?? []).filter((space: any) => space.requirements_json?.included !== false);
+  const readySpaces = scopedSpaces.filter((space: any) => space.status === 'configured' && (initialDesign || space.verification_status === 'verified') && Boolean(space.ceiling_height_mm) && Array.isArray(space.requirements_json?.requiredFurniture) && space.requirements_json.requiredFurniture.length > 0);
+  if (!readySpaces.length) return response.status(422).json({ success: false, code: 'SPACES_NOT_READY', message: 'Prepare at least one included room with geometry, a ceiling height, and saved requirements. Other rooms can be completed later.', spaceIds: scopedSpaces.map((space: any) => space.id) });
   const updated = await client.from('projects').update({ workflow_stage: 'layouts', current_step: 'layouts', updated_at: new Date().toISOString() }).eq('id', request.params.projectId);
   if (updated.error) return response.status(500).json({ success: false, code: 'SPACES_APPROVAL_FAILED', message: updated.error.message });
-  return response.json({ success: true, readySpaceCount: spaces.data!.length });
+  return response.json({ success: true, readySpaceCount: readySpaces.length, skippedSpaceCount: Math.max(0, scopedSpaces.length - readySpaces.length), skippedSpaceIds: scopedSpaces.filter((space: any) => !readySpaces.some((ready: any) => ready.id === space.id)).map((space: any) => space.id) });
 });
 
 app.get(['/api/projects/:projectId/status', '/api/projects/:projectId/workflow-status'], requireProjectUser, async (request, response) => {
@@ -1586,11 +2388,12 @@ app.get(['/api/projects/:projectId/status', '/api/projects/:projectId/workflow-s
   const { projectId } = request.params;
   const userId = authReq.ultidaUser?.id;
   const client = getRequestSupabaseClient(request);
-  const [briefRes, floorRes, spaceRes, layoutRes, sceneRes, renderRes, drawingRes, presentationRes] = await Promise.all([
+  const [briefRes, floorRes, spaceRes, layoutRes, moduleRes, sceneRes, renderRes, drawingRes, presentationRes] = await Promise.all([
     client.from('project_briefs').select('id,is_complete').eq('project_id', projectId).maybeSingle(),
-    client.from('floor_plan_versions').select('id,approved_at,active_version').eq('project_id', projectId).eq('active_version', true).maybeSingle(),
+    client.from('floor_plan_versions').select('id,approved_at,active_version,canonical_model').eq('project_id', projectId).eq('active_version', true).maybeSingle(),
     client.from('spaces').select('id,status,verification_status,ceiling_height_mm,requirements_json').eq('project_id', projectId),
     client.from('layouts').select('id,status').eq('project_id', projectId).eq('status', 'approved'),
+    client.from('module_instances').select('id,status').eq('project_id', projectId).eq('status', 'validated'),
     client.from('scene_versions').select('id').eq('project_id', projectId).eq('status', 'approved').maybeSingle(),
     client.from('jobs').select('id,status').eq('project_id', projectId).eq('kind', 'visual_proposal').order('created_at', { ascending: false }).limit(1).maybeSingle(),
     client.from('jobs').select('id').eq('project_id', projectId).eq('kind', 'drawings').order('created_at', { ascending: false }).limit(1).maybeSingle(),
@@ -1599,11 +2402,12 @@ app.get(['/api/projects/:projectId/status', '/api/projects/:projectId/workflow-s
 
   const briefComplete = !!briefRes.data && (briefRes.data.is_complete !== false);
   const planComplete = !!floorRes.data?.approved_at;
-  const spacesList = spaceRes.data ?? [];
-  const spacesComplete = spacesList.length > 0 && spacesList.every((s: any) => s.status === 'configured' && s.verification_status === 'verified' && Boolean(s.ceiling_height_mm) && Array.isArray(s.requirements_json?.requiredFurniture) && s.requirements_json.requiredFurniture.length > 0);
-  const layoutsComplete = (layoutRes.data ?? []).length > 0;
+  const spacesList = (spaceRes.data ?? []).filter((space: any) => space.requirements_json?.included !== false && space.status === 'configured' && (String((floorRes.data?.canonical_model as any)?.geometryMode ?? 'final_production') === 'initial_design' || space.verification_status === 'verified') && Boolean(space.ceiling_height_mm) && Array.isArray(space.requirements_json?.requiredFurniture) && space.requirements_json.requiredFurniture.length > 0);
+  const initialDesign = String((floorRes.data?.canonical_model as any)?.geometryMode ?? 'final_production') === 'initial_design';
+  const spacesComplete = spacesList.length > 0 && spacesList.every((s: any) => s.status === 'configured' && (initialDesign || s.verification_status === 'verified') && Boolean(s.ceiling_height_mm) && Array.isArray(s.requirements_json?.requiredFurniture) && s.requirements_json.requiredFurniture.length > 0);
+  const layoutsComplete = (layoutRes.data ?? []).some((layout: any) => layout.status === 'approved');
   const sceneComplete = !!sceneRes.data;
-  const modulesComplete = layoutsComplete;
+  const modulesComplete = (moduleRes.data ?? []).some((module: any) => module.status === 'validated');
   const materialsComplete = sceneComplete;
   const rendersComplete = !!renderRes.data && renderRes.data.status === 'succeeded';
   const drawingsComplete = !!drawingRes.data;
@@ -1666,10 +2470,22 @@ app.post('/api/projects/:projectId/layout-candidates', requireProjectUser, async
     client.from('floor_plan_versions').select('id,canonical_model').eq('id', project.data.active_floor_plan_version_id).single(),
   ]);
   if (spaceResult.error || !spaceResult.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected room is not part of the active approved plan.' });
+  if (spaceResult.data.requirements_json?.included === false) return response.status(409).json({ success: false, code: 'SPACE_OUT_OF_SCOPE', message: 'Include this room in Spaces before generating a layout.' });
+  if (spaceResult.data.status !== 'configured') return response.status(409).json({ success: false, code: 'SPACE_CONFIGURATION_REQUIRED', message: 'Save this room’s requirements and scene setup before generating layouts.' });
   if (planResult.error || !planResult.data) return response.status(404).json({ success: false, code: 'PLAN_NOT_FOUND', message: 'The active approved plan could not be loaded.' });
   const plan = (planResult.data.canonical_model ?? {}) as any;
   const rooms = Array.isArray(plan.rooms) ? plan.rooms : Array.isArray(plan.spaces) ? plan.spaces : [];
-  const room = rooms.find((item: any) => item.id === spaceId) ?? rooms.find((item: any) => item.id === spaceResult.data.id);
+  const normalizeRoomLabel = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  const plannedRoomName = spaceResult.data.name ?? spaceResult.data.room_type ?? spaceId;
+  const plannedRoomWords = new Set(normalizeRoomLabel(`${plannedRoomName} ${spaceResult.data.room_type ?? ''}`).split(' ').filter(word => word.length > 2 && word !== 'room'));
+  const matchingByName = rooms.filter((item: any) => normalizeRoomLabel(item.name ?? item.roomType ?? item.type) === normalizeRoomLabel(plannedRoomName));
+  const matchingByType = rooms.filter((item: any) => normalizeRoomLabel(item.roomType ?? item.type) === normalizeRoomLabel(spaceResult.data.room_type));
+  const matchingByDistinctWord = rooms.filter((item: any) => normalizeRoomLabel(`${item.id ?? ''} ${item.name ?? ''} ${item.roomType ?? item.type ?? ''}`).split(' ').some(word => plannedRoomWords.has(word)));
+  const room = rooms.find((item: any) => item.id === spaceResult.data.space_id)
+    ?? rooms.find((item: any) => item.id === spaceId)
+    ?? (matchingByName.length === 1 ? matchingByName[0] : null)
+    ?? (matchingByType.length === 1 ? matchingByType[0] : null)
+    ?? (matchingByDistinctWord.length === 1 ? matchingByDistinctWord[0] : null);
   const polygon = room?.worldPolygon ?? room?.worldGeometry?.polygon ?? room?.polygon ?? spaceResult.data.geometry_json?.polygon ?? [];
   const points = Array.isArray(polygon) ? polygon.map((point: any) => ({ x: Number(point.xMm ?? point.x ?? point[0]), y: Number(point.yMm ?? point.y ?? point[1]) })).filter((point: any) => Number.isFinite(point.x) && Number.isFinite(point.y)) : [];
   if (points.length < 3) return response.status(422).json({ success: false, code: 'ROOM_GEOMETRY_UNAVAILABLE', message: 'The approved room has no valid canonical polygon.' });
@@ -1678,17 +2494,50 @@ app.post('/api/projects/:projectId/layout-candidates', requireProjectUser, async
   const minY = Math.min(...points.map((point: any) => point.y));
   const maxY = Math.max(...points.map((point: any) => point.y));
   const walls = Array.isArray(plan.walls) ? plan.walls : [];
-  const usableWalls = walls.map((wall: any) => {
+  let usableWalls = walls.map((wall: any) => {
     const start = wall.worldStart ?? wall.worldGeometry?.start ?? wall.start;
     const end = wall.worldEnd ?? wall.worldGeometry?.end ?? wall.end;
     if (!start || !end) return null;
     return { id: String(wall.id), minX: Math.min(Number(start.xMm ?? start.x), Number(end.xMm ?? end.x)), minY: Math.min(Number(start.yMm ?? start.y), Number(end.yMm ?? end.y)), maxX: Math.max(Number(start.xMm ?? start.x), Number(end.xMm ?? end.x)), maxY: Math.max(Number(start.yMm ?? start.y), Number(end.yMm ?? end.y)), orientation: Math.abs(Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x)) >= Math.abs(Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) ? 'north' : 'east' };
-  }).filter(Boolean);
-  const openings = (Array.isArray(plan.openings) ? plan.openings : []).map((opening: any) => ({ id: String(opening.id), type: opening.kind === 'window' ? 'window' : 'door', xMm: Number(opening.worldPosition?.xMm ?? opening.xMm ?? opening.offsetMm ?? 0), yMm: Number(opening.worldPosition?.yMm ?? opening.yMm ?? 0), widthMm: Number(opening.widthMm ?? 0), heightMm: Number(opening.heightMm ?? 0), swingDeg: opening.swingDeg == null ? undefined : Number(opening.swingDeg) }));
-  const servicePoints = (Array.isArray(plan.servicePoints) ? plan.servicePoints : []).map((point: any) => ({ id: String(point.id), xMm: Number(point.position?.xMm ?? point.xMm ?? 0), yMm: Number(point.position?.yMm ?? point.yMm ?? 0), type: String(point.kind ?? point.type ?? 'service') }));
+  }).filter((wall: any) => wall && wall.maxX >= minX - 250 && wall.minX <= maxX + 250 && wall.maxY >= minY - 250 && wall.minY <= maxY + 250);
+  // AI plans can contain valid room loops before every shared wall is fully
+  // reconciled. Layout still needs stable, measured wall anchors, so derive
+  // missing boundary edges from the accepted room polygon.
+  if (usableWalls.length < 3) {
+    usableWalls = points.map((point: any, index: number) => {
+      const next = points[(index + 1) % points.length];
+      const horizontal = Math.abs(next.x - point.x) >= Math.abs(next.y - point.y);
+      return {
+        id: `room-boundary-${spaceId}-${index + 1}`,
+        minX: Math.min(point.x, next.x), minY: Math.min(point.y, next.y),
+        maxX: Math.max(point.x, next.x), maxY: Math.max(point.y, next.y),
+        orientation: horizontal ? (point.y <= (minY + maxY) / 2 ? 'north' : 'south') : (point.x <= (minX + maxX) / 2 ? 'west' : 'east'),
+      };
+    }).filter((wall: any) => Math.hypot(wall.maxX - wall.minX, wall.maxY - wall.minY) >= 300);
+  }
+  const usableWallIds = new Set(usableWalls.map((wall: any) => String(wall.id)));
+  const openings = (Array.isArray(plan.openings) ? plan.openings : []).map((opening: any) => {
+    const wall = walls.find((candidate: any) => String(candidate.id) === String(opening.wallId));
+    const start = wall?.worldStart ?? wall?.worldGeometry?.start ?? wall?.start;
+    const end = wall?.worldEnd ?? wall?.worldGeometry?.end ?? wall?.end;
+    const offset = Number(opening.offsetMm ?? opening.offsetAlongWallMm ?? 0);
+    const length = start && end ? Math.hypot(Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x), Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) : 0;
+    const t = length > 0 ? Math.max(0, Math.min(1, offset / length)) : 0;
+    const xMm = Number(opening.worldPosition?.xMm ?? opening.xMm ?? (start ? Number(start.xMm ?? start.x) + (Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x)) * t : offset));
+    const yMm = Number(opening.worldPosition?.yMm ?? opening.yMm ?? (start ? Number(start.yMm ?? start.y) + (Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) * t : 0));
+    return { id: String(opening.id), wallId: opening.wallId ? String(opening.wallId) : undefined, type: opening.kind === 'window' ? 'window' : 'door', xMm, yMm, widthMm: Math.max(300, Number(opening.widthMm ?? 900)), heightMm: Math.max(300, Number(opening.heightMm ?? (opening.kind === 'window' ? 1200 : 2100))), swingDeg: opening.swingDeg == null ? undefined : Number(opening.swingDeg) };
+  }).filter((opening: any) => (opening.wallId && usableWallIds.has(opening.wallId)) || (opening.xMm >= minX - 250 && opening.xMm <= maxX + 250 && opening.yMm >= minY - 250 && opening.yMm <= maxY + 250));
+  const servicePoints = (Array.isArray(plan.servicePoints) ? plan.servicePoints : []).map((point: any) => ({ id: String(point.id), xMm: Number(point.position?.xMm ?? point.xMm ?? 0), yMm: Number(point.position?.yMm ?? point.yMm ?? 0), type: String(point.kind ?? point.type ?? 'service') })).filter((point: any) => point.xMm >= minX && point.xMm <= maxX && point.yMm >= minY && point.yMm <= maxY);
+  const structuralElements = [
+    ...(Array.isArray(plan.columns) ? plan.columns : []),
+    ...(Array.isArray(plan.beams) ? plan.beams : []),
+  ].map((item: any) => ({ id: String(item.id), type: String(item.kind ?? item.type ?? 'structure'), xMm: Number(item.position?.xMm ?? item.start?.xMm ?? item.xMm ?? 0), yMm: Number(item.position?.yMm ?? item.start?.yMm ?? item.yMm ?? 0), widthMm: Math.max(1, Number(item.widthMm ?? item.sizeMm ?? 300)), depthMm: Math.max(1, Number(item.depthMm ?? item.sizeMm ?? 300)) })).filter((item: any) => item.xMm >= minX - 250 && item.xMm <= maxX + 250 && item.yMm >= minY - 250 && item.yMm <= maxY + 250);
   try {
-    const candidates = generateCandidates({ projectId: request.params.projectId, spaceId, roomCategory, floorPlanVersionId: project.data.active_floor_plan_version_id, shape: String(shape ?? 'balanced'), candidateTypes: Array.isArray(candidateTypes) ? candidateTypes : ['maximum_storage', 'best_circulation', 'balanced', 'cost_efficient'], requirements: requirements && typeof requirements === 'object' ? requirements : {}, roomBoundingBoxMm: { minX, minY, maxX, maxY }, usableWalls, openings, servicePoints, structuralElements: [], companyRules: {} } as any);
-    return response.json({ success: true, floorPlanVersionId: project.data.active_floor_plan_version_id, spaceId, candidates });
+    const savedRequirements = spaceResult.data.requirements_json && typeof spaceResult.data.requirements_json === 'object' ? spaceResult.data.requirements_json : {};
+    const generated = generateCandidates({ projectId: request.params.projectId, spaceId, roomCategory, floorPlanVersionId: project.data.active_floor_plan_version_id, shape: String(shape ?? 'balanced'), candidateTypes: Array.isArray(candidateTypes) ? candidateTypes : ['maximum_storage', 'best_circulation', 'balanced', 'cost_efficient'], requirements: { ...savedRequirements, ...(requirements && typeof requirements === 'object' ? requirements : {}) }, roomBoundingBoxMm: { minX, minY, maxX, maxY }, usableWalls, openings, servicePoints, structuralElements, companyRules: {} } as any);
+    const previewContext = { roomPolygon: points.map((point: any) => ({ xMm: point.x, yMm: point.y })), walls: usableWalls, openings, servicePoints, structuralElements };
+    const candidates = generated.map((candidate) => ({ ...candidate, previewContext }));
+    return response.json({ success: true, floorPlanVersionId: project.data.active_floor_plan_version_id, spaceId, previewContext, candidates });
   } catch (error) {
     return response.status(422).json({ success: false, code: 'LAYOUT_CANDIDATE_GENERATION_FAILED', message: error instanceof Error ? error.message : 'The canonical room geometry could not generate candidates.' });
   }
@@ -1698,7 +2547,12 @@ app.post('/api/projects/:projectId/layouts', requireProjectUser, async (request,
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const { spaceId, layoutShape, label = 'Option A', candidate, score } = request.body ?? {};
   if (typeof spaceId !== 'string' || !candidate || typeof candidate !== 'object') return response.status(400).json({ success: false, code: 'INVALID_LAYOUT', message: 'spaceId and candidate data are required.' });
+  if ((candidate as any).validation?.valid !== true) return response.status(422).json({ success: false, code: 'LAYOUT_CANDIDATE_INVALID', message: 'Only a candidate with no blocking geometry, opening, service, or clearance violations can be saved.' });
   const client = getRequestSupabaseClient(request);
+  const project = await client.from('projects').select('active_floor_plan_version_id').eq('id', request.params.projectId).single();
+  if (project.error || !project.data?.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'An active approved floor plan is required.' });
+  const space = await client.from('spaces').select('id').eq('id', spaceId).eq('project_id', request.params.projectId).eq('floor_plan_version_id', project.data.active_floor_plan_version_id).maybeSingle();
+  if (space.error || !space.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected room is not part of the active approved plan.' });
   const row = { organization_id: authReq.ultidaUser?.organizationId, project_id: request.params.projectId, space_id: spaceId, layout_shape: String(layoutShape ?? 'custom'), label: String(label), candidate_json: candidate, rule_score_json: score ?? null, status: 'candidate', created_by: authReq.ultidaUser?.id };
   const { data, error } = await client.from('layouts').insert(row).select('*').single();
   if (error) return response.status(500).json({ success: false, code: 'LAYOUT_CREATE_FAILED', message: error.message });
@@ -1710,6 +2564,10 @@ app.post('/api/projects/:projectId/layouts/:layoutId/approve', requireProjectUse
   const client = getRequestSupabaseClient(request);
   const { data: layout, error: lookupError } = await client.from('layouts').select('*').eq('id', request.params.layoutId).eq('project_id', request.params.projectId).single();
   if (lookupError || !layout) return response.status(404).json({ success: false, code: 'LAYOUT_NOT_FOUND' });
+  if (layout.status !== 'candidate') return response.status(409).json({ success: false, code: 'LAYOUT_NOT_CANDIDATE', message: 'Only a saved candidate can be approved.' });
+  if ((layout.candidate_json as any)?.validation?.valid !== true) return response.status(422).json({ success: false, code: 'LAYOUT_CANDIDATE_INVALID', message: 'This layout has unresolved blocking constraints and cannot be approved.' });
+  const staleLayouts = await client.from('layouts').update({ status: 'stale' }).eq('project_id', request.params.projectId).eq('space_id', layout.space_id).eq('status', 'approved');
+  if (staleLayouts.error) return response.status(500).json({ success: false, code: 'LAYOUT_SUPERSEDE_FAILED', message: staleLayouts.error.message });
   const updated = await client.from('layouts').update({ status: 'approved', approved_by: authReq.ultidaUser?.id, approved_at: new Date().toISOString() }).eq('id', layout.id).select('*').single();
   if (updated.error) return response.status(500).json({ success: false, code: 'LAYOUT_APPROVAL_FAILED', message: updated.error.message });
   const { data: latestVersion, error: versionLookupError } = await client
@@ -1754,13 +2612,13 @@ app.get('/api/projects/:projectId/export/sketchup', requireProjectUser, async (r
   const { projectId } = request.params;
   const { data: sceneRow, error } = await client
     .from('scene_versions')
-    .select('scene_json,status')
+    .select('scene,status')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (error || !sceneRow?.scene_json) {
+  if (error || !sceneRow?.scene) {
     return response.status(404).json({
       success: false,
       code: 'SCENE_NOT_FOUND',
@@ -1769,7 +2627,7 @@ app.get('/api/projects/:projectId/export/sketchup', requireProjectUser, async (r
   }
 
   try {
-    const scene = migrateScene(sceneRow.scene_json);
+    const scene = migrateScene(sceneRow.scene);
     const rubyScript = generateSketchUpRubyScript(scene);
     response.setHeader('Content-Type', 'text/x-ruby');
     response.setHeader('Content-Disposition', `attachment; filename="ultida-${projectId}-sketchup.rb"`);

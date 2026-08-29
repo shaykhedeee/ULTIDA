@@ -263,14 +263,16 @@ function encodePng(width: number, height: number, rgba: Buffer): Buffer {
     rgba.copy(raw, y * (stride + 1) + 1, y * stride, y * stride + stride);
   }
 
-  const idat = zlibDeflateRaw(raw);
+  // PNG IDAT carries a zlib stream (RFC 1950), not a bare DEFLATE stream.
+  // A raw stream passes signature/hash checks but strict decoders reject it.
+  const idat = zlibDeflate(raw);
   return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]);
 }
 
 // Tiny raw-DEFLATE using Node's zlib (deflateRawSync) — still no extra deps.
-import { deflateRawSync } from 'node:zlib';
-function zlibDeflateRaw(buf: Buffer): Buffer {
-  return deflateRawSync(buf, { level: 6 });
+import { deflateSync } from 'node:zlib';
+function zlibDeflate(buf: Buffer): Buffer {
+  return deflateSync(buf, { level: 6 });
 }
 
 function chunk(type: string, data: Buffer): Buffer {
