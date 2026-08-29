@@ -854,6 +854,22 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     return activeRooms.find((r) => r.id === activeSelectedRoom.id) ?? null;
   }, [activeSelectedRoom, activeRooms]);
 
+  const activeSelectedLighting = useMemo(() => {
+    if (!scene || !selected) return null;
+    return scene.lighting.find((light) => light.id === selected) ?? null;
+  }, [scene, selected]);
+
+  const renderReadiness = useMemo(() => {
+    if (!scene) return [];
+    return [
+      { label: 'Measured scene geometry', detail: `${scene.rooms.length} rooms · ${scene.walls.length} walls`, ready: scene.rooms.length > 0 && scene.walls.length > 0 },
+      { label: 'Scheduled fixtures', detail: `${scene.lighting.length} authored lights`, ready: scene.lighting.length > 0 },
+      { label: 'Material context', detail: `${scene.materials.length} finish records`, ready: scene.materials.length > 0 },
+      { label: 'Camera coverage', detail: `${scene.cameras.length} saved view${scene.cameras.length === 1 ? '' : 's'}`, ready: scene.cameras.length > 0 },
+      { label: 'Production geometry', detail: `${scene.moduleParts.length} component parts`, ready: scene.modules.length === 0 || scene.moduleParts.length > 0 },
+    ];
+  }, [scene]);
+
   return (
     <section className="scene-studio">
       <div className="scene-heading">
@@ -978,10 +994,45 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         )}
       </div>
 
+      {scene && (
+        <div className="scene-ingredient-rail" aria-label="Scene ingredients">
+          <div className="scene-ingredient-heading">
+            <span>SCENE INGREDIENTS</span>
+            <strong>Furniture, fixtures & material context</strong>
+          </div>
+          <div className="scene-ingredient-list">
+            {scene.lighting.map((light) => (
+              <button
+                type="button"
+                key={light.id}
+                className={`scene-ingredient ${selected === light.id ? 'selected' : ''}`}
+                onClick={() => setSelected(light.id)}
+              >
+                <span className="scene-ingredient-icon">{light.fixture === 'pendant' ? '◌' : light.fixture === 'floor-lamp' ? '⌁' : light.fixture === 'table-lamp' ? '◒' : '•'}</span>
+                <span><strong>{(light.fixture ?? light.kind).replaceAll('-', ' ')}</strong><small>{light.colorTemperatureK ?? 3000}K · {light.lumens ?? 650} lm</small></span>
+              </button>
+            ))}
+            {scene.modules.slice(0, 5).map((module) => (
+              <button type="button" key={module.id} className={`scene-ingredient ${selected === module.id ? 'selected' : ''}`} onClick={() => setSelected(module.id)}>
+                <span className="scene-ingredient-icon">▦</span>
+                <span><strong>{module.family.replaceAll('-', ' ')}</strong><small>{module.widthMm}W × {module.heightMm}H mm</small></span>
+              </button>
+            ))}
+          </div>
+          <p>Fixtures are governed scene data; styling assets stay separate from fabrication geometry.</p>
+        </div>
+      )}
+
       <div className="scene-grid">
         <Card className="scene-viewport">
           <CardContent style={{ position: 'relative', minHeight: 460 }}>
             <div ref={canvasRef} className="scene-canvas" aria-label="Interactive three dimensional scene preview" style={{ width: '100%', height: 460 }} />
+            {scene && (
+              <div className="scene-viewport-overlay" aria-hidden="true">
+                <span>{preset === 'walkthrough' ? 'WALKTHROUGH CAMERA' : preset === 'top' ? 'PLAN CAMERA' : preset === 'isometric' ? 'ISOMETRIC CAMERA' : 'PERSPECTIVE CAMERA'}</span>
+                <span>{lightingMode === 'warm' ? '3000K WARM' : lightingMode === 'daylight' ? '4500K STUDIO' : '2700K DUSK'}</span>
+              </div>
+            )}
             {!scene && (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(250, 248, 244, 0.96)', padding: 24, textAlign: 'center', gap: 14 }}>
                 <Box size={44} style={{ color: 'var(--gold)' }} />
@@ -1016,13 +1067,23 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           <CardHeader>
             <div>
               <small>ACTIVE ROOM & GEOMETRY</small>
-              <h3 style={{ margin: '3px 0 0', fontSize: 16 }}>{activeSelectedRoom?.name ?? selected ?? 'Whole Floor Overview'}</h3>
+              <h3 style={{ margin: '3px 0 0', fontSize: 16 }}>{activeSelectedLighting ? (activeSelectedLighting.fixture ?? activeSelectedLighting.kind).replaceAll('-', ' ') : activeSelectedRoom?.name ?? selected ?? 'Whole Floor Overview'}</h3>
             </div>
             <MousePointer2 size={18} style={{ color: 'var(--gold)' }} />
           </CardHeader>
           <CardContent style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {activeSelectedRoom ? (
               <>
+                {activeSelectedLighting && (
+                  <div className="scene-selected-fixture">
+                    <span>SELECTED FIXTURE</span>
+                    <strong>{(activeSelectedLighting.fixture ?? activeSelectedLighting.kind).replaceAll('-', ' ')}</strong>
+                    <div><small>Output</small><b>{activeSelectedLighting.lumens ?? 650} lm</b></div>
+                    <div><small>Colour temperature</small><b>{activeSelectedLighting.colorTemperatureK ?? 3000}K</b></div>
+                    <div><small>Mount height</small><b>{activeSelectedLighting.heightMm ?? 2600} mm</b></div>
+                    <p>Fixture properties are compiled from the approved room and cannot alter production cutlists.</p>
+                  </div>
+                )}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: 10, background: '#faf8f5', borderRadius: 8, border: '1px solid #ede5d8' }}>
                   <div>
                     <small style={{ color: '#78716c', fontSize: 11, textTransform: 'uppercase' }}>Floor Area</small>
@@ -1107,6 +1168,32 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           </CardContent>
         </Card>
       </div>
+
+      {scene && (
+        <div className="scene-bottom-deck">
+          <section className="scene-camera-deck" aria-label="Camera views">
+            <div className="scene-deck-heading"><span>CAMERA VIEWS</span><strong>Saved, repeatable scene coverage</strong></div>
+            <div className="scene-camera-list">
+              {([
+                ['perspective', '01', 'Wide perspective', 'Balanced room overview'],
+                ['walkthrough', '02', 'Eye-level walkthrough', 'Client-facing viewpoint'],
+                ['front', '03', 'Front elevation', 'Composition check'],
+                ['isometric', '04', 'Isometric', 'Spatial verification'],
+              ] as Array<[Preset, string, string, string]>).map(([id, index, title, detail]) => (
+                <button type="button" key={id} className={`scene-camera-card ${preset === id ? 'active' : ''}`} onClick={() => setPreset(id)}>
+                  <span>{index}</span><strong>{title}</strong><small>{detail}</small>
+                </button>
+              ))}
+            </div>
+          </section>
+          <section className="scene-readiness-deck" aria-label="Render readiness">
+            <div className="scene-deck-heading"><span>RENDER READINESS</span><strong>{renderReadiness.every((item) => item.ready) ? 'Scene is visualisation-ready' : 'Resolve data before render'}</strong></div>
+            <div className="scene-readiness-list">
+              {renderReadiness.map((item) => <div key={item.label} className={item.ready ? 'ready' : 'blocked'}><b>{item.ready ? '✓' : '!'}</b><span><strong>{item.label}</strong><small>{item.detail}</small></span></div>)}
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
