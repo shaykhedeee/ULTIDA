@@ -28,6 +28,8 @@ ULTIDA_REQUIRE_BROWSER_E2E=true PUPPETEER_EXECUTABLE_PATH=<chromium-path> npm ru
 
 ## Hosted release gates
 
+- Confirm Supabase migration `20260829031924_release_reconciliation_and_job_observability` is recorded and `job_operational_health` returns the expected aggregate counts.
+- Confirm the Supabase security advisor has no ERROR findings. Leaked-password protection remains a paid-plan setting and must be recorded as an accepted free-plan limitation, not silently bypassed.
 - Record the exact commit SHA and Vercel Preview deployment URL.
 - Confirm `/api/health` reports the expected commit, branch, deployment environment, database environment, and database project reference.
 - Complete authenticated desktop, tablet, and mobile journeys against that Preview.

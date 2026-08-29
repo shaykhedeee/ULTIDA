@@ -5,6 +5,8 @@ const requiredFiles = [
   '.github/workflows/online-smoke.yml',
   'docs/ONLINE_ONLY_DEVELOPMENT.md',
   'docs/RELEASE_CANDIDATE_CHECKLIST.md',
+  'docs/MIGRATION_RECONCILIATION.md',
+  'supabase/migrations/20260829031924_release_reconciliation_and_job_observability.sql',
   'package-lock.json',
   'requirements.txt',
 ];
@@ -52,6 +54,19 @@ for (const requiredStep of [
 const onlineSmoke = readFileSync('.github/workflows/online-smoke.yml', 'utf8');
 if (!onlineSmoke.includes('scripts/verify-online-deployment.mjs')) {
   failures.push('online smoke workflow does not verify the exact Vercel deployment');
+}
+
+const reconciliationMigration = readFileSync('supabase/migrations/20260829031924_release_reconciliation_and_job_observability.sql', 'utf8');
+for (const requiredContract of [
+  'with (security_invoker = true)',
+  "grant select on public.job_operational_health to authenticated",
+  'organization_settings_admin_update',
+  'organization_invites_admin_update',
+  'jobs_plan_recovery_idx',
+]) {
+  if (!reconciliationMigration.includes(requiredContract)) {
+    failures.push(`release reconciliation migration is missing: ${requiredContract}`);
+  }
 }
 
 if (failures.length) {

@@ -1263,15 +1263,18 @@ app.post('/api/studio/invoices', requireStudioUser, async (request, response) =>
 const operationStages = new Set(['plan', 'scene', 'cutlist', 'quote', 'delivery']);
 app.get('/api/projects/:projectId/operations', requireProjectUser, async (request, response) => {
   const client = getRequestSupabaseClient(request); const projectId = String(request.params.projectId);
-  const [reviews, risks, comments, materials] = await Promise.all([
+  const [reviews, risks, comments, materials, jobs] = await Promise.all([
     client.from('project_stage_reviews').select('*').eq('project_id', projectId).order('stage'),
     client.from('project_risks').select('*').eq('project_id', projectId).neq('status', 'closed').order('created_at', { ascending: false }),
     client.from('project_version_comments').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(100),
     client.from('project_material_readiness').select('*').eq('project_id', projectId).order('updated_at', { ascending: false }),
+    // Operational visibility is intentionally limited to lifecycle metadata.
+    // Input/output payloads may contain plan images and provider provenance.
+    client.from('jobs').select('id,kind,status,attempts,max_attempts,last_error_code,error,progress_stage,created_at,updated_at,queued_at,processing_at,completed_at,failed_at,lease_expires_at,deadline_at').eq('project_id', projectId).order('updated_at', { ascending: false }).limit(50),
   ]);
-  const failed = [reviews, risks, comments, materials].find((result) => result.error);
+  const failed = [reviews, risks, comments, materials, jobs].find((result) => result.error);
   if (failed?.error) return response.status(500).json({ success: false, code: 'OPERATIONS_READ_FAILED', message: failed.error.message });
-  return response.json({ success: true, reviews: reviews.data ?? [], risks: risks.data ?? [], comments: comments.data ?? [], materialReadiness: materials.data ?? [] });
+  return response.json({ success: true, reviews: reviews.data ?? [], risks: risks.data ?? [], comments: comments.data ?? [], materialReadiness: materials.data ?? [], jobs: jobs.data ?? [] });
 });
 
 app.put('/api/projects/:projectId/operations/reviews/:stage', requireProjectUser, async (request, response) => {
