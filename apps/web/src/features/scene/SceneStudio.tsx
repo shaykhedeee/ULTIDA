@@ -17,6 +17,7 @@ type Scene = {
   modules: Array<{ id: string; roomId: string; family: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number }; rotationDeg: number; materialId?: string }>;
   moduleParts: Array<{ id: string; moduleId: string; roomId: string; semanticType: string; name: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number; zMm: number }; rotationDeg: number; materialId?: string }>;
   materials: Array<{ id: string; name: string; code: string; finish?: string }>;
+  lighting: Array<{ id: string; spaceId: string; kind: 'ambient' | 'task' | 'accent' | 'natural'; position: { xMm: number; yMm: number }; fixture?: 'ceiling-spot' | 'floor-lamp' | 'table-lamp' | 'pendant' | 'cove'; heightMm?: number; shadeDiameterMm?: number; colorTemperatureK?: number; lumens?: number; materialId?: string }>;
   cameras: Array<{ id: string; name: string; position: { xMm: number; yMm: number; zMm: number }; target: { xMm: number; yMm: number; zMm: number }; lensMm: number }>;
 };
 
@@ -151,6 +152,57 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
     }
     addSegment(cursor, length, 0, wall.heightMm, 'solid');
   }
+}
+
+function fixtureColor(kelvin = 3000) {
+  if (kelvin <= 2800) return '#ffd7a0';
+  if (kelvin <= 3500) return '#fff1d2';
+  return '#f7fbff';
+}
+
+function addSceneFixture(group: THREE.Group, light: Scene['lighting'][number]) {
+  const fixture = light.fixture ?? 'ceiling-spot';
+  const height = light.heightMm ?? (fixture === 'table-lamp' ? 520 : fixture === 'floor-lamp' ? 1650 : 2600);
+  const shadeDiameter = light.shadeDiameterMm ?? (fixture === 'table-lamp' ? 260 : 340);
+  const color = fixtureColor(light.colorTemperatureK);
+  const metal = new THREE.MeshStandardMaterial({ color: '#463a30', metalness: 0.72, roughness: 0.28 });
+  const shade = new THREE.MeshStandardMaterial({ color: '#eadcc5', roughness: 0.72, emissive: color, emissiveIntensity: 0.18 });
+  const fixtureGroup = new THREE.Group();
+  fixtureGroup.name = `light:${light.id}`;
+  fixtureGroup.userData = { kind: 'lighting', id: light.id, fixture };
+  fixtureGroup.position.set(light.position.xMm, 0, light.position.yMm);
+
+  if (fixture === 'floor-lamp' || fixture === 'table-lamp') {
+    const baseRadius = fixture === 'floor-lamp' ? 155 : 105;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(baseRadius, baseRadius, 38, 24), metal);
+    base.position.y = 19;
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(18, 24, Math.max(120, height - shadeDiameter * 0.42), 18), metal);
+    stem.position.y = 38 + stem.geometry.parameters.height / 2;
+    const lampShade = new THREE.Mesh(new THREE.CylinderGeometry(shadeDiameter * 0.34, shadeDiameter * 0.5, shadeDiameter * 0.62, 32, 1, true), shade);
+    lampShade.position.y = height - (shadeDiameter * 0.31);
+    lampShade.castShadow = true;
+    fixtureGroup.add(base, stem, lampShade);
+  } else if (fixture === 'pendant') {
+    const cord = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, height, 12), metal);
+    cord.position.y = height / 2;
+    const lampShade = new THREE.Mesh(new THREE.ConeGeometry(shadeDiameter / 2, shadeDiameter * 0.48, 32, 1, true), shade);
+    lampShade.position.y = height - shadeDiameter * 0.24;
+    fixtureGroup.add(cord, lampShade);
+  } else if (fixture === 'cove') {
+    const channel = new THREE.Mesh(new THREE.BoxGeometry(900, 26, 26), shade);
+    channel.position.y = height;
+    fixtureGroup.add(channel);
+  } else {
+    const trim = new THREE.Mesh(new THREE.CylinderGeometry(shadeDiameter / 2, shadeDiameter / 2, 28, 24), metal);
+    trim.position.y = height;
+    fixtureGroup.add(trim);
+  }
+
+  const point = new THREE.PointLight(color, Math.min(2.2, Math.max(0.45, (light.lumens ?? 650) / 550)), 3200, 1.5);
+  point.position.set(0, Math.max(260, height - shadeDiameter * 0.4), 0);
+  point.castShadow = fixture !== 'ceiling-spot';
+  fixtureGroup.add(point);
+  group.add(fixtureGroup);
 }
 
 export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props) {
@@ -363,6 +415,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               openings: sceneOpenings,
               modules: finalModules,
               moduleParts: [],
+              lighting: [],
               materials: [
                 { id: 'mat-1', name: 'Smoked Walnut Veneer', code: 'VIRGO-OAK-01', finish: 'Satin PU' },
                 { id: 'mat-2', name: 'Calacatta Gold Sintered Slab', code: 'SLAB-CAL-GOLD', finish: 'Polished' },
@@ -675,6 +728,9 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
 
       modulesGroup.add(modContainer);
     }
+
+    const lightingGroup = new THREE.Group(); geometryGroup.add(lightingGroup);
+    for (const light of scene.lighting ?? []) addSceneFixture(lightingGroup, light);
 
     // Ceiling spot lights in each room with atmosphere color
     for (const room of scene.rooms) {
@@ -990,8 +1046,24 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                   <div style={{ fontSize: 12, color: '#44403c', lineHeight: 1.6 }}>
                     • <strong>{scene?.walls.length ?? 0} Walls</strong>: 150mm thick with bevel relief<br />
                     • <strong>{scene?.openings.length ?? 0} Openings</strong>: Verified door & window frames<br />
-                    • <strong>Lighting</strong>: 3000K Warm Architectural Sun + Ambient Sky
+                  • <strong>Lighting</strong>: {scene?.lighting?.length ?? 0} authored fixtures + atmosphere controls
                   </div>
+                </div>
+
+                <div>
+                  <h4 style={{ margin: '0 0 6px', fontSize: 12, textTransform: 'uppercase', color: '#78716c', letterSpacing: '0.04em' }}>
+                    Lighting Schedule
+                  </h4>
+                  {(scene?.lighting?.filter((light) => light.spaceId === activeSelectedRoom.id) ?? []).length ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {scene!.lighting.filter((light) => light.spaceId === activeSelectedRoom.id).map((light) => (
+                        <div key={light.id} style={{ padding: '7px 10px', background: '#fff8eb', borderRadius: 6, fontSize: 11.5, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                          <span><strong>{(light.fixture ?? light.kind).replaceAll('-', ' ')}</strong><br /><small>{light.colorTemperatureK ?? 3000}K · {light.lumens ?? 650} lm</small></span>
+                          <span style={{ color: 'var(--gold-dim)', fontWeight: 700, textTransform: 'uppercase' }}>{light.kind}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p style={{ margin: 0, fontSize: 12, color: '#78716c' }}>Recompile the approved room to add the governed lighting schedule.</p>}
                 </div>
 
                 <div>

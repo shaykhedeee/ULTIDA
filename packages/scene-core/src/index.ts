@@ -38,7 +38,23 @@ export const SceneV1Schema = z.object({
     confidence: Confidence,
   })).default([]),
   materials: z.array(z.object({ id: Id, name: z.string(), code: z.string(), unitCost: z.number().nonnegative().optional(), finish: z.string().optional() })),
-  lighting: z.array(z.object({ id: Id, spaceId: Id, kind: z.enum(['ambient','task','accent','natural']), position: PointMm, confidence: Confidence })),
+  // Lighting is part of the authored scene contract, rather than a renderer-only
+  // preset. Fixture detail is intentionally optional so older scene.v1 records
+  // remain valid, while newly compiled scenes can render and brief fixtures
+  // consistently across browser preview and downstream render jobs.
+  lighting: z.array(z.object({
+    id: Id,
+    spaceId: Id,
+    kind: z.enum(['ambient','task','accent','natural']),
+    position: PointMm,
+    fixture: z.enum(['ceiling-spot', 'floor-lamp', 'table-lamp', 'pendant', 'cove']).optional(),
+    heightMm: z.number().positive().optional(),
+    shadeDiameterMm: z.number().positive().optional(),
+    colorTemperatureK: z.number().int().min(1800).max(6500).optional(),
+    lumens: z.number().positive().optional(),
+    materialId: Id.optional(),
+    confidence: Confidence,
+  })),
   cameras: z.array(z.object({ id: Id, name: z.string(), position: z.object({ xMm: z.number(), yMm: z.number(), zMm: z.number() }), target: z.object({ xMm: z.number(), yMm: z.number(), zMm: z.number() }), lensMm: z.number().positive() })),
   constraints: z.array(z.object({ id: Id, kind: z.string(), severity: z.enum(['advisory','warning','critical']), description: z.string(), entityIds: z.array(Id) })),
   unresolvedDetections: z.array(z.object({ id: Id, kind: z.string(), description: z.string(), confidence: Confidence, source: z.string() })),

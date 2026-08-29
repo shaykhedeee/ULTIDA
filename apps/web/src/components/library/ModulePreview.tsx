@@ -64,6 +64,7 @@ const paletteByFamily: Record<string, { front: string; frontEnd: string; side: s
   dining: { front: '#cfab84', frontEnd: '#b38d64', side: '#8c663f', top: '#ebd7c0', accent: '#5c3d22', highlight: '#ffffff', led: '#fef08a' },
   'false-ceiling': { front: '#f4f2ee', frontEnd: '#dfdcd4', side: '#b8b4a8', top: '#ffffff', accent: '#c59c2d', highlight: '#ffffff', led: '#fef08a' },
   'feature-wall': { front: '#2e3338', frontEnd: '#1e2226', side: '#131618', top: '#454c52', accent: '#c59c2d', highlight: '#5d676e', led: '#fef08a' },
+  lighting: { front: '#eadcc5', frontEnd: '#d2c09f', side: '#51443a', top: '#fff7e8', accent: '#b9822f', highlight: '#ffffff', led: '#fff1c2' },
 };
 
 function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colours: (typeof paletteByFamily)['kitchen-base'] }) {
@@ -266,6 +267,23 @@ function DetailedLivingPreview({ module, colours }: { module: ModulePreviewData;
   const isDining = module.family === 'dining';
   const isTv = module.family === 'tv-unit';
   const isFeatureWall = module.family === 'feature-wall';
+  const isLighting = module.family === 'lighting';
+
+  if (isLighting) {
+    const isPendant = /pendant/i.test(`${module.name} ${(module.tags ?? []).join(' ')}`);
+    const isTable = /table/i.test(`${module.name} ${(module.tags ?? []).join(' ')}`);
+    const stemBottom = isTable ? 118 : 138;
+    const stemTop = isPendant ? 72 : isTable ? 88 : 54;
+    return (
+      <g>
+        {isPendant && <line x1="80" y1="18" x2="80" y2={stemTop} stroke={colours.side} strokeWidth="3" />}
+        {!isPendant && <ellipse cx="80" cy="140" rx={isTable ? 22 : 30} ry="6" fill={colours.side} />}
+        {!isPendant && <line x1="80" y1={stemBottom} x2="80" y2={stemTop} stroke={colours.side} strokeWidth={isTable ? 5 : 4} />}
+        <path d={`M ${isPendant ? 44 : 48} ${stemTop + 10} L ${isPendant ? 116 : 112} ${stemTop + 10} L ${isPendant ? 104 : 102} ${stemTop + 50} L ${isPendant ? 56 : 58} ${stemTop + 50} Z`} fill={`url(#grad-front-${module.id})`} stroke={colours.accent} strokeWidth="1.5" />
+        <ellipse cx="80" cy={stemTop + 49} rx="24" ry="5" fill={colours.led} opacity="0.9" />
+      </g>
+    );
+  }
 
   if (isBed) {
     return (
@@ -350,7 +368,7 @@ function DetailedLivingPreview({ module, colours }: { module: ModulePreviewData;
 export function ModulePreview({ module, compact = false, style, defaultView = 'vector' }: Props) {
   const [viewMode, setViewMode] = useState<'vector' | 'real'>(defaultView);
   const colours = paletteByFamily[module.family] ?? paletteByFamily.storage;
-  const isLivingOrFurniture = ['tv-unit', 'bed', 'sofa', 'dining', 'feature-wall'].includes(module.family);
+  const isLivingOrFurniture = ['tv-unit', 'bed', 'sofa', 'dining', 'feature-wall', 'lighting'].includes(module.family);
   // Prefer 3D render if available, then custom photoUrl, then real-life reference vault photo
   const photo = MODULE_3D_BY_FAMILY[module.family] ?? module.photoUrl ?? REAL_LIFE_PHOTO_BY_FAMILY[module.family] ?? '/reference-vault/013-52a29a1053dc.png';
   const has3D = Boolean(MODULE_3D_BY_FAMILY[module.family] ?? module.photoUrl);

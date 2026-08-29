@@ -752,6 +752,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
               ['dining', '🍽️ Dining & Bars', null, 'dining'],
               ['pooja', '🪔 Sacred Mandirs', 'pooja', null],
               ['study', '💼 Study & Desks', 'study', null],
+              ['lighting', '💡 Lighting & Decor', 'lighting', null],
               ['washroom', '🚿 Washrooms & Vanity', 'utility', 'utility'],
             ].map(([k, label, fFam, fRoom]) => {
               const isActive = (fFam ? moduleFamily === fFam : moduleRoom === (fRoom ?? 'all'));
@@ -935,7 +936,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                             >
                               <Plus size={12} /> Board
                             </button>
-                            <button
+                            {!module.tags.includes('scene-asset') && <button
                               type="button"
                               onClick={() => {
                                 try {
@@ -973,7 +974,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                               title="Place this module directly on measured space wall elevation"
                             >
                               <Home size={12} /> Use in Room
-                            </button>
+                            </button>}
                           </div>
                         </div>
                       </div>
@@ -1051,6 +1052,18 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                     + Crockery Unit
                   </button>
                   <button type="button" onClick={() => {
+                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'module', title: 'Linen Floor Lamp', subtitle: '1650mm · warm 2700K', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 180, height: 180, zIndex: moodboardItems.length + 1, module: { id: 'light-floor-linen-1650', family: 'lighting', name: '1650 Linen Shade Floor Lamp', roomTypes: ['living'], widthMm: 380, depthMm: 380, heightMm: 1650, sku: 'ULT-LGT-FLR-1650', tags: ['scene-asset', 'lighting', 'floor-lamp'], production: { cutlistSupported: false } } };
+                    setMoodboardItems(prev => [...prev, newItem]);
+                  }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #f0cf83', background: '#fff8eb', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
+                    + Linen Floor Lamp
+                  </button>
+                  <button type="button" onClick={() => {
+                    const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'module', title: 'Bronze Pendant', subtitle: '360mm · warm 3000K', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 180, height: 180, zIndex: moodboardItems.length + 1, module: { id: 'light-pendant-bronze-360', family: 'lighting', name: '360 Bronze Dining Pendant', roomTypes: ['dining'], widthMm: 360, depthMm: 360, heightMm: 1650, sku: 'ULT-LGT-PND-360', tags: ['scene-asset', 'lighting', 'pendant'], production: { cutlistSupported: false } } };
+                    setMoodboardItems(prev => [...prev, newItem]);
+                  }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #f0cf83', background: '#fff8eb', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
+                    + Bronze Pendant
+                  </button>
+                  <button type="button" onClick={() => {
                     const newItem: MoodboardItem = { id: `mb-${Date.now()}`, type: 'swatch', title: 'Italian Marble', subtitle: 'Polished Botticino', colorHex: '#E8DFD0', x: 80 + Math.random() * 80, y: 80 + Math.random() * 80, width: 140, height: 100, zIndex: moodboardItems.length + 1 };
                     setMoodboardItems(prev => [...prev, newItem]);
                   }} style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #e7e5e4', background: '#faf8f5', cursor: 'pointer', textAlign: 'center', fontSize: 11, fontWeight: 700 }}>
@@ -1058,6 +1071,10 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                   </button>
                 </div>
               </div>
+
+              <p style={{ margin: 0, padding: '8px 10px', borderRadius: 7, background: '#fff8eb', color: '#7c5a22', fontSize: 10.5, lineHeight: 1.45 }}>
+                Lighting assets are visual scene ingredients. They enrich moodboards and the compiled 3D schedule, and are deliberately excluded from fabrication cutlists.
+              </p>
 
               <div>
                 <strong style={{ display: 'block', fontSize: 11, color: '#78716c', textTransform: 'uppercase', marginBottom: 8 }}>Canvas Background</strong>

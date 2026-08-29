@@ -95,6 +95,46 @@ function polygonCenter(polygon: Array<{ xMm: number; yMm: number }>) {
   return points.reduce((sum, point) => ({ xMm: sum.xMm + point.xMm / divisor, yMm: sum.yMm + point.yMm / divisor }), { xMm: 0, yMm: 0 });
 }
 
+function compileRoomLighting(rooms: Array<{ id: string; type: string; boundary: Array<{ xMm: number; yMm: number }> }>, ceilingHeightMm: number) {
+  return rooms.flatMap((room) => {
+    const center = polygonCenter(room.boundary);
+    const type = room.type.toLowerCase();
+    const common = {
+      spaceId: room.id,
+      position: center,
+      confidence: 1,
+    };
+    const fixtures: SceneV1['lighting'] = [{
+      id: `light-${room.id}-ceiling`,
+      ...common,
+      kind: 'ambient' as const,
+      fixture: 'ceiling-spot' as const,
+      heightMm: Math.max(2200, ceilingHeightMm - 80),
+      shadeDiameterMm: 90,
+      colorTemperatureK: 3000,
+      lumens: 700,
+    }];
+    if (/(living|lounge|hall)/.test(type)) fixtures.push({
+      id: `light-${room.id}-floor`, ...common, kind: 'task' as const,
+      fixture: 'floor-lamp' as const, heightMm: 1650, shadeDiameterMm: 380,
+      colorTemperatureK: 2700, lumens: 800,
+      position: { xMm: center.xMm + 700, yMm: center.yMm + 500 },
+    });
+    if (/bed/.test(type)) fixtures.push({
+      id: `light-${room.id}-table`, ...common, kind: 'task' as const,
+      fixture: 'table-lamp' as const, heightMm: 520, shadeDiameterMm: 280,
+      colorTemperatureK: 2700, lumens: 420,
+      position: { xMm: center.xMm + 650, yMm: center.yMm - 500 },
+    });
+    if (/dining/.test(type)) fixtures.push({
+      id: `light-${room.id}-pendant`, ...common, kind: 'accent' as const,
+      fixture: 'pendant' as const, heightMm: Math.max(1500, ceilingHeightMm - 900), shadeDiameterMm: 360,
+      colorTemperatureK: 3000, lumens: 900,
+    });
+    return fixtures;
+  });
+}
+
 export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
   const validation = validateCanonicalPlan(input.plan);
   if (!validation.valid) {
@@ -180,7 +220,7 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     modules,
     moduleParts,
     materials: input.materials ?? [],
-    lighting: [],
+    lighting: compileRoomLighting(rooms, input.plan.ceilingHeightMm),
     cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: cameraCenter.xMm, yMm: cameraCenter.yMm - 1800, zMm: 1500 }, target: { xMm: cameraCenter.xMm, yMm: cameraCenter.yMm, zMm: 1200 }, lensMm: 35 }],
     constraints: [],
     unresolvedDetections: [],
