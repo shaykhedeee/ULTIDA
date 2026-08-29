@@ -528,13 +528,13 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         setPlanStatus('This older plan approval has no immutable source file. Upload and analyse the plan again before creating a scene.');
       }
       const sceneRow = sceneResult.data;
-      if (sceneRow?.scene && ['approved', 'locked'].includes(String(sceneRow.status))) {
+      if (sceneRow?.scene && ['draft', 'approved', 'locked'].includes(String(sceneRow.status))) {
         const storedScene = sceneRow.scene as { modules?: Array<any>; materials?: Array<any> };
         setSceneVersionId(sceneRow.id);
         setSceneVersionNumber(Number(sceneRow.version_number ?? 1));
         setSceneModules((storedScene.modules ?? []).map((module) => ({ ...module, label: module.label ?? module.family })));
         setSceneMaterials(storedScene.materials ?? []);
-        setSceneApproved(true);
+        setSceneApproved(['approved', 'locked'].includes(String(sceneRow.status)));
       }
     })();
     return () => { cancelled = true; };
@@ -1266,6 +1266,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           <VisualizeStudio
             sceneReady={Boolean(sceneVersionId)}
             sceneApproved={sceneApproved}
+            onApproveScene={approveScene}
             review={
               <SceneStudio
                 sceneVersionId={sceneVersionId}

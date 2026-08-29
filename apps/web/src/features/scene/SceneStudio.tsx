@@ -24,7 +24,7 @@ type Scene = {
 type Props = {
   sceneVersionId: string | null;
   projectId?: string | null;
-  onCompileScene?: () => Promise<void>;
+  onCompileScene?: () => Promise<string | void>;
 };
 type Preset = 'perspective' | 'front' | 'top' | 'walkthrough' | 'isometric';
 type LightingPreset = 'warm' | 'daylight' | 'evening';
@@ -220,6 +220,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   const [lightingMode, setLightingMode] = useState<LightingPreset>('warm');
   const [selected, setSelected] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const rendererInstanceRef = useRef<THREE.WebGLRenderer | null>(null);
 
   useEffect(() => {
@@ -456,7 +457,29 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
 
     void loadScene();
     return () => { live = false; };
-  }, [requestedSceneVersionId, requestedRoomId, projectId]);
+  }, [requestedSceneVersionId, requestedRoomId, projectId, reloadKey]);
+
+  async function compileOrRefreshScene() {
+    setCompiling(true);
+    try {
+      if (scene) {
+        setStatus('Refreshing the persisted scene version…');
+        setReloadKey((value) => value + 1);
+        return;
+      }
+      if (!onCompileScene) {
+        setStatus('Open Rooms & Modules, save a catalog module, then compile the scene.');
+        return;
+      }
+      setStatus('Compiling the persisted room modules into scene.v1…');
+      await onCompileScene();
+      setReloadKey((value) => value + 1);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Scene compilation could not complete. Check the selected room module and finish assignments.');
+    } finally {
+      setCompiling(false);
+    }
+  }
 
   useEffect(() => {
     if (!scene) return;
@@ -979,17 +1002,10 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           <Button
             variant="default"
             disabled={compiling}
-            onClick={async () => {
-              setCompiling(true);
-              try {
-                await onCompileScene();
-              } finally {
-                setCompiling(false);
-              }
-            }}
+            onClick={() => void compileOrRefreshScene()}
             style={{ marginLeft: 'auto', background: 'linear-gradient(135deg, #c59c2d, #a88220)', color: '#1c1917', fontWeight: 800 }}
           >
-            {compiling ? 'Compiling 3D Scene...' : '✨ Compile 3D Scene'}
+            {compiling ? 'Updating 3D Scene...' : scene ? '↻ Refresh 3D Scene' : '✨ Compile 3D Scene'}
           </Button>
         )}
       </div>
@@ -1043,17 +1059,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 <Button
                   variant="default"
                   disabled={compiling}
-                  onClick={async () => {
-                    setCompiling(true);
-                    setStatus('Compiling 3D scene from approved spaces...');
-                    try {
-                      if (onCompileScene) {
-                        await onCompileScene();
-                      }
-                    } finally {
-                      setCompiling(false);
-                    }
-                  }}
+                  onClick={() => void compileOrRefreshScene()}
                   style={{ background: 'linear-gradient(135deg, #c59c2d, #a88220)', color: '#1c1917', fontWeight: 800, padding: '10px 20px', fontSize: 13 }}
                 >
                   <Sparkles size={15} /> {compiling ? 'Compiling 3D Scene...' : '✨ Generate & Compile 3D Scene'}
@@ -1135,7 +1141,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {scene.modules.map((m) => (
                         <div key={m.id} style={{ padding: '6px 10px', background: '#f5f5f4', borderRadius: 6, fontSize: 11.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span><strong>{m.family}</strong> ({m.widthMm}×{m.heightMm}mm)</span>
+                          <span style={{ color: '#292524' }}><strong>{m.family}</strong> ({m.widthMm}×{m.heightMm}mm)</span>
                           <span style={{ color: 'var(--gold-dim)', fontWeight: 700 }}>Cutlist ready</span>
                         </div>
                       ))}
@@ -1153,7 +1159,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                   </h4>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {scene?.materials.map((mat) => (
-                      <span key={mat.id} style={{ padding: '3px 8px', borderRadius: 4, background: '#f5f4f0', border: '1px solid #e7e5e4', fontSize: 11, fontWeight: 600 }}>
+                      <span key={mat.id} style={{ padding: '3px 8px', borderRadius: 4, background: '#f5f4f0', border: '1px solid #e7e5e4', fontSize: 11, fontWeight: 600, color: '#292524' }}>
                         {mat.name} ({mat.finish})
                       </span>
                     ))}

@@ -1,17 +1,19 @@
 import { Box, ChevronRight, Image, Palette, Sparkles } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import './visualize-studio.css';
 
 type VisualizeTab = 'review' | 'render' | 'laminate';
-type Props = { review: ReactNode; render: ReactNode; laminate: ReactNode; sceneReady: boolean; sceneApproved: boolean };
+type Props = { review: ReactNode; render: ReactNode; laminate: ReactNode; sceneReady: boolean; sceneApproved: boolean; onApproveScene?: () => Promise<boolean> };
 
-export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApproved }: Props) {
+export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApproved, onApproveScene }: Props) {
   const navigate = useNavigate();
   const { projectId } = useParams<{ projectId?: string }>();
   const [params, setParams] = useSearchParams();
   const requested = params.get('tab');
   const active: VisualizeTab = requested === 'render' || requested === 'laminate' ? requested : 'review';
+  const [approving, setApproving] = useState(false);
   
   const tabs = [
     { id: 'review' as const, label: '3D Scene Review', icon: Box, help: 'Measured Three.js scene verification' },
@@ -90,6 +92,24 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
           <p>Three.js, AI renders, and laminate revisions use the same scene.v1 version. Generated images never alter measured geometry.</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {!sceneApproved && sceneReady && onApproveScene && (
+            <button
+              type="button"
+              disabled={approving}
+              onClick={async () => {
+                setApproving(true);
+                try {
+                  const approved = await onApproveScene();
+                  if (approved) select('render');
+                } finally {
+                  setApproving(false);
+                }
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, background: '#1c1917', color: '#fff', fontWeight: 800, fontSize: 12, padding: '7px 14px', borderRadius: 8, border: 0, cursor: approving ? 'wait' : 'pointer' }}
+            >
+              {approving ? 'Approving scene…' : 'Approve scene for AI render'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => select('render')}
