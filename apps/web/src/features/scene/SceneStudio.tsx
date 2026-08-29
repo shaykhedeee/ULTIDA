@@ -1,6 +1,6 @@
-import { Box, Camera, Eye, Layers3, MousePointer2, Rotate3D, Sparkles } from 'lucide-react';
+import { Box, Camera, Eye, LampDesk, Layers3, MousePointer2, Rotate3D, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { supabase } from '../../lib/supabase';
@@ -206,6 +206,7 @@ function addSceneFixture(group: THREE.Group, light: Scene['lighting'][number]) {
 }
 
 export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props) {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedRoomId = searchParams.get('roomId');
   const requestedSceneVersionId = searchParams.get('sceneVersionId') || sceneVersionId;
@@ -1040,6 +1041,31 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       )}
 
       <div className="scene-grid">
+        <aside className="scene-assets-rail" aria-label="Scene assets">
+          <div className="scene-assets-heading">
+            <span>SCENE ASSETS</span>
+            <strong>Furniture &amp; lighting</strong>
+            <small>Catalog-backed ingredients</small>
+          </div>
+          <div className="scene-assets-tabs"><button type="button" className="active">All</button><button type="button">Furniture</button><button type="button">Lighting</button></div>
+          <div className="scene-assets-list">
+            {(scene?.lighting ?? []).slice(0, 4).map((light) => (
+              <button type="button" key={light.id} className={`scene-asset-card ${selected === light.id ? 'selected' : ''}`} onClick={() => setSelected(light.id)}>
+                <span className="scene-asset-icon"><LampDesk size={16} /></span>
+                <span><strong>{(light.fixture ?? light.kind).replaceAll('-', ' ')}</strong><small>{light.heightMm ?? 2600} mm · {light.lumens ?? 650} lm</small></span>
+              </button>
+            ))}
+            {(scene?.modules ?? []).slice(0, 4).map((module) => (
+              <button type="button" key={module.id} className={`scene-asset-card ${selected === module.id ? 'selected' : ''}`} onClick={() => setSelected(module.id)}>
+                <span className="scene-asset-icon"><Box size={16} /></span>
+                <span><strong>{module.family.replaceAll('-', ' ')}</strong><small>{module.widthMm} × {module.heightMm} mm</small></span>
+              </button>
+            ))}
+          </div>
+          <button type="button" className="scene-assets-library" onClick={() => navigate('/library')}>
+            <Layers3 size={14} /> Browse Design Library
+          </button>
+        </aside>
         <Card className="scene-viewport">
           <CardContent style={{ position: 'relative', minHeight: 460 }}>
             <div ref={canvasRef} className="scene-canvas" aria-label="Interactive three dimensional scene preview" style={{ width: '100%', height: 460 }} />
