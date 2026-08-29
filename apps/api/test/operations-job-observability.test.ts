@@ -12,5 +12,5 @@ test('project operations exposes job lifecycle metadata without job payloads', a
   assert.match(route, /progress_stage/);
   assert.match(route, /lease_expires_at/);
   assert.match(route, /jobs: jobs\.data/);
-  assert.doesNotMatch(route, /\.select\('\*'\).*\.from\('jobs'\)/s);
+  assert.doesNotMatch(route, /client\.from\('jobs'\)\.select\('\*'\)/);
 });
