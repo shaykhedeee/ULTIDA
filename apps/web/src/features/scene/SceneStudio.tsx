@@ -220,6 +220,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   const [preset, setPreset] = useState<Preset>('perspective');
   const [lightingMode, setLightingMode] = useState<LightingPreset>('warm');
   const [selected, setSelected] = useState<string | null>(null);
+  const [assetFilter, setAssetFilter] = useState<'all' | 'furniture' | 'lighting'>('all');
   const [compiling, setCompiling] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const rendererInstanceRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -883,6 +884,11 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     return scene.lighting.find((light) => light.id === selected) ?? null;
   }, [scene, selected]);
 
+  const activeSelectedModule = useMemo(() => {
+    if (!scene || !selected) return null;
+    return scene.modules.find((module) => module.id === selected) ?? null;
+  }, [scene, selected]);
+
   const renderReadiness = useMemo(() => {
     if (!scene) return [];
     return [
@@ -1047,15 +1053,19 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
             <strong>Furniture &amp; lighting</strong>
             <small>Catalog-backed ingredients</small>
           </div>
-          <div className="scene-assets-tabs"><button type="button" className="active">All</button><button type="button">Furniture</button><button type="button">Lighting</button></div>
+          <div className="scene-assets-tabs" aria-label="Filter scene assets">
+            {([['all', 'All'], ['furniture', 'Furniture'], ['lighting', 'Lighting']] as const).map(([id, label]) => (
+              <button type="button" key={id} className={assetFilter === id ? 'active' : ''} onClick={() => setAssetFilter(id)}>{label}</button>
+            ))}
+          </div>
           <div className="scene-assets-list">
-            {(scene?.lighting ?? []).slice(0, 4).map((light) => (
+            {assetFilter !== 'furniture' && (scene?.lighting ?? []).slice(0, 6).map((light) => (
               <button type="button" key={light.id} className={`scene-asset-card ${selected === light.id ? 'selected' : ''}`} onClick={() => setSelected(light.id)}>
                 <span className="scene-asset-icon"><LampDesk size={16} /></span>
                 <span><strong>{(light.fixture ?? light.kind).replaceAll('-', ' ')}</strong><small>{light.heightMm ?? 2600} mm · {light.lumens ?? 650} lm</small></span>
               </button>
             ))}
-            {(scene?.modules ?? []).slice(0, 4).map((module) => (
+            {assetFilter !== 'lighting' && (scene?.modules ?? []).slice(0, 6).map((module) => (
               <button type="button" key={module.id} className={`scene-asset-card ${selected === module.id ? 'selected' : ''}`} onClick={() => setSelected(module.id)}>
                 <span className="scene-asset-icon"><Box size={16} /></span>
                 <span><strong>{module.family.replaceAll('-', ' ')}</strong><small>{module.widthMm} × {module.heightMm} mm</small></span>
@@ -1098,8 +1108,8 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         <Card className="scene-inspector">
           <CardHeader>
             <div>
-              <small>ACTIVE ROOM & GEOMETRY</small>
-              <h3 style={{ margin: '3px 0 0', fontSize: 16 }}>{activeSelectedLighting ? (activeSelectedLighting.fixture ?? activeSelectedLighting.kind).replaceAll('-', ' ') : activeSelectedRoom?.name ?? selected ?? 'Whole Floor Overview'}</h3>
+              <small>{activeSelectedLighting ? 'FIXTURE INSPECTOR' : activeSelectedModule ? 'MODULE INSPECTOR' : 'ACTIVE ROOM & GEOMETRY'}</small>
+              <h3 style={{ margin: '3px 0 0', fontSize: 16 }}>{activeSelectedLighting ? (activeSelectedLighting.fixture ?? activeSelectedLighting.kind).replaceAll('-', ' ') : activeSelectedModule ? activeSelectedModule.family.replaceAll('-', ' ') : activeSelectedRoom?.name ?? selected ?? 'Whole Floor Overview'}</h3>
             </div>
             <MousePointer2 size={18} style={{ color: 'var(--gold)' }} />
           </CardHeader>
@@ -1114,6 +1124,16 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                     <div><small>Colour temperature</small><b>{activeSelectedLighting.colorTemperatureK ?? 3000}K</b></div>
                     <div><small>Mount height</small><b>{activeSelectedLighting.heightMm ?? 2600} mm</b></div>
                     <p>Fixture properties are compiled from the approved room and cannot alter production cutlists.</p>
+                  </div>
+                )}
+                {activeSelectedModule && (
+                  <div className="scene-selected-fixture">
+                    <span>SELECTED MODULAR UNIT</span>
+                    <strong>{activeSelectedModule.family.replaceAll('-', ' ')}</strong>
+                    <div><small>Width</small><b>{activeSelectedModule.widthMm} mm</b></div>
+                    <div><small>Height</small><b>{activeSelectedModule.heightMm} mm</b></div>
+                    <div><small>Depth</small><b>{activeSelectedModule.depthMm} mm</b></div>
+                    <p>Dimensions remain linked to the fabrication schedule and approved room geometry.</p>
                   </div>
                 )}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: 10, background: '#faf8f5', borderRadius: 8, border: '1px solid #ede5d8' }}>
