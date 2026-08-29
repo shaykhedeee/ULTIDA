@@ -1,5 +1,5 @@
-import { Box, ChevronRight, Image, Palette, Sparkles } from 'lucide-react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Box, Image, Palette, Sparkles } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import './visualize-studio.css';
@@ -8,8 +8,6 @@ type VisualizeTab = 'review' | 'render' | 'laminate';
 type Props = { review: ReactNode; render: ReactNode; laminate: ReactNode; sceneReady: boolean; sceneApproved: boolean; onApproveScene?: () => Promise<boolean> };
 
 export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApproved, onApproveScene }: Props) {
-  const navigate = useNavigate();
-  const { projectId } = useParams<{ projectId?: string }>();
   const [params, setParams] = useSearchParams();
   const requested = params.get('tab');
   const active: VisualizeTab = requested === 'render' || requested === 'laminate' ? requested : 'review';
@@ -151,92 +149,6 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
         ))}
       </nav>
       <div className="visualize-panel">{panels[active]}</div>
-
-      {/* Sleek Fixed Bottom Stage Progression Bar */}
-      <div
-        style={{
-          position: 'sticky',
-          bottom: 12,
-          left: 'auto',
-          right: 'auto',
-          zIndex: 90,
-          minHeight: 54,
-          height: 'auto',
-          padding: '0 24px',
-          background: 'rgba(20, 18, 16, 0.94)',
-          backdropFilter: 'blur(16px)',
-          borderTop: '1px solid rgba(197, 156, 45, 0.3)',
-          borderRadius: 12,
-          boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 16,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#c59c2d', boxShadow: '0 0 8px #c59c2d' }} />
-          <div>
-            <strong style={{ color: '#fff', fontSize: 12.5, display: 'inline', marginRight: 8 }}>
-              Stage 5 of 8: 3D Visualization &amp; AI Renders
-            </strong>
-            <span style={{ color: '#a8a29e', fontSize: 11.5 }}>
-              • Scene geometry verified • Ready for Cost Estimate &amp; Technical Drawings.
-            </span>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
-            type="button"
-            onClick={() => {
-              if (projectId) {
-                navigate(`/projects/${projectId}/drawings`);
-              }
-            }}
-            style={{
-              background: '#2b2622',
-              color: '#e7e5e4',
-              border: '1px solid #44403c',
-              borderRadius: 7,
-              padding: '6px 14px',
-              fontWeight: 600,
-              fontSize: 12,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 34,
-            }}
-          >
-            Drawings &amp; Cutlists
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (projectId) {
-                navigate(`/projects/${projectId}/estimate`);
-              }
-            }}
-            style={{
-              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
-              color: '#1c1917',
-              border: 0,
-              borderRadius: 7,
-              padding: '6px 16px',
-              fontWeight: 800,
-              fontSize: 12.5,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 34,
-              boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
-            }}
-          >
-            Proceed to Estimate <ChevronRight size={14} />
-          </button>
-        </div>
-      </div>
     </section>
   );
 }

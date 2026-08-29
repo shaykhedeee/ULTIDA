@@ -514,7 +514,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     void (async () => {
       const [planResult, sceneResult] = await Promise.all([
         supabase.from('floor_plan_versions').select('id,source_asset_id,interpretation,canonical_model,status,review_status,created_at').eq('project_id', projectId).eq('status', 'approved').order('created_at', { ascending: false }).limit(1).maybeSingle(),
-        supabase.from('scene_versions').select('id,version_number,status,scene,created_at').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+        supabase.from('scene_versions').select('id,version_number,status,scene,created_at').eq('project_id', projectId).order('created_at', { ascending: false }).limit(12)
       ]);
       if (cancelled) return;
       const plan = planResult.data;
@@ -527,7 +527,11 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         setPlanApproved(false);
         setPlanStatus('This older plan approval has no immutable source file. Upload and analyse the plan again before creating a scene.');
       }
-      const sceneRow = sceneResult.data;
+      // Rendering must prefer the newest approved scene. A newer draft is
+      // reviewable in Scene Studio but cannot displace the approved render source.
+      const sceneRows = Array.isArray(sceneResult.data) ? sceneResult.data : [];
+      const sceneRow = sceneRows.find((row) => ['approved', 'locked'].includes(String(row.status)))
+        ?? sceneRows.find((row) => row.status === 'draft');
       if (sceneRow?.scene && ['draft', 'approved', 'locked'].includes(String(sceneRow.status))) {
         const storedScene = sceneRow.scene as { modules?: Array<any>; materials?: Array<any> };
         setSceneVersionId(sceneRow.id);

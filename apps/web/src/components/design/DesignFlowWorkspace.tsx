@@ -193,6 +193,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const [scenePreflight, setScenePreflight] = useState<ScenePreflight | null>(null);
   const [preflightLoading, setPreflightLoading] = useState(false);
   const [starterMaterialsState, setStarterMaterialsState] = useState('');
+  const [approvingScene, setApprovingScene] = useState(false);
 
   useEffect(() => { setCompiledSceneId(sceneVersionId); }, [sceneVersionId]);
 
@@ -985,6 +986,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     const renderSceneVersionId = sceneVersionOverride ?? compiledSceneId ?? sceneVersionId;
     if (!renderSceneVersionId && !projectId) { setVisualState('Select a project and load the scene first.'); return; }
     if (!projectId) { setVisualState('Select a project before generating a render.'); return; }
+    if (!renderSceneVersionId) { setVisualState('Compile a persisted scene before requesting a render.'); return; }
+    if (!sceneIsApproved) { setVisualState('Approve the linked scene before requesting a render.'); return; }
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
       let renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
@@ -1133,6 +1136,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
   if (stage === 'Visualize') {
     const latest = renders.find((render) => render.id === selectedRenderId) ?? renders[0];
+    const sceneLinked = Boolean(sceneVersionId);
     return (
       <section className="design-flow-workspace">
         <div className="workspace-heading">
@@ -1141,17 +1145,21 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
             <h2>Review the room as a stored design proposal.</h2>
             <p>Every render records its scene, prompt, provider and review state.</p>
           </div>
-          <Badge tone={sceneApproved ? 'success' : 'accent'}>{sceneApproved ? 'Approved scene linked' : 'Scene approval required'}</Badge>
+          <Badge tone={sceneApproved ? 'success' : 'accent'}>{sceneApproved ? 'Approved scene linked' : sceneLinked ? 'Scene awaiting approval' : 'Scene required'}</Badge>
         </div>
         <div className="visual-studio-layout">
           <div className="visual-render-stage">
             {latest?.signedUrl ? (
               <img src={latest.signedUrl} alt={`Generated ${room} interior proposal`} />
             ) : (
-              <div className="visual-preview-placeholder">
-                <Image size={38} />
-                <h3>No stored render yet</h3>
-                <p>{visualState}</p>
+              <div className="visual-preview-empty">
+                <div className="visual-preview-grid" aria-hidden="true" />
+                <div className="visual-preview-empty-copy">
+                  <Image size={32} />
+                  <span>SCENE-LINKED RENDER CANVAS</span>
+                  <h3>{sceneApproved ? 'Your approved scene is ready for its first render.' : sceneLinked ? 'Approve this scene to unlock render generation.' : 'Compile a scene to unlock render generation.'}</h3>
+                  <p>{sceneApproved ? 'Choose a room, camera and quality in the inspector. The resulting image stays linked to this exact scene version.' : 'No placeholder image is used—rendering begins only from persisted, reviewable scene geometry.'}</p>
+                </div>
               </div>
             )}
             <div className="visual-stage-status">
@@ -1180,6 +1188,23 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   <span>Camera, room shell, openings, ceiling and module bounds come from scene.v1 and cannot be changed by the image model.</span>
                   <small>{sceneVersionId ? `Scene ${sceneVersionId.slice(0, 8)} linked` : 'Compile a scene to continue'}</small>
                 </div>
+                {!sceneApproved && sceneLinked && (
+                  <Button
+                    onClick={async () => {
+                      setApprovingScene(true);
+                      try {
+                        const approved = await onSceneApproved(sceneVersionId ?? undefined);
+                        setVisualState(approved ? 'Scene approved. Choose a room and generate a scene-linked render.' : 'Scene approval did not complete. Return to 3D Scene Review to resolve its data checks.');
+                      } finally {
+                        setApprovingScene(false);
+                      }
+                    }}
+                    disabled={approvingScene}
+                    className="visual-approve-scene"
+                  >
+                    {approvingScene ? <RefreshCw className="spin" size={16} /> : <Check size={16} />} {approvingScene ? 'Approving scene…' : 'Approve scene & unlock renderer'}
+                  </Button>
+                )}
                 <label>
                   Scene room
                   <select
@@ -1319,7 +1344,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     <option value="final">Final</option>
                   </select>
                 </label>
-                  <Button onClick={() => void createVisual()} disabled={!spaceId || visualBusy} title={!spaceId ? 'Select a room above to generate a render' : 'Generate an AI photorealistic render'}>
+                  <Button onClick={() => void createVisual()} disabled={!sceneApproved || !spaceId || visualBusy} title={!sceneApproved ? 'Approve the persisted scene before generating an image' : !spaceId ? 'Select a room above to generate a render' : 'Generate an AI photorealistic render'}>
                   {visualBusy ? <RefreshCw className="spin" size={16} /> : <Wand2 size={16} />} {visualBusy ? 'Processing...' : '✨ Generate AI Render'}
                 </Button>
               </div>
