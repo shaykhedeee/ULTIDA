@@ -36,9 +36,8 @@ const PRIMARY_NAV = [
   { id: 'dashboard', label: 'Dashboard',      path: '/',            icon: LayoutDashboard },
   { id: 'projects',  label: 'Projects',       path: '/projects',    icon: FolderKanban },
   { id: 'library',   label: 'Design Library', path: '/library',     icon: Library },
-  { id: 'rules',     label: 'Company Rules',  path: '/rules',       icon: Ruler },
   { id: 'team',      label: 'Team',           path: '/team',        icon: Users },
-  { id: 'settings',  label: 'Settings',       path: '/settings',    icon: Settings },
+  { id: 'settings',  label: 'Settings & Rules', path: '/settings',   icon: Settings },
 ];
 
 const TOOL_NAV = [
@@ -61,13 +60,13 @@ const TOOL_NAV = [
 
 // ─── Default workflow stages ──────────────────────────────────────
 export const DEFAULT_WORKFLOW_STAGES: WorkflowStageConfig[] = [
-  { id: 'brief',        label: 'Brief',         path: 'brief',        icon: BookOpen, status: 'not_started' },
-  { id: 'plan',         label: 'Floor Plan',    path: 'plan',         icon: Compass, status: 'locked', lockReason: 'Complete brief first' },
-  { id: 'spaces',       label: 'Room Design',   path: 'spaces',       icon: Home, status: 'locked', lockReason: 'Approve floor plan first' },
-  { id: '3d',           label: 'Visualize',     path: '3d',           icon: Wand2, status: 'locked', lockReason: 'Approve a room design first' },
-  { id: 'drawings',     label: 'Drawings',      path: 'drawings',     icon: Ruler, status: 'locked', lockReason: 'Approve renders first' },
-  { id: 'estimate',     label: 'Estimate',      path: 'estimate',     icon: Receipt, status: 'locked', lockReason: 'Approve drawings first' },
-  { id: 'presentation', label: 'Presentation',  path: 'presentation', icon: Palette, status: 'locked', lockReason: 'Complete estimate first' },
+  { id: 'brief',        label: 'Project Brief', path: 'brief',        icon: BookOpen, status: 'not_started' },
+  { id: 'plan',         label: 'Measured Plan', path: 'plan',         icon: Compass, status: 'locked', lockReason: 'Complete project brief first' },
+  { id: 'spaces',       label: 'Rooms & Modules', path: 'spaces',     icon: Home, status: 'locked', lockReason: 'Approve measured plan first' },
+  { id: '3d',           label: 'Scene Studio',  path: '3d',           icon: Wand2, status: 'locked', lockReason: 'Save a room design first' },
+  { id: 'drawings',     label: 'Production Docs', path: 'drawings',   icon: Ruler, status: 'locked', lockReason: 'Compile a scene first' },
+  { id: 'estimate',     label: 'Costing',       path: 'estimate',     icon: Receipt, status: 'locked', lockReason: 'Approve production documents first' },
+  { id: 'presentation', label: 'Presentation',  path: 'presentation', icon: Palette, status: 'locked', lockReason: 'Complete costing first' },
 ];
 
 // ─── Stage status icon ─────────────────────────────────────────────
@@ -157,7 +156,7 @@ export function Shell({
           <div className="workflow-nav">
             <div className="workflow-nav-header">
               <span className="workflow-nav-title">
-                {projectName ? projectName.slice(0, 18) : 'Current Project'}
+                {projectName || 'Current Project'}
               </span>
               <span className="workflow-count" aria-label={`${workflowStages.filter((stage) => stage.status === 'done').length} of ${workflowStages.length} stages complete`}>
                 {workflowStages.filter((stage) => stage.status === 'done').length}/{workflowStages.length}

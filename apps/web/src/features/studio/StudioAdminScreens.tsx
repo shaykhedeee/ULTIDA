@@ -338,7 +338,7 @@ export function RulesWorkspace({ organizationId }: { organizationId: string | nu
 
 export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySaved }: { organizationId: string | null; orgName: string; onStudioIdentitySaved?: (name: string) => void }) {
   const [health, setHealth] = useState<any>(null);
-  const [tab, setTab] = useState<'workspace' | 'standards' | 'rendering' | 'providers' | 'account'>('workspace');
+  const [tab, setTab] = useState<'workspace' | 'standards' | 'rules' | 'rendering' | 'providers' | 'account'>('workspace');
   const [status, setStatus] = useState('');
   const [checking, setChecking] = useState(false);
 
@@ -475,6 +475,7 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
         {[
           ['workspace', '🏢 Studio Identity & Branding'],
           ['standards', '📐 Modular & Material Standards'],
+          ['rules', '📋 Company Rules'],
           ['rendering', '✨ AI Rendering & 3D Optics'],
           ['providers', '🔌 Infrastructure Readiness'],
           ['account', '🔒 Security & Access'],
@@ -648,6 +649,8 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
           </div>
         </section>
       )}
+
+      {tab === 'rules' && <RulesWorkspace organizationId={organizationId} />}
 
       {/* TAB 3: AI RENDERING */}
       {tab === 'rendering' && (

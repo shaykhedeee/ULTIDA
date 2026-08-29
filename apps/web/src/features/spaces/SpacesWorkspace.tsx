@@ -268,7 +268,6 @@ export function SpacesWorkspace() {
   const [measureFrom, setMeasureFrom] = useState<Pt | null>(null);
   const [measureTo, setMeasureTo] = useState<Pt | null>(null);
   const [saveState, setSaveState] = useState('');
-  const [openingLayouts, setOpeningLayouts] = useState(false);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'blocked' | 'empty' | 'error'>('loading');
   const [reloadKey, setReloadKey] = useState(0);
   const [history, setHistory] = useState<any[]>([]);
@@ -1278,28 +1277,6 @@ export function SpacesWorkspace() {
     }
   }
 
-  async function openLayoutStudio() {
-    setOpeningLayouts(true);
-    setSaveState('Preparing 3D Arrangement Studio…');
-    try {
-      if (supabase && projectId) {
-        const session = (await supabase.auth.getSession()).data.session;
-        if (session?.access_token) {
-          const apiBase = getApiBase();
-          await fetch(`${apiBase}/projects/${projectId}/spaces/approve`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-          }).catch(() => null);
-        }
-      }
-    } catch {
-      // ignore
-    } finally {
-      setOpeningLayouts(false);
-      navigate(`/projects/${projectId}/spaces?tab=arrangement`);
-    }
-  }
-
   const filteredCatalogModules = useMemo(() => {
     const selectedRoomType = sel?.room.roomType;
     return IndianModularCatalog.filter(mod => {
@@ -1312,11 +1289,11 @@ export function SpacesWorkspace() {
   }, [catalogQuery, catalogFilterFamily, sel?.room.roomType]);
 
   return (
-    <div className="spaces-workspace phase4" style={{ paddingBottom: 80 }}>
+    <div className="spaces-workspace phase4" style={{ paddingBottom: 148 }}>
       {/* Header */}
       <div className="page-header">
         <div className="page-header-text">
-          <small>Room Design Studio · Stage 1: Room Setup &amp; Brief</small>
+          <small>Room Design Studio · Stage 3: Rooms &amp; 2D Layout</small>
           <h1>Configured Spaces ({rooms.filter(r => r.included !== false).length})</h1>
           <p>The approved plan supplies measured geometry. Overlay the floor plan, auto-detect furniture layout with AI, and link authentic units from the Design Library.</p>
         </div>
@@ -1329,7 +1306,7 @@ export function SpacesWorkspace() {
           <button type="button" className="btn-secondary workspace-action" disabled={!sel} onClick={() => sel && detectAiLayout(sel.room)} title="Auto-detect optimal furniture layout and wall roles using AI"><Wand2 size={14} /> AI Auto-Layout</button>
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
           <button className="btn-secondary workspace-action" onClick={() => void saveGeometryVersion()} title="Save geometry changes to create a new plan version"><Save size={14} /> Save geometry</button>
-          <button className="btn-primary proceed-header-action workspace-action" disabled={openingLayouts || !rooms.length} onClick={() => void openLayoutStudio()} title="Proceed to Furniture Arrangement Studio"><LayoutGrid size={15} /> {openingLayouts ? 'Validating…' : 'Proceed to Arrangement'} <ArrowRight size={14} /></button>
+          <button className="btn-primary proceed-header-action workspace-action" disabled={!rooms.length} onClick={() => navigate(`/projects/${projectId}/spaces?tab=modules`)} title="Open catalog-backed modules and wall elevations"><LayoutGrid size={15} /> Configure Modules <ArrowRight size={14} /></button>
         </div>
       </div>
 
@@ -2320,15 +2297,23 @@ export function SpacesWorkspace() {
 
                 <div className="room-save-actions">
                   <Button variant="outline" onClick={() => void persistRoom(sel.room)}><Save size={13} /> Save room</Button>
-                  <Button disabled={!sel.room.requiredFurniture.length || !(sel.room.ceilingHeightMm ?? ceilingHeightMm)} onClick={() => void persistRoom(sel.room, 'verified')} title="Save geometry, requirements, and verification together.">
-                    <CheckCircle2 size={13} /> {sel.room.spaceRecordId ? 'Verify & ready room' : 'Save & ready room'}
+                  <Button
+                    disabled={!sel.room.requiredFurniture.length || !(sel.room.ceilingHeightMm ?? ceilingHeightMm)}
+                    onClick={async () => {
+                      await persistRoom(sel.room);
+                      navigate(`/projects/${projectId}/spaces?tab=modules`);
+                    }}
+                    title="Save this room and select its buildable catalog modules."
+                  >
+                    <BookOpen size={13} /> Save &amp; open Module Catalog
                   </Button>
                 </div>
-                {!sel.room.requiredFurniture.length && <p className="room-blocker">Choose at least one modular requirement before verifying this room.</p>}
+                {!sel.room.requiredFurniture.length && <p className="room-blocker">Choose at least one furniture or modular requirement before opening the Module Catalog.</p>}
 
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
+                    await persistRoom(sel.room);
                     navigate(`/projects/${projectId}/spaces?tab=modules`);
                   }}
                   style={{
@@ -2350,7 +2335,7 @@ export function SpacesWorkspace() {
                     transition: 'all 0.15s ease',
                   }}
                 >
-                  <Sparkles size={15} /> Continue to Design &amp; Moodboard Studio →
+                  <Sparkles size={15} /> Save &amp; configure catalog modules →
                 </button>
               </div>
             ) : (
@@ -2546,80 +2531,20 @@ export function SpacesWorkspace() {
         </div>
       )}
 
-      {/* Sleek Fixed Bottom Stage Progression Bar */}
-      <div
-        style={{
-          position: 'sticky',
-          bottom: 12,
-          left: 'auto',
-          right: 'auto',
-          zIndex: 90,
-          minHeight: 54,
-          height: 'auto',
-          padding: '0 24px',
-          background: 'rgba(20, 18, 16, 0.94)',
-          backdropFilter: 'blur(16px)',
-          borderTop: '1px solid rgba(197, 156, 45, 0.3)',
-          borderRadius: 12,
-          boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 16,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#c59c2d', boxShadow: '0 0 8px #c59c2d' }} />
-          <div>
-            <strong style={{ color: '#fff', fontSize: 12.5, display: 'inline', marginRight: 8 }}>
-              Stage 3 of 8: Configured Spaces &amp; Layout Setup
-            </strong>
-            <span style={{ color: '#a8a29e', fontSize: 11.5 }}>
-              • {rooms.filter((r) => r.included !== false).length} Spaces configured • Ready for 3D Furniture Placement.
-            </span>
-          </div>
+      <div className="spaces-stage-dock" role="navigation" aria-label="Room design progression">
+        <div className="spaces-stage-dock-copy">
+          <span className="spaces-stage-dock-dot" aria-hidden="true" />
+          <span>
+            <strong>Stage 3 · Rooms &amp; 2D Layout</strong>
+            <small>{rooms.filter((r) => r.included !== false).length} configured spaces · Next: Design Library modules &amp; elevations</small>
+          </span>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
-            type="button"
-            onClick={() => navigate(`/projects/${projectId}/plan`)}
-            style={{
-              background: '#2b2622',
-              color: '#e7e5e4',
-              border: '1px solid #44403c',
-              borderRadius: 7,
-              padding: '6px 14px',
-              fontWeight: 600,
-              fontSize: 12,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 34,
-            }}
-          >
-            <ArrowLeft size={13} /> Back to Floor Plan
+        <div className="spaces-stage-dock-actions">
+          <button type="button" className="spaces-stage-dock-back" onClick={() => navigate(`/projects/${projectId}/plan`)}>
+            <ArrowLeft size={13} /> Measured Plan
           </button>
-          <button
-            type="button"
-            onClick={() => void openLayoutStudio()}
-            style={{
-              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
-              color: '#1c1917',
-              border: 0,
-              borderRadius: 7,
-              padding: '6px 16px',
-              fontWeight: 800,
-              fontSize: 12.5,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 34,
-              boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
-            }}
-          >
-            Proceed to 3D Arrangement Studio <ArrowRight size={14} />
+          <button type="button" className="spaces-stage-dock-next" onClick={() => navigate(`/projects/${projectId}/spaces?tab=modules`)}>
+            Configure Modules <ArrowRight size={14} />
           </button>
         </div>
       </div>
