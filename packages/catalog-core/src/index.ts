@@ -36,6 +36,26 @@ export const CatalogModuleSchema = z.object({
 });
 export type CatalogModule = z.infer<typeof CatalogModuleSchema>;
 
+/** Immutable catalog identity carried into module instances and production outputs. */
+export const CATALOG_VERSION = 'ultida-catalog-2026.09.06';
+export type CatalogDigitalTwin = {
+  catalogVersion: string;
+  templateId: string;
+  sku: string;
+  geometryKey: string;
+  productionKey: string;
+};
+
+export function getCatalogDigitalTwin(module: Pick<CatalogModule, 'id' | 'sku'>): CatalogDigitalTwin {
+  return {
+    catalogVersion: CATALOG_VERSION,
+    templateId: module.id,
+    sku: module.sku,
+    geometryKey: `${module.id}@${CATALOG_VERSION}`,
+    productionKey: `${module.sku}@${CATALOG_VERSION}`,
+  };
+}
+
 // Curated starting palette: intentionally small, brand-labelled, and never
 // Curated masterclass materials palette: high-gloss acrylics, super-matte anti-fingerprint,
 // textured synchronized woodgrains, architectural fluted panels, and certified base ply cores.

@@ -1,5 +1,5 @@
 import { ArrowRight, Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Save, Send, Sparkles, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
@@ -10,7 +10,7 @@ import { ModulePreview } from '../library/ModulePreview';
 import { listCatalog } from '@ultida/catalog-core';
 
 type Stage = 'Design' | 'Visualize' | 'Document';
-type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration };
+type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration; updatedAt?: string };
 type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; description?: string; manufacturingRules?: string[] };
 type PreparedModulePlan = { schema: 'ultida.module-plan.v1'; templateId: string; family: string; name: string; dimensionsMm: { width: number; depth: number; height: number }; wallWidthMm: number; clearanceMm: number };
 type DesignPreset = { id: string; name: string; family: string; roomTypes: string[]; referenceStyle: string[]; renderRules: string[]; productionRules: string[] };
@@ -169,6 +169,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const [familyFilter, setFamilyFilter] = useState('all');
   const [moduleConfiguration, setModuleConfiguration] = useState<ModuleConfiguration>({ archetype: 'full_wall_storage', shutterStyle: 'swing', drawerCount: 0, includeLoft: false, glassProfile: false, sideFillerLeft: false, sideFillerRight: false, handleStyle: 'long-profile', lighting: 'none' });
   const [draftModules, setDraftModules] = useState<Module[]>([]);
+  const moduleEditPending = useRef(false);
+  const [moduleSaving, setModuleSaving] = useState(false);
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
   const [designMode, setDesignMode] = useState<'layout' | 'moodboard'>(focus === 'materials' ? 'moodboard' : 'layout');
   const [visualState, setVisualState] = useState('No visual proposal requested');
@@ -529,7 +531,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         setDraftModules(payload.modules.map((saved: any) => {
           const config = saved.config_json ?? {};
           const position = saved.position_json ?? {};
-          return { id: saved.id, roomId: saved.space_id, family: config.family ?? saved.category, label: saved.label, widthMm: Number(config.widthMm), depthMm: Number(config.depthMm), heightMm: Number(config.heightMm), wallId: position.wallId, offsetMm: position.offsetMm, xMm: position.xMm, yMm: position.yMm, rotationDeg: position.rotationDeg, configuration: config.configuration };
+          return { id: saved.id, roomId: saved.space_id, family: config.family ?? saved.category, label: saved.label, widthMm: Number(config.widthMm), depthMm: Number(config.depthMm), heightMm: Number(config.heightMm), wallId: position.wallId, offsetMm: position.offsetMm, xMm: position.xMm, yMm: position.yMm, rotationDeg: position.rotationDeg, configuration: config.configuration, updatedAt: saved.updated_at };
         }).filter((item: Module) => Number.isFinite(item.widthMm) && Number.isFinite(item.depthMm) && Number.isFinite(item.heightMm)));
       } catch {
         setDraftModules([]);
@@ -601,7 +603,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       if (!moduleResponse.ok || !modulePayload.module) { setPlacementNotice(modulePayload.message ?? 'Module anchor could not be saved.'); return; }
       const saved = modulePayload.module;
       const resolved = saved.position_json ?? {};
-      const next = { id: saved.id, roomId: spaceId, family: item.family, label: item.name, widthMm: fitted.widthMm, depthMm: fitted.depthMm, heightMm: fitted.heightMm, wallId: resolved.wallId, offsetMm: resolved.offsetMm, xMm: resolved.xMm, yMm: resolved.yMm, rotationDeg: resolved.rotationDeg, configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount } };
+      const next = { id: saved.id, roomId: spaceId, family: item.family, label: item.name, widthMm: fitted.widthMm, depthMm: fitted.depthMm, heightMm: fitted.heightMm, wallId: resolved.wallId, offsetMm: resolved.offsetMm, xMm: resolved.xMm, yMm: resolved.yMm, rotationDeg: resolved.rotationDeg, configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount }, updatedAt: saved.updated_at };
       setDraftModules((current) => current.some((module) => module.id === next.id) ? current : [...current, next]);
       if (pendingModuleRequested) window.localStorage.removeItem('ultida.pendingModulePlan.v1');
       setSelectedModuleId(next.id);
@@ -609,40 +611,46 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     } catch { setPlacementNotice('Placement validator unavailable. The module was not added.'); }
   }
 
-  async function nudgeModule(moduleId: string, deltaMm: number) {
+  async function editModule(moduleId: string, changes: { config?: { widthMm?: number; depthMm?: number; heightMm?: number; configuration?: Partial<ModuleConfiguration> }; position?: { wallId?: string; offsetMm?: number } }) {
     const mod = draftModules.find((m) => m.id === moduleId);
-    if (!mod || !projectId || !selectedWall) return;
-    const currentOffset = mod.offsetMm ?? 0;
-    const maxOffset = Math.max(0, selectedWallLengthMm - mod.widthMm);
-    const nextOffset = Math.max(0, Math.min(maxOffset, currentOffset + deltaMm));
-    setDraftModules((current) => current.map((m) => m.id === moduleId ? { ...m, offsetMm: nextOffset } : m));
+    if (!mod || !projectId || moduleEditPending.current) return;
+    if (!mod.updatedAt) { setPlacementNotice('Reload this module before editing so its saved revision can be checked.'); return; }
+    moduleEditPending.current = true;
+    setModuleSaving(true);
+    setPlacementNotice(`Saving ${mod.label}...`);
     try {
-      await fetch(`${apiBase}/projects/${projectId}/module-instances/${moduleId}`, {
+      const response = await fetch(`${apiBase}/projects/${projectId}/module-instances/${moduleId}`, {
         method: 'PATCH',
         headers: await authenticatedHeaders(),
-        body: JSON.stringify({ position: { wallId: selectedWall.id, offsetMm: nextOffset } }),
+        body: JSON.stringify({ ...changes, expectedUpdatedAt: mod.updatedAt, reason: 'Designer updated module dimensions or wall position.' }),
       });
-      setPlacementNotice(`Repositioned ${mod.label} to offset ${Math.round(nextOffset)} mm on selected wall.`);
-    } catch {
-      // local state remains responsive
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success || !payload.module) throw new Error(payload?.message || 'The module could not be saved.');
+      const saved = payload.module;
+      const updated: Module = { ...mod, widthMm: saved.config_json.widthMm, depthMm: saved.config_json.depthMm, heightMm: saved.config_json.heightMm, wallId: saved.position_json.wallId, offsetMm: saved.position_json.offsetMm, xMm: saved.position_json.xMm, yMm: saved.position_json.yMm, rotationDeg: saved.position_json.rotationDeg, configuration: saved.config_json.configuration ?? mod.configuration, updatedAt: saved.updated_at };
+      setDraftModules((current) => current.map((entry) => entry.id === moduleId ? updated : entry));
+      setCompiledSceneId(null);
+      await loadScenePreflight(mod.roomId);
+      setPlacementNotice(`Saved ${mod.label}. Compile a new scene to use these changes; previous scene versions are unchanged.`);
+    } catch (error) {
+      setPlacementNotice(error instanceof Error ? error.message : 'The edit failed. The saved module is unchanged.');
+    } finally {
+      moduleEditPending.current = false;
+      setModuleSaving(false);
     }
+  }
+
+  async function nudgeModule(moduleId: string, deltaMm: number) {
+    const mod = draftModules.find((entry) => entry.id === moduleId);
+    if (!mod || !selectedWall) return;
+    const offsetMm = Math.max(0, Math.min(Math.max(0, selectedWallLengthMm - mod.widthMm), (mod.offsetMm ?? 0) + deltaMm));
+    await editModule(moduleId, { position: { wallId: selectedWall.id, offsetMm } });
   }
 
   async function centerModule(moduleId: string) {
     const mod = draftModules.find((m) => m.id === moduleId);
-    if (!mod || !projectId || !selectedWall) return;
-    const centeredOffset = Math.max(0, Math.round((selectedWallLengthMm - mod.widthMm) / 2));
-    setDraftModules((current) => current.map((m) => m.id === moduleId ? { ...m, offsetMm: centeredOffset } : m));
-    try {
-      await fetch(`${apiBase}/projects/${projectId}/module-instances/${moduleId}`, {
-        method: 'PATCH',
-        headers: await authenticatedHeaders(),
-        body: JSON.stringify({ position: { wallId: selectedWall.id, offsetMm: centeredOffset } }),
-      });
-      setPlacementNotice(`Centered ${mod.label} at offset ${Math.round(centeredOffset)} mm.`);
-    } catch {
-      // local state remains responsive
-    }
+    if (!mod || !selectedWall) return;
+    await editModule(moduleId, { position: { wallId: selectedWall.id, offsetMm: Math.max(0, Math.round((selectedWallLengthMm - mod.widthMm) / 2)) } });
   }
 
   async function saveMoodboard(): Promise<boolean> {
@@ -1538,6 +1546,31 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   onNudgeModule={(id, delta) => void nudgeModule(id, delta)}
                   onCenterModule={(id) => void centerModule(id)}
                 />
+              )}
+              {selectedModule && (
+                <form key={`${selectedModule.id}:${selectedModule.updatedAt}`} onSubmit={(event) => {
+                  event.preventDefault();
+                  const values = new FormData(event.currentTarget);
+                  void editModule(selectedModule.id, { config: { widthMm: Number(values.get('width')), depthMm: Number(values.get('depth')), heightMm: Number(values.get('height')), configuration: { shutterCount: Number(values.get('shutterCount')), drawerCount: Number(values.get('drawerCount')), shutterStyle: String(values.get('shutterStyle')) as ModuleConfiguration['shutterStyle'], includeLoft: values.get('includeLoft') === 'on', lighting: String(values.get('lighting')) as ModuleConfiguration['lighting'], handleStyle: String(values.get('handleStyle')) as ModuleConfiguration['handleStyle'], glassProfile: values.get('glassProfile') === 'on', sideFillerLeft: values.get('sideFillerLeft') === 'on', sideFillerRight: values.get('sideFillerRight') === 'on' } }, position: { offsetMm: Number(values.get('offset')) } });
+                }}>
+                  <fieldset disabled={moduleSaving} style={{ border: '1px solid #e8ded2', borderRadius: 6, padding: 12, display: 'grid', gap: 8 }}>
+                    <legend>Edit {selectedModule.label}</legend>
+                    <label>Width (mm)<input name="width" type="number" min="1" step="any" required defaultValue={selectedModule.widthMm} /></label>
+                    <label>Depth (mm)<input name="depth" type="number" min="1" step="any" required defaultValue={selectedModule.depthMm} /></label>
+                    <label>Height (mm)<input name="height" type="number" min="1" step="any" required defaultValue={selectedModule.heightMm} /></label>
+                    <label>Wall offset (mm)<input name="offset" type="number" min="0" step="any" required defaultValue={selectedModule.offsetMm ?? 0} /></label>
+                    <label>Shutters<input name="shutterCount" type="number" min="0" max="32" defaultValue={selectedModule.configuration?.shutterCount ?? 0} /></label>
+                    <label>Drawers<input name="drawerCount" type="number" min="0" max="24" defaultValue={selectedModule.configuration?.drawerCount ?? 0} /></label>
+                    <label>Shutter style<select name="shutterStyle" defaultValue={selectedModule.configuration?.shutterStyle ?? 'swing'}><option value="swing">Swing</option><option value="sliding">Sliding</option><option value="profile-glass">Profile glass</option><option value="open">Open</option></select></label>
+                    <label><input name="includeLoft" type="checkbox" defaultChecked={selectedModule.configuration?.includeLoft ?? false} /> Include loft</label>
+                     <label>Lighting<select name="lighting" defaultValue={selectedModule.configuration?.lighting ?? 'none'}><option value="none">None</option><option value="shelf-led">Shelf LED</option><option value="vertical-led">Vertical LED</option></select></label>
+                     <label>Handle<select name="handleStyle" defaultValue={selectedModule.configuration?.handleStyle ?? 'long-profile'}><option value="gola">Gola</option><option value="long-profile">Long profile</option><option value="knob">Knob</option><option value="none">None</option></select></label>
+                     <label><input name="glassProfile" type="checkbox" defaultChecked={selectedModule.configuration?.glassProfile ?? false} /> Profile glass</label>
+                     <label><input name="sideFillerLeft" type="checkbox" defaultChecked={selectedModule.configuration?.sideFillerLeft ?? false} /> Left filler</label>
+                     <label><input name="sideFillerRight" type="checkbox" defaultChecked={selectedModule.configuration?.sideFillerRight ?? false} /> Right filler</label>
+                    <Button type="submit" disabled={moduleSaving}>{moduleSaving ? 'Saving...' : 'Save module'}</Button>
+                  </fieldset>
+                </form>
               )}
               <p className="placement-notice" role="status" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 {catalogLoading && <Loader2 className="ultida-spinner" size={14} aria-hidden="true" />}

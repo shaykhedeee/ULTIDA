@@ -23,7 +23,7 @@ import { authenticateProjectUser, requireProjectUser, requireStudioUser } from '
 import { MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, VisualProposalRequestSchema, validateProjectBrief } from '@ultida/contracts';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { SceneV1Schema } from '@ultida/scene-core';
-import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, listDesignPresets, ModuleFamilySchema, getCatalogVault, CuratedLaminateCatalog } from '@ultida/catalog-core';
+import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, listDesignPresets, ModuleFamilySchema, getCatalogVault, CuratedLaminateCatalog, CATALOG_VERSION, getCatalogDigitalTwin } from '@ultida/catalog-core';
 import { CanonicalPlanModelSchema, parsePlanIntake } from '@ultida/plan-core';
 import { validateGeometry } from '@ultida/geometry-core';
 import { analyzePlanWithProvider } from './plan-analyzer.js';
@@ -34,6 +34,7 @@ import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSu
 import { migrateScene } from '@ultida/scene-core';
 import { compileSceneV1, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
+import { ModuleEditSchema, prepareModuleEdit, validateModuleClearance } from './module-edit.js';
 import { compileStoredModuleForScene } from './scene-module-parts.js';
 import { evaluateVastuCompliance, generateCandidates } from '@ultida/layout-core';
 import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord } from './reference-retrieval.js';
@@ -332,7 +333,8 @@ app.get('/api/catalog/modules', (request, response) => {
   const room = typeof request.query.room === 'string' ? RoomTypeSchema.safeParse(request.query.room) : null;
   if (room && !room.success) return response.status(400).json({ success: false, code: 'INVALID_ROOM_TYPE' });
   const query = typeof request.query.q === 'string' ? request.query.q : undefined;
-  return response.json({ success: true, source: 'ULTIDA Indian modular catalog', modules: listCatalog(room?.success ? room.data : undefined, query) });
+  const modules = listCatalog(room?.success ? room.data : undefined, query);
+  return response.json({ success: true, source: 'ULTIDA Indian modular catalog', catalogVersion: CATALOG_VERSION, modules: modules.map((module) => ({ ...module, digitalTwin: getCatalogDigitalTwin(module) })) });
 });
 
 app.get('/api/catalog/presets', (request, response) => {
@@ -1751,26 +1753,10 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
   if (space.data.floor_plan_version_id !== activePlan.data.id) return response.status(409).json({ success: false, code: 'SPACE_PLAN_VERSION_STALE', message: 'Select a room derived from the current active approved plan.' });
   const resolvedAnchor = resolveModuleWallAnchor(plan.data.walls, position, Number(config.widthMm));
   if (!resolvedAnchor.ok) return response.status(422).json({ success: false, code: resolvedAnchor.code, message: resolvedAnchor.message });
-  const moduleStart = resolvedAnchor.anchor.offsetMm;
-  const moduleEnd = moduleStart + Number(config.widthMm);
-  const doorConflict = (plan.data.openings ?? []).find((opening: any) => {
-    if (opening.wallId !== resolvedAnchor.anchor.wallId || opening.kind !== 'door') return false;
-    const openingStart = Number(opening.offsetAlongWallMm ?? 0);
-    const openingEnd = openingStart + Number(opening.widthMm ?? 900);
-    return moduleStart < openingEnd + 150 && moduleEnd > openingStart - 150;
-  });
-  if (doorConflict) return response.status(422).json({ success: false, code: 'MODULE_BLOCKS_DOOR', message: 'Move the module clear of the door opening and its 150 mm safety zone.' });
-  const existingOnWall = await client.from('module_instances').select('id,config_json,position_json').eq('project_id', request.params.projectId).eq('space_id', spaceId).eq('status', 'validated');
+  const existingOnWall = await client.from('module_instances').select('*').eq('project_id', request.params.projectId).eq('space_id', spaceId).in('status', ['validated', 'approved']);
   if (existingOnWall.error) return response.status(500).json({ success: false, code: 'MODULE_COLLISION_LOOKUP_FAILED', message: existingOnWall.error.message });
-  const collision = (existingOnWall.data ?? []).find((module: any) => {
-    const anchor = module.position_json ?? {};
-    if (anchor.wallId !== resolvedAnchor.anchor.wallId) return false;
-    const start = Number(anchor.offsetMm);
-    const end = start + Number(module.config_json?.widthMm ?? 0);
-    return Number.isFinite(start) && Number.isFinite(end) && moduleStart < end + 20 && moduleEnd > start - 20;
-  });
-  if (collision) return response.status(422).json({ success: false, code: 'MODULE_OVERLAP', message: 'This module overlaps an existing module on the selected wall. Adjust its offset or edit the existing module.' });
-
+  const clearance = validateModuleClearance({ id: '', space_id: spaceId, category, config_json: config, position_json: resolvedAnchor.anchor }, plan.data, existingOnWall.data ?? []);
+  if (!clearance.ok) return response.status(422).json({ success: false, code: clearance.code, message: clearance.message });
   let resolvedLayoutId = typeof layoutId === 'string' ? layoutId : null;
   if (resolvedLayoutId) {
     const layout = await client.from('layouts').select('id,status').eq('id', resolvedLayoutId).eq('project_id', request.params.projectId).eq('space_id', spaceId).maybeSingle();
@@ -1798,6 +1784,44 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
   const created = await client.from('module_instances').insert(row).select('*').single();
   if (created.error) return response.status(500).json({ success: false, code: 'MODULE_INSTANCE_CREATE_FAILED', message: created.error.message });
   return response.status(201).json({ success: true, module: created.data });
+});
+
+app.patch('/api/projects/:projectId/module-instances/:moduleId', requireProjectUser, async (request, response) => {
+  const parsed = ModuleEditSchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_MODULE_EDIT', message: parsed.error.issues.map((issue) => issue.message).join(' ') });
+  const client = getRequestSupabaseClient(request);
+  const projectId = String(request.params.projectId);
+  const current = await client.from('module_instances').select('*').eq('id', request.params.moduleId).eq('project_id', projectId).maybeSingle();
+  if (current.error) return response.status(500).json({ success: false, code: 'MODULE_READ_FAILED', message: 'Unable to load the module.' });
+  if (!current.data) return response.status(404).json({ success: false, code: 'MODULE_NOT_FOUND', message: 'Module not found in this project.' });
+  if (Date.parse(current.data.updated_at) !== Date.parse(parsed.data.expectedUpdatedAt)) return response.status(409).json({ success: false, code: 'MODULE_EDIT_STALE', message: 'This module changed. Reload it before saving another edit.' });
+  const space = await client.from('spaces').select('id,space_id,floor_plan_version_id').eq('id', current.data.space_id).eq('project_id', projectId).maybeSingle();
+  const activePlan = await client.from('floor_plan_versions').select('id,canonical_model').eq('project_id', projectId).eq('active_version', true).eq('status', 'approved').maybeSingle();
+  if (space.error || activePlan.error) return response.status(500).json({ success: false, code: 'MODULE_LINEAGE_READ_FAILED', message: 'Unable to verify the current room and plan.' });
+  if (!space.data || !activePlan.data || space.data.floor_plan_version_id !== activePlan.data.id || current.data.config_json?.floorPlanVersionId !== activePlan.data.id) return response.status(409).json({ success: false, code: 'SPACE_PLAN_VERSION_STALE', message: 'The module must belong to the active approved plan and room.' });
+  const plan = CanonicalPlanModelSchema.safeParse(activePlan.data.canonical_model);
+  if (!plan.success) return response.status(422).json({ success: false, code: 'CANONICAL_PLAN_INVALID', message: 'The approved plan has invalid measured geometry.' });
+  const layout = await client.from('layouts').select('id,status').eq('id', current.data.layout_id).eq('project_id', projectId).eq('space_id', current.data.space_id).maybeSingle();
+  if (layout.error) return response.status(500).json({ success: false, code: 'LAYOUT_LOOKUP_FAILED', message: 'Unable to verify the layout.' });
+  if (!layout.data || layout.data.status !== 'approved') return response.status(409).json({ success: false, code: 'APPROVED_LAYOUT_REQUIRED', message: 'Approve this module’s room layout before editing.' });
+  const targetWall = parsed.data.position?.wallId ?? current.data.position_json?.wallId;
+  const planRoomId = space.data.space_id;
+  const room = plan.data.spaces.find((entry) => entry.id === planRoomId);
+  if (!room || !room.wallRefs.includes(targetWall)) return response.status(422).json({ success: false, code: 'MODULE_WALL_ROOM_MISMATCH', message: 'Select a measured wall belonging to this room.' });
+  const neighbours = await client.from('module_instances').select('*').eq('project_id', projectId).eq('space_id', current.data.space_id).in('status', ['validated', 'approved']);
+  if (neighbours.error) return response.status(500).json({ success: false, code: 'MODULE_COLLISION_LOOKUP_FAILED', message: 'Unable to check neighbouring modules.' });
+  const edit = prepareModuleEdit(current.data, parsed.data, plan.data, neighbours.data ?? []);
+  if (!edit.ok) return response.status(422).json({ success: false, code: edit.code, message: edit.message });
+  const actorId = (request as import('./api-auth.js').AuthenticatedRequest).ultidaUser!.id;
+  const updatedAt = new Date(Math.max(Date.now(), Date.parse(current.data.updated_at) + 1)).toISOString();
+  const updated = await client.from('module_instances').update({
+    config_json: edit.candidate.config_json, position_json: edit.candidate.position_json,
+    status: 'validated', updated_at: updatedAt,
+    validation_json: { ...current.data.validation_json, lastEdit: { actorId, reason: parsed.data.reason, sourceUpdatedAt: current.data.updated_at, updatedAt, floorPlanVersionId: activePlan.data.id }, partCount: edit.partCount, sceneRecompileRequired: true },
+  }).eq('id', current.data.id).eq('project_id', projectId).eq('updated_at', current.data.updated_at).select('*').maybeSingle();
+  if (updated.error) return response.status(500).json({ success: false, code: 'MODULE_EDIT_FAILED', message: 'The module could not be saved.' });
+  if (!updated.data) return response.status(409).json({ success: false, code: 'MODULE_EDIT_STALE', message: 'Another edit was saved first. Reload the module.' });
+  return response.json({ success: true, module: updated.data, sceneRecompileRequired: true });
 });
 
 app.get('/api/projects/:projectId/design-context', requireProjectUser, async (request, response) => {
@@ -2168,7 +2192,7 @@ app.post('/api/projects/:projectId/scenes/:sceneVersionId/approve', requireProje
   const client = getRequestSupabaseClient(request);
   const [project, sceneVersion] = await Promise.all([
     client.from('projects').select('active_floor_plan_version_id').eq('id', projectId).single(),
-    client.from('scene_versions').select('id,floor_plan_version_id,status,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle(),
+    client.from('scene_versions').select('id,floor_plan_version_id,status,scene,created_at').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle(),
   ]);
   if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
   if (sceneVersion.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: sceneVersion.error.message });
@@ -2177,6 +2201,12 @@ app.post('/api/projects/:projectId/scenes/:sceneVersionId/approve', requireProje
   if (sceneVersion.data.floor_plan_version_id !== project.data.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'SCENE_PLAN_VERSION_STALE', message: 'The plan changed after this scene was compiled. Recompile before approval.' });
   const scene = sceneVersion.data.scene as { schema?: unknown; modules?: unknown[]; metadata?: Record<string, unknown> };
   if (scene?.schema !== 'scene.v1' || !Array.isArray(scene.modules) || !scene.modules.length) return response.status(422).json({ success: false, code: 'SCENE_NOT_READY', message: 'Scene approval requires scene.v1 with at least one persisted module.' });
+  const sourceModuleIds = scene.modules.map((module: any) => module.id);
+  const sourceModules = await client.from('module_instances').select('id,updated_at').eq('project_id', projectId).in('id', sourceModuleIds);
+  if (sourceModules.error) return response.status(500).json({ success: false, code: 'SCENE_MODULE_READ_FAILED', message: 'Unable to verify current module revisions.' });
+  if (!sceneVersion.data.created_at || sourceModules.data?.length !== sourceModuleIds.length || sourceModules.data.some((module) => !module.updated_at || Date.parse(module.updated_at) > Date.parse(sceneVersion.data!.created_at))) {
+    return response.status(409).json({ success: false, code: 'SCENE_MODULE_VERSION_STALE', message: 'Modules changed after this scene was compiled. Compile a new scene before approval.' });
+  }
   const approved = await client.from('scene_versions').update({
     status: 'approved',
     scene: { ...scene, metadata: { ...(scene.metadata ?? {}), status: 'approved' } },
