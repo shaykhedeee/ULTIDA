@@ -74,15 +74,15 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         </div>
       </section>
 
-      {/* 100% AI-Powered Canonical Pipeline Flow */}
+      {/* Canonical design-to-production pipeline */}
       <section style={{ margin: '20px 0', padding: '24px', borderRadius: 16, background: 'linear-gradient(135deg, #1c1917, #2c1e14)', color: '#fff', border: '1px solid #44382e', boxShadow: '0 8px 30px rgba(0,0,0,0.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div>
             <span style={{ fontSize: 11, fontWeight: 800, color: '#c59c2d', letterSpacing: '0.12em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Sparkles size={14} /> 100% AI-POWERED DESIGN PIPELINE
+              <Workflow size={14} /> CANONICAL DESIGN PIPELINE
             </span>
             <h2 style={{ margin: '4px 0 0', fontSize: 20, color: '#fff' }}>Automated End-to-End Workflow</h2>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#d6d3d1' }}>Zero manual CAD or 3D modeling required. The AI extracts the plan, enhances the layout, configures the walls, and renders photorealistic 3D.</p>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#d6d3d1' }}>Measured geometry stays authoritative while automation carries the project from plan review through configurable modules, visuals, and production outputs.</p>
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>

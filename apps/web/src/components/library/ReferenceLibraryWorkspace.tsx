@@ -30,6 +30,7 @@ type CatalogModule = {
   description?: string;
   manufacturingRules?: string[];
   production: { cutlistSupported: boolean };
+  digitalTwin?: { catalogVersion: string; geometryKey: string; productionKey: string };
 };
 
 type Material = {
@@ -897,7 +898,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                       </div>
                       <div className="module-card-copy">
                         <strong>{module.name}</strong>
-                        <span>{module.family.replaceAll('-', ' ')}</span>
+                         <span>{module.family.replaceAll('-', ' ')} {module.digitalTwin ? `· ${module.digitalTwin.catalogVersion}` : ''}</span>
                         <p>{module.description ?? 'Configurable modular assembly with editable dimensions and component-level finishes.'}</p>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
                           <small>{module.sku} · {module.roomTypes.join(', ')}</small>
