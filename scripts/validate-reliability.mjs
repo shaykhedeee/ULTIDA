@@ -9,6 +9,7 @@ const requiredFiles = [
   'supabase/migrations/20260829031924_release_reconciliation_and_job_observability.sql',
   'package-lock.json',
   'requirements.txt',
+  'requirements-test.txt',
 ];
 
 const failures = [];
@@ -42,7 +43,7 @@ if (!browserTest.includes('ULTIDA_REQUIRE_BROWSER_E2E')) {
 const workflow = readFileSync('.github/workflows/reliability.yml', 'utf8');
 for (const requiredStep of [
   'npm ci --include=optional --no-audit --no-fund',
-  'python -m pip install -r requirements.txt',
+  'python -m pip install -r requirements-test.txt',
   'npx playwright install --with-deps chromium',
   'node-version: 24',
   "ULTIDA_REQUIRE_BROWSER_E2E: 'true'",
