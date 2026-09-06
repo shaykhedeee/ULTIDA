@@ -13,7 +13,7 @@ export type ModulePreviewData = {
   photoUrl?: string;
 };
 
-type Props = { module: ModulePreviewData; compact?: boolean; style?: CSSProperties; defaultView?: 'vector' | 'real' };
+type Props = { module: ModulePreviewData; compact?: boolean; style?: CSSProperties; defaultView?: 'vector' | 'real'; interactive?: boolean };
 
 // 3D AI-generated product renders (background-less, white-background product shots)
 const MODULE_3D_BY_FAMILY: Record<string, string> = {
@@ -365,7 +365,7 @@ function DetailedLivingPreview({ module, colours }: { module: ModulePreviewData;
   );
 }
 
-export function ModulePreview({ module, compact = false, style, defaultView = 'vector' }: Props) {
+export function ModulePreview({ module, compact = false, style, defaultView = 'vector', interactive = true }: Props) {
   const [viewMode, setViewMode] = useState<'vector' | 'real'>(defaultView);
   const colours = paletteByFamily[module.family] ?? paletteByFamily.storage;
   const isLivingOrFurniture = ['tv-unit', 'bed', 'sofa', 'dining', 'feature-wall', 'lighting'].includes(module.family);
@@ -375,8 +375,8 @@ export function ModulePreview({ module, compact = false, style, defaultView = 'v
 
   return (
     <div className={`module-preview${compact ? ' compact' : ''}`} style={{ position: 'relative', overflow: 'hidden', ...style }} aria-label={`${module.name} architectural preview`} role="img">
-      {/* Quick 2D CAD vs Real-Life View Switcher */}
-      <div
+      {/* Static previews can be safely embedded in catalog placement buttons. */}
+      {interactive && <div
         style={{
           position: 'absolute',
           top: 4,
@@ -431,8 +431,7 @@ export function ModulePreview({ module, compact = false, style, defaultView = 'v
         >
           <Camera size={10} /> {has3D ? '3D' : 'Real'}
         </button>
-      </div>
-
+      </div>}
       {viewMode === 'real' ? (
         <div style={{ width: '100%', height: '100%', minHeight: compact ? 80 : 120, position: 'relative', background: has3D ? '#f8f6f2' : '#000', borderRadius: 6, overflow: 'hidden' }}>
           <img

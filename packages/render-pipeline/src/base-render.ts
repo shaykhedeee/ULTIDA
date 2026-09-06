@@ -159,11 +159,11 @@ function scenePrimitives(scene: SceneV1): ScenePrimitive[] {
   const exactParts = scene.moduleParts ?? [];
   const modulesWithParts = new Set(exactParts.map((part) => part.moduleId));
   const renderableModules = scene.modules.filter((module) => !modulesWithParts.has(module.id));
-  const renderBox = (entity: { id: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number }; rotationDeg: number; materialId?: string; family: string }) => {
+  const renderBox = (entity: { id: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number; zMm?: number }; rotationDeg: number; materialId?: string; family: string }) => {
     const theta = -entity.rotationDeg * Math.PI / 180;
     const local = (x: number, z: number, y: number): Vec3 => ({
       x: entity.position.xMm + x * Math.cos(theta) - z * Math.sin(theta),
-      y,
+      y: (entity.position.zMm ?? 0) + y,
       z: entity.position.yMm + x * Math.sin(theta) + z * Math.cos(theta),
     });
     primitives.push({
@@ -182,7 +182,7 @@ function scenePrimitives(scene: SceneV1): ScenePrimitive[] {
       widthMm: part.widthMm,
       depthMm: part.depthMm,
       heightMm: part.heightMm,
-      position: { xMm: part.position.xMm, yMm: part.position.yMm },
+      position: part.position,
       rotationDeg: part.rotationDeg,
       materialId: part.materialId,
     });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkRenderReadiness, compileSceneV1, SceneCompilationError } from '../src/index.ts';
+import { checkRenderReadiness, compileScene, compileSceneV1, SceneCompilationError } from '../src/index.ts';
 
 const plan: any = {
   schemaVersion: 'plan.v1',
@@ -29,6 +29,16 @@ test('preserves exact compiled cabinet parts separately from module envelopes', 
   assert.equal(scene.moduleParts.length, 1);
   assert.equal(scene.moduleParts[0]?.semanticType, 'shutter');
   assert.equal(checkRenderReadiness(scene).ready, true);
+});
+
+test('preserves a fallback module mounting elevation in the canonical scene', () => {
+  const scene = compileSceneV1({
+    projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan,
+    modules: [{ id: 'module-raised', roomId: plan.spaces[0].id, family: 'sofa', widthMm: 1800, depthMm: 800, heightMm: 700, xMm: 100, yMm: 200, zMm: 350, rotationDeg: 0 }],
+  });
+  assert.equal(scene.modules[0]?.position.zMm, 350);
+  const graph = compileScene(scene);
+  assert.equal(graph.nodes.find((node) => node.sourceId === 'module-raised')?.positionMm?.zMm, 350);
 });
 
 test('rejects a plan that has not been approved', () => {

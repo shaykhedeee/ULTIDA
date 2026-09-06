@@ -191,14 +191,16 @@ export const IndianModularCatalog: CatalogModule[] = [
   ,{ id: 'light-pendant-bronze-360', family: 'lighting', name: '360 Bronze Dining Pendant', roomTypes: ['dining', 'kitchen', 'living'], widthMm: 360, depthMm: 360, heightMm: 1650, minClearanceMm: 700, sku: 'ULT-LGT-PND-360', materialSlots: ['metal', 'lighting'], tags: ['scene-asset', 'lighting', 'pendant', '3000k', 'decor'], production: { panelBased: false, hardwareSchedule: false, cutlistSupported: false }, description: 'Render-only bronze pendant with 3000K accent output for dining and kitchen visualisation.' }
 ];
 
+function supportsRoom(module: CatalogModule, roomType: z.infer<typeof RoomTypeSchema>) {
+  return module.roomTypes.includes(roomType)
+    || ((roomType === 'master_bedroom' || roomType === 'kids_bedroom') && module.roomTypes.includes('bedroom'));
+}
+
 export function listCatalog(roomType?: z.infer<typeof RoomTypeSchema>, query?: string) {
   const normalized = query?.trim().toLowerCase();
   return IndianModularCatalog.filter((item) => {
     if (roomType) {
-      const matchRoom = (roomType === 'master_bedroom' || roomType === 'kids_bedroom')
-        ? (item.roomTypes.includes('bedroom') || item.roomTypes.includes(roomType))
-        : item.roomTypes.includes(roomType);
-      if (!matchRoom) return false;
+      if (!supportsRoom(item, roomType)) return false;
     }
     return !normalized || `${item.name} ${item.tags.join(' ')}`.toLowerCase().includes(normalized);
   });
@@ -261,7 +263,7 @@ export function getCatalogVault() {
 
 export function validatePlacement(module: CatalogModule, roomType: z.infer<typeof RoomTypeSchema>, clearanceMm: number) {
   const issues: string[] = [];
-  if (!module.roomTypes.includes(roomType)) issues.push(`${module.name} is not catalogued for ${roomType}.`);
+  if (!supportsRoom(module, roomType)) issues.push(`${module.name} is not catalogued for ${roomType}.`);
   if (clearanceMm < module.minClearanceMm) issues.push(`${module.name} needs at least ${module.minClearanceMm} mm clear circulation.`);
   return { valid: issues.length === 0, issues };
 }

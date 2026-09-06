@@ -83,7 +83,7 @@ export function compileScene(scene: SceneV1, provenance: { provider?: string; mo
     ...parsed.rooms.map((room) => ({ id: `room-${room.id}`, kind: 'room' as const, sourceId: room.id })),
     ...parsed.walls.map((wall) => ({ id: `wall-${wall.id}`, kind: 'wall' as const, sourceId: wall.id, dimensionsMm: { widthMm: Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm), depthMm: wall.thicknessMm, heightMm: wall.heightMm } })),
     ...parsed.openings.map((opening) => ({ id: `opening-${opening.id}`, kind: 'opening' as const, sourceId: opening.id, dimensionsMm: { widthMm: opening.widthMm, depthMm: 0, heightMm: opening.heightMm } })),
-    ...parsed.modules.map((module) => ({ id: `module-${module.id}`, kind: 'module' as const, sourceId: module.id, dimensionsMm: { widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm }, positionMm: { xMm: module.position.xMm, yMm: module.position.yMm, zMm: 0 } })),
+    ...parsed.modules.map((module) => ({ id: `module-${module.id}`, kind: 'module' as const, sourceId: module.id, dimensionsMm: { widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm }, positionMm: { xMm: module.position.xMm, yMm: module.position.yMm, zMm: module.position.zMm } })),
     ...parsed.moduleParts.map((part) => ({ id: `module-part-${part.id}`, kind: 'module-part' as const, sourceId: part.id, dimensionsMm: { widthMm: part.widthMm, depthMm: part.depthMm, heightMm: part.heightMm }, positionMm: part.position })),
   ];
   return { schema: 'scene-graph.v1', sceneVersion: '1.0', units: 'mm', coordinateSystem: 'right-handed-z-up', nodes, readiness, provenance: { compiler: 'scene-compiler@0.1.0', generatedAt: new Date().toISOString(), ...provenance } };
@@ -182,7 +182,7 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     widthMm: module.widthMm,
     depthMm: module.depthMm,
     heightMm: module.heightMm,
-    position: { xMm: module.xMm, yMm: module.yMm },
+    position: { xMm: module.xMm, yMm: module.yMm, zMm: module.zMm ?? 0 },
     rotationDeg: module.rotationDeg ?? 0,
     anchor: module.anchor ?? 'floor',
     materialId: module.materialId,

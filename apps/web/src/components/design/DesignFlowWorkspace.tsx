@@ -167,6 +167,10 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [catalogQuery, setCatalogQuery] = useState('');
   const [familyFilter, setFamilyFilter] = useState('all');
+  const visibleCatalogItems = catalogItems.filter((item) => familyFilter === 'all' || item.family === familyFilter).filter((item) => {
+    const search = catalogQuery.trim().toLowerCase();
+    return !search || [item.name, item.family, item.description, ...item.tags].filter(Boolean).join(' ').toLowerCase().includes(search);
+  });
   const [moduleConfiguration, setModuleConfiguration] = useState<ModuleConfiguration>({ archetype: 'full_wall_storage', shutterStyle: 'swing', drawerCount: 0, includeLoft: false, glassProfile: false, sideFillerLeft: false, sideFillerRight: false, handleStyle: 'long-profile', lighting: 'none' });
   const [draftModules, setDraftModules] = useState<Module[]>([]);
   const moduleEditPending = useRef(false);
@@ -455,6 +459,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   }, [projectId, planApproved, requestedSpaceId]);
 
   useEffect(() => {
+    setFamilyFilter('all');
+    setCatalogQuery('');
+  }, [spaceId]);
+
+  useEffect(() => {
+    let active = true;
     if (!planApproved) {
       setCatalogItems([]);
       setCatalogLoading(false);
@@ -462,9 +472,11 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     }
     void (async () => {
       setCatalogLoading(true);
+      setCatalogItems(localCatalogForRoom(room));
       try {
         const response = await fetch(`${apiBase}/catalog/modules?room=${encodeURIComponent(room)}`, { headers: await authenticatedHeaders() });
         const payload = await response.json().catch(() => null);
+        if (!active) return;
         if (response.ok && Array.isArray(payload?.modules) && payload.modules.length > 0) {
           setCatalogItems(payload.modules);
           return;
@@ -472,12 +484,14 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         setCatalogItems(localCatalogForRoom(room));
         setPlacementNotice('The live catalogue service did not respond. Showing the bundled, verified room catalogue; placement will still be validated before it is saved.');
       } catch {
+        if (!active) return;
         setCatalogItems(localCatalogForRoom(room));
         setPlacementNotice('The catalogue service is temporarily unavailable. Showing the bundled, verified room catalogue; placement will still be validated before it is saved.');
       } finally {
-        setCatalogLoading(false);
+        if (active) setCatalogLoading(false);
       }
     })();
+    return () => { active = false; };
   }, [room, planApproved]);
 
   useEffect(() => {
@@ -1752,16 +1766,13 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 </div>
               </fieldset>
               <div style={{ maxHeight: '420px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {catalogItems.filter((item) => familyFilter === 'all' || item.family === familyFilter).filter((item) => {
-                  const search = catalogQuery.trim().toLowerCase();
-                  return !search || [item.name, item.family, item.description, ...item.tags].filter(Boolean).join(' ').toLowerCase().includes(search);
-                }).map((item) => (
+                {visibleCatalogItems.map((item) => (
                   <button className="catalog-item" key={item.id} onClick={() => {
                     let prepared: PreparedModulePlan | null = null;
                     try { const raw = window.localStorage.getItem('ultida.pendingModulePlan.v1'); prepared = raw ? JSON.parse(raw) as PreparedModulePlan : null; } catch { /* ignored: normal catalogue placement continues */ }
                     void addModule(item, prepared?.templateId === item.id ? prepared.dimensionsMm : undefined);
                   }} disabled={!briefComplete || !planApproved}>
-                    <ModulePreview module={item} compact />
+                    <ModulePreview module={item} compact interactive={false} />
                     <span>
                       <strong>{item.name}</strong>
                       <small>
@@ -1773,6 +1784,10 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   </button>
                 ))}
                 {catalogLoading ? <p className="placement-notice"><Loader2 className="ultida-spinner" size={14} aria-hidden="true" /> Loading compatible furniture…</p> : !catalogItems.length && <p className="placement-notice">No templates could be loaded for this room. Check the catalogue service or correct the room type.</p>}
+                {!catalogLoading && catalogItems.length > 0 && visibleCatalogItems.length === 0 && <div className="placement-notice" role="status">
+                  <p>No templates match these filters in this room.</p>
+                  <Button type="button" onClick={() => { setFamilyFilter('all'); setCatalogQuery(''); }}>Clear catalog filters</Button>
+                </div>}
               </div>
             </CardContent>
           </Card>

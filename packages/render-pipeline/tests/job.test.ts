@@ -52,6 +52,51 @@ function providerWithPng() {
   };
 }
 
+test('raised exact parts retain elevation in RGB, depth, edges and masks', async () => {
+  const scene = structuredClone(PERSPECTIVE_SCENE);
+  scene.moduleParts = [{
+    id: 'raised-panel', moduleId: 'tv-1', semanticType: 'carcass',
+    widthMm: 600, depthMm: 350, heightMm: 500,
+    position: { xMm: 1400, yMm: 500, zMm: 0 }, rotationDeg: 0, materialId: 'mat-tv',
+  }];
+  const floor = renderScenePerspectiveArtifacts(scene, { width: 320, height: 240 });
+  scene.moduleParts[0].position.zMm = 900;
+  const raised = renderScenePerspectiveArtifacts(scene, { width: 320, height: 240 });
+  for (const pass of ['rgb', 'depth', 'edgeMap'] as const) {
+    assert.notEqual(raised[pass].url, floor[pass].url, `${pass} must reflect mounting height`);
+  }
+  const floorMask = floor.objectMasks.find((mask) => mask.id === 'raised-panel')!;
+  const raisedMask = raised.objectMasks.find((mask) => mask.id === 'raised-panel')!;
+  assert.notEqual(raisedMask.url, floorMask.url);
+  assert.notEqual(raised.materialRegions[0].url, floor.materialRegions[0].url);
+  async function centroidY(url: string) {
+    const { data, info } = await sharp(Buffer.from(url.split(',')[1], 'base64')).raw().toBuffer({ resolveWithObject: true });
+    let sum = 0, pixels = 0;
+    for (let pixel = 0; pixel < info.width * info.height; pixel++) {
+      if (data[pixel * info.channels] > 127) { sum += Math.floor(pixel / info.width); pixels++; }
+    }
+    assert.ok(pixels > 0, 'The panel must be visible');
+    return sum / pixels;
+  }
+  assert.ok(await centroidY(raisedMask.url) < await centroidY(floorMask.url), 'Raising the panel moves it upward in the image');
+  assert.equal(renderScenePerspectiveArtifacts(scene, { width: 320, height: 240 }).baseHash, raised.baseHash);
+});
+
+test('raised fallback module envelopes retain elevation in conditioning artifacts', () => {
+  const floor = structuredClone(PERSPECTIVE_SCENE);
+  floor.moduleParts = [];
+  floor.modules[0].position.zMm = 0;
+  const raised = structuredClone(floor);
+  raised.modules[0].position.zMm = 900;
+  const atFloor = renderScenePerspectiveArtifacts(floor, { width: 320, height: 240 });
+  const mounted = renderScenePerspectiveArtifacts(raised, { width: 320, height: 240 });
+  for (const pass of ['rgb', 'depth', 'edgeMap'] as const) {
+    assert.notEqual(mounted[pass].url, atFloor[pass].url, `${pass} must reflect envelope mounting height`);
+  }
+  assert.notEqual(mounted.objectMasks.find((mask) => mask.id === 'tv-1')?.url, atFloor.objectMasks.find((mask) => mask.id === 'tv-1')?.url);
+  assert.notEqual(mounted.materialRegions.find((region) => region.materialId === 'mat-tv')?.url, atFloor.materialRegions.find((region) => region.materialId === 'mat-tv')?.url);
+});
+
 function makeInput(overrides: Partial<RenderJobInput> = {}): RenderJobInput {
   return {
     projectId: 'proj-1',

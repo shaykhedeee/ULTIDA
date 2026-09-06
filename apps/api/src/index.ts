@@ -352,14 +352,16 @@ app.get('/api/catalog/vault', (_request, response) => {
 app.post('/api/catalog/validate-placement', (request, response) => {
   const { moduleId, roomType, clearanceMm, adjacentFamily } = request.body ?? {};
   if (!moduleId || !roomType || typeof clearanceMm !== 'number') return response.status(400).json({ success: false, code: 'INVALID_PLACEMENT_REQUEST', message: 'moduleId, roomType and clearanceMm are required.' });
+  const parsedRoom = RoomTypeSchema.safeParse(roomType);
+  if (!parsedRoom.success || !Number.isFinite(clearanceMm) || clearanceMm < 0) return response.status(400).json({ success: false, code: 'INVALID_PLACEMENT_REQUEST', message: 'A supported room type and a non-negative finite clearance are required.' });
   const moduleItem = listCatalog().find((item) => item.id === moduleId);
   if (!moduleItem) return response.status(404).json({ success: false, code: 'MODULE_NOT_FOUND', message: 'Module not found in catalog.' });
-  const result = validatePlacement(moduleItem, RoomTypeSchema.parse(roomType), clearanceMm);
+  const result = validatePlacement(moduleItem, parsedRoom.data, clearanceMm);
   const ruleViolations: Array<{ code: string; message: string }> = [];
   if (adjacentFamily === 'kitchen-corner' && (moduleItem.tags.includes('drawer') || moduleItem.family === 'kitchen-base' || moduleItem.tags.includes('base'))) {
     ruleViolations.push({ code: 'KITCHEN_DRAWERS_CORNER_ADJACENT', message: 'Kitchen drawer and base units adjacent to corners require a filler to prevent handle collision.' });
   }
-  return response.status(200).json({ success: result.valid, validation: result, ruleViolations });
+  return response.status(200).json({ success: result.valid, ...result, validation: result, ruleViolations });
 });
 
 app.post('/api/plan/analyze', requireProjectUser, async (request, response) => {

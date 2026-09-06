@@ -5,8 +5,8 @@ import os
 try:
     import ezdxf
 except ImportError:
-    print("WARNING: ezdxf is not installed. Skipping CAD validation.", file=sys.stderr)
-    sys.exit(0)
+    print("ERROR: ezdxf is not installed. Install requirements-test.txt before CAD validation.", file=sys.stderr)
+    sys.exit(1)
 
 def validate_dxf(filepath):
     if not os.path.exists(filepath):

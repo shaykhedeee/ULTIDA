@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import test from 'node:test';
 import type { AddressInfo } from 'node:net';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +50,14 @@ test('canonical writer emits a valid CRLF ASCII DXF structure', () => {
   assert.match(dxf, /0\r\nENDSEC\r\n0\r\nEOF\r\n$/);
   assert.equal(dxf.includes('\n') && dxf.replaceAll('\r\n', '').includes('\n'), false);
   assert.equal([...Buffer.from(dxf)].every((byte) => byte < 128), true);
+});
+
+test('DXF validation fails when the independent validator is unavailable', () => {
+  const validatorPath = join(fileURLToPath(new URL('../../../scripts', import.meta.url)), 'validate_dxf.py');
+  const result = spawnSync('python', ['-I', '-S', validatorPath, 'unused.dxf'], { encoding: 'utf8' });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /ezdxf/);
 });
 
 test('python ezdxf validator approves canonical dxf output', () => {

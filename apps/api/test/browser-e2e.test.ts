@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import test from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { app } from '../src/index.js';
-import puppeteer from 'puppeteer-core';
+import { chromium } from 'playwright';
 
 async function withServer<T>(callback: (baseUrl: string) => Promise<T>) {
   const server = app.listen(0, '127.0.0.1');
@@ -45,7 +45,7 @@ test('Browser headless verification of api documentation & status endpoints', as
     
     let browser;
     try {
-      browser = await puppeteer.launch({
+      browser = await chromium.launch({
         headless: true,
         executablePath: execPath,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
