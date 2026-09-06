@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { compileStoredModuleForScene } from '../src/scene-module-parts.js';
 import type { CanonicalPlanModel } from '@ultida/plan-core';
 import { ModuleEditSchema, prepareModuleEdit, type EditableModule } from '../src/module-edit.js';
 
@@ -10,6 +11,20 @@ const plan = {
 } as unknown as CanonicalPlanModel;
 const module: EditableModule = { id: 'module-a', space_id: 'room-a', category: 'tv-unit', template_id: 'tv-1800', config_json: { family: 'tv-unit', widthMm: 1800, heightMm: 600, depthMm: 400 }, position_json: { wallId: 'wall-a', offsetMm: 0, xMm: 100, yMm: 200, zMm: 0, rotationDeg: 0 } };
 const edit = (changes: object) => ModuleEditSchema.parse({ expectedUpdatedAt: '2026-09-06T00:00:00.000Z', reason: 'Adjust design', ...changes });
+
+test('mounted modules retain their elevation in every compiled component', () => {
+  const grounded = compileStoredModuleForScene(module, plan.walls);
+  const mounted = compileStoredModuleForScene({ ...module, position_json: { ...module.position_json, zMm: 850 } }, plan.walls);
+  assert.ok(grounded.ok && mounted.ok);
+  if (!grounded.ok || !mounted.ok) return;
+  assert.ok(grounded.parts.length > 0);
+  assert.equal(mounted.parts.length, grounded.parts.length);
+  mounted.parts.forEach((part, index) => {
+    assert.equal(part.zMm, (grounded.parts[index].zMm ?? 0) + 850);
+    assert.equal(part.xMm, grounded.parts[index].xMm);
+    assert.equal(part.yMm, grounded.parts[index].yMm);
+  });
+});
 
 test('dimension editing preserves the original and reanchors canonical geometry', () => {
   const original = structuredClone(module);

@@ -234,7 +234,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const roomWalls = useMemo(() => {
     const polygon = selectedSpace?.geometry_json?.polygon ?? [];
     const points = polygon.map((point) => ({ x: Number(point.xMm ?? point.x), y: Number(point.yMm ?? point.y) })).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
-    if (points.length < 3) return walls;
+    if (points.length < 3) return [];
     const tolerance = 300;
     const distanceToSegment = (point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) => {
       const dx = end.x - start.x;
@@ -248,7 +248,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     const filtered = walls.filter((wall) => nearBoundary(wall.start) && nearBoundary(wall.end));
     // Never manufacture a client-only wall ID: module persistence validates
     // anchors against the accepted plan wall collection.
-    return filtered.length ? filtered : walls;
+    return filtered;
   }, [selectedSpace, walls]);
   const selectedWall = roomWalls.find((wall) => wall.id === wallId) ?? roomWalls[0] ?? null;
   const selectedWallLengthMm = selectedWall?.start && selectedWall?.end ? Math.hypot(selectedWall.end.xMm - selectedWall.start.xMm, selectedWall.end.yMm - selectedWall.start.yMm) : 0;
@@ -435,6 +435,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               id: String(space.id),
               name: String(space.name ?? space.room_type ?? space.id),
               roomType: String(space.roomType ?? space.room_type ?? 'other'),
+              geometry_json: { ...space.geometry_json, polygon: space.geometry_json?.worldPolygon ?? space.geometry_json?.polygon ?? [] },
             }))
           : [];
         const nextWalls = Array.isArray(planPayload.walls) ? planPayload.walls : [];
@@ -974,6 +975,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     setPlacementNotice('Compiling scene-ready room modules into scene.v1...');
     try {
       const nextSceneId = await onSceneCreated(crypto.randomUUID(), readyModules, sceneMaterials);
+      if (!nextSceneId) throw new Error('Scene compilation did not return a saved scene version. Check the project readiness and retry.');
       if (nextSceneId) setCompiledSceneId(nextSceneId);
       setPlacementNotice(`Scene compiled with ${readyModules.length} persisted module${readyModules.length === 1 ? '' : 's'}, exact wall anchors, parts, and finishes.`);
       return nextSceneId;

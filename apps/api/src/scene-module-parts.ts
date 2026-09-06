@@ -35,7 +35,7 @@ function wallLengthMm(wall: CanonicalWall) {
 }
 
 function scenePosition(
-  modulePosition: { xMm: number; yMm: number; rotationDeg: number },
+  modulePosition: { xMm: number; yMm: number; zMm: number; rotationDeg: number },
   local: { xMm: number; yMm: number; zMm: number },
 ) {
   // Keep the part transform convention aligned with the existing scene.v1
@@ -45,7 +45,7 @@ function scenePosition(
   return {
     xMm: modulePosition.xMm + local.xMm * Math.cos(radians) - local.yMm * Math.sin(radians),
     yMm: modulePosition.yMm + local.xMm * Math.sin(radians) + local.yMm * Math.cos(radians),
-    zMm: local.zMm,
+    zMm: modulePosition.zMm + local.zMm,
   };
 }
 
@@ -119,7 +119,7 @@ export function compileStoredModuleForScene(
   if (!compiled.valid) {
     return { ok: false, code: 'MODULE_COMPILATION_BLOCKED', message: compiled.blockingViolations.join(' ') || `Module ${module.id} did not satisfy its construction rules.` };
   }
-  const modulePosition = { xMm, yMm, rotationDeg };
+  const modulePosition = { xMm, yMm, zMm: moduleEnvelope.zMm ?? 0, rotationDeg };
   return {
     ok: true,
     module: moduleEnvelope,
