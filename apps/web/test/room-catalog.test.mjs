@@ -1,8 +1,9 @@
 import { after, before, test } from 'node:test';
+import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { createServer } from 'vite';
 import { chromium, expect } from '@playwright/test';
-import { listCatalog } from '@ultida/catalog-core';
+import { IndianModularCatalog, listCatalog } from '@ultida/catalog-core';
 
 let vite, browser, baseUrl;
 before(async () => {
@@ -40,6 +41,7 @@ async function roomPage(catalogHandler) {
     let payload = {};
     if (url.pathname.endsWith('/spaces')) payload = { spaces: [
       { id: 'kitchen', name: 'Kitchen', room_type: 'kitchen', geometry_json: { worldPolygon: [] } },
+      { id: 'living', name: 'Living', room_type: 'living', geometry_json: { worldPolygon: [] } },
       { id: 'dining', name: 'Dining', room_type: 'dining', geometry_json: { worldPolygon: [] } },
     ] };
     if (url.pathname.endsWith('/floor-plan/active')) payload = { walls: [], openings: [] };
@@ -55,10 +57,10 @@ test('switching rooms clears filters that hide the new room catalog', async () =
     await expect(page.locator('button.catalog-item').first()).toBeVisible();
     await expect(page.locator('button.catalog-item button')).toHaveCount(0);
     await page.getByLabel(/^Module family/).selectOption('kitchen-base');
-    await page.getByPlaceholder('TV wall, glass crockery, loft wardrobe').fill('base');
+    await page.getByPlaceholder('Search Kitchen modules').fill('base');
     await page.getByLabel(/^Place in/).selectOption('dining');
     await expect(page.locator('button.catalog-item').filter({ hasText: '1800 Full-Wall Crockery' })).toBeVisible();
-    await page.getByPlaceholder('TV wall, glass crockery, loft wardrobe').fill('nothing-matches-this');
+    await page.getByPlaceholder('Search Dining modules').fill('nothing-matches-this');
     await expect(page.getByRole('button', { name: 'Clear catalog filters' })).toBeVisible();
     await page.getByRole('button', { name: 'Clear catalog filters' }).click();
     await expect(page.locator('button.catalog-item').first()).toBeVisible();
@@ -70,6 +72,17 @@ test('failed catalog request retains bundled room templates', async () => {
   try {
     await page.getByLabel(/^Place in/).selectOption('dining');
     await expect(page.locator('button.catalog-item').filter({ hasText: '1800 Full-Wall Crockery' })).toBeVisible();
+  } finally { await page.close(); }
+});
+
+test('a broad catalog response is narrowed to the selected room', async () => {
+  const page = await roomPage((route) => route.fulfill({ json: { modules: IndianModularCatalog } }));
+  try {
+    await page.getByLabel(/^Place in/).selectOption('living');
+    await expect(page.locator('button.catalog-item').filter({ hasText: '2400 Fluted Media Wall' })).toBeVisible();
+    const livingLabels = await page.locator('button.catalog-item').allTextContents();
+    assert.ok(livingLabels.every((label) => !/kitchen base|kitchen wall|kitchen tall|kitchen corner/i.test(label)), livingLabels.join(' | '));
+    await expect(page.getByRole('button', { name: /Kitchen base/i })).toHaveCount(0);
   } finally { await page.close(); }
 });
 

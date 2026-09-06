@@ -9,10 +9,11 @@ import { getApiBase } from '../../lib/api-base';
 import './visual-studio.css';
 import { ModulePreview } from '../library/ModulePreview';
 import { listCatalog } from '@ultida/catalog-core';
+import { catalogForRoom } from './catalog-room-filter';
 
 type Stage = 'Design' | 'Visualize' | 'Document';
 type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration; updatedAt?: string };
-type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; description?: string; manufacturingRules?: string[] };
+type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; roomTypes: string[]; description?: string; manufacturingRules?: string[] };
 type PreparedModulePlan = { schema: 'ultida.module-plan.v1'; templateId: string; family: string; name: string; dimensionsMm: { width: number; depth: number; height: number }; wallWidthMm: number; clearanceMm: number };
 type DesignPreset = { id: string; name: string; family: string; roomTypes: string[]; referenceStyle: string[]; renderRules: string[]; productionRules: string[] };
 type ModuleConfiguration = { archetype: string; shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; shutterCount?: number; includeLoft: boolean; glassProfile: boolean; sideFillerLeft: boolean; sideFillerRight: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
@@ -24,6 +25,11 @@ type ScenePreflightModule = { id: string; roomId: string; label: string; family:
 type ScenePreflight = { room: { id: string; planRoomId?: string; name: string; roomType: string }; modules: ScenePreflightModule[]; requestedModuleIds: string[]; sceneReady: boolean; blockers: Array<Record<string, unknown>> };
 type Props = { stage: Stage; focus?: DesignFocus; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
 const apiBase = getApiBase();
+const familyLabels: Record<string, string> = {
+  'kitchen-base': 'Kitchen base', 'kitchen-wall': 'Kitchen wall', 'kitchen-tall': 'Kitchen tall', 'kitchen-corner': 'Kitchen corner',
+  wardrobe: 'Wardrobes', 'tv-unit': 'TV units', crockery: 'Crockery', pooja: 'Mandir', sofa: 'Seating', bed: 'Beds', study: 'Study',
+  utility: 'Utility', dining: 'Dining', storage: 'Storage', lighting: 'Lighting', 'feature-wall': 'Feature walls', 'false-ceiling': 'Ceiling',
+};
 
 function localCatalogForRoom(roomType: string): CatalogItem[] {
   const permittedRooms = new Set(['kitchen', 'living', 'bedroom', 'master_bedroom', 'kids_bedroom', 'bathroom', 'dining', 'study', 'pooja', 'utility', 'foyer', 'balcony', 'other']);
@@ -36,6 +42,7 @@ function localCatalogForRoom(roomType: string): CatalogItem[] {
     depthMm: item.depthMm,
     heightMm: item.heightMm,
     tags: item.tags,
+    roomTypes: item.roomTypes,
     description: item.description,
     manufacturingRules: item.manufacturingRules,
   }));
@@ -168,10 +175,11 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [catalogQuery, setCatalogQuery] = useState('');
   const [familyFilter, setFamilyFilter] = useState('all');
-  const visibleCatalogItems = catalogItems.filter((item) => familyFilter === 'all' || item.family === familyFilter).filter((item) => {
+  const visibleCatalogItems = catalogForRoom(catalogItems, room).filter((item) => familyFilter === 'all' || item.family === familyFilter).filter((item) => {
     const search = catalogQuery.trim().toLowerCase();
     return !search || [item.name, item.family, item.description, ...item.tags].filter(Boolean).join(' ').toLowerCase().includes(search);
   });
+  const compatibleFamilies = [...new Set(catalogForRoom(catalogItems, room).map((item) => item.family))].sort();
   const [moduleConfiguration, setModuleConfiguration] = useState<ModuleConfiguration>({ archetype: 'full_wall_storage', shutterStyle: 'swing', drawerCount: 0, includeLoft: false, glassProfile: false, sideFillerLeft: false, sideFillerRight: false, handleStyle: 'long-profile', lighting: 'none' });
   const [draftModules, setDraftModules] = useState<Module[]>([]);
   const moduleEditPending = useRef(false);
@@ -462,7 +470,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   useEffect(() => {
     setFamilyFilter('all');
     setCatalogQuery('');
-  }, [spaceId]);
+  }, [spaceId, room]);
 
   useEffect(() => {
     let active = true;
@@ -478,8 +486,11 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         const response = await fetch(`${apiBase}/catalog/modules?room=${encodeURIComponent(room)}`, { headers: await authenticatedHeaders() });
         const payload = await response.json().catch(() => null);
         if (!active) return;
-        if (response.ok && Array.isArray(payload?.modules) && payload.modules.length > 0) {
-          setCatalogItems(payload.modules);
+        const compatibleModules = Array.isArray(payload?.modules)
+          ? catalogForRoom(payload.modules as CatalogItem[], room)
+          : [];
+        if (response.ok && compatibleModules.length > 0) {
+          setCatalogItems(compatibleModules);
           return;
         }
         setCatalogItems(localCatalogForRoom(room));
@@ -1500,7 +1511,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
           <Card className="catalog-panel">
             <CardHeader>
               <small>MODULE CATALOG</small>
-              <h3>Modular building blocks</h3>
+              <h3>{selectedSpace ? `${selectedSpace.name} modules` : 'Select a room'}</h3>
             </CardHeader>
             <CardContent>
               <label>
@@ -1607,20 +1618,14 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
               <label>
                 Search templates
-                <input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="TV wall, glass crockery, loft wardrobe" />
+                <input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder={`Search ${selectedSpace?.name ?? 'room'} modules`} />
               </label>
               <div style={{ marginTop: '0.5rem', marginBottom: '0.25rem' }}>
-                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>MODULAR CATEGORIES</span>
+                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>COMPATIBLE CATEGORIES · {compatibleFamilies.length} AVAILABLE</span>
                 <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '8px' }}>
                   {[
                     { id: 'all', label: '🌟 All' },
-                    { id: 'kitchen', label: '🍳 Kitchen' },
-                    { id: 'wardrobe', label: '🚪 Wardrobes' },
-                    { id: 'tv-unit', label: '📺 TV Units' },
-                    { id: 'crockery', label: '🍷 Crockery' },
-                    { id: 'pooja', label: '🪔 Mandir' },
-                    { id: 'study', label: '📚 Study' },
-                    { id: 'utility', label: '🪞 Vanity' },
+                    ...compatibleFamilies.map((id) => ({ id, label: familyLabels[id] ?? id })),
                   ].map((cat) => (
                     <button
                       key={cat.id}
@@ -1647,7 +1652,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 Module family
                 <select value={familyFilter} onChange={(event) => setFamilyFilter(event.target.value)}>
                   <option value="all">All compatible families</option>
-                  {[...new Set(catalogItems.map((item) => item.family))].sort().map((family) => <option key={family} value={family}>{family}</option>)}
+                  {compatibleFamilies.map((family) => <option key={family} value={family}>{familyLabels[family] ?? family}</option>)}
                 </select>
               </label>
               <fieldset className="module-configuration" style={{ border: '1px solid #e8ded2', borderRadius: '6px', padding: '0.75rem', display: 'grid', gap: '0.55rem' }}>
@@ -1748,7 +1753,13 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     <Plus size={15} />
                   </button>
                 ))}
-                {catalogLoading ? <p className="placement-notice"><Loader2 className="ultida-spinner" size={14} aria-hidden="true" /> Loading compatible furniture…</p> : !catalogItems.length && <p className="placement-notice">No templates could be loaded for this room. Check the catalogue service or correct the room type.</p>}
+                {catalogLoading ? <p className="placement-notice"><Loader2 className="ultida-spinner" size={14} aria-hidden="true" /> Loading compatible furniture…</p> : !catalogItems.length && <p className="placement-notice">No templates are certified for this room yet. Correct the room type or add a compatible catalog entry.</p>}
+                {!catalogLoading && catalogItems.length > 0 && !visibleCatalogItems.length && (
+                  <div className="placement-notice" role="status">
+                    No {selectedSpace?.name ?? room} modules match these filters.
+                    <Button variant="outline" onClick={() => { setCatalogQuery(''); setFamilyFilter('all'); }}>Clear filters</Button>
+                  </div>
+                )}
                 {!catalogLoading && catalogItems.length > 0 && visibleCatalogItems.length === 0 && <div className="placement-notice" role="status">
                   <p>No templates match these filters in this room.</p>
                   <Button type="button" onClick={() => { setFamilyFilter('all'); setCatalogQuery(''); }}>Clear catalog filters</Button>
