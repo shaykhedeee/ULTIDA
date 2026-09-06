@@ -22,4 +22,12 @@ test('a laminate revision fingerprint is unique to the selected module and compo
   const otherModule = renderInputFingerprint({ ...base, targetModuleId: 'module-crockery-1', targetSemanticSlot: 'shutter' });
   assert.notEqual(shutters, carcass);
   assert.notEqual(shutters, otherModule);
+  assert.notEqual(shutters, renderInputFingerprint({ ...base, targetMaterialId: 'laminate-oak', targetModuleId: 'module-tv-1', targetSemanticSlot: 'shutter' }));
+});
+
+test('render fingerprints retain long prompt suffixes and punctuation', () => {
+  const style = 'Warm walnut with ivory shutters and concealed warm lighting';
+  const first = renderInputFingerprint({ style });
+  assert.notEqual(first, renderInputFingerprint({ style: `${style} and brass` }));
+  assert.notEqual(first, renderInputFingerprint({ style: `${style}!` }));
 });

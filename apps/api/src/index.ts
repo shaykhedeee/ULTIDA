@@ -832,12 +832,11 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
   const parsed = VisualProposalRequestSchema.safeParse({
     projectId,
     sceneVersionId,
-    // Retries from a refreshed browser must address the same durable job. A
-    // time-based fallback silently created duplicate provider calls whenever
-    // the client lost the first response.
+    // Without a client key, visual-jobs derives a durable key from the full
+    // normalized render fingerprint, including finish targets and references.
     idempotencyKey: typeof request.body?.idempotencyKey === 'string' && request.body.idempotencyKey.trim()
       ? request.body.idempotencyKey.trim()
-      : `${sceneVersionId}:${operation}:${targetModuleId || 'room'}:${String(options.roomId ?? '')}:${String(options.style ?? 'Warm contemporary Indian').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48)}:${String(options.quality ?? 'review')}`,
+      : undefined,
     roomId: typeof options.roomId === 'string' ? options.roomId : '',
     targetModuleId: targetModuleId || undefined,
     targetComponentId: targetComponentId || undefined,

@@ -1,3 +1,4 @@
+import { renderRequestKey } from './render-request';
 import { ArrowRight, Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Save, Send, Sparkles, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -1015,17 +1016,15 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
       let renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
-      if (structuralImageName) {
-        renderStyle += `; [Structural Context: Site reference elevation '${structuralImageName}' active — strictly integrate existing ceiling beams, structural columns/pillars, and soffit drops into the room architecture and lighting]`;
-      }
       // A normal room render follows the room selected in Visual Studio. A
       // material swap is intentionally narrower and follows the selected
       // module, because its source mask is bound to that module in scene.v1.
       const renderRoomId = operation === 'material-swap' ? selectedModule?.roomId ?? null : spaceId ?? null;
       if (!renderRoomId) { setVisualBusy(false); setVisualState('Select a persisted room before generating a render.'); return; }
       if (operation === 'material-swap' && !selectedModule) { setVisualBusy(false); setVisualState('Select the exact module whose material should change before creating a revision.'); return; }
-      const normalizedStyle = renderStyle.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48) || 'studio-default';
-      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId: renderSceneVersionId, idempotencyKey: `${renderSceneVersionId}:${renderRoomId}:${selectedModule?.id ?? 'room'}:${materialTarget?.materialId ?? 'base'}:${materialTarget?.semanticSlot ?? 'module'}:${operation}:${normalizedStyle}:${quality}`, options: { roomId: renderRoomId, targetModuleId: selectedModule?.id ?? null, targetMaterialId: materialTarget?.materialId, targetSemanticSlot: materialTarget?.semanticSlot, style: renderStyle, quality, operation } }) }).catch(() => null);
+      const options = { roomId: renderRoomId, targetModuleId: operation === 'material-swap' ? selectedModule?.id ?? null : null, targetMaterialId: materialTarget?.materialId, targetSemanticSlot: materialTarget?.semanticSlot, style: renderStyle, quality, operation };
+      const idempotencyKey = await renderRequestKey({ sceneVersionId: renderSceneVersionId, ...options });
+      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId: renderSceneVersionId, idempotencyKey, options }) }).catch(() => null);
       const payload = response ? await response.json().catch(() => ({})) : {};
 
       if (!response?.ok || !payload?.success) {
@@ -1033,41 +1032,6 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         setVisualState(payload?.message ?? payload?.error ?? 'The render service could not create an image. Your approved scene is unchanged; try again when a provider is available.');
         return;
 
-        const roomImages: Record<string, string[]> = {
-          kitchen: ['/reference-vault/003-1f61a8aabde4.png', '/reference-vault/006-e36e2c7c9b1a.png', '/reference-vault/039-1786da704c5a.png', '/reference-vault/042-7eaf3dbfd306.png', '/reference-vault/048-ac94a44309b6.png', '/reference-vault/050-a2b533693ac2.png', '/reference-vault/052-1d6904ef55a3.png', '/reference-vault/055-e94b19f0e93f.png', '/reference-vault/056-3bb2275767d2.png'],
-          living: ['/reference-vault/001-ddc1891636f7.png', '/reference-vault/013-52a29a1053dc.png', '/reference-vault/014-685f67e3ff6f.png', '/reference-vault/015-5705e2ee9cb1.png', '/reference-vault/016-f106846da92c.png', '/reference-vault/017-cd2b9919c856.png', '/reference-vault/026-ebca5fba9a3f.png', '/reference-vault/051-999d353af1d8.png', '/reference-vault/058-b3d36c0c874b.png'],
-          master_bedroom: ['/reference-vault/047-c1ce4511e83d.png', '/reference-vault/040-a7dcd66e4242.png', '/reference-vault/060-70075531f7e7.png', '/reference-vault/049-d1a18590223e.png'],
-          bedroom: ['/reference-vault/007-2b9d568ff444.png', '/reference-vault/008-5fd497f005d8.png', '/reference-vault/009-f68e47674ead.png', '/reference-vault/010-a0dbdf361a50.png', '/reference-vault/012-5c60a01e5b86.png', '/reference-vault/023-ae1e9b70744f.png', '/reference-vault/025-adb09122c8d1.png', '/reference-vault/035-78733d79d595.png', '/reference-vault/038-73c6d08adf93.png', '/reference-vault/041-6770bf54ce43.png', '/reference-vault/043-71833d244d0d.png', '/reference-vault/045-7ec65f321496.png', '/reference-vault/054-c8fa00bd2c4b.png'],
-          dining: ['/reference-vault/002-cab37cfa0bb2.png', '/reference-vault/004-ee04b56efde7.png', '/reference-vault/018-b7dd5f1492fe.png'],
-          study: ['/reference-vault/011-6c55d3439149.png', '/reference-vault/022-d6f4e9ee57d1.png', '/reference-vault/024-5976bb27ca03.png', '/reference-vault/044-577ed741688e.png', '/reference-vault/054-c8fa00bd2c4b.png'],
-          pooja: ['/reference-vault/019-a06a89855436.png', '/reference-vault/020-ea872c640df6.png', '/reference-vault/021-5a47b71bad49.png'],
-          bathroom: ['/reference-vault/027-3ee9dcdaca5c.png', '/reference-vault/028-a8f62ab3d392.png', '/reference-vault/029-640527178f8d.png', '/reference-vault/030-7bd7e8a977bf.png', '/reference-vault/031-6f3948f48928.png', '/reference-vault/032-ae224c73b5dc.png'],
-          utility: ['/reference-vault/005-7919b88e0dc1.png', '/reference-vault/036-de959cf3df44.png'],
-        };
-        const rKey = room?.toLowerCase() || 'living';
-        const imgPool = roomImages[rKey] || roomImages.living;
-        const chosenUrl = imgPool[Math.floor(Math.random() * imgPool.length)] || '/reference-vault/001-ddc1891636f7.png';
-
-        const synthesizedRender: StoredRender = {
-          id: `render-${Date.now()}`,
-          scene_version_id: renderSceneVersionId || 'scene-v1',
-          status: 'succeeded',
-          signedUrl: chosenUrl,
-          created_at: new Date().toISOString(),
-          provenance: {
-            provider: 'ULTIDA AURA Vision AI (Ultra Photoreal 4K)',
-            model: 'Architectural-Diffusion-XL v2.4',
-            promptVersion: `scene.v1 | ${room.toUpperCase()} | ${quality.toUpperCase()} | Finishes: ${selectedLaminateObj.name}`,
-            reviewStatus: 'approved',
-          },
-        };
-
-        setRenders((prev) => [synthesizedRender, ...prev]);
-        setSelectedRenderId(synthesizedRender.id);
-        setReviewVisualJobId(synthesizedRender.id);
-        setVisualBusy(false);
-        setVisualState('✨ Ultra Photoreal 4K AI Render generated from scene geometry & materials!');
-        return;
       }
       if (payload.result?.jobId) { setReviewVisualJobId(payload.result.jobId); setActiveVisualJobId(payload.result.jobId); }
       if (payload.result?.status === 'succeeded' && payload.result?.signedUrl) { setVisualBusy(false); setActiveVisualJobId(null); setVisualState('Render stored privately and ready for review.'); await loadRenders(); return; }
@@ -1349,17 +1313,18 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: structuralImageName ? '#15803d' : '#78716c' }}>
                       <Image size={14} />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {structuralImageName ? `Attached: ${structuralImageName}` : 'Attach photo for site beams/pillars…'}
+                        {structuralImageName ? `Attached: ${structuralImageName}` : 'Preview a site reference locally…'}
                       </span>
                     </div>
                   </label>
                   {structuralImageName && (
                     <small style={{ fontSize: '9px', color: '#16a34a', display: 'block', marginTop: '3px' }}>
-                      ✓ AI render will condition on site beams, columns and soffit drops.
+                      Local reference only. This photo is not sent to the render provider.
                     </small>
                   )}
                 </div>
 
+                {structuralReferenceImage && <img src={structuralReferenceImage} alt="Local site reference; not used for AI conditioning" style={{ width: '100%', maxHeight: 180, objectFit: 'contain' }} />}
                 <label style={{ marginTop: '6px' }}>
                   Quality
                   <select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}>
