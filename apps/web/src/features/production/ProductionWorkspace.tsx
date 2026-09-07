@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FolderKanban, Package, AlertTriangle, CheckCircle2, Download, ChevronLeft, ChevronRight, Maximize2, PanelRightClose, ClipboardList, Settings, SlidersHorizontal } from 'lucide-react';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
@@ -98,6 +98,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
   const [cncAssets, setCncAssets] = useState<CncAsset[]>([]);
   const [preflightResult, setPreflightResult] = useState<{ status: 'idle' | 'running' | 'passed' | 'failed'; issues: string[] } | null>(null);
   const [exportState, setExportState] = useState('Choose an approved scene export.');
+  const [partQuery, setPartQuery] = useState('');
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewSaving, setReviewSaving] = useState(false);
@@ -247,6 +248,10 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
   const prevTab = TABS[(activeTabIndex - 1 + TABS.length) % TABS.length];
 
   const releaseReady = parts.length > 0 && parts.every((p) => p.status === 'approved') && sceneApproved;
+  const visibleParts = useMemo(() => {
+    const query = partQuery.trim().toLowerCase();
+    return query ? parts.filter((part) => `${part.partInstanceId} ${part.partName} ${part.family} ${part.materialCode} ${part.semanticType}`.toLowerCase().includes(query)) : parts;
+  }, [parts, partQuery]);
 
   return (
     <div className="production-workspace">
@@ -303,12 +308,12 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
             <div className="production-parts-grid">
               <div className="parts-toolbar">
                 <h4>Manufacturing Parts</h4>
-                <Badge variant="info">{parts.length} parts</Badge>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input aria-label="Search cutlist parts" value={partQuery} onChange={(event) => setPartQuery(event.target.value)} placeholder="Search ID, module, material..." style={{ minWidth: 220, padding: '6px 9px', border: '1px solid #d6d3d1', borderRadius: 6, fontSize: 11 }} /><Badge variant="info">{visibleParts.length}/{parts.length} parts</Badge></div>
               </div>
               <table className="production-table">
                 <thead><tr><th>Part ID</th><th>Module</th><th>Material</th><th>L (mm)</th><th>W (mm)</th><th>T (mm)</th><th>Qty</th><th>Grain</th><th>Edge Banding</th><th>Status</th></tr></thead>
                 <tbody>
-                  {parts.map((part) => (
+                  {visibleParts.map((part) => (
                     <tr key={part.id}>
                       <td>{part.partInstanceId}</td><td>{part.family}</td><td>{part.materialCode}</td>
                       <td>{part.lengthMm}</td><td>{part.widthMm}</td><td>{part.thicknessMm}</td><td>{part.quantity}</td>
