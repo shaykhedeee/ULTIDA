@@ -1,5 +1,5 @@
 import { validateCanonicalPlan, type CanonicalPlanModel } from '@ultida/plan-core';
-import { CompositionScheduleV1Schema, type CompositionScheduleV1 } from '@ultida/contracts';
+import { CompositionScheduleV1Schema, FloorSurfaceV1Schema, type CompositionScheduleV1, type FloorSurfaceV1 } from '@ultida/contracts';
 import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
 
 export type CompiledModulePart = {
@@ -29,6 +29,7 @@ export type SceneCompilerInput = {
   moduleParts?: CompiledModulePart[];
   materials?: Array<{ id: string; name: string; code: string; finish?: string }>;
   compositionSchedules?: CompositionScheduleV1[];
+  floorSurfaces?: FloorSurfaceV1[];
   changeReason?: string;
 };
 
@@ -392,6 +393,12 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
       confirmedAt: schedule.confirmedAt,
     };
   });
+  const floorSurfaces = (input.floorSurfaces ?? []).map((candidate, index) => {
+    const surface = FloorSurfaceV1Schema.parse(candidate);
+    const room = rooms.find((item) => item.id === surface.roomId);
+    if (!room) throw new SceneCompilationError([{ code: 'FLOOR_SURFACE_ROOM_MISSING', message: `Floor surface ${surface.id} references missing room ${surface.roomId}.` }]);
+    return { ...surface, regionPolygon: surface.regionPolygon.map((point) => ({ ...point })), tile: surface.tile ? { ...surface.tile } : undefined, skirting: surface.skirting ? { ...surface.skirting, doorwayExclusions: surface.skirting.doorwayExclusions.map((range) => ({ ...range })) } : undefined };
+  });
 
   return SceneV1Schema.parse({
     schema: 'scene.v1',
@@ -399,7 +406,7 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     coordinateSystem: 'right-handed-z-up',
     projectId: input.projectId,
     floorPlanVersionId: input.floorPlanVersionId,
-    floors: [{ id: defaultFloorId, name: 'Ground Floor', elevationMm: 0, heightMm: input.plan.ceilingHeightMm }],
+    floors: [{ id: defaultFloorId, name: 'Ground Floor', elevationMm: 0, heightMm: input.plan.ceilingHeightMm, surfaces: floorSurfaces }],
     spaces: spaces.map((space) => ({ id: space.id, floorId: defaultFloorId, name: space.roomName ?? space.roomType, type: space.roomType })),
     rooms,
     walls,

@@ -12,7 +12,7 @@ export const SceneV1Schema = z.object({
   coordinateSystem: z.literal('right-handed-z-up'),
   projectId: Id,
   floorPlanVersionId: Id,
-  floors: z.array(z.object({ id: Id, name: z.string(), elevationMm: z.number().finite(), heightMm: z.number().positive() })).min(1),
+  floors: z.array(z.object({ id: Id, name: z.string(), elevationMm: z.number().finite(), heightMm: z.number().positive(), surfaces: z.array(z.object({ id: Id, roomId: Id, materialVersionId: Id, regionPolygon: Polygon, elevationMm: z.number().finite(), buildUpThicknessMm: z.number().nonnegative(), substrate: z.string().min(1), tile: z.object({ widthMm: z.number().positive(), lengthMm: z.number().positive(), groutWidthMm: z.number().nonnegative(), groutColor: z.string().min(1), originX: z.number().finite(), originY: z.number().finite(), angleDeg: z.number().finite(), pattern: z.enum(['grid','brick']) }).optional(), skirting: z.object({ heightMm: z.number().positive(), profile: z.string().min(1), doorwayExclusions: z.array(z.object({ startMm: z.number().nonnegative(), endMm: z.number().nonnegative() })).default([]) }).optional() })).default([]) })).min(1),
   spaces: z.array(z.object({ id: Id, floorId: Id, name: z.string(), type: z.string() })),
   rooms: z.array(z.object({ id: Id, spaceId: Id, name: z.string(), type: z.string(), boundary: Polygon, confidence: Confidence })),
   walls: z.array(z.object({ id: Id, floorId: Id, start: PointMm, end: PointMm, thicknessMm: z.number().positive(), heightMm: z.number().positive(), baseElevationMm: z.number().nonnegative().default(0), spaceIds: z.array(Id).default([]), confidence: Confidence })),

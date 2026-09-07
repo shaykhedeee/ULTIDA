@@ -133,3 +133,23 @@ test('compileSceneV1 persists only a reconciled composition schedule', () => {
   assert.equal(scene.compositions[0]?.approvedUsableWidthMm, 1200);
   assert.equal(scene.compositions[0]?.bays[0]?.keepOut, false);
 });
+
+test('floor surface material changes stay isolated to their authored room', () => {
+  const secondRoomId = 'b8c4f9c1-390d-4cf3-bf95-3ce6e2d64b23';
+  const secondSpaceId = 'b8c4f9c1-390d-4cf3-bf95-3ce6e2d64b23';
+  const twoRoomPlan = {
+    ...plan,
+    spaces: [
+      ...plan.spaces,
+      { id: secondSpaceId, sourcePolygon: [{ x: 4200, y: 0 }, { x: 7200, y: 0 }, { x: 7200, y: 3000 }, { x: 4200, y: 0 }], worldPolygon: [{ xMm: 4200, yMm: 0 }, { xMm: 7200, yMm: 0 }, { xMm: 7200, yMm: 3000 }, { xMm: 4200, yMm: 0 }], roomType: 'bedroom', ceilingHeightMm: 2700, wallRefs: [], openingRefs: [], verification: 'verified' },
+    ],
+  };
+  const surface = (id: string, roomId: string, materialVersionId: string, x: number) => ({
+    id, roomId, materialVersionId, regionPolygon: [{ xMm: x, yMm: 0 }, { xMm: x + 2000, yMm: 0 }, { xMm: x + 2000, yMm: 2000 }, { xMm: x, yMm: 0 }], elevationMm: 0, buildUpThicknessMm: 12, substrate: 'screed',
+    tile: { widthMm: 600, lengthMm: 600, groutWidthMm: 2, groutColor: 'grey', originX: x, originY: 0, angleDeg: 0, pattern: 'grid' as const },
+  });
+  const scene = compileSceneV1({ projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan: twoRoomPlan, floorSurfaces: [surface('floor-living', plan.spaces[0].id, 'mat-marble-v1', 0), surface('floor-bedroom', secondRoomId, 'mat-wood-v1', 4200)] } as any);
+  const surfaces = scene.floors[0]?.surfaces ?? [];
+  const changed = surfaces.map((item: any) => item.roomId === plan.spaces[0].id ? { ...item, materialVersionId: 'mat-stone-v2' } : item);
+  assert.equal(changed.find((item: any) => item.roomId === secondRoomId)?.materialVersionId, 'mat-wood-v1');
+});

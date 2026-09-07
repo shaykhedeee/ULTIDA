@@ -171,6 +171,16 @@ export const CompositionScheduleV1Schema = z.object({
 });
 export type CompositionScheduleV1 = z.infer<typeof CompositionScheduleV1Schema>;
 
+export const FloorPointV1Schema = z.object({ xMm: z.number().finite(), yMm: z.number().finite() });
+export type FloorPointV1 = z.infer<typeof FloorPointV1Schema>;
+export const FloorSurfaceV1Schema = z.object({
+  id: z.string().min(1), roomId: z.string().min(1), materialVersionId: z.string().min(1),
+  regionPolygon: z.array(FloorPointV1Schema).min(3), elevationMm: z.number().finite(), buildUpThicknessMm: z.number().nonnegative(), substrate: z.string().min(1),
+  tile: z.object({ widthMm: z.number().positive(), lengthMm: z.number().positive(), groutWidthMm: z.number().nonnegative(), groutColor: z.string().min(1), originX: z.number().finite(), originY: z.number().finite(), angleDeg: z.number().finite(), pattern: z.enum(['grid', 'brick']) }).optional(),
+  skirting: z.object({ heightMm: z.number().positive(), profile: z.string().min(1), doorwayExclusions: z.array(z.object({ startMm: z.number().nonnegative(), endMm: z.number().nonnegative() })).default([]) }).optional(),
+});
+export type FloorSurfaceV1 = z.infer<typeof FloorSurfaceV1Schema>;
+
 export const MaterialLibraryItemV1Schema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(1).max(160),
