@@ -4,6 +4,11 @@ import sharp from 'sharp';
 type Environment = Record<string, string | undefined>;
 type ComfyWorkflow = Record<string, unknown>;
 
+/** Providers that may be used when the request does not name a provider. */
+export const DEFAULT_PROVIDER_PREFERENCE = ['cloudflare', 'localai', 'free-image-worker', 'comfyui'] as const;
+const DEFAULT_ELIGIBLE_PROVIDERS = new Set<string>(DEFAULT_PROVIDER_PREFERENCE);
+type GatewayProviderStatus = ProviderCapabilityStatus & { optedIn: boolean; eligible: boolean };
+
 export type ImageProviderConfig =
   | { provider: 'openai'; model: 'dall-e-3' | 'gpt-image-1' }
   | { provider: 'gemini'; model: string }
@@ -76,6 +81,39 @@ function optedIntoProvider(environment: Environment, providerId: string) {
   return environment[`${providerId.toUpperCase().replaceAll('-', '_')}_OPT_IN`] === 'true';
 }
 
+export type GeminiFundingHealth = {
+  provider: 'gemini-nano-banana-2';
+  eligible: boolean;
+  status: number | null;
+  model: string;
+  reason: string;
+};
+
+/**
+ * Performs a small authenticated model-access request. It is deliberately
+ * separate from image generation so a Gemini key cannot silently become a
+ * paid fallback merely because it exists in the environment.
+ */
+export async function checkGeminiFundingHealth(environment: Environment): Promise<GeminiFundingHealth> {
+  const model = environment.GEMINI_IMAGE_MODEL ?? 'gemini-3.1-flash-image';
+  const apiKey = geminiImageKey(environment);
+  if (!apiKey) return { provider: 'gemini-nano-banana-2', eligible: false, status: null, model, reason: 'No Gemini image API key is configured.' };
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`, {
+      method: 'GET',
+      headers: { 'x-goog-api-key': apiKey },
+    });
+    const eligible = response.ok;
+    const reason = eligible ? 'Gemini model access and quota probe succeeded.' : `Gemini funding/quota probe returned HTTP ${response.status}.`;
+    console.info('[provider-gateway] Gemini funding health check', { model, status: response.status, eligible });
+    return { provider: 'gemini-nano-banana-2', eligible, status: response.status, model, reason };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'Gemini funding/quota probe failed.';
+    console.info('[provider-gateway] Gemini funding health check failed', { model, reason });
+    return { provider: 'gemini-nano-banana-2', eligible: false, status: null, model, reason };
+  }
+}
+
 function localAiBaseUrl(environment: Environment) {
   return environment.LOCALAI_BASE_URL?.replace(/\/$/, '');
 }
@@ -123,22 +161,23 @@ async function uploadComfyImage(baseUrl: string, asset: string, logicalName: str
 }
 
 export function createProviderGateway(environment: Environment) {
-  const getProviders = (): ProviderCapabilityStatus[] => {
+  const getProviders = (): GatewayProviderStatus[] => {
     const env = environment;
     const cloudflareModel = env.CLOUDFLARE_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-4b';
     const cloudflareFinalModel = env.CLOUDFLARE_FINAL_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-9b';
     const cloudflareOperations: VisualProposalRequest['operation'][] = cloudflareModel.includes('flux-2')
       ? ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance']
       : ['generate'];
-    return [
-      { id: 'free-image-worker', name: 'Cloudflare free image worker', configured: Boolean(env.FREE_IMAGE_WORKER_URL && env.FREE_IMAGE_WORKER_API_KEY), operations: ['generate'], details: `${env.FREE_IMAGE_WORKER_MODEL ?? '@cf/black-forest-labs/flux-1-schnell'} text-to-image only; not geometry-preserving.` },
-      { id: 'gemini-nano-banana-2', name: 'Gemini image generation', configured: Boolean(geminiImageKey(env)) && optedIntoProvider(env, 'gemini-nano-banana-2'), operations: ['generate'], details: 'Requires GEMINI_NANO_BANANA_2_OPT_IN=true; the current adapter is text-to-image only.' },
-      { id: 'cloudflare', name: 'Cloudflare Workers AI', configured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN), operations: cloudflareOperations, details: `Draft/review: ${cloudflareModel}; final: ${cloudflareFinalModel} (generation and image editing)` },
-      { id: 'openai-dall-e-3', name: 'OpenAI DALL-E 3', configured: Boolean(env.OPENAI_API_KEY) && optedIntoProvider(env, 'openai-dall-e-3'), operations: ['generate'], details: 'Requires OPENAI_DALL_E_3_OPT_IN=true; DALL-E 3 does not support image editing.' },
-      { id: 'openai-gpt-image-1', name: 'OpenAI GPT Image 1', configured: Boolean(env.OPENAI_API_KEY && env.OPENAI_IMAGE_MODEL === 'gpt-image-1') && optedIntoProvider(env, 'openai-gpt-image-1'), operations: ['generate'], details: 'Requires OPENAI_GPT_IMAGE_1_OPT_IN=true; image editing remains unavailable until the edits endpoint is connected.' },
-      { id: 'localai', name: 'LocalAI self-hosted image generation', configured: Boolean(localAiBaseUrl(env) && env.LOCALAI_IMAGE_MODEL), operations: ['generate'], details: 'Optional private, OpenAI-compatible endpoint. It is used only for new renders; geometry-locked revisions stay on ComfyUI or Cloudflare.' },
-      { id: 'comfyui', name: 'ComfyUI', configured: Boolean(env.COMFYUI_BASE_URL && readComfyWorkflow(env)), operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'], details: 'Optional studio-local workflow. Image-conditioned operations require a {{sourceImage}} loader in the approved workflow.' }
+    const providers: Array<ProviderCapabilityStatus & { optedIn: boolean }> = [
+      { id: 'free-image-worker', name: 'Cloudflare free image worker', configured: Boolean(env.FREE_IMAGE_WORKER_URL && env.FREE_IMAGE_WORKER_API_KEY), optedIn: true, operations: ['generate'], details: `${env.FREE_IMAGE_WORKER_MODEL ?? '@cf/black-forest-labs/flux-1-schnell'} text-to-image only; not geometry-preserving.` },
+      { id: 'gemini-nano-banana-2', name: 'Gemini image generation', configured: Boolean(geminiImageKey(env)), optedIn: optedIntoProvider(env, 'gemini-nano-banana-2'), operations: ['generate'], details: 'Explicit provider selection requires the Gemini key; default fallback requires a separate funded health check.' },
+      { id: 'cloudflare', name: 'Cloudflare Workers AI', configured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN), optedIn: true, operations: cloudflareOperations, details: `Draft/review: ${cloudflareModel}; final: ${cloudflareFinalModel} (generation and image editing)` },
+      { id: 'openai-dall-e-3', name: 'OpenAI DALL-E 3', configured: Boolean(env.OPENAI_API_KEY), optedIn: optedIntoProvider(env, 'openai-dall-e-3'), operations: ['generate'], details: 'Never automatic fallback. Explicit provider selection only; OPENAI_DALL_E_3_OPT_IN=true can be used as an additional studio policy gate.' },
+      { id: 'openai-gpt-image-1', name: 'OpenAI GPT Image 1', configured: Boolean(env.OPENAI_API_KEY && env.OPENAI_IMAGE_MODEL === 'gpt-image-1'), optedIn: optedIntoProvider(env, 'openai-gpt-image-1'), operations: ['generate'], details: 'Never automatic fallback. Explicit provider selection only; OPENAI_GPT_IMAGE_1_OPT_IN=true can be used as an additional studio policy gate.' },
+      { id: 'localai', name: 'LocalAI self-hosted image generation', configured: Boolean(localAiBaseUrl(env) && env.LOCALAI_IMAGE_MODEL), optedIn: true, operations: ['generate'], details: 'Optional private, OpenAI-compatible endpoint. It is used only for new renders; geometry-locked revisions stay on ComfyUI or Cloudflare.' },
+      { id: 'comfyui', name: 'ComfyUI', configured: Boolean(env.COMFYUI_BASE_URL && readComfyWorkflow(env)), optedIn: true, operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'], details: 'Optional studio-local workflow. Image-conditioned operations require a {{sourceImage}} loader in the approved workflow.' }
     ];
+    return providers.map((provider) => ({ ...provider, eligible: provider.configured && DEFAULT_ELIGIBLE_PROVIDERS.has(provider.id) }));
   };
 
   async function executeOpenRouter(request: VisualProposalRequest, attemptedProviders: string[]): Promise<ProviderResult> {
@@ -562,6 +601,21 @@ export function createProviderGateway(environment: Environment) {
     }
   }
 
+  async function resolveDefaultProviderPreference() {
+    const preference: string[] = [...DEFAULT_PROVIDER_PREFERENCE];
+    const eligibleIds = new Set<string>(DEFAULT_PROVIDER_PREFERENCE);
+    // Gemini is never silently added from credentials. A studio may opt into
+    // making it a fallback only after the funded health check succeeds.
+    if (environment.GEMINI_DEFAULT_FALLBACK === 'true' && optedIntoProvider(environment, 'gemini-nano-banana-2')) {
+      const health = await checkGeminiFundingHealth(environment);
+      if (health.eligible) {
+        preference.push('gemini-nano-banana-2');
+        eligibleIds.add('gemini-nano-banana-2');
+      }
+    }
+    return { preference, eligibleIds };
+  }
+
   return {
     status: () => getProviders(),
 
@@ -590,12 +644,18 @@ export function createProviderGateway(environment: Environment) {
     },
 
     async createVisualProposal(request: VisualProposalRequest): Promise<ProviderResult> {
-      const requested = (request.providerPreference.length ? request.providerPreference : ['cloudflare', 'localai', 'free-image-worker', 'comfyui'])
+      const explicitProviderSelection = request.providerPreference.length > 0;
+      const explicitProviderIds = new Set(request.providerPreference.map((id) => id === 'openai' ? (environment.OPENAI_IMAGE_MODEL === 'gpt-image-1' ? 'openai-gpt-image-1' : 'openai-dall-e-3') : id));
+      const defaultResolution = explicitProviderSelection ? null : await resolveDefaultProviderPreference();
+      const requested = (explicitProviderSelection ? request.providerPreference : defaultResolution!.preference)
         .map((id) => id === 'openai' ? (environment.OPENAI_IMAGE_MODEL === 'gpt-image-1' ? 'openai-gpt-image-1' : 'openai-dall-e-3') : id);
       const activeProviders = getProviders();
       const hasDeterministicImageInput = request.sourceAssets.some((asset) => asset.startsWith('data:image/'));
       const configuredProviders = activeProviders
         .filter((provider) => provider.configured && provider.operations.includes(request.operation))
+        // Paid providers are only eligible when explicitly named in this
+        // request. Credentials and a failed fallback never promote them.
+        .filter((provider) => provider.eligible || (!explicitProviderSelection && defaultResolution!.eligibleIds.has(provider.id)) || (explicitProviderSelection && explicitProviderIds.has(provider.id)))
         .filter((provider) => !hasDeterministicImageInput || provider.id === 'cloudflare' || (provider.id === 'comfyui' && Boolean(readComfyWorkflow(environment) && comfyTemplateNeeds(readComfyWorkflow(environment)!, 'sourceImage'))))
         .map((provider) => provider.id);
       

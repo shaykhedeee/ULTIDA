@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { compileRenderBrief, PROMPT_VERSIONS } from '@ultida/agent-core';
-import { createProviderGateway } from '@ultida/provider-gateway';
+import { createProviderGateway, DEFAULT_PROVIDER_PREFERENCE } from '@ultida/provider-gateway';
 import { buildDrawingProjection, exportProjectionToDxf, generateDrawingPackageSvg } from '@ultida/drawing-core';
 import type { SceneV1 } from '@ultida/scene-core';
 import { analyzePlanWithProvider } from '../src/plan-analyzer.js';
@@ -68,6 +68,34 @@ test('visual gateway falls back from OpenAI failure to queued ComfyUI without fa
     assert.equal('provider' in result ? result.provider : null, 'comfyui');
     assert.deepEqual(result.attemptedProviders, ['openai-dall-e-3', 'comfyui']);
     assert.equal(calls.length, 2);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('default image fallback never spends through OpenAI or Gemini credentials alone', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    calls.push(url);
+    assert.equal(url.includes('api.openai.com') || url.includes('generativelanguage.googleapis.com'), false, `unexpected paid provider call: ${url}`);
+    if (url.includes('api.cloudflare.com')) return Response.json({ success: false, errors: [{ message: 'Cloudflare unavailable in test' }] }, { status: 503 });
+    if (url === 'https://localai.private/v1/images/generations') return Response.json({ error: { message: 'LocalAI unavailable in test' } }, { status: 503 });
+    throw new Error(`Unexpected fallback URL ${url}`);
+  }) as typeof fetch;
+  try {
+    assert.deepEqual([...DEFAULT_PROVIDER_PREFERENCE], ['cloudflare', 'localai', 'free-image-worker', 'comfyui']);
+    const gateway = createProviderGateway({
+      OPENAI_API_KEY: 'openai-test-key',
+      GEMINI_IMAGE_API_KEY: 'gemini-test-key',
+      CLOUDFLARE_ACCOUNT_ID: 'cf-account',
+      CLOUDFLARE_AI_TOKEN: 'cf-token',
+      LOCALAI_BASE_URL: 'https://localai.private',
+      LOCALAI_IMAGE_MODEL: 'studio-sdxl',
+    });
+    const result = await gateway.createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['scene:approved'], referenceAssets: [], masks: [], operation: 'generate', style: 'warm contemporary', structuredPrompt: 'approved facts', quality: 'review', providerPreference: [] });
+    assert.equal(result.status, 'failed');
+    assert.deepEqual(result.attemptedProviders, ['cloudflare', 'localai']);
+    assert.equal(calls.some((url) => url.includes('api.openai.com') || url.includes('generativelanguage.googleapis.com')), false);
   } finally { globalThis.fetch = originalFetch; }
 });
 
