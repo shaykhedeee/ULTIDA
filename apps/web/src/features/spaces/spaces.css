@@ -381,8 +381,8 @@
 .room-workflow-summary strong, .room-workflow-summary small { display: block; }
 .room-workflow-summary strong { color: var(--text-secondary); font-size: 12px; }
 .room-workflow-summary small { margin-top: 2px; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
-.space-panel-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; background: #f3efe7; border-radius: 8px; }
-.space-panel-tabs button { border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 10px; font-weight: 800; padding: 6px 4px; cursor: pointer; }
+.space-panel-tabs { display: flex; flex-wrap: wrap; gap: 3px; padding: 3px; background: #f3efe7; border-radius: 8px; }
+.space-panel-tabs button { border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 10px; font-weight: 800; padding: 5px 8px; cursor: pointer; white-space: nowrap; flex: 1 1 0; min-width: 0; text-align: center; }
 .space-panel-tabs button.active { background: var(--surface); color: var(--text-secondary); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 .panel-help { margin: 0; font-size: 11px; line-height: 1.45; color: var(--text-muted); }
 .props-body label { font-size: 11px; font-weight: 700; color: var(--text-secondary); }
@@ -472,7 +472,9 @@
 }
 .wall-elevation-preview { margin-top: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); }
 .wall-elevation-title { margin-bottom: 8px; color: var(--text-muted); font-size: 11px; font-weight: 700; }
-.wall-elevation-preview svg { display: block; width: 100%; height: 145px; background: #fff; border-radius: 6px; }
+.wall-elevation-preview svg { display: block; width: 100%; height: clamp(180px, 22vw, 320px); background: #fff; border-radius: 6px; overflow: visible; }
+
+
 
 /* ── Floor Plan Overlay Controls ── */
 .plan-overlay-controls {
