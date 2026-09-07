@@ -27,12 +27,16 @@ export interface MeasuredResult {
   openingCountMatches: boolean; // doors+windows count equals expectation
   measuredDoorCount?: number;
   measuredWindowCount?: number;
+  /** Projected opening outlines (including sill and head) align with the approved scene. */
+  openingGeometryAligned?: boolean;
   focalModuleVisible: boolean;
   cameraSimilarityMm: number; // how far the rendered camera deviates from expected (mm)
   measuredObjectIds: string[]; // objects detected in the output
   measuredMaterialRegionIds: string[];
   cabinetDivisionCount?: number;
   measuredSkirtingCount?: number;
+  /** Projected skirting bands align with the approved floor surface perimeter. */
+  skirtingGeometryAligned?: boolean;
   inventedObjectLabels?: string[]; // labels the model added that were not in the scene
 }
 
@@ -74,8 +78,14 @@ export function runRenderQA(
   if (measured.cabinetDivisionCount != null && measured.cabinetDivisionCount !== expectation.cabinetDivisions) {
     issues.push({ kind: 'cabinet_divisions', message: `Cabinet divisions mismatch: expected ${expectation.cabinetDivisions}, found ${measured.cabinetDivisionCount}.`, severity: sev(false) });
   }
+  if (measured.openingGeometryAligned === false) {
+    issues.push({ kind: 'opening_geometry', message: 'Opening position, sill height, or head height does not align with the approved scene geometry.', severity: sev(true) });
+  }
   if (measured.measuredSkirtingCount != null && measured.measuredSkirtingCount !== expectation.skirtingCount) {
     issues.push({ kind: 'skirting', message: `Skirting count mismatch: expected ${expectation.skirtingCount}, found ${measured.measuredSkirtingCount}.`, severity: sev(true) });
+  }
+  if (measured.skirtingGeometryAligned === false) {
+    issues.push({ kind: 'skirting_geometry', message: 'Skirting geometry does not align with the approved floor perimeter and doorway exclusions.', severity: sev(true) });
   }
   // 6. Camera
   if (measured.cameraSimilarityMm > (geometryLock === 'strict' ? 50 : 300)) {

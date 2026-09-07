@@ -25,6 +25,8 @@ test('live render QA blocks an image whose measured door count differs from the 
   const qa = await evaluateRenderImageQA(SCENE, artifacts, alteredWithoutDoorEvidence);
   assert.ok(qa.issues.some((issue) => issue.message === 'Door count mismatch: expected 1, found 0.'));
   assert.ok(qa.issues.some((issue) => issue.message === `Skirting count mismatch: expected ${artifacts.skirtingMasks.length}, found 0.`));
+  assert.ok(qa.issues.some((issue) => issue.message === 'Opening position, sill height, or head height does not align with the approved scene geometry.'));
+  assert.ok(qa.issues.some((issue) => issue.message === 'Skirting geometry does not align with the approved floor perimeter and doorway exclusions.'));
   assert.ok(qa.issues.some((issue) => issue.severity === 'blocking'));
 });
 

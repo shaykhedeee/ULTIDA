@@ -178,6 +178,38 @@ function edgeAlignment(reference: Raster, observedEdges: Uint8Array): number {
 }
 
 /**
+ * Measures raster evidence along the boundary of a projected construction
+ * mask.  Unlike a simple object count, this detects a moved window, a changed
+ * sill/head line, or skirting drawn away from its approved perimeter.
+ */
+function maskBoundaryAlignment(region: Uint8Array, width: number, height: number, observedEdges: Uint8Array): number {
+  let boundaryCount = 0;
+  let matched = 0;
+  for (let pixel = 0; pixel < region.length; pixel += 1) {
+    if (!region[pixel]) continue;
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    const isBoundary = x === 0 || y === 0 || x === width - 1 || y === height - 1
+      || !region[pixel - 1] || !region[pixel + 1] || !region[pixel - width] || !region[pixel + width];
+    if (!isBoundary) continue;
+    boundaryCount += 1;
+    let found = false;
+    for (let dy = -2; dy <= 2 && !found; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) {
+        const sampleX = x + dx;
+        const sampleY = y + dy;
+        if (sampleX >= 0 && sampleY >= 0 && sampleX < width && sampleY < height && observedEdges[sampleY * width + sampleX]) {
+          found = true;
+          break;
+        }
+      }
+    }
+    if (found) matched += 1;
+  }
+  return boundaryCount ? matched / boundaryCount : 0;
+}
+
+/**
  * Measure the actual raster delivered by the deterministic pass or image
  * provider.  This deliberately derives counts from projected masks and image
  * edges; it never copies counts, object IDs, or camera values from the scene.
@@ -188,10 +220,11 @@ export async function measureRenderImage(scene: import('@ultida/scene-core').Sce
   const observedEdges = edgePixels(observed);
   const alignment = edgeAlignment(reference, observedEdges);
 
-  const openingEvidence = await Promise.all(artifacts.openingMasks.map(async (opening) => ({
-    opening,
-    visible: fractionInside(maskPixels(await rasterize(opening.url, reference.width, reference.height)), observedEdges) >= 0.004,
-  })));
+  const openingEvidence = await Promise.all(artifacts.openingMasks.map(async (opening) => {
+    const region = maskPixels(await rasterize(opening.url, reference.width, reference.height));
+    const boundaryAlignment = maskBoundaryAlignment(region, reference.width, reference.height, observedEdges);
+    return { opening, visible: boundaryAlignment >= 0.18, boundaryAlignment };
+  }));
   const objectEvidence = await Promise.all(artifacts.objectMasks.map(async (mask) => ({
     id: mask.id,
     visible: fractionInside(maskPixels(await rasterize(mask.url, reference.width, reference.height)), observedEdges) >= 0.003,
@@ -200,13 +233,13 @@ export async function measureRenderImage(scene: import('@ultida/scene-core').Sce
     id: region.materialId,
     visible: fractionInside(maskPixels(await rasterize(region.url, reference.width, reference.height)), observedEdges) >= 0.003,
   })));
-  const skirtingEvidence = await Promise.all(artifacts.skirtingMasks.map(async (skirting) => ({
-    id: skirting.id,
-    // A skirting band is deliberately thin at room scale.  This threshold still
-    // requires observed edges in the projected, measured band without treating
-    // the scene specification itself as evidence.
-    visible: fractionInside(maskPixels(await rasterize(skirting.url, reference.width, reference.height)), observedEdges) >= 0.002,
-  })));
+  const skirtingEvidence = await Promise.all(artifacts.skirtingMasks.map(async (skirting) => {
+    const region = maskPixels(await rasterize(skirting.url, reference.width, reference.height));
+    const boundaryAlignment = maskBoundaryAlignment(region, reference.width, reference.height, observedEdges);
+    // A skirting band is deliberately thin at room scale. This still requires
+    // observed edges on its projected perimeter instead of accepting metadata.
+    return { id: skirting.id, visible: boundaryAlignment >= 0.12, boundaryAlignment };
+  }));
   const measuredDoorCount = openingEvidence.filter(({ opening, visible }) => opening.kind === 'door' && visible).length;
   const measuredWindowCount = openingEvidence.filter(({ opening, visible }) => opening.kind === 'window' && visible).length;
   const expectedOpeningCount = scene.openings.length;
@@ -215,7 +248,9 @@ export async function measureRenderImage(scene: import('@ultida/scene-core').Sce
     openingCountMatches: measuredDoorCount + measuredWindowCount === expectedOpeningCount,
     measuredDoorCount,
     measuredWindowCount,
+    openingGeometryAligned: openingEvidence.every(({ boundaryAlignment }) => boundaryAlignment >= 0.18),
     measuredSkirtingCount: skirtingEvidence.filter(({ visible }) => visible).length,
+    skirtingGeometryAligned: skirtingEvidence.every(({ boundaryAlignment }) => boundaryAlignment >= 0.12),
     focalModuleVisible: scene.modules.length === 0 || objectEvidence.some(({ visible }) => visible),
     // A calibrated camera estimate needs a pose solver.  Until one is enabled,
     // edge alignment produces a conservative pixel-derived deviation instead
