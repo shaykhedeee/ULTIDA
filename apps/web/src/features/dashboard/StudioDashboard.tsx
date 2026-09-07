@@ -1,4 +1,4 @@
-import { ArrowRight, Box, CalendarDays, FileOutput, FileText, Image, LayoutTemplate, Layers3, PackageCheck, Plus, Ruler, Sparkles, Wand2, Workflow, Home } from 'lucide-react';
+import { ArrowRight, Box, CalendarDays, FileOutput, FileText, Home, Image, LayoutTemplate, Layers3, PackageCheck, Plus, Ruler, Sparkles, Wand2, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -239,7 +239,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         </div>
       </section>
 
-      <section className="studio-launchpad" aria-label="Start a task">
+      {false && <section className="studio-launchpad" aria-label="Start a task">
         <div className="studio-launchpad-copy">
           <p className="studio-kicker">PARAMETRIC ARCHITECTURE ENGINES</p>
           <h2>Design tools, ready when you are.</h2>
@@ -319,7 +319,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
             <ArrowRight size={15} />
           </button>
         </div>
-      </section>
+      </section>}
 
       {/* Production Reference Vault Section */}
       <section style={{ margin: '24px 0', padding: '24px', borderRadius: 16, background: '#1c1917', border: '1px solid #38322c', boxShadow: '0 8px 30px rgba(0,0,0,0.2)' }}>
@@ -425,8 +425,8 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
       </section>
 
       <section className="studio-section">
-        <div className="studio-section-heading"><div><p className="studio-kicker">DESIGN TOOLS</p><h2>Open the right workspace</h2></div><button onClick={() => openTool('/projects')}>View project flow <ArrowRight size={15} /></button></div>
-        <div className="studio-tool-grid">
+        <div className="studio-section-heading"><div><p className="studio-kicker">QUICK TOOLS</p><h2>Small utilities for studio operations</h2></div><button onClick={() => openTool('/projects')}>Open project workflow <ArrowRight size={15} /></button></div>
+        {false && <div className="studio-tool-grid">
           <button className="studio-tool-card featured" onClick={() => openTool('/projects')}><span className="tool-icon"><Ruler size={20} /></span><strong>Floor plan intelligence</strong><p>Upload, analyse, calibrate, review rooms and continue into Spaces.</p><span>Start a plan project <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card featured" onClick={() => openTool('/tools/room-builder')}><span className="tool-icon"><Home size={20} /></span><strong>Room builder</strong><p>Create a measured room, openings, finishes and a deterministic shell preview before attaching it to a project.</p><span>Build a room <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card featured" onClick={() => openTool('/tools/modules')}><span className="tool-icon"><Box size={20} /></span><strong>Modular unit planner</strong><p>Pick a real TV, crockery, wardrobe or kitchen template, size it and export an initial brief.</p><span>Plan a unit <ArrowRight size={14} /></span></button>
@@ -439,6 +439,11 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           <button className="studio-tool-card featured" onClick={() => openTool('/tools/aura')}><span className="tool-icon"><Wand2 size={20} /></span><strong>AURA design agent</strong><p>Chat with project context and prepare approval-gated proposals using the tools already in ULTIDA.</p><span>Open AURA <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card" onClick={() => openTool('/projects')}><span className="tool-icon"><FileOutput size={20} /></span><strong>Cutlist & production</strong><p>Generate panel, edging and hardware schedules from approved scene geometry.</p><span>Open production <ArrowRight size={14} /></span></button>
           <button className="studio-tool-card" onClick={() => openTool('/library')}><span className="tool-icon"><Image size={20} /></span><strong>Moodboard library</strong><p>Build a governed material palette from your studio’s saved product library.</p><span>Open materials <ArrowRight size={14} /></span></button>
+        </div>}
+        <div className="studio-tool-grid">
+          <button className="studio-tool-card" onClick={() => openTool('/tools/cnc')}><span className="tool-icon"><LayoutTemplate size={20} /></span><strong>CNC pattern studio</strong><p>Use a vetted pattern reference, size it safely and download DXF.</p><span>Open CNC tool <ArrowRight size={14} /></span></button>
+          <button className="studio-tool-card" onClick={() => openTool('/tools/measurements')}><span className="tool-icon"><Ruler size={20} /></span><strong>Measurement converter</strong><p>Convert millimetres, metres, feet and inches through ULTIDA’s canonical millimetre value.</p><span>Convert a dimension <ArrowRight size={14} /></span></button>
+          <button className="studio-tool-card" onClick={() => openTool('/tools/operations')}><span className="tool-icon"><CalendarDays size={20} /></span><strong>Studio operations</strong><p>Keep site visits, reviews, deliveries, milestones and invoices in one workspace.</p><span>Open operations <ArrowRight size={14} /></span></button>
         </div>
       </section>
 
