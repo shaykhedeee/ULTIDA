@@ -13,7 +13,23 @@ const sampleScene: SceneV1 = {
   projectId: 'sharma-residence-01',
   floorPlanVersionId: 'plan-01',
   coordinateSystem: 'right-handed-z-up',
-  floors: [{ id: 'f1', name: 'Level 01', elevationMm: 0, heightMm: 2700 }],
+  floors: [{
+    id: 'f1', name: 'Level 01', elevationMm: 0, heightMm: 2700,
+    surfaces: [
+      {
+        id: 'floor-kitchen-tile', roomId: 'r-kitchen', materialVersionId: 'mat-porcelain-v1',
+        regionPolygon: [{ xMm: 0, yMm: 0 }, { xMm: 1200, yMm: 0 }, { xMm: 1200, yMm: 600 }, { xMm: 0, yMm: 600 }],
+        elevationMm: 0, buildUpThicknessMm: 20, substrate: 'screed',
+        tile: { widthMm: 600, lengthMm: 600, groutWidthMm: 0, groutColor: 'grey', originX: 0, originY: 0, angleDeg: 0, pattern: 'grid' },
+      },
+      {
+        id: 'floor-master-wood', roomId: 'r-master', materialVersionId: 'mat-oak-v1',
+        regionPolygon: [{ xMm: 0, yMm: 0 }, { xMm: 900, yMm: 0 }, { xMm: 900, yMm: 600 }, { xMm: 0, yMm: 600 }],
+        elevationMm: 0, buildUpThicknessMm: 12, substrate: 'plywood-underlay',
+        tile: { widthMm: 600, lengthMm: 600, groutWidthMm: 0, groutColor: 'none', originX: 0, originY: 0, angleDeg: 0, pattern: 'brick' },
+      },
+    ],
+  }],
   spaces: [
     { id: 'sp-kitchen', floorId: 'f1', name: 'Gourmet Kitchen', type: 'kitchen' },
     { id: 'sp-master', floorId: 'f1', name: 'Master Suite', type: 'bedroom' },
@@ -35,16 +51,16 @@ const sampleScene: SceneV1 = {
   constraints: [],
   unresolvedDetections: [],
   modules: [
-    { id: 'mod-wardrobe-1', roomId: 'r-master', family: 'wardrobe', widthMm: 2400, depthMm: 600, heightMm: 2400, position: { xMm: 500, yMm: 100 }, rotationDeg: 0, anchor: 'wall', confidence: 1 },
+    { id: 'mod-wardrobe-1', roomId: 'r-master', family: 'wardrobe', widthMm: 1100, depthMm: 600, heightMm: 1100, position: { xMm: 500, yMm: 100 }, rotationDeg: 0, anchor: 'wall', confidence: 1 },
     { id: 'mod-kitchen-base', roomId: 'r-kitchen', family: 'kitchen-base', widthMm: 1800, depthMm: 600, heightMm: 850, position: { xMm: 200, yMm: 100 }, rotationDeg: 0, anchor: 'wall', confidence: 1 },
   ],
   moduleParts: [
-    { id: 'p1', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'panel', name: 'Side Gable Left', widthMm: 2400, depthMm: 600, heightMm: 18, position: { xMm: 500, yMm: 100, zMm: 0 }, rotationDeg: 0, confidence: 1 },
-    { id: 'p2', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'panel', name: 'Side Gable Right', widthMm: 2400, depthMm: 600, heightMm: 18, position: { xMm: 2900, yMm: 100, zMm: 0 }, rotationDeg: 0, confidence: 1 },
+    { id: 'p1', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'panel', name: 'Side Gable Left', widthMm: 18, depthMm: 600, heightMm: 2400, position: { xMm: 500, yMm: 100, zMm: 0 }, rotationDeg: 0, confidence: 1 },
+    { id: 'p2', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'panel', name: 'Side Gable Right', widthMm: 18, depthMm: 600, heightMm: 2400, position: { xMm: 2900, yMm: 100, zMm: 0 }, rotationDeg: 0, confidence: 1 },
     { id: 'p3', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'shelf', name: 'Top Fixed Shelf', widthMm: 2364, depthMm: 560, heightMm: 18, position: { xMm: 518, yMm: 100, zMm: 2100 }, rotationDeg: 0, confidence: 1 },
     { id: 'p4', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'shutter', name: 'Front Shutter Left', widthMm: 590, depthMm: 18, heightMm: 2100, position: { xMm: 500, yMm: 100, zMm: 100 }, rotationDeg: 0, confidence: 1 },
     { id: 'p5', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'shutter', name: 'Front Shutter Right', widthMm: 590, depthMm: 18, heightMm: 2100, position: { xMm: 1095, yMm: 100, zMm: 100 }, rotationDeg: 0, confidence: 1 },
-    { id: 'p6', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'back', name: 'Back Panel 8mm', widthMm: 2364, depthMm: 8, heightMm: 2300, position: { xMm: 518, yMm: 692, zMm: 100 }, rotationDeg: 0, confidence: 1 },
+    { id: 'p6', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'back', name: 'Back Panel 8mm', widthMm: 2200, depthMm: 8, heightMm: 2200, position: { xMm: 518, yMm: 692, zMm: 100 }, rotationDeg: 0, confidence: 1 },
     { id: 'p7', moduleId: 'mod-kitchen-base', roomId: 'r-kitchen', semanticType: 'panel', name: 'Base Carcass Side', widthMm: 850, depthMm: 560, heightMm: 18, position: { xMm: 200, yMm: 100, zMm: 0 }, rotationDeg: 0, confidence: 1 },
     { id: 'p8', moduleId: 'mod-kitchen-base', roomId: 'r-kitchen', semanticType: 'shutter', name: 'Sink Shutter', widthMm: 596, depthMm: 18, heightMm: 720, position: { xMm: 200, yMm: 100, zMm: 100 }, rotationDeg: 0, confidence: 1 },
   ],
@@ -89,6 +105,10 @@ test('buildDossierSpecFromContext constructs an authoritative ProductionDossierS
   assert.ok(spec.bom.boardNesting.sheets18mm >= 1);
   assert.ok(spec.bom.hardwareTotals.length >= 3);
   assert.ok(spec.bom.cutlistParts.length >= 5);
+  assert.equal(spec.finishes?.flooring?.length, 2, 'Each persisted floor region is included in the finishes matrix');
+  assert.equal(spec.bom.flooring?.length, 2, 'The BOM uses the same flooring quantities');
+  assert.equal(spec.finishes?.flooring?.[0]?.netAreaSqm, 0.72);
+  assert.equal(spec.finishes?.flooring?.[1]?.netAreaSqm, 0.54);
 
   // Verify Commercial BOQ & Milestones
   assert.ok(spec.boq.lineItems.length >= 1);

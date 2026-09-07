@@ -21,7 +21,7 @@ if (typeof process.loadEnvFile === 'function') {
 
 import { getRequestSupabaseClient, getServerSupabaseClient } from './supabase.js';
 import { authenticateProjectUser, requireProjectUser, requireStudioUser } from './api-auth.js';
-import { CompositionScheduleV1Schema, MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, VisualProposalRequestSchema, validateProjectBrief } from '@ultida/contracts';
+import { CompositionScheduleV1Schema, MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, VisualProposalRequestSchema, buildFlooringQuantities, validateProjectBrief } from '@ultida/contracts';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
 import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, listDesignPresets, ModuleFamilySchema, getCatalogVault, CuratedLaminateCatalog, CATALOG_VERSION, getCatalogDigitalTwin } from '@ultida/catalog-core';
@@ -678,6 +678,11 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
 
   const boq = generateProjectBOQ(scene);
   const edgeSummary = calculateEdgeBandingSummary(snapshot.parts);
+  const roomNames = new Map(scene.rooms.map((room) => [room.id, room.name]));
+  const flooring = buildFlooringQuantities(scene.floors.flatMap((floor) => floor.surfaces ?? [])).map((quantity) => ({
+    ...quantity,
+    application: roomNames.get(quantity.roomId) ?? quantity.roomId,
+  }));
 
   return {
     schema: 'production.dossier.v1',
@@ -709,6 +714,13 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
       ],
     },
     elevations: [], // Defaults generate authentic kitchen, master-bed, and living/dining sheets
+    finishes: {
+      coreSubstrates: [],
+      surfaceFinishes: [],
+      edgeBanding: [],
+      hardwareStandards: [],
+      flooring,
+    },
     bom: {
       boardNesting: {
         sheets18mm: boq.summary.plywoodSheets18mm || 18,
@@ -730,6 +742,7 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
         { name: 'Champagne Gola Profile Handle', category: 'handle', quantity: 18.5, unit: 'meters' },
         { name: 'Minifix & Expanding Cam Locks', category: 'fastener', quantity: 120, unit: 'sets' },
       ],
+      flooring,
       cutlistParts: snapshot.parts.map((p: any) => ({
         partName: p.partName,
         moduleId: p.moduleId,

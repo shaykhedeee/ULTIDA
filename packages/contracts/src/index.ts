@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export * from './flooring.js';
 
 export const VisualOperationSchema = z.enum(['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance']);
 export const VisualProposalRequestSchema = z.object({

@@ -104,6 +104,18 @@ export interface FinishesMatrixSpec {
   surfaceFinishes: Array<{ application: string; finishType: string; code: string; brand: string }>;
   edgeBanding: Array<{ location: string; thickness: string; colorMatch: string }>;
   hardwareStandards: Array<{ hardware: string; brand: string; model: string; guarantee: string }>;
+  flooring?: FlooringQuantitySpec[];
+}
+
+export interface FlooringQuantitySpec {
+  surfaceId: string;
+  materialVersionId: string;
+  application: string;
+  netAreaSqm: number;
+  fullTileCount: number;
+  cutTileCount: number;
+  wastagePct: number;
+  skirtingLinearM: number;
 }
 
 export interface ProductionBOMSpec {
@@ -118,6 +130,7 @@ export interface ProductionBOMSpec {
   };
   edgeBandingSummary: Array<{ tapeType: string; totalMeters: number }>;
   hardwareTotals: Array<{ name: string; category: string; quantity: number; unit: string }>;
+  flooring?: FlooringQuantitySpec[];
   cutlistParts: Array<{
     partName: string;
     moduleId: string;
@@ -571,6 +584,27 @@ export function generateProductionDossierPdf(
     { headerBg: '#1e293b', headerColor: '#ffffff', rowAltBg: '#f8fafc', fontSize: 7, cellPadding: 4 }
   );
 
+  const flooringY = hwY + 112;
+  const flooringRows = dossier.finishes?.flooring?.map((floor) => [
+    floor.application,
+    floor.materialVersionId,
+    floor.netAreaSqm.toFixed(2),
+    `${floor.fullTileCount} full / ${floor.cutTileCount} cut`,
+    `${floor.wastagePct.toFixed(2)}%`,
+    `${floor.skirtingLinearM.toFixed(2)} m`,
+  ]) ?? [];
+  if (flooringRows.length) {
+    writer.font('Helvetica-Bold').fontSize(9.5).fillColor('#1c1917').text('4. FLOORING & SKIRTING QUANTITIES', 40, flooringY);
+    writer.drawTable(
+      40,
+      flooringY + 14,
+      ['ROOM / REGION', 'MATERIAL VERSION', 'NET AREA (M²)', 'TILES', 'WASTAGE', 'SKIRTING'],
+      flooringRows,
+      [150, 170, 90, 120, 80, pw - 80 - 610],
+      { headerBg: '#0f172a', headerColor: '#ffffff', rowAltBg: '#f8fafc', fontSize: 7, cellPadding: 3.5 }
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // SHEETS 5+: ROOM-BY-ROOM ARCHITECTURAL ELEVATIONS & JOINERY SECTIONS
   // ═══════════════════════════════════════════════════════════════════
@@ -938,6 +972,20 @@ export function generateProductionDossierPdf(
     [180, 80, 80, pw - 80 - 340],
     { headerBg: '#1e293b', headerColor: '#ffffff', rowAltBg: '#f8fafc', fontSize: 7, cellPadding: 3.5 }
   );
+
+  const floorProcurement = dossier.bom?.flooring ?? dossier.finishes?.flooring ?? [];
+  if (floorProcurement.length) {
+    const floorBomY = hwtY + 112;
+    writer.font('Helvetica-Bold').fontSize(9.5).fillColor('#1c1917').text('FLOORING PROCUREMENT & CUT-TILE REGISTER', 40, floorBomY);
+    writer.drawTable(
+      40,
+      floorBomY + 14,
+      ['MATERIAL VERSION', 'NET AREA (M²)', 'FULL TILES', 'CUT TILES', 'WASTAGE', 'SKIRTING'],
+      floorProcurement.map((floor) => [floor.materialVersionId, floor.netAreaSqm.toFixed(2), `${floor.fullTileCount}`, `${floor.cutTileCount}`, `${floor.wastagePct.toFixed(2)}%`, `${floor.skirtingLinearM.toFixed(2)} m`]),
+      [190, 100, 90, 90, 90, pw - 80 - 560],
+      { headerBg: '#0f172a', headerColor: '#ffffff', rowAltBg: '#f8fafc', fontSize: 7, cellPadding: 3.5 }
+    );
+  }
 
   // ═══════════════════════════════════════════════════════════════════
   // SHEET 12: COMMERCIAL BOQ & PAYMENT MILESTONES
