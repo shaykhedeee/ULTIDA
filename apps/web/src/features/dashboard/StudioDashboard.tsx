@@ -67,6 +67,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           <p className="studio-kicker">STUDIO COMMAND CENTRE</p>
           <h1>Welcome back, {studio}.</h1>
           <p>Start a standalone task, see what needs attention, and continue every project from its real workflow state.</p>
+          <span className="studio-hero-flow">Brief <ArrowRight size={12} /> Plan <ArrowRight size={12} /> Design <ArrowRight size={12} /> 3D <ArrowRight size={12} /> Production</span>
         </div>
         <div className="studio-hero-actions">
           <button className="studio-secondary" onClick={() => openTool('/projects')}><Layers3 size={16} /> All projects</button>

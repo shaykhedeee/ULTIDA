@@ -1,4 +1,8 @@
 .studio-dashboard { max-width: 1440px; margin: 0 auto; color: var(--text-primary); }
+.studio-hero-flow { display:flex; align-items:center; gap:6px; margin-top:10px; color:var(--gold-dim, #8a6a2d); font-size:11px; font-weight:800; letter-spacing:.02em; }
+.studio-dashboard > section { scroll-margin-top: 24px; }
+.studio-dashboard button:focus-visible { outline: 2px solid var(--gold, #c59c2d); outline-offset: 2px; }
+.studio-dashboard section[aria-label="Studio status"] { position: relative; }
 .studio-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:28px; padding:30px; border:1px solid var(--line); border-radius:18px; background:radial-gradient(circle at 85% 0%, rgba(197,156,45,.18), transparent 32%), linear-gradient(130deg, #20170f, #453120); color:#fff; }
 .studio-kicker { margin:0 0 7px; color:var(--gold-dim); font-size:11px; font-weight:800; letter-spacing:.12em; }
 .studio-hero h1 { margin:0; font-size:clamp(28px,4vw,42px); line-height:1.04; letter-spacing:-.04em; color: #fffdf9 !important; text-shadow: 0 2px 14px rgba(0,0,0,0.5); }.studio-hero p:not(.studio-kicker) { max-width:660px; margin:12px 0 0; color:rgba(255,255,255,.90) !important; line-height:1.55; }
