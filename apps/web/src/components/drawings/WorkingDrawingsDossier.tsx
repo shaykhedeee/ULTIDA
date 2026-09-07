@@ -181,6 +181,35 @@ export function WorkingDrawingsDossier({
     }
   }
 
+  async function downloadCompleteProductionPdf() {
+    try {
+      const apiBase = getApiBase();
+      const endpoint = (projectId && sceneVersionId)
+        ? `${apiBase}/api/projects/${projectId}/scenes/${sceneVersionId}/production/package.pdf`
+        : projectId
+        ? `${apiBase}/api/projects/${projectId}/dossier.pdf`
+        : null;
+
+      if (endpoint) {
+        const resp = await fetch(endpoint);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${projectData.name.replace(/[^a-z0-9]+/gi, '-')}-Master-Sign-Off-Dossier.pdf`;
+          a.click();
+          URL.revokeObjectURL(url);
+          return;
+        }
+      }
+      window.print();
+    } catch (err) {
+      console.error('Failed to download PDF dossier from server, falling back to print dialog:', err);
+      window.print();
+    }
+  }
+
   return (
     <main className="drawings-dossier-workspace">
       {/* Top Header Command Bar */}
@@ -205,6 +234,26 @@ export function WorkingDrawingsDossier({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             type="button"
+            onClick={downloadCompleteProductionPdf}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 18px',
+              borderRadius: 8,
+              background: 'linear-gradient(135deg, #c59c2d, #a17c18)',
+              color: '#000',
+              border: 0,
+              fontSize: 12.5,
+              fontWeight: 900,
+              cursor: 'pointer',
+              boxShadow: '0 2px 10px rgba(197, 156, 45, 0.4)',
+            }}
+          >
+            <FileText size={15} /> Download Master Sign-Off PDF
+          </button>
+          <button
+            type="button"
             onClick={() => window.print()}
             style={{
               display: 'flex',
@@ -220,7 +269,7 @@ export function WorkingDrawingsDossier({
               cursor: 'pointer',
             }}
           >
-            <Printer size={14} /> Print / Save PDF
+            <Printer size={14} /> Print
           </button>
           <button
             type="button"
