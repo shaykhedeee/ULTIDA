@@ -485,7 +485,7 @@ export function PlanReviewWorkspace({
       pointB: { x: 540, y: 140 },
       pixelDistance: 420,
       realDistanceMm: 6300,
-      mmPerPixel: 15,
+      mmPerPixel: 6300 / 420,
     });
     setCeilingHeightMm(2700);
     setIssues([]);

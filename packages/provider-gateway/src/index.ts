@@ -70,6 +70,12 @@ function geminiImageKey(environment: Environment) {
   return environment.GEMINI_IMAGE_API_KEY || environment.GEMINI_API_KEY || environment.GOOGLE_AI_STUDIO_KEY_1 || environment.GOOGLE_AI_STUDIO_KEY_2;
 }
 
+function optedIntoProvider(environment: Environment, providerId: string) {
+  // Credentials alone must never make a paid provider eligible for fallback.
+  // Opt-in is explicit and environment-scoped until project billing consent is persisted.
+  return environment[`${providerId.toUpperCase().replaceAll('-', '_')}_OPT_IN`] === 'true';
+}
+
 function localAiBaseUrl(environment: Environment) {
   return environment.LOCALAI_BASE_URL?.replace(/\/$/, '');
 }
@@ -126,10 +132,10 @@ export function createProviderGateway(environment: Environment) {
       : ['generate'];
     return [
       { id: 'free-image-worker', name: 'Cloudflare free image worker', configured: Boolean(env.FREE_IMAGE_WORKER_URL && env.FREE_IMAGE_WORKER_API_KEY), operations: ['generate'], details: `${env.FREE_IMAGE_WORKER_MODEL ?? '@cf/black-forest-labs/flux-1-schnell'} text-to-image only; not geometry-preserving.` },
-      { id: 'gemini-nano-banana-2', name: 'Gemini image generation', configured: Boolean(geminiImageKey(env)), operations: ['generate'], details: 'The current adapter is text-to-image only.' },
+      { id: 'gemini-nano-banana-2', name: 'Gemini image generation', configured: Boolean(geminiImageKey(env)) && optedIntoProvider(env, 'gemini-nano-banana-2'), operations: ['generate'], details: 'Requires GEMINI_NANO_BANANA_2_OPT_IN=true; the current adapter is text-to-image only.' },
       { id: 'cloudflare', name: 'Cloudflare Workers AI', configured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN), operations: cloudflareOperations, details: `Draft/review: ${cloudflareModel}; final: ${cloudflareFinalModel} (generation and image editing)` },
-      { id: 'openai-dall-e-3', name: 'OpenAI DALL-E 3', configured: Boolean(env.OPENAI_API_KEY), operations: ['generate'], details: 'DALL-E 3 does not support image editing.' },
-      { id: 'openai-gpt-image-1', name: 'OpenAI GPT Image 1', configured: Boolean(env.OPENAI_API_KEY && env.OPENAI_IMAGE_MODEL === 'gpt-image-1'), operations: ['generate'], details: 'Image editing remains unavailable until the edits endpoint is connected.' },
+      { id: 'openai-dall-e-3', name: 'OpenAI DALL-E 3', configured: Boolean(env.OPENAI_API_KEY) && optedIntoProvider(env, 'openai-dall-e-3'), operations: ['generate'], details: 'Requires OPENAI_DALL_E_3_OPT_IN=true; DALL-E 3 does not support image editing.' },
+      { id: 'openai-gpt-image-1', name: 'OpenAI GPT Image 1', configured: Boolean(env.OPENAI_API_KEY && env.OPENAI_IMAGE_MODEL === 'gpt-image-1') && optedIntoProvider(env, 'openai-gpt-image-1'), operations: ['generate'], details: 'Requires OPENAI_GPT_IMAGE_1_OPT_IN=true; image editing remains unavailable until the edits endpoint is connected.' },
       { id: 'localai', name: 'LocalAI self-hosted image generation', configured: Boolean(localAiBaseUrl(env) && env.LOCALAI_IMAGE_MODEL), operations: ['generate'], details: 'Optional private, OpenAI-compatible endpoint. It is used only for new renders; geometry-locked revisions stay on ComfyUI or Cloudflare.' },
       { id: 'comfyui', name: 'ComfyUI', configured: Boolean(env.COMFYUI_BASE_URL && readComfyWorkflow(env)), operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'], details: 'Optional studio-local workflow. Image-conditioned operations require a {{sourceImage}} loader in the approved workflow.' }
     ];
@@ -584,7 +590,7 @@ export function createProviderGateway(environment: Environment) {
     },
 
     async createVisualProposal(request: VisualProposalRequest): Promise<ProviderResult> {
-      const requested = (request.providerPreference.length ? request.providerPreference : ['cloudflare', 'localai', 'free-image-worker', 'gemini-nano-banana-2', 'openai-gpt-image-1', 'openai-dall-e-3', 'comfyui'])
+      const requested = (request.providerPreference.length ? request.providerPreference : ['cloudflare', 'localai', 'free-image-worker', 'comfyui'])
         .map((id) => id === 'openai' ? (environment.OPENAI_IMAGE_MODEL === 'gpt-image-1' ? 'openai-gpt-image-1' : 'openai-dall-e-3') : id);
       const activeProviders = getProviders();
       const hasDeterministicImageInput = request.sourceAssets.some((asset) => asset.startsWith('data:image/'));
