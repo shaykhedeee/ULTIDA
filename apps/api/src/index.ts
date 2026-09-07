@@ -695,7 +695,7 @@ app.post('/api/production/boq', (request, response) => {
     const boq = generateProjectBOQ(normalized, customRates);
     return response.status(200).json({ success: true, boq });
   } catch (err: any) {
-    return response.status(500).json({ success: false, code: 'BOQ_FAILED', message: err?.message });
+    return response.status(err?.status ?? 500).json({ success: false, code: err?.code ?? 'BOQ_FAILED', message: err?.message, issues: err?.issues });
   }
 });
 
@@ -718,7 +718,7 @@ app.post('/api/production/boq.csv', (request, response) => {
     ].join('\n');
     return response.status(200).send(csvContent);
   } catch (err: any) {
-    return response.status(500).json({ success: false, code: 'BOQ_CSV_FAILED', message: err?.message });
+    return response.status(err?.status ?? 500).json({ success: false, code: err?.code ?? 'BOQ_CSV_FAILED', message: err?.message, issues: err?.issues });
   }
 });
 
@@ -747,7 +747,7 @@ app.post('/api/production/cutlist.csv', (request, response) => {
     const rows = cutlist.parts.map((part) => [part.partInstanceId, part.sourcePartId, part.moduleId, part.family, part.roomId, part.semanticType, part.partName, part.lengthMm, part.widthMm, part.thicknessMm, part.materialCode, part.grainDirection, part.edgeSchedule?.tapeType ?? 'none', part.status].map(quote).join(','));
     return response.status(200).send(['part_instance_id,source_part_id,module_id,family,room_id,semantic_type,part_name,length_mm,width_mm,thickness_mm,material_code,grain_direction,edge_band,status', ...rows, ''].join('\n'));
   } catch (err: any) {
-    return response.status(500).json({ success: false, code: 'CUTLIST_FAILED', message: err?.message });
+    return response.status(err?.status ?? 500).json({ success: false, code: err?.code ?? 'CUTLIST_FAILED', message: err?.message, issues: err?.issues });
   }
 });
 
@@ -761,7 +761,7 @@ app.post('/api/production/wall-elevation.svg', requireProjectUser, (request, res
     response.setHeader('content-type', 'image/svg+xml');
     return response.status(200).send(svg);
   } catch (err: any) {
-    return response.status(500).json({ success: false, code: 'ELEVATION_FAILED', message: err?.message });
+    return response.status(err?.status ?? 500).json({ success: false, code: err?.code ?? 'ELEVATION_FAILED', message: err?.message, issues: err?.issues });
   }
 });
 
