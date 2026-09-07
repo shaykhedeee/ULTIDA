@@ -354,7 +354,7 @@ export function ModularUnitPlanner() {
           },
         }] : undefined}
         onGenerateRender={(payload) => {
-          setStatus(`Generated ControlNet depth & wireframe maps for ${payload.modules.length} modules. Total estimated BOM: $${payload.totalCost.toFixed(2)}.`);
+          setStatus(`Generated ControlNet depth & wireframe maps for ${payload.modules.length} modules. Total estimated BOM: ₹${payload.totalCost.toLocaleString('en-IN', { maximumFractionDigits: 0 })}.`);
         }}
       />
     ) : (

@@ -537,10 +537,6 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
                 Currency Formatting
                 <select style={input} value={studioCurrency} onChange={(e) => setStudioCurrency(e.target.value)}>
                   <option value="INR">₹ INR — Indian Rupee (Lakhs / Crores)</option>
-                  <option value="USD">$ USD — US Dollar</option>
-                  <option value="AED">AED — UAE Dirham</option>
-                  <option value="EUR">€ EUR — Euro</option>
-                  <option value="GBP">£ GBP — British Pound</option>
                 </select>
               </label>
             </div>

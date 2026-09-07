@@ -1277,7 +1277,7 @@ export type BOQLineItem = {
 };
 
 export type ProjectBOQResult = {
-  currency: 'INR' | 'USD';
+  currency: 'INR';
   items: BOQLineItem[];
   subtotalInr: number;
   taxInr: number;

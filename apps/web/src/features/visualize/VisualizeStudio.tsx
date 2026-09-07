@@ -31,7 +31,7 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
         <InteractiveRenderViewer
           imageUrl="/reference-vault/001-ddc1891636f7.png"
           items={SAMPLE_INTERACTIVE_ITEMS}
-          currencySymbol="$"
+          currencySymbol="₹"
           onSelectItem={(item) => {
             console.log('Selected item from render viewer:', item);
           }}

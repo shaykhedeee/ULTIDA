@@ -32,7 +32,7 @@ export default function InteractiveRenderViewer({
   items,
   onSelectItem,
   onAddSceneToQuote,
-  currencySymbol = '$',
+  currencySymbol = '₹',
 }: InteractiveRenderViewerProps) {
   const [naturalDimensions, setNaturalDimensions] = useState<{
     width: number;
