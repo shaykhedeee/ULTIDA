@@ -230,7 +230,7 @@ export function createProviderGateway(environment: Environment) {
 
     try {
       const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
-      const prompt = `${request.structuredPrompt}. Preserve the supplied room geometry, camera, openings, cabinet divisions and material regions exactly. Improve only realism, physical materials, shadows, reflections and exposure. ${request.negativePrompt ?? ''}`;
+      const prompt = `${request.structuredPrompt}. Reference image 0 is the approved deterministic room render; image 1 is its depth map; image 2 is its measured edge map; image 3 is its material-region map. Preserve the room geometry, camera, openings, sill and head heights, skirting, cabinet divisions and material regions exactly. Improve only realism, physical materials, shadows, reflections and exposure. ${request.negativePrompt ?? ''}`;
       let body: BodyInit;
       let headers: Record<string, string> = { authorization: `Bearer ${token}` };
       if (model.includes('flux-2')) {
@@ -241,19 +241,25 @@ export function createProviderGateway(environment: Environment) {
         form.append('width', '1024');
         form.append('height', '1024');
         form.append('seed', String(Math.floor(Math.random() * 2147483647)));
-        if (request.sourceAssets[0]) {
+        const conditioningInputs = [
+          { asset: request.sourceAssets[0], filename: 'ultida-base-render.png', description: 'deterministic base image' },
+          { asset: request.conditioningMaps?.depthMapUrl, filename: 'ultida-depth-map.png', description: 'depth map' },
+          { asset: request.conditioningMaps?.cannyEdgeMapUrl, filename: 'ultida-edge-map.png', description: 'edge map' },
+          { asset: request.conditioningMaps?.materialKeyMapUrl, filename: 'ultida-material-map.png', description: 'material-region map' },
+        ].filter((input): input is { asset: string; filename: string; description: string } => Boolean(input.asset));
+        for (const [index, input] of conditioningInputs.entries()) {
           let sourceBytes: Buffer;
           try {
-            sourceBytes = await readImageAsset(request.sourceAssets[0]);
+            sourceBytes = await readImageAsset(input.asset);
           } catch (error) {
-            return { status: 'failed', code: 'CLOUDFLARE_SOURCE_FETCH_FAILED', message: error instanceof Error ? error.message : 'The deterministic base image could not be read.', retryable: true, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
+            return { status: 'failed', code: 'CLOUDFLARE_CONDITIONING_FETCH_FAILED', message: `The ${input.description} could not be read: ${error instanceof Error ? error.message : 'unknown error'}`, retryable: true, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
           }
           const preparedSource = await sharp(sourceBytes)
             .rotate()
             .resize({ width: 511, height: 511, fit: 'inside', withoutEnlargement: true })
             .png()
             .toBuffer();
-          form.append('input_image_0', new Blob([Uint8Array.from(preparedSource)], { type: 'image/png' }), 'ultida-base-render.png');
+          form.append(`input_image_${index}`, new Blob([Uint8Array.from(preparedSource)], { type: 'image/png' }), input.filename);
         }
         body = form;
       } else {
