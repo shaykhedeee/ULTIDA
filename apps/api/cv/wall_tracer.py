@@ -394,19 +394,21 @@ def trace_image(img: np.ndarray) -> dict:
     """
     if img is None:
         raise ValueError("Could not decode the supplied plan image")
-    # Extremely large uploads multiply Hough/connected-component cost without
-    # improving the editable review model. Trace at a bounded working size and
-    # return coordinates in the original source coordinate space so existing
-    # reconciliation and calibration remain exact to the uploaded preview.
+    # Hough, morphology, corner snapping and parallel-line pairing all use
+    # pixel tolerances calibrated for one working resolution. Always normalize
+    # the longest source edge to that reference size so a 300-DPI scan and a
+    # low-resolution phone capture receive the same geometric treatment.
+    # Coordinates are mapped back to the original source space before this
+    # function returns, so downstream calibration still uses source pixels.
     source_h, source_w = img.shape[:2]
     longest = max(source_h, source_w)
-    # All pixel thresholds are calibrated at this reference working size.
-    # Coordinates are scaled back to source pixels below.
     working_limit = 2400
-    scale = 1.0
-    if longest > working_limit:
-        scale = working_limit / float(longest)
-        img = cv2.resize(img, (round(source_w * scale), round(source_h * scale)), interpolation=cv2.INTER_AREA)
+    if longest <= 0:
+        raise ValueError("Plan image has no usable dimensions")
+    scale = working_limit / float(longest)
+    if abs(scale - 1.0) > 1e-6:
+        interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+        img = cv2.resize(img, (max(1, round(source_w * scale)), max(1, round(source_h * scale))), interpolation=interpolation)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     h, w = gray.shape
 
