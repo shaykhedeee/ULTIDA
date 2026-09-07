@@ -95,7 +95,14 @@ export function reconcileBays(schedule: CompositionScheduleV1, wall: Wall, openi
     }
 
     const module = bay.moduleId ? modules.find((candidate) => candidate.id === bay.moduleId) : undefined;
+    if (bay.moduleId && !module) {
+      issues.push({ code: 'COMPOSITION_MODULE_MISSING', severity: 'blocking', message: `Bay ${bay.id} references missing module ${bay.moduleId}.` });
+      continue;
+    }
     if (!module) continue;
+    if (Math.abs(module.widthMm - bay.widthMm) > BAY_TOLERANCE_MM) {
+      issues.push({ code: 'BAY_MODULE_WIDTH_MISMATCH', severity: 'blocking', message: `Bay ${bay.id} is ${formatMm(bay.widthMm)}mm but module ${module.id} is ${formatMm(module.widthMm)}mm wide.` });
+    }
     const dx = wall.end.xMm - wall.start.xMm;
     const dy = wall.end.yMm - wall.start.yMm;
     const wallLengthSquared = dx * dx + dy * dy;
