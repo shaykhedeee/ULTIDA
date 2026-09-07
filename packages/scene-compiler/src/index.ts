@@ -130,6 +130,64 @@ export function reconcileBays(schedule: CompositionScheduleV1, wall: Wall, openi
   return { valid: issues.length === 0, blocking: issues.length > 0, bayTotalMm, deltaMm, issues };
 }
 
+export type CatalogPlacementReconciliationInput = {
+  wallId: string;
+  wallLengthMm: number;
+  openings: Opening[];
+  module: { id: string; widthMm: number; position?: { xMm: number; yMm: number } };
+  offsetMm: number;
+  leftClearanceMm?: number;
+  rightClearanceMm?: number;
+  /** Only persisted designer confirmation may promote a fit to production certification. */
+  confirmed?: boolean;
+};
+
+export type CatalogPlacementReconciliation = {
+  reconciliation: ReconciliationResult;
+  geometryValid: boolean;
+  productionCertified: boolean;
+};
+
+/**
+ * Builds a complete bay schedule around a proposed catalog placement, then
+ * delegates to the same seven-rule gate used for scene compilation. A library
+ * preview is deliberately unconfirmed until it has been saved to scene.v1.
+ */
+export function reconcileCatalogPlacement(input: CatalogPlacementReconciliationInput): CatalogPlacementReconciliation {
+  const leftClearanceMm = input.leftClearanceMm ?? 0;
+  const rightClearanceMm = input.rightClearanceMm ?? 0;
+  const usableWidthMm = input.wallLengthMm - leftClearanceMm - rightClearanceMm;
+  const entries = [
+    ...input.openings.filter((opening) => opening.wallId === input.wallId).map((opening) => ({ id: `keep-out-${opening.id}`, startMm: opening.offsetMm, widthMm: opening.widthMm, keepOut: true as const })),
+    { id: `module-${input.module.id}`, startMm: input.offsetMm, widthMm: input.module.widthMm, moduleId: input.module.id, keepOut: false as const },
+  ].sort((a, b) => a.startMm - b.startMm);
+  const bays: CompositionScheduleV1['bays'] = [];
+  let cursor = 0;
+  for (const entry of entries) {
+    if (entry.startMm > cursor) bays.push({ id: `filler-${bays.length + 1}`, offsetMm: cursor, widthMm: entry.startMm - cursor, keepOut: false });
+    bays.push({ id: entry.id, offsetMm: entry.startMm, widthMm: entry.widthMm, moduleId: 'moduleId' in entry ? entry.moduleId : undefined, keepOut: entry.keepOut });
+    cursor = Math.max(cursor, entry.startMm + entry.widthMm);
+  }
+  if (cursor < usableWidthMm) bays.push({ id: `filler-${bays.length + 1}`, offsetMm: cursor, widthMm: usableWidthMm - cursor, keepOut: false });
+
+  const schedule: CompositionScheduleV1 = {
+    wallId: input.wallId,
+    approvedUsableWidthMm: usableWidthMm,
+    leftClearanceMm,
+    rightClearanceMm,
+    bays,
+    confirmed: input.confirmed === true,
+  };
+  const reconciliation = reconcileBays(
+    schedule,
+    { id: input.wallId, start: { xMm: 0, yMm: 0 }, end: { xMm: input.wallLengthMm, yMm: 0 } },
+    input.openings,
+    [{ id: input.module.id, widthMm: input.module.widthMm, position: { xMm: input.offsetMm, yMm: 0, zMm: 0 } }]
+  );
+  const geometryValid = reconciliation.issues.every((issue) => issue.code === 'SCHEDULE_UNCONFIRMED');
+  return { reconciliation, geometryValid, productionCertified: geometryValid && reconciliation.valid };
+}
+
 export function reconcileSceneBays(scene: SceneV1): ReconciliationResult[] {
   return (scene.compositions ?? []).map((composition) => {
     const wall = scene.walls.find((candidate) => candidate.id === composition.wallId);

@@ -19,6 +19,7 @@ import {
   editSplitRoom, editMergeRooms, editAddWall, editAddOpening, editAddColumn, type CanonicalPlanFragment
 } from '@ultida/spaces-core';
 import { reconcileModuleFit } from '@ultida/scene-core';
+import { reconcileCatalogPlacement } from '@ultida/scene-compiler';
 import { IndianModularCatalog, listCatalog, CuratedLaminateCatalog, type CatalogModule } from '@ultida/catalog-core';
 import { ModulePreview } from '../../components/library/ModulePreview';
 import TopViewFloorplanEnhancer, { type TopViewFurniture } from '../../components/spaces/TopViewFloorplanEnhancer';
@@ -56,6 +57,26 @@ interface PlanColumn { id: string; position: Pt; sizeMm?: number }
 interface PlanBeam { id: string; start: Pt; end: Pt }
 interface PlanService { id: string; kind: string; position: Pt }
 interface PlanAnnotation { id: string; text: string; kind: string; position?: Pt }
+
+type CatalogWallContext = { id: string; lengthMm: number; openings: Array<{ id: string; kind: string; offsetMm: number; widthMm: number }> };
+type CatalogFit = ReturnType<typeof reconcileModuleFit> & { fitVerified: boolean; productionCertified: boolean };
+
+function reconcileCatalogModuleFit(wall: CatalogWallContext | null, module: CatalogModule): CatalogFit | null {
+  if (!wall) return null;
+  const candidate = reconcileModuleFit({ wallLengthMm: wall.lengthMm, moduleWidthMm: module.widthMm, keepOuts: wall.openings });
+  if (!candidate.fits || candidate.suggestedOffsetMm === undefined) return { ...candidate, fitVerified: false, productionCertified: false };
+  const compilerResult = reconcileCatalogPlacement({
+    wallId: wall.id,
+    wallLengthMm: wall.lengthMm,
+    openings: wall.openings.map((opening) => ({ ...opening, wallId: wall.id, kind: opening.kind === 'window' ? 'window' as const : 'door' as const })),
+    module: { id: module.id, widthMm: module.widthMm },
+    offsetMm: candidate.suggestedOffsetMm,
+  });
+  const geometryIssues = compilerResult.reconciliation.issues
+    .filter((issue) => issue.code !== 'SCHEDULE_UNCONFIRMED')
+    .map((issue) => issue.message);
+  return { ...candidate, fits: compilerResult.geometryValid, issues: geometryIssues, fitVerified: compilerResult.geometryValid, productionCertified: compilerResult.productionCertified };
+}
 
 export type AiFurnitureProposal = {
   id: string;
@@ -497,7 +518,7 @@ export function SpacesWorkspace() {
     return {
       id: wall.id,
       lengthMm: wallLen(wall),
-      openings: openings.filter((opening) => opening.wallId === wall.id).map((opening) => ({ id: opening.id, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm ?? 900 })),
+      openings: openings.filter((opening) => opening.wallId === wall.id).map((opening) => ({ id: opening.id, kind: opening.kind, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm ?? 900 })),
     };
   }, [sel?.room, selectedWall, walls, openings]);
 
@@ -1331,7 +1352,7 @@ export function SpacesWorkspace() {
       const matchesFamily = catalogFilterFamily === 'all' || mod.family === catalogFilterFamily;
       const matchesRoom = !selectedRoomType || mod.roomTypes.includes(selectedRoomType as never)
         || (['master_bedroom', 'kids_bedroom'].includes(selectedRoomType) && mod.roomTypes.includes('bedroom' as never));
-      const fit = activeCatalogWall ? reconcileModuleFit({ wallLengthMm: activeCatalogWall.lengthMm, moduleWidthMm: mod.widthMm, keepOuts: activeCatalogWall.openings }) : null;
+      const fit = reconcileCatalogModuleFit(activeCatalogWall, mod);
       const matchesFit = catalogFitFilter === 'all' || Boolean(fit?.fits);
       return matchesSearch && matchesFamily && matchesRoom && matchesFit;
     });
@@ -2445,8 +2466,10 @@ export function SpacesWorkspace() {
 
             <div className="dld-grid">
               {filteredCatalogModules.map((mod) => {
-                const fit = activeCatalogWall ? reconcileModuleFit({ wallLengthMm: activeCatalogWall.lengthMm, moduleWidthMm: mod.widthMm, keepOuts: activeCatalogWall.openings }) : null;
-                const productionCertified = Boolean(mod.production.panelBased && mod.production.hardwareSchedule && mod.production.cutlistSupported && fit?.fits);
+                const fit = reconcileCatalogModuleFit(activeCatalogWall, mod);
+                const templateCertified = Boolean(mod.production.panelBased && mod.production.hardwareSchedule && mod.production.cutlistSupported);
+                const productionCertified = Boolean(templateCertified && fit?.productionCertified);
+                const fitVerified = Boolean(templateCertified && fit?.fitVerified);
                 return <div key={mod.id} className="dld-card">
                   <div className="dld-preview-wrap">
                     <ModulePreview module={mod} compact />
@@ -2457,7 +2480,7 @@ export function SpacesWorkspace() {
                       <small className="dld-sku">{mod.sku}</small>
                     </div>
                     <div className="dld-card-tags">
-                      <Badge tone={productionCertified ? 'success' : fit ? 'warn' : 'neutral'}>{productionCertified ? 'Production certified' : fit && !fit.fits ? 'Blocked by measured geometry' : 'Visual draft'}</Badge>
+                      <Badge tone={productionCertified || fitVerified ? 'success' : fit ? 'warn' : 'neutral'}>{productionCertified ? 'Production certified' : fitVerified ? 'Fit verified · confirm scene' : fit && !fit.fits ? 'Blocked by measured geometry' : 'Visual draft'}</Badge>
                       {fit?.fits && <small className="dld-sku">Placeable at {Math.round(fit.suggestedOffsetMm ?? 0)} mm</small>}
                     </div>
                     <h4>{mod.name}</h4>
@@ -2473,7 +2496,7 @@ export function SpacesWorkspace() {
                         type="button"
                         className="btn-primary btn-sm btn-full"
                         disabled={Boolean(fit && !fit.fits)}
-                        title={fit && !fit.fits ? fit.issues.join(' ') : productionCertified ? 'Add this measured, production-certified module to the room brief.' : 'Add as a visual draft; production certification requires measured wall fit.'}
+                        title={fit && !fit.fits ? fit.issues.join(' ') : productionCertified ? 'Add this confirmed, production-certified module to the room brief.' : fitVerified ? 'Add this fit-verified module, then confirm its persisted scene composition for production.' : 'Add as a visual draft; production certification requires measured wall fit.'}
                         onClick={() => {
                           const categoryKey = mod.family.includes('kitchen') ? 'kitchen_base' : mod.family === 'tv-unit' ? 'tv_unit' : mod.family === 'wardrobe' ? 'wardrobe' : mod.family === 'crockery' ? 'crockery_unit' : mod.family === 'study' ? 'study_unit' : mod.family === 'pooja' ? 'pooja_unit' : mod.family === 'bed' ? 'bed' : mod.family === 'utility' ? 'utility_unit' : 'storage_unit';
                           if (!sel.room.requiredFurniture.includes(categoryKey)) {

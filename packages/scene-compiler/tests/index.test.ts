@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkRenderReadiness, compileScene, compileSceneV1, reconcileBays, SceneCompilationError } from '../src/index.ts';
+import { checkRenderReadiness, compileScene, compileSceneV1, reconcileBays, reconcileCatalogPlacement, SceneCompilationError } from '../src/index.ts';
 
 const plan: any = {
   schemaVersion: 'plan.v1',
@@ -56,6 +56,27 @@ test('certifies a composition only when bays reconcile with measured wall keep-o
   });
   scene.compositions = [{ id: 'composition-1', wallId: plan.walls[0].id, usableWidthMm: 1200, leftClearanceMm: 0, rightClearanceMm: 0, bays: [{ id: 'bay-1', moduleId: 'module-1', widthMm: 1200, offsetMm: 0, keepOut: false }], fillers: [], confirmed: true }];
   assert.equal(checkRenderReadiness(scene).ready, true);
+});
+
+test('catalog placement uses the bay reconciler and stays a visual draft until scene confirmation', () => {
+  const pending = reconcileCatalogPlacement({
+    wallId: 'wall-1', wallLengthMm: 3000,
+    openings: [{ id: 'door-1', wallId: 'wall-1', kind: 'door', offsetMm: 1000, widthMm: 900 }],
+    module: { id: 'catalog-module', widthMm: 900, position: { xMm: 0, yMm: 0 } },
+    offsetMm: 0,
+  });
+  assert.equal(pending.geometryValid, true);
+  assert.equal(pending.productionCertified, false);
+  assert.ok(pending.reconciliation.issues.some((issue) => issue.code === 'SCHEDULE_UNCONFIRMED'));
+
+  const blocked = reconcileCatalogPlacement({
+    wallId: 'wall-1', wallLengthMm: 3000,
+    openings: [{ id: 'door-1', wallId: 'wall-1', kind: 'door', offsetMm: 1000, widthMm: 900 }],
+    module: { id: 'catalog-module', widthMm: 1200, position: { xMm: 800, yMm: 0 } },
+    offsetMm: 800,
+  });
+  assert.equal(blocked.geometryValid, false);
+  assert.ok(blocked.reconciliation.issues.some((issue) => issue.code === 'MODULE_KEEP_OUT_CONFLICT'));
 });
 
 test('blocks a composition bay that overlaps a measured opening', () => {
