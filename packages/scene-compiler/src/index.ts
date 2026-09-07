@@ -363,7 +363,9 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
   const firstRoom = rooms[0];
   const cameraCenter = firstRoom ? polygonCenter(firstRoom.boundary) : { xMm: 0, yMm: 0 };
   const compositions = (input.compositionSchedules ?? []).map((candidate, index) => {
-    const schedule = CompositionScheduleV1Schema.parse(candidate);
+    const parsedSchedule = CompositionScheduleV1Schema.safeParse(candidate);
+    if (!parsedSchedule.success) throw new SceneCompilationError([{ code: 'COMPOSITION_CONTRACT_INVALID', message: `Composition schedule ${index + 1} does not satisfy the bay schedule contract.` }]);
+    const schedule = parsedSchedule.data;
     const wall = walls.find((item) => item.id === schedule.wallId);
     const result = wall
       ? reconcileBays(schedule, wall, openings, modules)
