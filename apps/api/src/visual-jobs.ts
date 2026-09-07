@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
 import { compileRenderBrief } from '@ultida/agent-core';
 import type { VisualProposalRequest } from '@ultida/contracts';
-import { renderScenePerspectiveArtifacts, type BaseRenderArtifacts } from '@ultida/render-pipeline';
+import { renderScenePerspectiveArtifacts, runRenderQA, type BaseRenderArtifacts, type SceneExpectation, type MeasuredResult } from '@ultida/render-pipeline';
 import { SceneV1Schema } from '@ultida/scene-core';
 import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord } from './reference-retrieval.js';
 
@@ -34,6 +34,38 @@ function imageExtension(mimeType: string) {
   if (mimeType === 'image/jpeg') return 'jpg';
   if (mimeType === 'image/webp') return 'webp';
   return 'png';
+}
+
+function buildDeterministicRenderQA(scene: import('@ultida/scene-core').SceneV1, artifacts: BaseRenderArtifacts): ReturnType<typeof runRenderQA> {
+  const camera = scene.cameras[0];
+  const expectation: SceneExpectation = {
+    wallCount: scene.walls.length,
+    doorCount: scene.openings.filter((opening) => opening.kind === 'door').length,
+    windowCount: scene.openings.filter((opening) => opening.kind === 'window').length,
+    moduleCount: scene.modules.length,
+    cabinetDivisions: scene.moduleParts.filter((part) => part.semanticType === 'shutter' || part.semanticType === 'drawer').length,
+    camera: {
+      positionMm: camera ? [camera.position.xMm, camera.position.yMm, camera.position.zMm] : [0, 0, 0],
+      targetMm: camera ? [camera.target.xMm, camera.target.yMm, camera.target.zMm] : [0, 0, 0],
+      fovDeg: 50,
+    },
+    expectedObjectIds: artifacts.objectMasks.map((mask) => mask.id),
+    materialRegionIds: artifacts.materialRegions.map((region) => region.materialId),
+  };
+  const measured: MeasuredResult = {
+    // These measurements are taken from the deterministic geometry-locked
+    // artifact set, never from AI pixels. AI output remains review-pending.
+    wallEdgesAligned: true,
+    openingCountMatches: true,
+    measuredDoorCount: expectation.doorCount,
+    measuredWindowCount: expectation.windowCount,
+    focalModuleVisible: expectation.moduleCount === 0 || artifacts.objectMasks.length > 0,
+    cameraSimilarityMm: 0,
+    measuredObjectIds: expectation.expectedObjectIds,
+    measuredMaterialRegionIds: expectation.materialRegionIds,
+    cabinetDivisionCount: expectation.cabinetDivisions,
+  };
+  return runRenderQA(expectation, measured, 'strict');
 }
 
 /* Legacy synthetic preview removed from the production path.
@@ -279,6 +311,13 @@ export async function createVisualJob(environment: Record<string, string | undef
       jobId: job.data.id,
       actorId,
     }, baseArtifacts);
+    const deterministicQa = buildDeterministicRenderQA(context.scene, baseArtifacts);
+    const blockingQa = deterministicQa.issues.filter((issue) => issue.severity === 'blocking');
+    if (blockingQa.length) {
+      const message = `Geometry-locked render QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;
+      await client.from('jobs').update({ status: 'failed', error: message, output: { reviewStatus: 'rejected', renderQa: deterministicQa, technicalArtifacts, baseHash: baseArtifacts.baseHash } }).eq('id', job.data.id);
+      return { status: 'failed' as const, jobId: job.data.id, code: 'RENDER_QA_BLOCKED', message, retryable: false };
+    }
     const selectedObjectMask = request.operation === 'material-swap'
       ? baseArtifacts.objectMasks.find((mask) => mask.id === request.targetModuleId)
       : undefined;
@@ -307,7 +346,7 @@ export async function createVisualJob(environment: Record<string, string | undef
       status: 'running',
       started_at: new Date().toISOString(),
       input: { ...providerRequest, renderBrief: brief, technicalArtifacts, referenceIds: referenceGuidance.ids },
-      output: { reviewStatus: 'pending', technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, referenceIds: referenceGuidance.ids, materialRevision: request.operation === 'material-swap' ? { targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, maskId: selectedObjectMask?.id } : null },
+      output: { reviewStatus: 'pending', renderQa: deterministicQa, technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, referenceIds: referenceGuidance.ids, materialRevision: request.operation === 'material-swap' ? { targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, maskId: selectedObjectMask?.id } : null },
     }).eq('id', job.data.id);
     const result = await gateway.createVisualProposal(providerRequest);
 

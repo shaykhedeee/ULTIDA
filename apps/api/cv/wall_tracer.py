@@ -110,10 +110,24 @@ def detect_segments(binary: np.ndarray):
     (N, 4) array. Normalize both to a list of (x1,y1,x2,y2) tuples so the
     rest of the pipeline is version-agnostic.
     """
-    lines = cv2.HoughLinesP(
-        binary, rho=1, theta=np.pi / 180, threshold=60,
-        minLineLength=40, maxLineGap=8,
-    )
+    # Parameters are ratios of the normalized working image, so a phone
+    # capture and a high-DPI scan receive the same geometric treatment.
+    longest = max(binary.shape[:2])
+    threshold = max(24, round(longest * 0.0273))
+    min_line_length = max(18, round(longest * 0.0182))
+    max_line_gap = max(4, round(longest * 0.0036))
+    lines = cv2.HoughLinesP(binary, rho=1, theta=np.pi / 180,
+                            threshold=threshold,
+                            minLineLength=min_line_length,
+                            maxLineGap=max_line_gap)
+    # Light CAD exports often produce too few segments on the first pass.
+    # Retry with a lower evidence threshold, while keeping the same normalized
+    # scale, instead of returning an apparently valid but incomplete plan.
+    if lines is None or len(lines) < 4:
+        lines = cv2.HoughLinesP(binary, rho=1, theta=np.pi / 180,
+                                threshold=max(16, round(threshold * 0.65)),
+                                minLineLength=max(14, round(min_line_length * 0.75)),
+                                maxLineGap=max_line_gap)
     if lines is None:
         return []
     lines = np.asarray(lines).reshape(-1, 4)
@@ -386,7 +400,9 @@ def trace_image(img: np.ndarray) -> dict:
     # reconciliation and calibration remain exact to the uploaded preview.
     source_h, source_w = img.shape[:2]
     longest = max(source_h, source_w)
-    working_limit = 2200
+    # All pixel thresholds are calibrated at this reference working size.
+    # Coordinates are scaled back to source pixels below.
+    working_limit = 2400
     scale = 1.0
     if longest > working_limit:
         scale = working_limit / float(longest)
