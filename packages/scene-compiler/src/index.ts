@@ -86,6 +86,16 @@ export function checkRenderReadiness(scene: SceneV1) {
   for (const part of scene.moduleParts) {
     if (!moduleIds.has(part.moduleId)) issues.push({ code: 'ORPHAN_MODULE_PART', severity: 'critical', message: `Module part ${part.id} references missing module ${part.moduleId}.` });
   }
+  for (const composition of scene.compositions ?? []) {
+    const wall = scene.walls.find((candidate) => candidate.id === composition.wallId);
+    const wallLength = wall ? Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm) : 0;
+    const total = composition.bays.reduce((sum, bay) => sum + bay.widthMm, 0) + composition.fillers.reduce((sum, filler) => sum + filler.widthMm, 0);
+    if (!wall) issues.push({ code: 'COMPOSITION_WALL_MISSING', severity: 'critical', message: `Composition ${composition.id} references missing wall ${composition.wallId}.` });
+    if (composition.bays.some((bay) => !moduleIds.has(bay.moduleId))) issues.push({ code: 'COMPOSITION_MODULE_MISSING', severity: 'critical', message: `Composition ${composition.id} contains a bay whose module is missing.` });
+    if (Math.abs(total - composition.usableWidthMm) > 0.5) issues.push({ code: 'BAY_WIDTH_MISMATCH', severity: 'critical', message: `Composition ${composition.id} totals ${total} mm but its approved usable width is ${composition.usableWidthMm} mm.` });
+    if (wall && composition.usableWidthMm + composition.leftClearanceMm + composition.rightClearanceMm > wallLength + 0.5) issues.push({ code: 'COMPOSITION_EXCEEDS_WALL', severity: 'critical', message: `Composition ${composition.id} exceeds measured wall ${composition.wallId}.` });
+    if (!composition.confirmed) issues.push({ code: 'COMPOSITION_UNCONFIRMED', severity: 'critical', message: `Composition ${composition.id} contains dimensions awaiting designer confirmation.` });
+  }
   const blockingCount = issues.filter((issue) => issue.severity === 'critical').length;
   return { ready: blockingCount === 0, blockingCount, warningCount: issues.length - blockingCount, issues };
 }

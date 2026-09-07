@@ -37,6 +37,18 @@ export const SceneV1Schema = z.object({
     materialId: Id.optional(),
     confidence: Confidence,
   })).default([]),
+  // Optional parametric composition schedule. When present, this is the
+  // measured wall reconciliation used by elevations and production exports.
+  compositions: z.array(z.object({
+    id: Id,
+    wallId: Id,
+    usableWidthMm: z.number().positive(),
+    leftClearanceMm: z.number().nonnegative().default(0),
+    rightClearanceMm: z.number().nonnegative().default(0),
+    bays: z.array(z.object({ id: Id, moduleId: Id, widthMm: z.number().positive(), offsetMm: z.number().nonnegative() })).min(1),
+    fillers: z.array(z.object({ id: Id, widthMm: z.number().positive(), side: z.enum(['left','right','between']) })).default([]),
+    confirmed: z.boolean().default(false),
+  })).default([]),
   materials: z.array(z.object({ id: Id, name: z.string(), code: z.string(), unitCost: z.number().nonnegative().optional(), finish: z.string().optional() })),
   // Lighting is part of the authored scene contract, rather than a renderer-only
   // preset. Fixture detail is intentionally optional so older scene.v1 records
