@@ -69,8 +69,26 @@ export function compileWardrobe(input: TemplateCompileInput): TemplateCompileRes
   if (totalD < 550) warning.push('Wardrobe depth < 550mm restricts shutter opening.');
   const parts = baseParts(input, instanceId, wallW, wallH, totalW, totalH, totalD, COMPAT.carcass, COMPAT.shutter);
   const shutterCount = p.shutterCount ?? Math.max(2, Math.round(totalW / TARGET_SHUTTER_WIDTH_MM));
-  const shutterW = totalW / shutterCount; const shutterH = totalH - DEFAULT_CARCASS_THICKNESS_MM * 2;
-  for (let i = 0; i < shutterCount; i++) parts.push(...shutterRow(instanceId, input.templateVersionId, i, i * shutterW, shutterW, shutterH, DEFAULT_CARCASS_THICKNESS_MM, COMPAT.shutter, totalD));
+  const drawerCount = Math.max(0, Math.floor(p.drawerCount ?? 0));
+  const drawerHeightMm = Math.max(120, Number(p.drawerHeightMm ?? DEFAULT_DRAWER_HEIGHT_MM));
+  const loftHeightMm = p.includeLoft ? Math.max(250, Number(p.loftHeightMm ?? 600)) : 0;
+  const storageHeightMm = totalH - loftHeightMm;
+  const drawerStackHeightMm = drawerCount * drawerHeightMm;
+  const shutterH = storageHeightMm - DEFAULT_CARCASS_THICKNESS_MM * 2 - drawerStackHeightMm;
+  if (loftHeightMm >= totalH - DEFAULT_CARCASS_THICKNESS_MM * 2 || shutterH < 300) blocking.push('Wardrobe loft and drawer configuration leaves insufficient height for shutters.');
+  const shutterW = totalW / shutterCount;
+  for (let i = 0; i < shutterCount; i++) parts.push(...shutterRow(instanceId, input.templateVersionId, i, i * shutterW, shutterW, shutterH, DEFAULT_CARCASS_THICKNESS_MM + drawerStackHeightMm, COMPAT.shutter, totalD));
+  for (let index = 0; index < drawerCount; index += 1) {
+    parts.push({ id: `${instanceId}-drawer-${index + 1}`, templateVersionId: input.templateVersionId, instanceId, name: `Wardrobe Drawer ${index + 1}`, transform: { xMm: DEFAULT_CARCASS_THICKNESS_MM, yMm: 0, zMm: DEFAULT_CARCASS_THICKNESS_MM + index * drawerHeightMm, rotationDeg: 0 }, size: { widthMm: totalW - DEFAULT_CARCASS_THICKNESS_MM * 2, depthMm: totalD - 40, heightMm: drawerHeightMm }, anchor: { face: 'front' }, meta: { semanticType: 'drawer', parentId: `${instanceId}-carcass-bottom`, materialSlot: { id: COMPAT.shutter, code: COMPAT.shutter, name: 'Drawer Front' }, drawing: { layer: 'A-MOD-DRAWER', sortOrder: 3 }, bom: { sku: 'WARDROBE-DRAWER', qty: 1, unit: 'pc', lengthMm: totalW - 36, widthMm: totalD - 40, heightMm: drawerHeightMm, thicknessMm: DEFAULT_CARCASS_THICKNESS_MM } } });
+  }
+  const addFiller = (side: 'left' | 'right', widthMm: number) => {
+    if (!Number.isFinite(widthMm) || widthMm <= 0) return;
+    parts.push({ id: `${instanceId}-filler-${side}`, templateVersionId: input.templateVersionId, instanceId, name: `Wardrobe ${side === 'left' ? 'Left' : 'Right'} Wall Filler`, transform: { xMm: side === 'left' ? -widthMm : totalW, yMm: 0, zMm: 0, rotationDeg: 0 }, size: { widthMm, depthMm: totalD, heightMm: totalH }, anchor: { face: side }, meta: { semanticType: 'filler', parentId: null, materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Wall Filler' }, drawing: { layer: 'A-MOD-FILLER', sortOrder: 1 }, bom: { sku: 'WARDROBE-WALL-FILLER', qty: 1, unit: 'pc', lengthMm: totalH, widthMm, thicknessMm: DEFAULT_CARCASS_THICKNESS_MM } } });
+  };
+  addFiller('left', Number(p.leftFillerMm ?? 0));
+  addFiller('right', Number(p.rightFillerMm ?? 0));
+  if (loftHeightMm > 0) parts.push({ id: `${instanceId}-loft`, templateVersionId: input.templateVersionId, instanceId, name: 'Wardrobe Loft Storage', transform: { xMm: 0, yMm: 0, zMm: totalH - loftHeightMm, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: DEFAULT_CARCASS_THICKNESS_MM, heightMm: loftHeightMm }, anchor: { face: 'front' }, meta: { semanticType: 'loft', parentId: null, materialSlot: { id: COMPAT.shutter, code: COMPAT.shutter, name: 'Loft Shutter' }, drawing: { layer: 'A-MOD-LOFT', sortOrder: 2 }, bom: { sku: 'WARDROBE-LOFT-SHUTTER', qty: 1, unit: 'pc', lengthMm: totalW, heightMm: loftHeightMm, thicknessMm: DEFAULT_CARCASS_THICKNESS_MM } } });
+  if (p.lighting === 'profile_led' || p.lighting === 'both') parts.push({ id: `${instanceId}-led-channel`, templateVersionId: input.templateVersionId, instanceId, name: 'Wardrobe Sensor LED Channel', transform: { xMm: DEFAULT_CARCASS_THICKNESS_MM, yMm: totalD - 24, zMm: storageHeightMm - 24, rotationDeg: 0 }, size: { widthMm: totalW - DEFAULT_CARCASS_THICKNESS_MM * 2, depthMm: 12, heightMm: 12 }, anchor: { face: 'front' }, meta: { semanticType: 'lighting_channel', parentId: null, materialSlot: { id: COMPAT.led, code: COMPAT.led, name: 'Warm LED' }, drawing: { layer: 'A-ANNO-LIGHTING', sortOrder: 4 }, bom: { sku: 'LED-3000K-CHANNEL', qty: 1, unit: 'pc', lengthMm: totalW - DEFAULT_CARCASS_THICKNESS_MM * 2 } } });
   // internal shelf + hanging rod (shelf semantic)
   parts.push({ id: `${instanceId}-shelf-1`, templateVersionId: input.templateVersionId, instanceId, name: 'Internal Shelf', transform: { xMm: DEFAULT_CARCASS_THICKNESS_MM, yMm: DEFAULT_CARCASS_THICKNESS_MM, zMm: totalH / 2, rotationDeg: 0 }, size: { widthMm: totalW - DEFAULT_CARCASS_THICKNESS_MM * 2, depthMm: totalD - DEFAULT_CARCASS_THICKNESS_MM * 2, heightMm: DEFAULT_SHELF_THICKNESS_MM }, anchor: { face: 'center' }, meta: { semanticType: 'shelf', parentId: `${instanceId}-carcass-bottom`, materialSlot: { id: COMPAT.shelf, code: COMPAT.shelf, name: 'Shelf' }, drawing: { layer: 'A-MOD-SHELF', sortOrder: 2 }, bom: { sku: 'SHELF-18MM', qty: 1, unit: 'sqm', lengthMm: totalW - 36, widthMm: totalD - 36, thicknessMm: DEFAULT_SHELF_THICKNESS_MM } } });
   return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts };

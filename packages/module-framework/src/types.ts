@@ -4,6 +4,7 @@ export type SemanticType =
   | 'carcass'
   | 'shutter'
   | 'drawer'
+  | 'loft'
   | 'shelf'
   | 'filler'
   | 'back_panel'
