@@ -1,6 +1,7 @@
 import { PdfWriter } from './pdf-writer.js';
 import type { Writable } from 'node:stream';
-import type { SceneV1 } from '@ultida/scene-core';
+import type { SceneV1, SceneWallV1, SceneOpeningV1, SceneModuleV1, SceneModulePartV1, SceneRoomV1 } from './scene-types.js';
+export * from './scene-types.js';
 export * from './elevation-sheet.js';
 export * from './pdf-writer.js';
 export * from './production-dossier-pdf.js';
@@ -149,8 +150,8 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
       warnings.push(`Module ${module.id} has invalid dimensions and was skipped.`);
       continue;
     }
-    const nearest = (scene.walls ?? []).map((wall) => ({ wall, ...moduleWallPosition(module, wall) })).sort((a, b) => a.distance - b.distance)[0];
-    const projected: ProjectedModule = { id: module.id, family: module.family, roomId: module.roomId, xMm: module.position.xMm, yMm: module.position.yMm, widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm, rotationDeg: module.rotationDeg, wallId: nearest?.wall.id, offsetAlongWallMm: nearest?.offset };
+    const nearest = (scene.walls ?? []).map((wall: SceneWallV1) => ({ wall, ...moduleWallPosition(module, wall) })).sort((a: { distance: number }, b: { distance: number }) => a.distance - b.distance)[0];
+    const projected: ProjectedModule = { id: module.id, family: module.family, roomId: module.roomId ?? '', xMm: module.position.xMm, yMm: module.position.yMm, widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm, rotationDeg: module.rotationDeg ?? 0, wallId: nearest?.wall.id, offsetAlongWallMm: nearest?.offset };
     modules.push(projected);
     const corners = rotatedRectangle(projected.xMm, projected.yMm, projected.widthMm, projected.depthMm, projected.rotationDeg);
     corners.forEach((corner, index) => {
@@ -158,18 +159,18 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
       lines.push({ id: `${module.id}-${index + 1}`, layer: 'modules', x1: corner.x, y1: corner.y, x2: next.x, y2: next.y });
     });
   }
-  const openings: ProjectedOpening[] = (scene.openings ?? []).map((opening) => ({ id: opening.id, kind: opening.kind, wallId: opening.wallId, offsetMm: opening.offsetMm, widthMm: opening.widthMm, heightMm: opening.heightMm }));
+  const openings: ProjectedOpening[] = (scene.openings ?? []).map((opening: SceneOpeningV1) => ({ id: opening.id, kind: opening.kind, wallId: opening.wallId, offsetMm: opening.offsetMm, widthMm: opening.widthMm, heightMm: opening.heightMm }));
   for (const opening of openings) {
     const line = openingLine(opening, scene.walls ?? []);
     if (line) lines.push(line);
     else warnings.push(`Opening ${opening.id} could not be projected onto its wall and was skipped.`);
   }
-  const elevations = (scene.walls ?? []).filter((wall) => finitePositive(wallLength(wall))).map((wall) => ({
+  const elevations = (scene.walls ?? []).filter((wall: SceneWallV1) => finitePositive(wallLength(wall))).map((wall: SceneWallV1) => ({
     wallId: wall.id,
     lengthMm: wallLength(wall),
-    heightMm: wall.heightMm,
-    openings: openings.filter((opening) => opening.wallId === wall.id),
-    modules: modules.filter((module) => module.wallId === wall.id).sort((a, b) => (a.offsetAlongWallMm ?? 0) - (b.offsetAlongWallMm ?? 0))
+    heightMm: wall.heightMm ?? 2700,
+    openings: openings.filter((opening: ProjectedOpening) => opening.wallId === wall.id),
+    modules: modules.filter((module: ProjectedModule) => module.wallId === wall.id).sort((a: ProjectedModule, b: ProjectedModule) => (a.offsetAlongWallMm ?? 0) - (b.offsetAlongWallMm ?? 0))
   }));
   return { schema: 'drawing.projection.v1', units: 'mm', projectId: scene.projectId, floorPlanVersionId: scene.floorPlanVersionId, sceneStatus: scene.metadata?.status ?? 'draft', lines, openings, modules, elevations, warnings };
 }
@@ -875,7 +876,7 @@ export type ProductionSnapshotV1 = {
 
 const SHEET_SEMANTICS = new Set(['carcass', 'shutter', 'shelf', 'filler', 'back', 'back_panel', 'panel', 'glass']);
 
-function productionDimensions(part: SceneV1['moduleParts'][number]) {
+function productionDimensions(part: SceneModulePartV1) {
   const dimensions = [part.widthMm, part.depthMm, part.heightMm].sort((a, b) => a - b);
   return { thicknessMm: dimensions[0], widthMm: dimensions[1], lengthMm: dimensions[2] };
 }
@@ -891,8 +892,8 @@ function edgePolicy(semanticType: string, lengthMm: number, widthMm: number, rul
 /** Build the sole manufacturing snapshot from exact scene.v1 component geometry. */
 export function buildProductionSnapshot(scene: SceneV1, rules: FabricationRulesV1 = DEFAULT_FABRICATION_RULES_V1): ProductionSnapshotV1 {
   if (!['approved', 'locked'].includes(scene.metadata.status)) throw new Error('SCENE_NOT_PRODUCTION_READY');
-  if (!scene.moduleParts.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
-  const moduleFamily = new Map(scene.modules.map((module) => [module.id, module.family]));
+  if (!scene.moduleParts?.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
+  const moduleFamily = new Map<string, string>((scene.modules ?? []).map((module: SceneModuleV1) => [module.id, module.family]));
   const warnings: string[] = [];
   const hardware: HardwareItem[] = [];
   const parts: ProductionPartInstanceV1[] = [];
@@ -915,7 +916,7 @@ export function buildProductionSnapshot(scene: SceneV1, rules: FabricationRulesV
     const edge = edgePolicy(semanticType, dimensions.lengthMm, dimensions.widthMm, rules);
     parts.push({
       id: part.id, partInstanceId: part.id, sourcePartId: part.id,
-      moduleId: part.moduleId, roomId: part.roomId,
+      moduleId: part.moduleId, roomId: part.roomId ?? '',
       family: moduleFamily.get(part.moduleId) ?? 'module-part', semanticType,
       partName: part.name, ...dimensions, ...edge,
       grainDirection: semanticType === 'shutter' || semanticType === 'back_panel' || semanticType === 'panel' ? 'vertical' : semanticType === 'glass' ? 'none' : 'horizontal',
@@ -1718,7 +1719,7 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string): string
   vDims.push(vDim(vDimX + 62, ty(0), ty(CEILING_H), `${CEILING_H}`));
 
   // ── Opening symbols ────────────────────────────────────────────────────────
-  const openingsOnWall = (scene.openings ?? []).filter((o: SceneV1['openings'][number]) => o.wallId === wall?.id);
+  const openingsOnWall = (scene.openings ?? []).filter((o: SceneOpeningV1) => o.wallId === wall?.id);
   let openingsSvg = '';
   for (const op of openingsOnWall) {
     const ox = tx(op.offsetMm);
