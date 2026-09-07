@@ -1426,12 +1426,10 @@ export function SpacesWorkspace() {
                     <span className="rc-type">{ROOM_TYPES[room.roomType] ?? room.roomType}</span>
                   </div>
                   <div className="rc-dims">
-                    <strong style={{ color: 'var(--brown-dark)' }}>{Math.round(widthMm)} mm × {Math.round(depthMm)} mm</strong>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}> ({mmToFeetInches(widthMm)} × {mmToFeetInches(depthMm)})</span>
-                    <span> • {(effectiveAreaSqm ?? room.areaSqm).toFixed(1)} m² ({sqmToSqft(effectiveAreaSqm ?? room.areaSqm)} sq.ft)</span>
+                    <strong style={{ color: 'var(--brown-dark)' }}>{Math.round(widthMm)} × {Math.round(depthMm)} mm</strong>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}> ({mmToFeetInches(widthMm)} × {mmToFeetInches(depthMm)}) • {(effectiveAreaSqm ?? room.areaSqm).toFixed(1)} m²</span>
                   </div>
-                  <div className="rc-row"><span>Ceiling</span><strong>{room.ceilingHeightMm ?? ceilingHeightMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(room.ceilingHeightMm ?? ceilingHeightMm)})</small></strong></div>
-                  <div className="rc-row"><span>Walls / Openings</span><strong>{wallCount} / {openingCount}</strong></div>
+                  <div className="rc-row"><span>Ceiling ↕</span><strong>{room.ceilingHeightMm ?? ceilingHeightMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(room.ceilingHeightMm ?? ceilingHeightMm)})</small></strong></div>
                   <div className="rc-row"><span>Usable wall</span><strong>{usable.usableWallMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(usable.usableWallMm)})</small></strong></div>
                   <div className="rc-foot">
                     <Badge tone={readiness.ready ? 'success' : 'warn'}>{readiness.ready ? 'Ready' : 'Incomplete'}</Badge>
@@ -1519,9 +1517,9 @@ export function SpacesWorkspace() {
             </div>
             <div className="toolbar" aria-label="Canvas tools">
               {[
-                { label: 'Inspect', tools: [['select', 'Choose'], ['measure', 'Measure']] },
-                { label: 'Geometry', tools: [['draw_room', 'Draw room'], ['split', 'Split'], ['merge', 'Merge'], ['wall', 'Add wall']] },
-                { label: 'Plan features', tools: [['door', 'Door'], ['window', 'Window'], ['column', 'Column'], ['beam', 'Beam'], ['service', 'Service'], ['annotate', 'Note']] },
+                { label: 'AI Architecture', tools: [['select', 'Choose'], ['measure', 'Measure'], ['annotate', 'Note']] },
+                { label: 'Production & CNC', tools: [['draw_room', 'Draw room'], ['wall', 'Add wall'], ['split', 'Split'], ['merge', 'Merge']] },
+                { label: 'Operations', tools: [['door', 'Door'], ['window', 'Window'], ['column', 'Column'], ['beam', 'Beam'], ['service', 'Service']] },
               ].map((group) => <div className="tool-group" key={group.label}><span>{group.label}</span><div>{group.tools.map(([t, label]) => (
                 <button key={t} className={`tool-btn ${(tool === t || (t === 'column' && tool === 'add_column') || (t === 'service' && tool === 'add_service') || (t === 'wall' && tool === 'draw_wall') || (t === 'beam' && tool === 'draw_beam') || (t === 'door' && tool === 'add_door') || (t === 'window' && tool === 'add_window')) ? 'active' : ''}`} onClick={() => activateCanvasTool(t)}>{label}</button>
               ))}</div></div>)}

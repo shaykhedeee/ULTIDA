@@ -29,6 +29,25 @@ type Props = {
 type Preset = 'perspective' | 'front' | 'top' | 'walkthrough' | 'isometric';
 type LightingPreset = 'warm' | 'daylight' | 'evening';
 
+/** A deterministic fallback used by file-export tools before a persisted scene is selected. */
+export function createDefaultDemoScene(): Scene {
+  return {
+    schema: 'scene.v1',
+    units: 'mm',
+    rooms: [{ id: 'room-master-bed', name: 'Master Bedroom', boundary: [{ xMm: 0, yMm: 0 }, { xMm: 4000, yMm: 0 }, { xMm: 4000, yMm: 3000 }, { xMm: 0, yMm: 3000 }, { xMm: 0, yMm: 0 }] }],
+    walls: [
+      { id: 'wall-a', start: { xMm: 0, yMm: 0 }, end: { xMm: 4000, yMm: 0 }, thicknessMm: 150, heightMm: 2700, spaceIds: ['room-master-bed'] },
+      { id: 'wall-b', start: { xMm: 4000, yMm: 0 }, end: { xMm: 4000, yMm: 3000 }, thicknessMm: 150, heightMm: 2700, spaceIds: ['room-master-bed'] },
+    ],
+    openings: [],
+    modules: [{ id: 'module-wardrobe', roomId: 'room-master-bed', family: 'wardrobe', widthMm: 2400, depthMm: 600, heightMm: 2400, position: { xMm: 800, yMm: 0 }, rotationDeg: 0 }],
+    moduleParts: [],
+    materials: [],
+    lighting: [],
+    cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: 2000, yMm: 1600, zMm: -4000 }, target: { xMm: 2000, yMm: 1200, zMm: 1200 }, lensMm: 35 }],
+  };
+}
+
 function materialColor(materialId: string | undefined) {
   if (!materialId) return '#b99167';
   let hash = 0;
