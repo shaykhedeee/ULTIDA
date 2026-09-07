@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarDays, Compass, FileText, Layers3, PackageCheck, Plus, Receipt, Ruler, Sparkles, Workflow } from 'lucide-react';
+import { ArrowRight, CalendarDays, Compass, Layers3, PackageCheck, Plus, Ruler, Sparkles, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -134,16 +134,24 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           <p>Architectural precision, parametric modular joinery, and photorealistic visualization orchestrated across your active projects.</p>
         </div>
         <div className="studio-hero-actions">
-          <button className="studio-secondary" onClick={() => openTool('/projects')}>
-            <Layers3 size={15} /> All projects
-          </button>
           <button className="studio-primary" onClick={handleLaunchDemo} disabled={loadingDemo}>
             <Sparkles size={15} /> {loadingDemo ? 'Preparing Demo…' : 'Launch Demo'}
           </button>
-          <button className="studio-gold-action" onClick={() => openTool('/projects?new=1')}>
+          <button className="studio-secondary" onClick={() => openTool('/projects?new=1')}>
             <Plus size={15} /> New project
           </button>
+          <button className="studio-secondary" onClick={() => openTool('/projects')}>
+            <Layers3 size={15} /> All projects
+          </button>
         </div>
+      </section>
+
+      {/* Studio Portfolio Metrics */}
+      <section className="studio-metrics" aria-label="Studio status">
+        <div><span>Active projects</span><strong>{loading ? '—' : active}</strong><small>in your current portfolio</small></div>
+        <div><span>Needs review</span><strong>{loading ? '—' : inReview}</strong><small>designer attention required</small></div>
+        <div><span>Production-ready</span><strong>{loading ? '—' : projects.filter((p) => p.project_status === 'approved').length}</strong><small>approved projects</small></div>
+        <div><span>Next action</span><strong className="status-ready">{loading ? '…' : hasProjects ? 'Continue' : 'Create'}</strong><small>{hasProjects ? 'resume an active project' : 'start your first project'}</small></div>
       </section>
 
       {/* Guided 5-Step Canonical Pipeline */}
@@ -191,7 +199,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
                 <span className="step-num">STEP 2</span>
                 <span className="step-tag">Staging</span>
               </div>
-              <strong>Plan Enhancer</strong>
+              <strong>Stager</strong>
               <p>Procedural flooring, furniture staging and 3D top-view render.</p>
             </div>
             <div className="step-card-footer">
@@ -265,6 +273,36 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         </div>
       </section>
 
+      {/* Operations Pulse */}
+      <section className="studio-operations-pulse" aria-label="Operations pulse">
+        <div className="studio-pulse-card">
+          <div className="studio-section-heading">
+            <div>
+              <p className="studio-kicker">OPERATIONS PULSE</p>
+              <h2>Keep every handoff accountable</h2>
+            </div>
+            <button onClick={() => openTool('/projects')}>Open project reviews <ArrowRight size={15} /></button>
+          </div>
+          <div className="studio-pulse-grid">
+            <div><strong>{pendingReviews.length}</strong><span>reviews awaiting a decision</span><small>Plan · scene · cutlist · quote · delivery</small></div>
+            <div><strong>{risks.length}</strong><span>open risks across your portfolio</span><small>{urgentRisks.length ? `${urgentRisks.length} need attention today` : 'Nothing high priority right now'}</small></div>
+            <div><strong>Version-linked</strong><span>comments and change history</span><small>Every handoff stays traceable to its source</small></div>
+          </div>
+        </div>
+        <div className="studio-risk-list">
+          <p className="studio-kicker">WATCH LIST</p>
+          <h3>Latest blockers</h3>
+          {risks.slice(0, 3).map((risk) => (
+            <button key={`${risk.project_id}-${risk.title}`} onClick={() => openTool(`/projects/${risk.project_id}`)}>
+              <span className={`risk-dot ${risk.severity}`} />
+              <span><strong>{risk.title}</strong><small>{stageLabels[risk.stage] ?? risk.stage} · {risk.severity}</small></span>
+              <ArrowRight size={14} />
+            </button>
+          ))}
+          {!risks.length && <p className="studio-muted">No open risks. Your team is clear to move work forward.</p>}
+        </div>
+      </section>
+
       {/* Production Reference Vault Section */}
       <section className="studio-vault-section">
         <div className="studio-vault-header">
@@ -310,44 +348,6 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         </div>
       </section>
 
-      {/* Studio Portfolio Metrics */}
-      <section className="studio-metrics" aria-label="Studio status">
-        <div><span>Active projects</span><strong>{loading ? '—' : active}</strong><small>in your current portfolio</small></div>
-        <div><span>Needs review</span><strong>{loading ? '—' : inReview}</strong><small>designer attention required</small></div>
-        <div><span>Production-ready</span><strong>{loading ? '—' : projects.filter((p) => p.project_status === 'approved').length}</strong><small>approved projects</small></div>
-        <div><span>Next action</span><strong className="status-ready">{loading ? '…' : hasProjects ? 'Continue' : 'Create'}</strong><small>{hasProjects ? 'resume an active project' : 'start your first project'}</small></div>
-      </section>
-
-      {/* Operations Pulse */}
-      <section className="studio-operations-pulse" aria-label="Operations pulse">
-        <div className="studio-pulse-card">
-          <div className="studio-section-heading">
-            <div>
-              <p className="studio-kicker">OPERATIONS PULSE</p>
-              <h2>Keep every handoff accountable</h2>
-            </div>
-            <button onClick={() => openTool('/projects')}>Open project reviews <ArrowRight size={15} /></button>
-          </div>
-          <div className="studio-pulse-grid">
-            <div><strong>{pendingReviews.length}</strong><span>reviews awaiting a decision</span><small>Plan · scene · cutlist · quote · delivery</small></div>
-            <div><strong>{risks.length}</strong><span>open risks across your portfolio</span><small>{urgentRisks.length ? `${urgentRisks.length} need attention today` : 'Nothing high priority right now'}</small></div>
-            <div><strong>Version-linked</strong><span>comments and change history</span><small>Every handoff stays traceable to its source</small></div>
-          </div>
-        </div>
-        <div className="studio-risk-list">
-          <p className="studio-kicker">WATCH LIST</p>
-          <h3>Latest blockers</h3>
-          {risks.slice(0, 3).map((risk) => (
-            <button key={`${risk.project_id}-${risk.title}`} onClick={() => openTool(`/projects/${risk.project_id}`)}>
-              <span className={`risk-dot ${risk.severity}`} />
-              <span><strong>{risk.title}</strong><small>{stageLabels[risk.stage] ?? risk.stage} · {risk.severity}</small></span>
-              <ArrowRight size={14} />
-            </button>
-          ))}
-          {!risks.length && <p className="studio-muted">No open risks. Your team is clear to move work forward.</p>}
-        </div>
-      </section>
-
       {/* Global Quick Tools — exactly 3 genuinely global utilities */}
       <section className="studio-section" aria-label="Global studio utilities">
         <div className="studio-section-heading">
@@ -378,7 +378,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           <button className="studio-quick-tool-card" onClick={() => openTool('/tools/calendar')}>
             <span className="quick-tool-icon"><CalendarDays size={18} /></span>
             <div className="quick-tool-copy">
-              <strong>Studio calendar &amp; milestones</strong>
+              <strong>Studio calendar &amp; invoices</strong>
               <p>Keep site inspections, client sign-offs and production schedules synchronized.</p>
             </div>
             <ArrowRight size={14} />

@@ -52,7 +52,20 @@ test('canonical writer emits a valid CRLF ASCII DXF structure', () => {
   assert.equal([...Buffer.from(dxf)].every((byte) => byte < 128), true);
 });
 
-test('DXF validation fails when the independent validator is unavailable', () => {
+function isPythonAvailable(): boolean {
+  try {
+    const res = spawnSync('python', ['--version'], { encoding: 'utf8' });
+    return !res.error && res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+test('DXF validation fails when the independent validator is unavailable', (t) => {
+  if (!isPythonAvailable()) {
+    t.skip('python runtime is not available on this host');
+    return;
+  }
   const validatorPath = join(fileURLToPath(new URL('../../../scripts', import.meta.url)), 'validate_dxf.py');
   const result = spawnSync('python', ['-I', '-S', validatorPath, 'unused.dxf'], { encoding: 'utf8' });
   assert.equal(result.error, undefined);
@@ -60,7 +73,11 @@ test('DXF validation fails when the independent validator is unavailable', () =>
   assert.match(result.stderr, /ezdxf/);
 });
 
-test('python ezdxf validator approves canonical dxf output', () => {
+test('python ezdxf validator approves canonical dxf output', (t) => {
+  if (!isPythonAvailable()) {
+    t.skip('python runtime is not available on this host');
+    return;
+  }
   const dxf = exportSceneToDxf(approvedScene as any);
   const tempPath = join(fileURLToPath(new URL('.', import.meta.url)), 'temp_test.dxf');
   writeFileSync(tempPath, dxf);

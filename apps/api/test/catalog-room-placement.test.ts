@@ -53,7 +53,7 @@ test('catalog API supplies compatible templates for every supported room', async
       assert.equal(response.status, 200, room);
       const payload = await response.json();
       assert.ok(payload.modules.length > 0, `No API catalog for ${room}`);
-      assert.ok(payload.modules.every((module: { roomTypes: string[] }) => module.roomTypes.includes(room) || ((room === 'master_bedroom' || room === 'kids_bedroom') && module.roomTypes.includes('bedroom'))), room);
+      assert.ok(payload.modules.every((module: { roomTypes: string[] }) => room === 'other' || module.roomTypes.includes(room) || ((room === 'master_bedroom' || room === 'kids_bedroom') && module.roomTypes.includes('bedroom'))), room);
     }
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });

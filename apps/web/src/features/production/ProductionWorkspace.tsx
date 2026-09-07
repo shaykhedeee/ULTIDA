@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FolderKanban, Package, AlertTriangle, CheckCircle2, Download, ChevronLeft, ChevronRight, Maximize2, PanelRightClose, ClipboardList, Settings, SlidersHorizontal } from 'lucide-react';
+import { FolderKanban, Package, AlertTriangle, CheckCircle2, Download, ChevronLeft, ChevronRight, Maximize2, PanelRightClose, ClipboardList, Settings, SlidersHorizontal, FileText } from 'lucide-react';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
+import WorkingDrawingsDossier from '../../components/drawings/WorkingDrawingsDossier';
 import './production-workspace.css';
 
-type TabId = 'parts' | 'edges' | 'hardware' | 'operations' | 'nesting' | 'cnc' | 'exports' | 'release';
+type TabId = 'parts' | 'edges' | 'hardware' | 'operations' | 'nesting' | 'cnc' | 'drawings' | 'exports' | 'release';
 type Part = { id: string; partInstanceId: string; moduleId: string; family: string; roomId: string; semanticType: string; partName: string; lengthMm: number; widthMm: number; thicknessMm: number; quantity: number; grainDirection: 'horizontal' | 'vertical' | 'none'; edging: string; edgeSchedule?: { l1Mm: number; l2Mm: number; w1Mm: number; w2Mm: number; tapeType: string }; materialCode: string; status: 'approved' | 'review_required' };
 type HardwareItem = { name: string; category: 'hinge' | 'slide' | 'fastener' | 'handle' | 'accessory'; quantity: number; unit: string };
 type Operation = { id: string; partId: string; type: 'drill' | 'groove' | 'rebate' | 'pocket' | 'cutout'; face: string; positionMm: string; depthMm: number; diameterMm: number | null; toleranceMm: number; tool: string };
@@ -84,6 +85,7 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'operations', label: 'Operations', icon: <SlidersHorizontal size={14} /> },
   { id: 'nesting', label: 'Nesting', icon: <FolderKanban size={14} /> },
   { id: 'cnc', label: 'CNC Cutouts', icon: <Maximize2 size={14} /> },
+  { id: 'drawings', label: 'Shop Drawings', icon: <FileText size={14} /> },
   { id: 'exports', label: 'Exports', icon: <Download size={14} /> },
   { id: 'release', label: 'Release', icon: <CheckCircle2 size={14} /> },
 ];
@@ -123,7 +125,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
     return { apiBase, token, scene: payload.sceneVersion.scene };
   }
 
-  async function downloadProductionFile(path: string, filename: string, method: 'POST' | 'GET' = 'POST') {
+  async function downloadProductionFile(path: string, filename: string, method: 'POST' | 'GET' = 'POST', bodyExtra: Record<string, any> = {}) {
     setExportState('Preparing exact scene output...');
     try {
       const source = await readApprovedScene();
@@ -131,7 +133,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
       const response = await fetch(`${source.apiBase}${path}`, {
         method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${source.token}` },
-        ...(method === 'POST' ? { body: JSON.stringify({ projectId, sceneVersionId, scene: source.scene }) } : {})
+        ...(method === 'POST' ? { body: JSON.stringify({ projectId, sceneVersionId, scene: source.scene, ...bodyExtra }) } : {})
       });
       if (!response.ok) {
         const error = await response.json().catch(() => null);
@@ -409,12 +411,26 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
               </table>
             </div>
         )}
+        {activeTab === 'drawings' && (
+          <div className="production-drawings-view" style={{ padding: '4px 0' }}>
+            <WorkingDrawingsDossier
+              projectId={projectId}
+              sceneVersionId={sceneVersionId}
+              sceneApproved={sceneApproved}
+              modules={modules}
+              materials={materials}
+            />
+          </div>
+        )}
         {activeTab === 'exports' && (
           <div className="production-exports">
             <h4>Export Production Outputs</h4>
             <p className="inspector-empty" role="status">{exportState}</p>
             <div className="exports-grid">
-              <Card><CardHeader>SVG Drawing Package</CardHeader><CardContent><p>Scene-linked wall and module elevations.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-elevations.svg`)}>Export SVG</Button></CardContent></Card>
+              <Card className="featured-export"><CardHeader>Turnkey Shop Sheet (SVG)</CardHeader><CardContent><p>Full architectural shop sheet: top casework plan with 45° masonry hatching, dual external &amp; System 32 joinery elevations, red dimension chains, and complete carcass/laminate schedules.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-shop-sheet.svg`, 'POST', { options: { viewMode: 'shop-sheet' } })}>Export Shop Sheet SVG</Button></CardContent></Card>
+              <Card><CardHeader>System 32 Carcass Section (SVG)</CardHeader><CardContent><p>Internal carcass gables, System 32 line boring, fixed &amp; adjustable shelves, drawer runners, and hardware voids.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-carcass-section.svg`, 'POST', { options: { viewMode: 'internal' } })}>Export Carcass SVG</Button></CardContent></Card>
+              <Card><CardHeader>External Shutter Elevation (SVG)</CardHeader><CardContent><p>Finished shutter panels, Gola profile grooves, fluted panels, and profile glass frames.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-external-elevation.svg`, 'POST', { options: { viewMode: 'external' } })}>Export External SVG</Button></CardContent></Card>
+              <Card><CardHeader>SVG Drawing Package (All Walls)</CardHeader><CardContent><p>Scene-linked wall and module elevations overview.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-elevations.svg`)}>Export All SVG</Button></CardContent></Card>
               <Card><CardHeader>DXF Millimetres</CardHeader><CardContent><p>Editable millimetre geometry from the approved scene.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/dxf', `ultida-${sceneVersionId}.dxf`)}>Export DXF</Button></CardContent></Card>
               <Card><CardHeader>SketchUp Model (.rb Script)</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile(`/projects/${projectId}/export/sketchup?sceneVersionId=${encodeURIComponent(sceneVersionId ?? '')}`, `ultida-${projectId}-sketchup.rb`, 'GET')}>Export SketchUp .rb</Button></CardContent></Card>
               <Card className="featured-export"><CardHeader>Complete Production Pack (PDF)</CardHeader><CardContent><p>Index, approved wall elevations, internal/end sections, fabrication rules, material summary, hardware and panel cutlist from this exact scene revision.</p><small style={{ display: 'block', marginBottom: 10, color: sceneApproved ? '#166534' : '#92400e' }}>{sceneApproved ? 'Ready: approved scene linked · production snapshot loaded' : 'Complete: approve the scene first, then review production panels'}</small><Button variant="primary" size="sm" disabled={!sceneApproved || !sceneVersionId || !parts.length} onClick={() => void downloadProductionFile(`/projects/${projectId}/scenes/${sceneVersionId}/production/package.pdf`, `ultida-${sceneVersionId}-production-pack.pdf`, 'GET')}>Download complete PDF</Button></CardContent></Card>

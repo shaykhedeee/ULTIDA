@@ -1,5 +1,5 @@
 import { BookOpen, Boxes, CheckCircle2, LayoutTemplate, Ruler, Sparkles } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import './room-design.css';
 
@@ -27,7 +27,6 @@ function normalizeTab(requested: string | null): RoomDesignTab {
 }
 
 export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes }: Props) {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const requested = searchParams.get('tab');
   const activeTab: RoomDesignTab = normalizeTab(requested);
@@ -54,7 +53,7 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             type="button"
-            onClick={() => navigate('/library')}
+            onClick={() => selectTab('modules')}
             style={{
               display: 'inline-flex',
               alignItems: 'center',

@@ -1,4 +1,4 @@
-import { COMPILER_REGISTRY, type CategoryType } from '@ultida/module-framework';
+import { COMPILER_REGISTRY, type CategoryType, type Part } from '@ultida/module-framework';
 import type { CompiledModulePart } from '@ultida/scene-compiler';
 
 type StoredModule = {
@@ -123,7 +123,7 @@ export function compileStoredModuleForScene(
   return {
     ok: true,
     module: moduleEnvelope,
-    parts: compiled.parts.map((part) => ({
+    parts: compiled.parts.map((part: Part) => ({
       id: part.id,
       moduleId: module.id,
       roomId: module.space_id,

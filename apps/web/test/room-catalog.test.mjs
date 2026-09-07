@@ -7,8 +7,17 @@ import { IndianModularCatalog, listCatalog } from '@ultida/catalog-core';
 
 let vite, browser, baseUrl;
 before(async () => {
+  const fs = await import('node:fs');
   vite = await createServer({
     configFile: false, root: resolve('apps/web'),
+    resolve: {
+      alias: {
+        '@ultida/layout-core': resolve('packages/layout-core/src'),
+        '@ultida/spaces-core': resolve('packages/spaces-core/src'),
+        '@ultida/contracts': resolve('packages/contracts/src'),
+        '@ultida/drawing-core': resolve('packages/drawing-core/src'),
+      },
+    },
     server: { host: '127.0.0.1', port: 0 },
     plugins: [{ name: 'room-catalog-fixture', configureServer(server) {
       server.middlewares.use('/__room-test', async (_request, response) => {
@@ -28,7 +37,11 @@ before(async () => {
   });
   await vite.listen();
   baseUrl = `http://127.0.0.1:${vite.httpServer.address().port}`;
-  browser = await chromium.launch({ headless: true, executablePath: process.env.PUPPETEER_EXECUTABLE_PATH });
+  const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH ||
+    (fs.existsSync('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe')
+      ? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+      : undefined);
+  browser = await chromium.launch({ headless: true, executablePath });
 });
 after(async () => { await browser?.close(); await vite?.close(); });
 

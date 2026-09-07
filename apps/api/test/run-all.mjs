@@ -10,6 +10,7 @@ for (const file of files) {
   const startedAt = Date.now();
   console.log(`[test] ${file}`);
   const child = spawn(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', join(testDir, file)], {
+    cwd: dirname(testDir),
     stdio: 'inherit',
     env: { ...process.env, NODE_ENV: 'test' }
   });

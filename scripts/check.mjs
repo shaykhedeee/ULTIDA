@@ -34,9 +34,21 @@ function run(label, args, timeoutMs = 120_000) {
   });
 }
 
+let isPnpm = false;
 try {
-  for (const workspace of packages) await run(`${workspace} build`, ['run', 'build', '--workspace', workspace]);
-  for (const workspace of applications) await run(`${workspace} type check`, ['run', 'check', '--workspace', workspace]);
+  const v = (await import('node:child_process')).execSync(`${npm} --version`, { encoding: 'utf8', shell: process.platform === 'win32' }).trim();
+  isPnpm = Boolean(process.env.npm_config_user_agent?.includes('pnpm') || v.startsWith('12.') || v.includes('pnpm'));
+} catch {}
+
+try {
+  for (const workspace of packages) {
+    const args = isPnpm ? ['--filter', workspace, 'run', 'build'] : ['run', 'build', '--workspace', workspace];
+    await run(`${workspace} build`, args);
+  }
+  for (const workspace of applications) {
+    const args = isPnpm ? ['--filter', workspace, 'run', 'check'] : ['run', 'check', '--workspace', workspace];
+    await run(`${workspace} type check`, args);
+  }
   process.stdout.write('\n[check] complete\n');
 } catch (error) {
   process.stderr.write(`\n[check] ${error instanceof Error ? error.message : String(error)}\n`);

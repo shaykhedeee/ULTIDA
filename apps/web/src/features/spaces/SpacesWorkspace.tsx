@@ -368,7 +368,7 @@ export function SpacesWorkspace() {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed?.name) {
-          setSaveState(`✨ Loaded modular template "${parsed.name}" (${parsed.dimensionsMm?.width ?? 0}×${parsed.dimensionsMm?.height ?? 0}mm) for active space.`);
+          setSaveState(`Loaded modular template "${parsed.name}" (${parsed.dimensionsMm?.width ?? 0}×${parsed.dimensionsMm?.height ?? 0}mm) for active space.`);
           window.localStorage.removeItem('ultida.pendingModulePlan.v1');
         }
       }
@@ -813,7 +813,7 @@ export function SpacesWorkspace() {
 
     setRooms(updatedRooms);
     setCanvasRenderMode('3d_isometric');
-    setSaveState('✨ AI enhanced all rooms, assigned wall roles, and verified all spaces for 3D layout!');
+    setSaveState('AI enhanced all rooms, assigned wall roles, and verified all spaces for 3D layout.');
     void saveGeometryVersion(updatedRooms);
 
     // Apply layout candidates to scene for all rooms
@@ -821,7 +821,7 @@ export function SpacesWorkspace() {
       for (const r of updatedRooms) {
         await applyLayoutCandidateToScene(r, 'balanced').catch(() => null);
       }
-      setSaveState('✨ All 8 spaces verified with modular units and synced to 3D Scene!');
+      setSaveState('All 8 spaces verified with modular units and synced to 3D Scene.');
     })();
   };
 
@@ -1129,7 +1129,7 @@ export function SpacesWorkspace() {
       });
       if (postRes.ok) {
         await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, { method: 'POST', headers });
-        setSaveState(`✨ Added ${label} to Wall (${widthMm}mm run). 3D Scene updated!`);
+        setSaveState(`Added ${label} to Wall (${widthMm}mm run). 3D Scene updated.`);
       }
     } catch {
       setSaveState('Feature wall placement could not be saved.');
@@ -1298,7 +1298,7 @@ export function SpacesWorkspace() {
     }
 
     setAiProposals(proposals);
-    setSaveState(`✨ Selected & Applied ${candidateType.toUpperCase()} layout to ${room.name}! Room is approved & verified.`);
+    setSaveState(`Selected & Applied ${candidateType.toUpperCase()} layout to ${room.name}. Room is approved & verified.`);
 
     try {
       await persistRoom(updatedRoom, 'verified');
@@ -1440,7 +1440,7 @@ export function SpacesWorkspace() {
           <aside className="region room-list">
             <div className="region-title"><Home size={14} /> Rooms ({rooms.length})</div>
             <div className="room-cards">
-              {roomMetrics.map(({ room, widthMm, depthMm, effectiveAreaSqm, wallCount, openingCount, usable, readiness, scaleReview }) => (
+              {roomMetrics.map(({ room, widthMm, depthMm, effectiveAreaSqm, usable, readiness, scaleReview }) => (
                 <div key={room.id} className={`room-card ${selectedRoom === room.id ? 'sel' : ''}`} onClick={() => { setSelectedRoom(room.id); setAiProposals([]); }}>
                   <div className="rc-head">
                     <strong>{room.name}</strong>
@@ -1520,13 +1520,13 @@ export function SpacesWorkspace() {
                 </button>
                 <div className="canvas-mode-toggle" role="group" aria-label="Floor plan view mode">
                   <button type="button" className={`canvas-mode-btn ${canvasRenderMode === '2d' ? 'active' : ''}`} onClick={() => setCanvasRenderMode('2d')}>
-                    📐 2D CAD
+                    2D CAD
                   </button>
                   <button type="button" className={`canvas-mode-btn ${canvasRenderMode === '3d_isometric' ? 'active' : ''}`} onClick={() => setCanvasRenderMode('3d_isometric')}>
-                    🧊 3D Enhanced
+                    3D Enhanced
                   </button>
                   <button type="button" className={`canvas-mode-btn ${canvasRenderMode === 'stager' ? 'active' : ''}`} onClick={() => setCanvasRenderMode('stager')}>
-                    🎨 Top-View Stager
+                    Top-View Stager
                   </button>
                 </div>
                 <button type="button" className="btn-primary btn-sm" onClick={() => setShowFloorPlanRenderModal(true)}>
@@ -1836,7 +1836,7 @@ export function SpacesWorkspace() {
 
                 <div className="space-panel-tabs" role="tablist" aria-label="Room configuration">
                   <button type="button" className={spacePanel === 'candidates' ? 'active' : ''} onClick={() => setSpacePanel('candidates')}>Candidates</button>
-                  <button type="button" className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>✨ AI Architect (10Y)</button>
+                  <button type="button" className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>AI Architect (10Y)</button>
                   <button type="button" className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>Geometry</button>
                   <button type="button" className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>Design brief</button>
                   <button type="button" className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>Scene setup</button>
@@ -1847,8 +1847,8 @@ export function SpacesWorkspace() {
                     <p className="candidates-intro">
                       Symbolic placements validated against wall fit, door swing, window clearance, circulation, and structural constraints for <strong>{sel.room.name}</strong>.
                     </p>
-                    <div className="candidates-grid">
-                      {/* Candidate 1: Best Circulation */}
+                    <div className="candidates-grid-v2">
+                      {/* Candidate 1: Circulation First */}
                       {(() => {
                         const isApplied = sel.room.designPriority === 'circulation';
                         return (
@@ -1861,7 +1861,7 @@ export function SpacesWorkspace() {
                           >
                             <div className="cand-head">
                               <span className="cand-title">Best Circulation</span>
-                              <span className="cand-score">{isApplied ? '✅ ACTIVE APPLIED' : '95% Valid ✅'}</span>
+                              <span className="cand-score">{isApplied ? 'Active Applied' : '95% Valid'}</span>
                             </div>
                             <div className="cand-preview-box">
                               <CandidateVectorPreview room={sel.room} walls={walls} openings={openings} candidateType="circulation" />
@@ -1878,7 +1878,7 @@ export function SpacesWorkspace() {
                                 void applyLayoutCandidateToScene(sel.room, 'circulation');
                               }}
                             >
-                              <CheckCircle2 size={13} /> {isApplied ? '✅ Applied & Verified' : 'Select & Apply Layout'}
+                              <CheckCircle2 size={13} /> {isApplied ? 'Applied & Verified' : 'Select & Apply Layout'}
                             </button>
                           </div>
                         );
@@ -1897,7 +1897,7 @@ export function SpacesWorkspace() {
                           >
                             <div className="cand-head">
                               <span className="cand-title">Balanced Layout</span>
-                              <span className="cand-score">{isApplied ? '✅ ACTIVE APPLIED' : '93% Valid ✅'}</span>
+                              <span className="cand-score">{isApplied ? 'Active Applied' : '93% Valid'}</span>
                             </div>
                             <div className="cand-preview-box">
                               <CandidateVectorPreview room={sel.room} walls={walls} openings={openings} candidateType="balanced" />
@@ -1914,7 +1914,7 @@ export function SpacesWorkspace() {
                                 void applyLayoutCandidateToScene(sel.room, 'balanced');
                               }}
                             >
-                              <CheckCircle2 size={13} /> {isApplied ? '✅ Applied & Verified' : 'Select & Apply Layout'}
+                              <CheckCircle2 size={13} /> {isApplied ? 'Applied & Verified' : 'Select & Apply Layout'}
                             </button>
                           </div>
                         );
@@ -1933,7 +1933,7 @@ export function SpacesWorkspace() {
                           >
                             <div className="cand-head">
                               <span className="cand-title">Maximum Storage</span>
-                              <span className="cand-score">{isApplied ? '✅ ACTIVE APPLIED' : '91% Valid ✅'}</span>
+                              <span className="cand-score">{isApplied ? 'Active Applied' : '91% Valid'}</span>
                             </div>
                             <div className="cand-preview-box">
                               <CandidateVectorPreview room={sel.room} walls={walls} openings={openings} candidateType="storage" />
@@ -1950,7 +1950,7 @@ export function SpacesWorkspace() {
                                 void applyLayoutCandidateToScene(sel.room, 'storage');
                               }}
                             >
-                              <CheckCircle2 size={13} /> {isApplied ? '✅ Applied & Verified' : 'Select & Apply Layout'}
+                              <CheckCircle2 size={13} /> {isApplied ? 'Applied & Verified' : 'Select & Apply Layout'}
                             </button>
                           </div>
                         );
@@ -1969,7 +1969,7 @@ export function SpacesWorkspace() {
                           >
                             <div className="cand-head">
                               <span className="cand-title">Luxury Feature Suite</span>
-                              <span className="cand-score">{isApplied ? '✅ ACTIVE APPLIED' : '96% Valid ✅'}</span>
+                              <span className="cand-score">{isApplied ? 'Active Applied' : '96% Valid'}</span>
                             </div>
                             <div className="cand-preview-box">
                               <CandidateVectorPreview room={sel.room} walls={walls} openings={openings} candidateType="luxury" />
@@ -1986,7 +1986,7 @@ export function SpacesWorkspace() {
                                 void applyLayoutCandidateToScene(sel.room, 'luxury');
                               }}
                             >
-                              <CheckCircle2 size={13} /> {isApplied ? '✅ Applied & Verified' : 'Select & Apply Layout'}
+                              <CheckCircle2 size={13} /> {isApplied ? 'Applied & Verified' : 'Select & Apply Layout'}
                             </button>
                           </div>
                         );
@@ -2028,7 +2028,7 @@ export function SpacesWorkspace() {
                               <span className="wpc-badge">{label}</span>
                               <span className="wpc-len">{wLen.toLocaleString()} mm</span>
                             </div>
-                            {assignedRole && <span className="wpc-role-tag">✨ {assignedRole.replaceAll('_', ' ')}</span>}
+                            {assignedRole && <span className="wpc-role-tag">{assignedRole.replaceAll('_', ' ')}</span>}
                           </div>
                         );
                       })}
@@ -2036,9 +2036,30 @@ export function SpacesWorkspace() {
 
                     {selectedWall && (
                       <div className="wall-elevation-panel">
-                        <div className="wep-title">
-                          <span>Technical Elevation — {roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall) >= 0 ? `Wall ${String.fromCharCode(65 + roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall))}` : 'Selected Wall'}</span>
-                          <small>Standard Height: {sel.room.ceilingHeightMm ?? ceilingHeightMm} mm</small>
+                        <div className="wep-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <span>Technical Elevation — {roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall) >= 0 ? `Wall ${String.fromCharCode(65 + roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall))}` : 'Selected Wall'}</span>
+                            <small style={{ display: 'block' }}>Standard Height: {sel.room.ceilingHeightMm ?? ceilingHeightMm} mm</small>
+                          </div>
+                          <button
+                            type="button"
+                            style={{
+                              background: '#1c1917',
+                              color: 'var(--gold)',
+                              border: '1px solid #44382e',
+                              borderRadius: 6,
+                              padding: '4px 10px',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                            onClick={() => navigate(`/projects/${projectId}/spaces?tab=modules`)}
+                          >
+                            Configure Modules &rarr;
+                          </button>
                         </div>
                         {/* 2D Technical Elevation Blueprint Vector */}
                         <div className="wep-canvas-box">
@@ -2071,28 +2092,28 @@ export function SpacesWorkspace() {
                               className="wep-treatment-btn"
                               onClick={() => void applyFeatureWallToSelectedWall(sel.room, selectedWall, 'fluted-pu')}
                             >
-                              <span>🎨 Fluted Charcoal PU (2400mm)</span>
+                              <span>Fluted Charcoal PU (2400mm)</span>
                             </button>
                             <button
                               type="button"
                               className="wep-treatment-btn"
                               onClick={() => void applyFeatureWallToSelectedWall(sel.room, selectedWall, 'acoustic-slat')}
                             >
-                              <span>🪵 Walnut Acoustic Slat (2400mm)</span>
+                              <span>Walnut Acoustic Slat (2400mm)</span>
                             </button>
                             <button
                               type="button"
                               className="wep-treatment-btn"
                               onClick={() => void applyFeatureWallToSelectedWall(sel.room, selectedWall, 'french-wainscot')}
                             >
-                              <span>🏛️ French Wainscot (3000mm)</span>
+                              <span>French Wainscot (3000mm)</span>
                             </button>
                             <button
                               type="button"
                               className="wep-treatment-btn"
                               onClick={() => void applyFeatureWallToSelectedWall(sel.room, selectedWall, 'calacatta-sintered')}
                             >
-                              <span>💎 Calacatta Sintered Stone</span>
+                              <span>Calacatta Sintered Stone</span>
                             </button>
                           </div>
                         </div>
@@ -2246,7 +2267,7 @@ export function SpacesWorkspace() {
                       </select>
 
                       {/* 1-Click Design Feature Wall Treatments */}
-                      <label style={{ fontSize: 11, fontWeight: 700, marginTop: 4 }}>✦ 1-Click Design Feature Wall Cladding</label>
+                      <label style={{ fontSize: 11, fontWeight: 700, marginTop: 4 }}>1-Click Design Feature Wall Cladding</label>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         {[
                           { id: 'fluted-pu', name: '2400 Fluted Charcoal PU Cladding', role: 'tv_wall' },
@@ -2309,7 +2330,7 @@ export function SpacesWorkspace() {
                     <div className="advisor-panel">
                       <div className="advisor-hero-card">
                         <div className="advisor-hero-header">
-                          <span className="advisor-kicker">✦ SENIOR ARCHITECT &amp; ERGONOMICS ENGINE</span>
+                          <span className="advisor-kicker">SENIOR ARCHITECT &amp; ERGONOMICS ENGINE</span>
                           <span className="advisor-score-badge">{audit.circulationScore}</span>
                         </div>
                         <h4>10-Year Interior Designer Intelligence</h4>
@@ -2321,7 +2342,7 @@ export function SpacesWorkspace() {
                           <div key={idx} className="advisor-rule-card">
                             <div className="advisor-rule-card-head">
                               <span>{rule.title}</span>
-                              <span style={{ color: '#059669', fontSize: 10.5 }}>✓ VERIFIED</span>
+                              <span style={{ color: '#059669', fontSize: 10.5 }}>VERIFIED</span>
                             </div>
                             <p>{rule.desc}</p>
                           </div>
@@ -2359,7 +2380,7 @@ export function SpacesWorkspace() {
                             requiredFurniture: defaultCategoriesForRoom(sel.room.roomType, 'luxury'),
                           });
                           void applyLayoutCandidateToScene(sel.room, 'luxury');
-                          setSaveState(`✨ Applied Senior Interior Designer prescription & luxury layout to ${sel.room.name}!`);
+                          setSaveState(`Applied Senior Interior Designer prescription & luxury layout to ${sel.room.name}.`);
                         }}
                       >
                         <Sparkles size={14} /> Apply 10Y Designer Prescription &amp; Verify Room
@@ -2382,34 +2403,6 @@ export function SpacesWorkspace() {
                   </Button>
                 </div>
                 {!sel.room.requiredFurniture.length && <p className="room-blocker">Choose at least one furniture or modular requirement before opening the Module Catalog.</p>}
-
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await persistRoom(sel.room);
-                    navigate(`/projects/${projectId}/spaces?tab=modules`);
-                  }}
-                  style={{
-                    marginTop: 12,
-                    width: '100%',
-                    padding: '11px 14px',
-                    borderRadius: 8,
-                    background: 'linear-gradient(135deg, #c59c2d, #8f6c12)',
-                    color: '#fff',
-                    border: 0,
-                    fontWeight: 800,
-                    fontSize: '12.5px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <Sparkles size={15} /> Save &amp; configure catalog modules →
-                </button>
               </div>
             ) : (
               <div className="props-empty">Select a room or wall from the list or canvas.</div>
@@ -2524,7 +2517,7 @@ export function SpacesWorkspace() {
           <div className="floor-render-modal" onClick={(e) => e.stopPropagation()}>
             <div className="floor-render-header">
               <div>
-                <h3>✨ Enhanced 3D Floor Plan Render</h3>
+                <h3>Enhanced 3D Floor Plan Render</h3>
                 <small style={{ color: 'var(--text-muted)' }}>Top-down axonometric cutaway with elevated walls, real flooring textures, and modular furniture</small>
               </div>
               <button type="button" className="icon-btn" onClick={() => setShowFloorPlanRenderModal(false)}><X size={18} /></button>
@@ -3305,7 +3298,7 @@ function CandidateVectorPreview({
                 <line x1={originX + 10} y1={walkwayY} x2={originX + roomW - 10} y2={walkwayY} stroke="#10b981" strokeWidth={1.5} strokeDasharray="5 3" strokeOpacity={0.85} />
                 <rect x={originX + (roomW - 150) / 2} y={walkwayY - 8} width={150} height={16} fill="#064e3b" stroke="#10b981" strokeWidth={0.75} rx={3} />
                 <text x={originX + roomW / 2} y={walkwayY + 3.5} fill="#a7f3d0" fontSize={6.2} fontWeight="bold" textAnchor="middle">
-                  🚶 {candidateType === 'circulation' ? '1200 mm CLEAR WALKWAY' : '>1000 mm CLEAR WALKWAY'}
+                  {candidateType === 'circulation' ? '1200 mm CLEAR WALKWAY' : '>1000 mm CLEAR WALKWAY'}
                 </text>
 
                 {/* Sectional Sofa */}
@@ -3640,7 +3633,7 @@ function CandidateVectorPreview({
           rx={3}
         />
         <text x={originX + 8} y={originY + depth * scale - 7.5} fontSize={6.2} fontWeight="bold" fill="#f5eedf">
-          📐 {Math.round(width)} × {Math.round(depth)} mm ({mmToFeetInches(width)} × {mmToFeetInches(depth)})
+          {Math.round(width)} × {Math.round(depth)} mm ({mmToFeetInches(width)} × {mmToFeetInches(depth)})
         </text>
 
         {/* Right Badge: Area in m² & sq.ft */}

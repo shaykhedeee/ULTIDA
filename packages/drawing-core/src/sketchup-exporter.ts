@@ -1,4 +1,4 @@
-import type { SceneV1 } from '@ultida/scene-core';
+import type { SceneV1, SceneWallV1, SceneOpeningV1, SceneModuleV1, SceneModulePartV1, SceneRoomV1, ScenePointMm } from './scene-types.js';
 
 /**
  * Generates an ultra-accurate, production-grade SketchUp Ruby script (.rb)
@@ -255,8 +255,8 @@ wall_master_group.name = "ULTIDA Walls"
 
     // Find and sort openings along this wall
     const wallOpenings = openingsList
-      .filter((op) => op.wallId === wall.id)
-      .sort((a, b) => a.offsetMm - b.offsetMm);
+      .filter((op: SceneOpeningV1) => op.wallId === wall.id)
+      .sort((a: SceneOpeningV1, b: SceneOpeningV1) => a.offsetMm - b.offsetMm);
 
     ruby += `
 # ------------------------------------------------------------------------------
@@ -370,7 +370,7 @@ ceiling_master_group.name = "ULTIDA Ceilings & Lighting"
       const roomLabel = sanitize(room.name || room.type || room.id);
       const isWetArea = room.type === 'bathroom' || room.type === 'kitchen' || roomLabel.toLowerCase().includes('bath') || roomLabel.toLowerCase().includes('toilet');
       const floorMat = isWetArea ? 'mat_floor_tile' : 'mat_floor_wood';
-      const ptList = poly.map((p) => `Geom::Point3d.new(${p.xMm}.mm, ${p.yMm}.mm, 0)`).join(', ');
+      const ptList = poly.map((p: ScenePointMm) => `Geom::Point3d.new(${p.xMm}.mm, ${p.yMm}.mm, 0)`).join(', ');
 
       ruby += `
 # Room: ${room.id} (${roomLabel})
@@ -386,7 +386,7 @@ begin
   end
 
   # Room Perimeter Skirting (75mm high x 15mm thick along room perimeter)
-  skirt_pts = [${poly.map((p) => `[${p.xMm}, ${p.yMm}]`).join(', ')}]
+  skirt_pts = [${poly.map((p: ScenePointMm) => `[${p.xMm}, ${p.yMm}]`).join(', ')}]
   (0...(skirt_pts.length - 1)).each do |i|
     p_a = skirt_pts[i]
     p_b = skirt_pts[i + 1]
@@ -403,7 +403,7 @@ begin
   # False Ceiling Slab (at 2700mm)
   rc_grp = ceiling_master_group.entities.add_group
   rc_grp.name = "Ceiling: ${roomLabel}"
-  ceil_face = rc_grp.entities.add_face([${poly.map((p) => `Geom::Point3d.new(${p.xMm}.mm, ${p.yMm}.mm, 2700.mm)`).join(', ')}])
+  ceil_face = rc_grp.entities.add_face([${poly.map((p: ScenePointMm) => `Geom::Point3d.new(${p.xMm}.mm, ${p.yMm}.mm, 2700.mm)`).join(', ')}])
   if ceil_face
     ceil_face.pushpull(12.mm)
     rc_grp.layer = layer_ceiling
@@ -586,13 +586,13 @@ begin
 `;
 
   // Add dedicated camera page for each room
-  roomsList.forEach((rm, idx) => {
+  roomsList.forEach((rm: SceneRoomV1, idx: number) => {
     const roomName = sanitize(rm.name || rm.type || `Room ${idx + 1}`);
     const poly = rm.boundary ?? [];
     if (poly.length >= 3) {
       // Calculate room centroid
-      const cx = poly.reduce((acc, p) => acc + p.xMm, 0) / poly.length;
-      const cy = poly.reduce((acc, p) => acc + p.yMm, 0) / poly.length;
+      const cx = poly.reduce((acc: number, p: ScenePointMm) => acc + p.xMm, 0) / poly.length;
+      const cy = poly.reduce((acc: number, p: ScenePointMm) => acc + p.yMm, 0) / poly.length;
       const pFirst = poly[0];
       const eyeX = (pFirst.xMm + cx) / 2.0;
       const eyeY = (pFirst.yMm + cy) / 2.0;
