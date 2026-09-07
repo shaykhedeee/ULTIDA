@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
+import sharp from 'sharp';
 import { compileRenderBrief } from '@ultida/agent-core';
 import type { VisualProposalRequest } from '@ultida/contracts';
 import { renderScenePerspectiveArtifacts, runRenderQA, type BaseRenderArtifacts, type SceneExpectation, type MeasuredResult } from '@ultida/render-pipeline';
@@ -36,14 +37,14 @@ function imageExtension(mimeType: string) {
   return 'png';
 }
 
-function buildDeterministicRenderQA(scene: import('@ultida/scene-core').SceneV1, artifacts: BaseRenderArtifacts): ReturnType<typeof runRenderQA> {
+export function buildSceneExpectation(scene: import('@ultida/scene-core').SceneV1, artifacts: BaseRenderArtifacts): SceneExpectation {
   const camera = scene.cameras[0];
-  const expectation: SceneExpectation = {
+  return {
     wallCount: scene.walls.length,
     doorCount: scene.openings.filter((opening) => opening.kind === 'door').length,
     windowCount: scene.openings.filter((opening) => opening.kind === 'window').length,
     moduleCount: scene.modules.length,
-    cabinetDivisions: scene.moduleParts.filter((part) => part.semanticType === 'shutter' || part.semanticType === 'drawer').length,
+    cabinetDivisions: (scene.moduleParts ?? []).filter((part) => part.semanticType === 'shutter' || part.semanticType === 'drawer').length,
     camera: {
       positionMm: camera ? [camera.position.xMm, camera.position.yMm, camera.position.zMm] : [0, 0, 0],
       targetMm: camera ? [camera.target.xMm, camera.target.yMm, camera.target.zMm] : [0, 0, 0],
@@ -52,20 +53,137 @@ function buildDeterministicRenderQA(scene: import('@ultida/scene-core').SceneV1,
     expectedObjectIds: artifacts.objectMasks.map((mask) => mask.id),
     materialRegionIds: artifacts.materialRegions.map((region) => region.materialId),
   };
-  const measured: MeasuredResult = {
-    // These measurements are taken from the deterministic geometry-locked
-    // artifact set, never from AI pixels. AI output remains review-pending.
-    wallEdgesAligned: true,
-    openingCountMatches: true,
-    measuredDoorCount: expectation.doorCount,
-    measuredWindowCount: expectation.windowCount,
-    focalModuleVisible: expectation.moduleCount === 0 || artifacts.objectMasks.length > 0,
-    cameraSimilarityMm: 0,
-    measuredObjectIds: expectation.expectedObjectIds,
-    measuredMaterialRegionIds: expectation.materialRegionIds,
-    cabinetDivisionCount: expectation.cabinetDivisions,
+}
+
+type Raster = { data: Buffer; width: number; height: number; channels: number };
+
+function bytesFromDataUri(value: string): Buffer {
+  const match = /^data:[^;]+;base64,([A-Za-z0-9+/=]+)$/.exec(value);
+  if (!match) throw new Error('Render QA expected a base64 image data URI.');
+  return Buffer.from(match[1], 'base64');
+}
+
+async function rasterize(value: Buffer | string, width: number, height: number): Promise<Raster> {
+  const source = typeof value === 'string' ? bytesFromDataUri(value) : value;
+  const { data, info } = await sharp(source, { failOn: 'none' })
+    .resize(width, height, { fit: 'fill' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return { data, width: info.width, height: info.height, channels: info.channels };
+}
+
+function luminance(raster: Raster, pixel: number): number {
+  const offset = pixel * raster.channels;
+  return raster.data[offset]! * 0.2126 + raster.data[offset + 1]! * 0.7152 + raster.data[offset + 2]! * 0.0722;
+}
+
+function edgePixels(raster: Raster): Uint8Array {
+  const result = new Uint8Array(raster.width * raster.height);
+  for (let y = 1; y < raster.height - 1; y += 1) {
+    for (let x = 1; x < raster.width - 1; x += 1) {
+      const pixel = y * raster.width + x;
+      const horizontal = Math.abs(luminance(raster, pixel + 1) - luminance(raster, pixel - 1));
+      const vertical = Math.abs(luminance(raster, pixel + raster.width) - luminance(raster, pixel - raster.width));
+      // The deterministic renderer uses intentionally subtle wall colours,
+      // while provider imagery normally has stronger contrast.  A low but
+      // non-zero gradient captures both and still rejects a flat image.
+      result[pixel] = horizontal + vertical >= 12 ? 1 : 0;
+    }
+  }
+  return result;
+}
+
+function maskPixels(mask: Raster): Uint8Array {
+  const result = new Uint8Array(mask.width * mask.height);
+  for (let pixel = 0; pixel < result.length; pixel += 1) {
+    const offset = pixel * mask.channels;
+    result[pixel] = mask.data[offset + 3]! > 127 ? 1 : 0;
+  }
+  return result;
+}
+
+function fractionInside(region: Uint8Array, evidence: Uint8Array): number {
+  let covered = 0;
+  let matches = 0;
+  for (let pixel = 0; pixel < region.length; pixel += 1) {
+    if (!region[pixel]) continue;
+    covered += 1;
+    if (evidence[pixel]) matches += 1;
+  }
+  return covered ? matches / covered : 0;
+}
+
+function edgeAlignment(reference: Raster, observedEdges: Uint8Array): number {
+  let referenceEdges = 0;
+  let matched = 0;
+  for (let pixel = 0; pixel < observedEdges.length; pixel += 1) {
+    if (luminance(reference, pixel) > 100) continue;
+    referenceEdges += 1;
+    const x = pixel % reference.width;
+    const y = Math.floor(pixel / reference.width);
+    let found = false;
+    for (let dy = -2; dy <= 2 && !found; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) {
+        const sampleX = x + dx;
+        const sampleY = y + dy;
+        if (sampleX >= 0 && sampleY >= 0 && sampleX < reference.width && sampleY < reference.height && observedEdges[sampleY * reference.width + sampleX]) {
+          found = true;
+          break;
+        }
+      }
+    }
+    if (found) matched += 1;
+  }
+  return referenceEdges ? matched / referenceEdges : 0;
+}
+
+/**
+ * Measure the actual raster delivered by the deterministic pass or image
+ * provider.  This deliberately derives counts from projected masks and image
+ * edges; it never copies counts, object IDs, or camera values from the scene.
+ */
+export async function measureRenderImage(scene: import('@ultida/scene-core').SceneV1, artifacts: BaseRenderArtifacts, image: Buffer | string): Promise<MeasuredResult> {
+  const reference = await rasterize(artifacts.edgeMap.url, 512, 384);
+  const observed = await rasterize(image, reference.width, reference.height);
+  const observedEdges = edgePixels(observed);
+  const alignment = edgeAlignment(reference, observedEdges);
+
+  const openingEvidence = await Promise.all(artifacts.openingMasks.map(async (opening) => ({
+    opening,
+    visible: fractionInside(maskPixels(await rasterize(opening.url, reference.width, reference.height)), observedEdges) >= 0.004,
+  })));
+  const objectEvidence = await Promise.all(artifacts.objectMasks.map(async (mask) => ({
+    id: mask.id,
+    visible: fractionInside(maskPixels(await rasterize(mask.url, reference.width, reference.height)), observedEdges) >= 0.003,
+  })));
+  const materialEvidence = await Promise.all(artifacts.materialRegions.map(async (region) => ({
+    id: region.materialId,
+    visible: fractionInside(maskPixels(await rasterize(region.url, reference.width, reference.height)), observedEdges) >= 0.003,
+  })));
+  const measuredDoorCount = openingEvidence.filter(({ opening, visible }) => opening.kind === 'door' && visible).length;
+  const measuredWindowCount = openingEvidence.filter(({ opening, visible }) => opening.kind === 'window' && visible).length;
+  const expectedOpeningCount = scene.openings.length;
+  return {
+    wallEdgesAligned: alignment >= 0.55,
+    openingCountMatches: measuredDoorCount + measuredWindowCount === expectedOpeningCount,
+    measuredDoorCount,
+    measuredWindowCount,
+    focalModuleVisible: scene.modules.length === 0 || objectEvidence.some(({ visible }) => visible),
+    // A calibrated camera estimate needs a pose solver.  Until one is enabled,
+    // edge alignment produces a conservative pixel-derived deviation instead
+    // of claiming the locked camera matched exactly.
+    cameraSimilarityMm: Math.round((1 - alignment) * 1000),
+    measuredObjectIds: objectEvidence.filter(({ visible }) => visible).map(({ id }) => id),
+    measuredMaterialRegionIds: materialEvidence.filter(({ visible }) => visible).map(({ id }) => id),
+    // Cabinet divisions require a dedicated semantic detector.  Leaving this
+    // undefined prevents a fabricated count from being treated as evidence.
+    inventedObjectLabels: [],
   };
-  return runRenderQA(expectation, measured, 'strict');
+}
+
+export async function evaluateRenderImageQA(scene: import('@ultida/scene-core').SceneV1, artifacts: BaseRenderArtifacts, image: Buffer | string): Promise<ReturnType<typeof runRenderQA>> {
+  return runRenderQA(buildSceneExpectation(scene, artifacts), await measureRenderImage(scene, artifacts, image), 'strict');
 }
 
 /* Legacy synthetic preview removed from the production path.
@@ -124,6 +242,24 @@ function dataUriToBytes(dataUri: string): Buffer {
   return Buffer.from(match[2], 'base64');
 }
 
+async function providerImageBytes(result: any): Promise<{ bytes: Buffer; mimeType: string }> {
+  let bytes: Buffer;
+  let mimeType = 'image/png';
+  if (result.image?.encoding === 'base64') {
+    mimeType = result.image.mimeType || mimeType;
+    bytes = Buffer.from(result.image.data, 'base64');
+  } else if (result.resultUrl) {
+    const remote = await fetch(result.resultUrl);
+    if (!remote.ok) throw new Error(`Image provider result could not be downloaded (${remote.status}).`);
+    mimeType = remote.headers.get('content-type')?.split(';')[0] || mimeType;
+    bytes = Buffer.from(await remote.arrayBuffer());
+  } else {
+    throw new Error('Provider returned no persistable image output.');
+  }
+  if (!mimeType.startsWith('image/') || bytes.byteLength < 1024) throw new Error('Provider output is not a valid non-empty image.');
+  return { bytes, mimeType };
+}
+
 async function persistTechnicalArtifacts(
   client: SupabaseClient,
   context: { organizationId: string; projectId: string; sceneVersionId: string; jobId: string; actorId: string },
@@ -134,6 +270,7 @@ async function persistTechnicalArtifacts(
     { kind: 'render_depth', label: 'depth', value: artifacts.depth },
     { kind: 'render_edge_map', label: 'edge', value: artifacts.edgeMap },
     ...artifacts.objectMasks.map((value) => ({ kind: 'render_object_mask', label: `object-${value.id}`, value })),
+    ...artifacts.openingMasks.map((value) => ({ kind: 'render_opening_mask', label: `opening-${value.id}`, value })),
     ...artifacts.materialRegions.map((value) => ({ kind: 'render_material_mask', label: `material-${value.materialId}`, value })),
   ];
   const stored = await Promise.all(entries.map(async (entry) => {
@@ -164,25 +301,14 @@ async function persistTechnicalArtifacts(
     depth: byLabel.get('depth')!,
     edge: byLabel.get('edge')!,
     objectMasks: stored.filter((entry) => entry.label.startsWith('object-')),
+    openingMasks: stored.filter((entry) => entry.label.startsWith('opening-')),
     materialMasks: stored.filter((entry) => entry.label.startsWith('material-')),
   };
 }
 
-async function storeImage(client: SupabaseClient, context: { organizationId: string; projectId: string; sceneVersionId: string; actorId?: string; jobId?: string; technicalArtifacts?: Record<string, unknown>; inputFingerprint?: string; revision?: Record<string, unknown> }, result: any, prompt: Record<string, unknown>) {
-  let bytes: Buffer;
-  let mimeType = 'image/png';
-  if (result.image?.encoding === 'base64') {
-    mimeType = result.image.mimeType || mimeType;
-    bytes = Buffer.from(result.image.data, 'base64');
-  } else if (result.resultUrl) {
-    const remote = await fetch(result.resultUrl);
-    if (!remote.ok) throw new Error(`Image provider result could not be downloaded (${remote.status}).`);
-    mimeType = remote.headers.get('content-type')?.split(';')[0] || mimeType;
-    bytes = Buffer.from(await remote.arrayBuffer());
-  } else {
-    throw new Error('Provider returned no persistable image output.');
-  }
-  if (!mimeType.startsWith('image/') || bytes.byteLength < 1024) throw new Error('Provider output is not a valid non-empty image.');
+async function storeImage(client: SupabaseClient, context: { organizationId: string; projectId: string; sceneVersionId: string; actorId?: string; jobId?: string; technicalArtifacts?: Record<string, unknown>; inputFingerprint?: string; revision?: Record<string, unknown>; renderQa: ReturnType<typeof runRenderQA> }, result: any, prompt: Record<string, unknown>, image?: { bytes: Buffer; mimeType: string }) {
+  const persistedImage = image ?? await providerImageBytes(result);
+  const { bytes, mimeType } = persistedImage;
   const path = `${context.organizationId}/${context.projectId}/renders/${context.sceneVersionId}/${crypto.randomUUID()}.${imageExtension(mimeType)}`;
   const upload = await client.storage.from('project-assets').upload(path, bytes, { contentType: mimeType, upsert: false });
   if (upload.error) throw new Error(upload.error.message);
@@ -199,8 +325,8 @@ async function storeImage(client: SupabaseClient, context: { organizationId: str
     technicalArtifacts: context.technicalArtifacts,
     synthetic: false,
     reviewStatus: 'pending',
-    qaStatus: 'completed_with_warnings',
-    qaWarning: 'Image evidence adapters are not yet enabled; designer review is required.',
+    qaStatus: 'measured_passed',
+    renderQa: context.renderQa,
   };
   const assetPayload: any = { organization_id: context.organizationId, project_id: context.projectId, kind: 'render', storage_path: path, mime_type: mimeType, metadata, created_by: context.actorId ?? null };
   const asset = await client.from('project_assets').insert(assetPayload).select('id,created_at').single();
@@ -311,7 +437,10 @@ export async function createVisualJob(environment: Record<string, string | undef
       jobId: job.data.id,
       actorId,
     }, baseArtifacts);
-    const deterministicQa = buildDeterministicRenderQA(context.scene, baseArtifacts);
+    // The deterministic edge map is the base pass's measurable output.  It
+    // has no photoreal styling noise, so it is the canonical geometry evidence
+    // used to validate the scene before a provider is invoked.
+    const deterministicQa = await evaluateRenderImageQA(context.scene, baseArtifacts, baseArtifacts.edgeMap.url);
     const blockingQa = deterministicQa.issues.filter((issue) => issue.severity === 'blocking');
     if (blockingQa.length) {
       const message = `Geometry-locked render QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;
@@ -361,8 +490,16 @@ export async function createVisualJob(environment: Record<string, string | undef
     }
     
     if (result.status === 'succeeded') {
-      const stored = await storeImage(client, { organizationId: context.project.organization_id, projectId: request.projectId, sceneVersionId: request.sceneVersionId, actorId, jobId: job.data.id, technicalArtifacts, inputFingerprint, revision: request.operation === 'material-swap' ? { targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, maskId: selectedObjectMask?.id } : undefined }, result, brief);
-      const output = { ...result, ...stored, promptVersion: brief.version, technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, renderStatus: 'completed_with_warnings' };
+      const image = await providerImageBytes(result);
+      const renderQa = await evaluateRenderImageQA(context.scene, baseArtifacts, image.bytes);
+      const blockingQa = renderQa.issues.filter((issue) => issue.severity === 'blocking');
+      if (blockingQa.length) {
+        const message = `Rendered image QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;
+        await client.from('jobs').update({ status: 'failed', error: message, output: { reviewStatus: 'rejected', renderQa, technicalArtifacts, baseHash: baseArtifacts.baseHash } }).eq('id', job.data.id);
+        return { status: 'failed' as const, jobId: job.data.id, code: 'RENDER_QA_BLOCKED', message, retryable: false };
+      }
+      const stored = await storeImage(client, { organizationId: context.project.organization_id, projectId: request.projectId, sceneVersionId: request.sceneVersionId, actorId, jobId: job.data.id, technicalArtifacts, inputFingerprint, renderQa, revision: request.operation === 'material-swap' ? { targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, maskId: selectedObjectMask?.id } : undefined }, result, brief, image);
+      const output = { ...result, ...stored, promptVersion: brief.version, technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, renderQa, renderStatus: 'completed' };
       await client.from('jobs').update({ status: 'succeeded', output }).eq('id', job.data.id);
       return { status: 'succeeded' as const, jobId: job.data.id, ...output };
     }
@@ -406,6 +543,18 @@ export async function getVisualJob(environment: Record<string, string | undefine
       try {
         const project = await client.from('projects').select('organization_id').eq('id', job.data.project_id).single();
         if (project.error || !project.data) throw new Error('Project organization context was not found.');
+        const sceneRow = await client.from('scene_versions').select('scene').eq('id', job.data.input.sceneVersionId).eq('project_id', job.data.project_id).single();
+        if (sceneRow.error || !sceneRow.data) throw new Error('The approved scene for this render could not be reloaded for image QA.');
+        const scene = SceneV1Schema.parse(sceneRow.data.scene);
+        const baseArtifacts = renderScenePerspectiveArtifacts(scene, { cameraId: job.data.input?.camera?.view === 'elevation' ? undefined : scene.cameras[0]?.id });
+        const image = await providerImageBytes({ ...job.data.output, ...polled });
+        const renderQa = await evaluateRenderImageQA(scene, baseArtifacts, image.bytes);
+        const blockingQa = renderQa.issues.filter((issue) => issue.severity === 'blocking');
+        if (blockingQa.length) {
+          const reason = `Rendered image QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;
+          await client.from('jobs').update({ status: 'failed', error: reason, output: { ...job.data.output, ...polled, reviewStatus: 'rejected', renderQa } }).eq('id', jobId);
+          return { status: 'failed' as const, jobId, reason };
+        }
         const stored = await storeImage(client, {
           organizationId: project.data.organization_id,
           projectId: job.data.project_id,
@@ -414,14 +563,15 @@ export async function getVisualJob(environment: Record<string, string | undefine
           jobId,
           technicalArtifacts: job.data.output?.technicalArtifacts,
           inputFingerprint: job.data.output?.inputFingerprint,
+          renderQa,
           revision: job.data.input?.operation === 'material-swap' ? {
             targetModuleId: job.data.input?.targetModuleId,
             targetComponentId: job.data.input?.targetComponentId,
             targetMaterialId: job.data.input?.targetMaterialId,
             targetSemanticSlot: job.data.input?.targetSemanticSlot,
           } : undefined,
-        }, { ...job.data.output, ...polled }, job.data.input?.renderBrief ?? {});
-        const output = { ...job.data.output, ...polled, ...stored, renderStatus: 'completed_with_warnings' };
+        }, { ...job.data.output, ...polled }, job.data.input?.renderBrief ?? {}, image);
+        const output = { ...job.data.output, ...polled, ...stored, renderQa, renderStatus: 'completed' };
         await client.from('jobs').update({ status: 'succeeded', output }).eq('id', jobId);
         return { status: 'succeeded' as const, jobId, ...output };
       } catch (error) {

@@ -35,6 +35,8 @@ export interface BaseRenderArtifacts {
   rgb: { url: string; bytes: number };
   edgeMap: { url: string; bytes: number };
   objectMasks: Array<{ id: string; url: string; bytes: number }>;
+  /** Projected opening regions used by the image QA measurement pass. */
+  openingMasks: Array<{ id: string; kind: 'door' | 'window' | 'passage'; url: string; bytes: number }>;
   materialRegions: Array<{ materialId: string; url: string; bytes: number }>;
   depth: { url: string; bytes: number };
   baseHash: string;
@@ -87,6 +89,11 @@ export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width
   const depthPng = encodePng(width, height, depth);
   const modules = rendered.filter((item) => item.primitive.kind === 'module');
   const objectMasks = modules.map((item) => ({ id: item.primitive.id, ...renderMask(width, height, item.projected) }));
+  const openingMasks = scene.openings.map((opening) => ({
+    id: opening.id,
+    kind: opening.kind,
+    ...renderMask(width, height, openingProjectedFaces(scene, opening, projection)),
+  }));
   const materialGroups = new Map<string, ProjectedPoint[][]>();
   for (const item of modules) {
     if (!item.primitive.materialId) continue;
@@ -101,9 +108,46 @@ export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width
     edgeMap: { url: dataUri(edgePng), bytes: edgePng.length },
     depth: { url: dataUri(depthPng), bytes: depthPng.length },
     objectMasks,
+    openingMasks,
     materialRegions,
     baseHash: createHash('sha256').update(rgbPng).digest('hex'),
   };
+}
+
+/**
+ * Project an opening's clear rectangle onto the same camera plane as the base
+ * render.  The rectangle is intentionally independent of the wall solids: it
+ * is the measurable keep-out region that an image-QA pass inspects for the
+ * expected sill, jamb and head evidence.
+ */
+function openingProjectedFaces(scene: SceneV1, opening: SceneV1['openings'][number], projection: ReturnType<typeof createProjector>): ProjectedPoint[][] {
+  const wall = scene.walls.find((candidate) => candidate.id === opening.wallId);
+  if (!wall) return [];
+  const dx = wall.end.xMm - wall.start.xMm;
+  const dz = wall.end.yMm - wall.start.yMm;
+  const length = Math.hypot(dx, dz);
+  if (!length) return [];
+  const ux = dx / length;
+  const uz = dz / length;
+  // Render on the wall centre plane.  The one millimetre offset prevents the
+  // projected face becoming numerically coplanar with the wall shell.
+  const nx = -uz;
+  const nz = ux;
+  const point = (offsetMm: number, elevationMm: number): Vec3 => ({
+    x: wall.start.xMm + ux * offsetMm + nx,
+    y: wall.baseElevationMm + elevationMm,
+    z: wall.start.yMm + uz * offsetMm + nz,
+  });
+  const start = Math.max(0, opening.offsetMm);
+  const end = Math.min(length, opening.offsetMm + opening.widthMm);
+  if (end - start <= 1 || opening.heightMm <= 1) return [];
+  const face = projectFace([
+    point(start, opening.sillHeightMm),
+    point(end, opening.sillHeightMm),
+    point(end, opening.sillHeightMm + opening.heightMm),
+    point(start, opening.sillHeightMm + opening.heightMm),
+  ], projection);
+  return face.length >= 3 ? [face] : [];
 }
 
 function createBackground(width: number, height: number, color: [number, number, number, number]) {
@@ -396,6 +440,7 @@ export function renderBaseArtifacts(input: BaseRenderInput): BaseRenderArtifacts
     rgb: { url: dataUri(rgbPng), bytes: rgbPng.length },
     edgeMap: { url: dataUri(edgePng), bytes: edgePng.length },
     objectMasks,
+    openingMasks: [],
     materialRegions,
     depth: { url: dataUri(depthPng), bytes: depthPng.length },
     baseHash,
