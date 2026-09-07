@@ -12,6 +12,7 @@ import {
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
+import { createFreshPlanCalibrationState, requireConfirmedScale } from './plan-calibration';
 import './plan-review.css';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -463,7 +464,7 @@ export function PlanReviewWorkspace({
   const [calibrating, setCalibrating] = useState(false);
   const [calibPoints, setCalibPoints] = useState<Point[]>([]);
   const [knownMmInput, setKnownMmInput] = useState('1000');
-  const [scale, setScale] = useState<ScaleCalibration | null>(null);
+  const [scale, setScale] = useState<ScaleCalibration | null>(() => createFreshPlanCalibrationState().scale);
   const [ceilingHeightMm, setCeilingHeightMm] = useState<number | null>(2700);
   const [geometryMode, setGeometryMode] = useState<GeometryMode>('initial_design');
   const [toolStart, setToolStart] = useState<Point | null>(null);
@@ -478,19 +479,30 @@ export function PlanReviewWorkspace({
   // cannot both be interpreted as "point 1" before the component re-renders.
   const calibrationPointsRef = useRef<Point[]>([]);
 
+  // Selecting a different source must never inherit the previous plan's
+  // measurement scale. A scale is evidence tied to one uploaded source.
+  const planIdentityRef = useRef<string | null>(fileName ?? sourceAssetId ?? null);
+  useEffect(() => {
+    const nextIdentity = fileName ?? sourceAssetId ?? null;
+    if (nextIdentity && planIdentityRef.current && nextIdentity !== planIdentityRef.current) {
+      setScale(null);
+      setCalibPoints([]);
+      calibrationPointsRef.current = [];
+      setCalibrating(false);
+      setContinuationHint('Scale not confirmed. Calibrate a visible dimension for this uploaded plan before measured actions.');
+    }
+    planIdentityRef.current = nextIdentity;
+  }, [fileName, sourceAssetId]);
+
   const loadDemoFloorPlan = () => {
     setElements(DEFAULT_DEMO_PLAN_ELEMENTS);
-    setScale({
-      pointA: { x: 120, y: 140 },
-      pointB: { x: 540, y: 140 },
-      pixelDistance: 420,
-      realDistanceMm: 6300,
-      mmPerPixel: 6300 / 420,
-    });
+    // Demo geometry is visual review data. It must not silently become a
+    // measured source; calibration remains an explicit designer action.
+    setScale(null);
     setCeilingHeightMm(2700);
     setIssues([]);
     setSelectedId('room-living');
-    setContinuationHint('Demo 2BHK residential plan loaded with calibrated walls, rooms, windows and doors. Ready to review or continue to Spaces.');
+    setContinuationHint('Demo 2BHK residential plan loaded for review. Scale not confirmed — calibrate a visible dimension before measured actions.');
   };
 
   useEffect(() => {
@@ -628,7 +640,7 @@ export function PlanReviewWorkspace({
   const initialDesignReady = approvalElements.some((element) => element.kind === 'room' || element.kind === 'wall')
     && Number(ceilingHeightMm || 2700) > 0;
   const finalProductionReady = initialDesignReady && wallsReady;
-  const approvalReady = geometryMode === 'initial_design' ? initialDesignReady : finalProductionReady;
+  const approvalReady = Boolean(scale) && (geometryMode === 'initial_design' ? initialDesignReady : finalProductionReady);
   const analysisInFlight = /uploading|queued|processing|analysing|preparing|reconnecting|re-dispatch/i.test(status);
   const layerCount = (key: LayerKey) => {
     const kinds: Partial<Record<LayerKey, PlanElement['kind'][]>> = {
@@ -663,6 +675,12 @@ export function PlanReviewWorkspace({
   };
 
   const handleAutoEnhanceFullPlan = () => {
+    const scaleGate = requireConfirmedScale(scale, 'Plan enhancement');
+    if (!scaleGate.allowed) {
+      setContinuationHint(scaleGate.message);
+      setActiveTool('calibrate');
+      return;
+    }
     const enhanced = autoSynthesizePartitionWallsAndOpenings(elements, ceilingHeightMm ?? 2700, scale?.mmPerPixel);
     commitElements(enhanced);
     setContinuationHint('✨ AI Auto-Enhanced Plan: Generated all interior partition walls, doors, windows, and custom room flooring!');
@@ -1233,15 +1251,14 @@ export function PlanReviewWorkspace({
 
   // Final Plan Approval
   const handleApprovePlan = async () => {
+    const scaleGate = requireConfirmedScale(scale, 'Plan compilation and approval');
+    if (!scaleGate.allowed) {
+      setContinuationHint(scaleGate.message);
+      setActiveTool('calibrate');
+      return;
+    }
     const isInitialDesign = geometryMode === 'initial_design';
-    const effectiveScale = scale ?? {
-      id: crypto.randomUUID(),
-      pointA: { x: 100, y: 100 },
-      pointB: { x: 900, y: 100 },
-      realDistanceMm: 8000,
-      pixelDistance: 800,
-      mmPerPixel: 10,
-    };
+    const effectiveScale = scaleGate.scale;
     const mmPerPixel = effectiveScale.mmPerPixel;
     const effectiveSourceAssetId = sourceAssetId || `source-plan-${Date.now()}`;
 
@@ -1515,7 +1532,7 @@ export function PlanReviewWorkspace({
         )}
         {geometryMode === 'initial_design' && <p className="geometry-mode-note">Initial design mode needs one trusted scale calibration, but allows unresolved findings and incomplete openings. It applies editable defaults: external walls 254 mm, internal walls 152.4 mm, ceiling 2700 mm. Outputs are proposals until site verification.</p>}
         {geometryMode === 'final_production' && <p className="geometry-mode-note production">Final production mode requires every finding to be resolved, openings dimensioned, walls assigned thickness/height, and a trusted calibration.</p>}
-        {!approvalReady && analysed && <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>Calibrate one visible dimension, then keep at least one room and one visible wall to continue.</p>}
+        {!approvalReady && analysed && <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>{scale ? 'Keep at least one room and one visible wall to continue.' : 'Scale not confirmed. Calibrate one visible dimension before compiling, exporting, or continuing.'}</p>}
         {continuationHint && <p role="status" style={{ fontSize: 12, color: 'var(--brown-mid)', fontWeight: 700, margin: '6px 0 0' }}>{continuationHint}</p>}
       </div>
 
@@ -1687,6 +1704,12 @@ export function PlanReviewWorkspace({
             )}
 
             {/* Calibration details */}
+            {!scale && (
+              <div className="scale-info-box" role="alert" style={{ borderColor: '#d97706', background: '#fff7ed', color: '#9a3412' }}>
+                <div style={{ fontWeight: 800, fontSize: 11, marginBottom: 2 }}>SCALE NOT CONFIRMED</div>
+                <div>Measured dimensions, bay math, plan compilation, and production exports are blocked until a manual two-point calibration or trusted vector/PDF dimension source confirms scale.</div>
+              </div>
+            )}
             {scale && (
               <div className="scale-info-box">
                 <div style={{ fontWeight: 700, fontSize: 11, color: 'var(--gold-dim)', marginBottom: 2 }}>SCALE CALIBRATED</div>

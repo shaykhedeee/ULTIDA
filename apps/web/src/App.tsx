@@ -16,6 +16,7 @@ import { X, Plus, ChevronRight } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
 import { getApiBase } from './lib/api-base';
 import { Shell, DEFAULT_WORKFLOW_STAGES, type WorkflowStageConfig } from './Shell';
+import { SCALE_NOT_CONFIRMED_MESSAGE } from './components/plan/plan-calibration';
 const ProjectDashboard = lazy(() => import('./features/projects/ProjectDashboard').then((module) => ({ default: module.ProjectDashboard })));
 const StudioDashboard = lazy(() => import('./features/dashboard/StudioDashboard').then((module) => ({ default: module.StudioDashboard })));
 const CncPatternStudio = lazy(() => import('./features/tools/CncPatternStudio').then((module) => ({ default: module.CncPatternStudio })));
@@ -691,6 +692,13 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (!file) return;
     setPlanFile(file);
     setPlanAnalysed(false);
+    setDemoSnapshot(null);
+    setPlanApproved(false);
+    setApprovedPlanVersionId(null);
+    setReviewSnapshot(null);
+    setSourceAssetId(null);
+    setSceneVersionId(null);
+    setSceneApproved(false);
     setAnalysisJobId(null);
     setPlanProposals([]);
     setAnalysisGuides([]);
@@ -869,6 +877,10 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   }
 
   async function approvePlan(snapshot: unknown) {
+    if (!snapshot || typeof snapshot !== 'object' || !('scale' in snapshot) || !snapshot.scale) {
+      setPlanStatus(`${SCALE_NOT_CONFIRMED_MESSAGE} Plan compilation and approval cannot continue.`);
+      return;
+    }
     const effectiveSourceAssetId = sourceAssetId || `source-${projectId || 'plan'}-${Date.now()}`;
     setReviewSnapshot(snapshot);
     setPlanStatus('Saving the reviewed plan model…');
@@ -898,8 +910,12 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   }
 
   async function downloadPlanDxf(snapshot: { elements: any[]; issues: any[]; scale: any; ceilingHeightMm: number | null; geometryMode: 'initial_design' | 'final_production' }) {
-    if (!projectId || !snapshot.scale || !snapshot.elements?.length) {
-      setPlanStatus('Calibrate one visible dimension and accept at least one wall or room before exporting DXF.');
+    if (!snapshot.scale) {
+      setPlanStatus(`${SCALE_NOT_CONFIRMED_MESSAGE} Plan export cannot continue.`);
+      return;
+    }
+    if (!projectId || !snapshot.elements?.length) {
+      setPlanStatus('Accept at least one wall or room before exporting DXF.');
       return;
     }
     if (localDemoMode || !supabase) {

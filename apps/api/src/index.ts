@@ -1540,6 +1540,7 @@ app.post('/api/projects/:projectId/plan/approve', requireProjectUser, async (req
   const { canonicalModel, sourceAssetId } = request.body ?? {};
   if (!canonicalModel || typeof canonicalModel !== 'object') return response.status(400).json({ success: false, code: 'INVALID_CANONICAL_MODEL', message: 'A canonical plan model is required.' });
   if (typeof sourceAssetId !== 'string') return response.status(400).json({ success: false, code: 'SOURCE_ASSET_REQUIRED', message: 'Plan approval requires the exact uploaded source asset.' });
+  if (!('scale' in canonicalModel) || !canonicalModel.scale) return response.status(422).json({ success: false, code: 'PLAN_SCALE_NOT_CONFIRMED', message: 'Scale not confirmed. Plan compilation and approval require a manual two-point calibration or a trusted vector/PDF dimension source.' });
   const parsed = CanonicalPlanModelSchema.safeParse(canonicalModel);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
