@@ -1444,9 +1444,9 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               <Badge>CSV</Badge>
             </div>
             <div style={{ marginTop: '0.75rem', marginBottom: '0.75rem', padding: '12px 14px', background: '#fafaf9', borderRadius: '8px', border: '1px solid #e7e5e4', fontSize: '11px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
-              <div><span style={{ color: '#78716c', display: 'block' }}>DRAWING SHEET:</span><strong>ULT-DWG-001 (Rev 1)</strong></div>
+              <div><span style={{ color: '#78716c', display: 'block' }}>DRAWING SHEET:</span><strong>ULT-DWG-{sceneVersionId ? sceneVersionId.slice(0, 8).toUpperCase() : 'DRAFT'} (REVISIONED)</strong></div>
               <div><span style={{ color: '#78716c', display: 'block' }}>SCALE:</span><strong>1:20 &amp; 1:50 Metric</strong></div>
-              <div><span style={{ color: '#78716c', display: 'block' }}>PROVENANCE:</span><strong>scene.v1 ({sceneVersionId ? sceneVersionId.slice(0, 8) : 'draft'})</strong></div>
+              <div><span style={{ color: '#78716c', display: 'block' }}>PROVENANCE:</span><strong>approved scene ({sceneVersionId ? sceneVersionId.slice(0, 8) : 'draft'})</strong></div>
               <div><span style={{ color: '#78716c', display: 'block' }}>STATUS:</span><strong style={{ color: sceneApproved ? '#15803d' : '#b45309' }}>{sceneApproved ? '✓ Ready for CNC / Millwork' : 'Approval Required'}</strong></div>
             </div>
             <div className="drawing-actions">
