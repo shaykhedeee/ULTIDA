@@ -145,6 +145,32 @@ export const MaterialAssignmentV1Schema = z.object({
 });
 export type MaterialAssignmentV1 = z.infer<typeof MaterialAssignmentV1Schema>;
 
+// A bay schedule is the measured composition contract shared by the scene
+// compiler, library fit checks, elevations and production exports.  `confirmed`
+// is deliberately required: an unreviewed schedule must never become a
+// fabrication source through a default value.
+export const BayV1Schema = z.object({
+  id: z.string().min(1),
+  offsetMm: z.number().finite().nonnegative(),
+  widthMm: z.number().finite().positive(),
+  moduleId: z.string().min(1).optional(),
+  keepOut: z.boolean(),
+  fillerMm: z.number().finite().nonnegative().optional(),
+});
+export type BayV1 = z.infer<typeof BayV1Schema>;
+
+export const CompositionScheduleV1Schema = z.object({
+  wallId: z.string().min(1),
+  approvedUsableWidthMm: z.number().finite().positive(),
+  leftClearanceMm: z.number().finite().nonnegative(),
+  rightClearanceMm: z.number().finite().nonnegative(),
+  bays: z.array(BayV1Schema).min(1),
+  confirmed: z.boolean(),
+  confirmedBy: z.string().min(1).optional(),
+  confirmedAt: z.string().min(1).optional(),
+});
+export type CompositionScheduleV1 = z.infer<typeof CompositionScheduleV1Schema>;
+
 export const MaterialLibraryItemV1Schema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(1).max(160),

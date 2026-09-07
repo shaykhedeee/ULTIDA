@@ -43,11 +43,17 @@ export const SceneV1Schema = z.object({
     id: Id,
     wallId: Id,
     usableWidthMm: z.number().positive(),
+    // Newer callers use the explicit contracts package name. Keep the legacy
+    // field while accepting the canonical alias so stored scenes remain
+    // readable during the migration.
+    approvedUsableWidthMm: z.number().positive().optional(),
     leftClearanceMm: z.number().nonnegative().default(0),
     rightClearanceMm: z.number().nonnegative().default(0),
-    bays: z.array(z.object({ id: Id, moduleId: Id, widthMm: z.number().positive(), offsetMm: z.number().nonnegative() })).min(1),
+    bays: z.array(z.object({ id: Id, moduleId: Id.optional(), widthMm: z.number().positive(), offsetMm: z.number().nonnegative(), keepOut: z.boolean().default(false), fillerMm: z.number().nonnegative().optional() })).min(1),
     fillers: z.array(z.object({ id: Id, widthMm: z.number().positive(), side: z.enum(['left','right','between']) })).default([]),
     confirmed: z.boolean().default(false),
+    confirmedBy: Id.optional(),
+    confirmedAt: z.string().optional(),
   })).default([]),
   materials: z.array(z.object({ id: Id, name: z.string(), code: z.string(), unitCost: z.number().nonnegative().optional(), finish: z.string().optional() })),
   // Lighting is part of the authored scene contract, rather than a renderer-only

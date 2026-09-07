@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkRenderReadiness, compileScene, compileSceneV1, SceneCompilationError } from '../src/index.ts';
+import { checkRenderReadiness, compileScene, compileSceneV1, reconcileBays, SceneCompilationError } from '../src/index.ts';
 
 const plan: any = {
   schemaVersion: 'plan.v1',
@@ -54,7 +54,7 @@ test('certifies a composition only when bays reconcile with measured wall keep-o
     modules: [{ id: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', widthMm: 1200, depthMm: 400, heightMm: 600, xMm: 0, yMm: 0, rotationDeg: 0 }],
     moduleParts: [{ id: 'module-1-panel', moduleId: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', semanticType: 'side-panel', name: 'Side panel', widthMm: 1200, depthMm: 18, heightMm: 600, xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 }],
   });
-  scene.compositions = [{ id: 'composition-1', wallId: plan.walls[0].id, usableWidthMm: 1200, leftClearanceMm: 0, rightClearanceMm: 0, bays: [{ id: 'bay-1', moduleId: 'module-1', widthMm: 1200, offsetMm: 0 }], fillers: [], confirmed: true }];
+  scene.compositions = [{ id: 'composition-1', wallId: plan.walls[0].id, usableWidthMm: 1200, leftClearanceMm: 0, rightClearanceMm: 0, bays: [{ id: 'bay-1', moduleId: 'module-1', widthMm: 1200, offsetMm: 0, keepOut: false }], fillers: [], confirmed: true }];
   assert.equal(checkRenderReadiness(scene).ready, true);
 });
 
@@ -67,10 +67,10 @@ test('blocks a composition bay that overlaps a measured opening', () => {
     modules: [{ id: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', widthMm: 1200, depthMm: 400, heightMm: 600, xMm: 900, yMm: 0, rotationDeg: 0 }],
     moduleParts: [{ id: 'module-1-panel', moduleId: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', semanticType: 'side-panel', name: 'Side panel', widthMm: 1200, depthMm: 18, heightMm: 600, xMm: 900, yMm: 0, zMm: 0, rotationDeg: 0 }],
   });
-  scene.compositions = [{ id: 'composition-1', wallId: plan.walls[0].id, usableWidthMm: 1200, leftClearanceMm: 0, rightClearanceMm: 0, bays: [{ id: 'bay-1', moduleId: 'module-1', widthMm: 1200, offsetMm: 900 }], fillers: [], confirmed: true }];
+  scene.compositions = [{ id: 'composition-1', wallId: plan.walls[0].id, usableWidthMm: 1200, leftClearanceMm: 0, rightClearanceMm: 0, bays: [{ id: 'bay-1', moduleId: 'module-1', widthMm: 1200, offsetMm: 900, keepOut: false }], fillers: [], confirmed: true }];
   const readiness = checkRenderReadiness(scene);
   assert.equal(readiness.ready, false);
-  assert.ok(readiness.issues.some((issue) => issue.code === 'BAY_KEEP_OUT_CONFLICT'));
+  assert.ok(readiness.issues.some((issue) => issue.code === 'MODULE_KEEP_OUT_CONFLICT'));
 });
 
 test('blocks a schedule when a bay width no longer matches the resized module envelope', () => {
@@ -79,8 +79,57 @@ test('blocks a schedule when a bay width no longer matches the resized module en
     modules: [{ id: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', widthMm: 1400, depthMm: 400, heightMm: 600, xMm: 0, yMm: 0, rotationDeg: 0 }],
     moduleParts: [{ id: 'module-1-panel', moduleId: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', semanticType: 'side-panel', name: 'Side panel', widthMm: 1400, depthMm: 18, heightMm: 600, xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 }],
   });
-  scene.compositions = [{ id: 'composition-1', wallId: plan.walls[0].id, usableWidthMm: 1200, leftClearanceMm: 0, rightClearanceMm: 0, bays: [{ id: 'bay-1', moduleId: 'module-1', widthMm: 1200, offsetMm: 0 }], fillers: [], confirmed: true }];
+  scene.compositions = [{ id: 'composition-1', wallId: plan.walls[0].id, usableWidthMm: 1200, leftClearanceMm: 0, rightClearanceMm: 0, bays: [{ id: 'bay-1', moduleId: 'module-1', widthMm: 1200, offsetMm: 0, keepOut: false }], fillers: [], confirmed: true }];
   const readiness = checkRenderReadiness(scene);
   assert.equal(readiness.ready, false);
   assert.ok(readiness.issues.some((issue) => issue.code === 'BAY_MODULE_WIDTH_MISMATCH'));
+});
+
+const measuredWall = { id: 'wall-1', start: { xMm: 0, yMm: 0 }, end: { xMm: 3000, yMm: 0 } };
+
+test('blocks the exact unresolved bay total with the production message', () => {
+  const result = reconcileBays({
+    wallId: 'wall-1', approvedUsableWidthMm: 3000, leftClearanceMm: 0, rightClearanceMm: 0,
+    bays: [{ id: 'bay-1', offsetMm: 0, widthMm: 2980, keepOut: false }], confirmed: true,
+  }, measuredWall, [], []);
+  assert.equal(result.valid, false);
+  assert.equal(result.issues[0]?.code, 'BAY_TOTAL_MISMATCH');
+  assert.equal(result.issues[0]?.message, 'Bay total is 2,980mm but approved usable wall is 3,000mm. 20mm unresolved gap requires filler or dimension confirmation.');
+});
+
+test('blocks a module placed over a measured door keep-out', () => {
+  const result = reconcileBays({
+    wallId: 'wall-1', approvedUsableWidthMm: 3000, leftClearanceMm: 0, rightClearanceMm: 0,
+    bays: [{ id: 'bay-1', offsetMm: 0, widthMm: 1200, moduleId: 'module-1', keepOut: false }, { id: 'bay-2', offsetMm: 1200, widthMm: 1800, keepOut: false }], confirmed: true,
+  }, measuredWall, [{ id: 'door-1', wallId: 'wall-1', offsetMm: 900, widthMm: 900, kind: 'door' }], [{ id: 'module-1', widthMm: 1200, position: { xMm: 800, yMm: 0, zMm: 0 } }]);
+  assert.equal(result.valid, false);
+  assert.ok(result.issues.some((issue) => issue.code === 'MODULE_KEEP_OUT_CONFLICT'));
+});
+
+test('blocks an unconfirmed schedule even when its dimensions reconcile', () => {
+  const result = reconcileBays({
+    wallId: 'wall-1', approvedUsableWidthMm: 3000, leftClearanceMm: 0, rightClearanceMm: 0,
+    bays: [{ id: 'bay-1', offsetMm: 0, widthMm: 3000, keepOut: false }], confirmed: false,
+  }, measuredWall, [], []);
+  assert.equal(result.valid, false);
+  assert.ok(result.issues.some((issue) => issue.code === 'SCHEDULE_UNCONFIRMED'));
+});
+
+test('accepts a confirmed schedule that exactly fits the measured wall', () => {
+  const result = reconcileBays({
+    wallId: 'wall-1', approvedUsableWidthMm: 3000, leftClearanceMm: 0, rightClearanceMm: 0,
+    bays: [{ id: 'bay-1', offsetMm: 0, widthMm: 1000, keepOut: false }, { id: 'bay-2', offsetMm: 1000, widthMm: 2000, keepOut: false }], confirmed: true,
+  }, measuredWall, [], []);
+  assert.equal(result.valid, true);
+  assert.equal(result.issues.length, 0);
+});
+
+test('compileSceneV1 persists only a reconciled composition schedule', () => {
+  const scene = compileSceneV1({
+    projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan,
+    modules: [{ id: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', widthMm: 1200, depthMm: 400, heightMm: 600, xMm: 0, yMm: 0, rotationDeg: 0 }],
+    compositionSchedules: [{ wallId: plan.walls[0].id, approvedUsableWidthMm: 1200, leftClearanceMm: 0, rightClearanceMm: 0, bays: [{ id: 'bay-1', offsetMm: 0, widthMm: 1200, moduleId: 'module-1', keepOut: false }], confirmed: true }],
+  });
+  assert.equal(scene.compositions[0]?.approvedUsableWidthMm, 1200);
+  assert.equal(scene.compositions[0]?.bays[0]?.keepOut, false);
 });
