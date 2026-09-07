@@ -5,6 +5,7 @@ export * from './scene-types.js';
 export * from './elevation-sheet.js';
 export * from './pdf-writer.js';
 export * from './production-dossier-pdf.js';
+import { generateArchitecturalShopSheetSvg, type ShopDrawingOptions } from './shop-drawing-renderer.js';
 
 export const ULTIDA_DRAWING_STANDARD_V1 = {
   schema: 'drawing.standard.v1' as const,
@@ -1503,7 +1504,10 @@ export function generateProjectBOQ(scene: SceneV1, customRates?: Record<string, 
   };
 }
 
-export function generateWallElevationSvg(scene: SceneV1, wallId: string): string {
+export function generateWallElevationSvg(scene: SceneV1, wallId: string, options?: import('./shop-drawing-renderer.js').ShopDrawingOptions): string {
+  if (options?.viewMode === 'shop-sheet' || options?.viewMode === 'internal' || options?.unitTitle) {
+    return generateArchitecturalShopSheetSvg(scene, wallId, options);
+  }
   const wall = (scene.walls ?? []).find((w: SceneV1['walls'][number]) => w.id === wallId) || scene.walls?.[0];
   const wallLengthMm = wall ? Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm) : 5200;
   const wallHeightMm = wall?.heightMm || 2700;
@@ -1812,3 +1816,4 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string): string
 }
 
 export { generateSketchUpRubyScript } from './sketchup-exporter.js';
+export { generateArchitecturalShopSheetSvg, type ShopDrawingOptions } from './shop-drawing-renderer.js';

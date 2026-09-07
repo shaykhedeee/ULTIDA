@@ -11,6 +11,7 @@ import { ModulePreview } from '../library/ModulePreview';
 import { listCatalog } from '@ultida/catalog-core';
 import { catalogForRoom } from './catalog-room-filter';
 import { inferRoomType } from '../../features/spaces/SpacesWorkspace';
+import WorkingDrawingsDossier from '../drawings/WorkingDrawingsDossier';
 
 type Stage = 'Design' | 'Visualize' | 'Document';
 type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration; updatedAt?: string };
@@ -1123,12 +1124,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     } catch { setCutlistState('Cutlist service unavailable'); }
   }
 
-  async function downloadFile(path: string, filename: string, setState: (value: string) => void) {
+  async function downloadFile(path: string, filename: string, setState: (value: string) => void, bodyExtra: Record<string, any> = {}) {
     setState('Preparing file...');
     const scene = await loadApprovedSceneForProduction(setState);
     if (!scene || !projectId || !sceneVersionId) return;
     try {
-      const response = await fetch(`${apiBase}${path}`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ projectId, sceneVersionId, scene }) });
+      const response = await fetch(`${apiBase}${path}`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ projectId, sceneVersionId, scene, ...bodyExtra }) });
       if (!response.ok) { setState('File export failed'); return; }
       const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url); setState('File exported');
     } catch { setState('Export service unavailable'); }
@@ -1464,6 +1465,9 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               <Button variant="outline" onClick={downloadDxf} disabled={!sceneVersionId || !sceneApproved || dxfState === 'Exporting DXF...'}>
                 <FileText size={16} /> {dxfState}
               </Button>
+              <Button variant="outline" onClick={() => downloadFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-shop-sheet.svg`, setElevationState, { options: { viewMode: 'shop-sheet' } })} disabled={!sceneVersionId || !sceneApproved}>
+                <FileText size={16} /> Turnkey Shop Sheet (SVG)
+              </Button>
               <Button variant="outline" onClick={() => downloadFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-elevations.svg`, setElevationState)} disabled={!sceneVersionId || !sceneApproved}>
                 <FileText size={16} /> {elevationState}
               </Button>
@@ -1479,6 +1483,17 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
             </div>
           </CardContent>
         </Card>
+        <div style={{ marginTop: '1.5rem', marginBottom: '1.5rem' }}>
+          <WorkingDrawingsDossier
+            projectId={projectId}
+            sceneVersionId={sceneVersionId}
+            sceneApproved={sceneApproved}
+            briefSaved={briefComplete}
+            planApproved={planApproved}
+            modules={modules}
+            materials={materials}
+          />
+        </div>
         <div className="workflow-next-action">
           <div><small>NEXT STEP</small><strong>Review the scene-linked estimate when the production package is ready.</strong><span>Quotes stay tied to the exact approved scene version.</span></div>
           <Button onClick={() => navigate(`/projects/${projectId}/estimate`)} disabled={!projectId || !sceneApproved}><ArrowRight size={16} /> Continue to Estimate</Button>

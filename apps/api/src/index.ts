@@ -549,12 +549,15 @@ app.post('/api/commercial/estimates', (request, response) => {
 });
 
 app.post('/api/drawings/elevations.svg', (request, response) => {
-  const { projectId, sceneVersionId, scene } = request.body ?? {};
+  const { projectId, sceneVersionId, scene, wallId, options } = request.body ?? {};
   if (!projectId || !sceneVersionId || !scene) return response.status(400).json({ success: false, code: 'INVALID_DRAWING_REQUEST' });
   const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
   try { assertSceneBayReconciliation(normalized); } catch (error: any) { return response.status(error.status ?? 422).json({ success: false, code: error.code ?? 'BAY_RECONCILIATION_BLOCKED', message: error.message, issues: error.issues }); }
   if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY' });
   response.setHeader('content-type', 'image/svg+xml');
+  if (wallId || options?.viewMode) {
+    return response.status(200).send(generateWallElevationSvg(normalized, wallId ?? '', options));
+  }
   return response.status(200).send(generateDrawingPackageSvg(normalized));
 });
 
@@ -924,11 +927,11 @@ app.post('/api/production/cutlist.csv', (request, response) => {
 
 app.post('/api/production/wall-elevation.svg', requireProjectUser, (request, response) => {
   try {
-    const { scene, wallId } = request.body ?? {};
+    const { scene, wallId, options } = request.body ?? {};
     if (!scene || typeof scene !== 'object') return response.status(400).json({ success: false, code: 'INVALID_ELEVATION_REQUEST', message: 'scene payload is required.' });
     const normalized = migrateScene({ ...scene, projectId: request.params.projectId ?? scene.projectId ?? 'unknown', floorPlanVersionId: scene.floorPlanVersionId ?? 'unknown' });
     assertSceneBayReconciliation(normalized);
-    const svg = generateWallElevationSvg(normalized, wallId ?? '');
+    const svg = generateWallElevationSvg(normalized, wallId ?? '', options);
     response.setHeader('content-type', 'image/svg+xml');
     return response.status(200).send(svg);
   } catch (err: any) {

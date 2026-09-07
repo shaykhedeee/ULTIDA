@@ -11,6 +11,8 @@ async function withServer<T>(callback: (baseUrl: string) => Promise<T>) {
   try {
     return await callback(`http://127.0.0.1:${address.port}`);
   } finally {
+    server.closeIdleConnections?.();
+    server.closeAllConnections?.();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
