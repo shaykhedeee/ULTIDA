@@ -56,6 +56,17 @@ export type CompiledSceneGraph = {
 
 export function checkRenderReadiness(scene: SceneV1) {
   const issues: Array<{ code: string; severity: 'warning' | 'critical'; message: string }> = [];
+  const checkDuplicateIds = (items: Array<{ id: string }>, kind: string) => {
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (seen.has(item.id)) issues.push({ code: 'DUPLICATE_SOURCE_ID', severity: 'critical', message: `Duplicate ${kind} id ${item.id} would make scene references ambiguous.` });
+      seen.add(item.id);
+    }
+  };
+  checkDuplicateIds(scene.walls, 'wall');
+  checkDuplicateIds(scene.openings, 'opening');
+  checkDuplicateIds(scene.modules, 'module');
+  checkDuplicateIds(scene.moduleParts, 'module part');
   for (const wall of scene.walls) {
     if (wall.heightMm <= 0 || wall.thicknessMm <= 0) issues.push({ code: 'WALL_INVALID', severity: 'critical', message: `Wall ${wall.id} is missing valid dimensions.` });
   }
@@ -63,13 +74,17 @@ export function checkRenderReadiness(scene: SceneV1) {
     if (opening.kind === 'window' && opening.sillHeightMm < 0) issues.push({ code: 'UNVERIFIED_WINDOW_HEIGHT', severity: 'critical', message: `Window ${opening.id} has an invalid sill height.` });
   }
   for (const module of scene.modules) {
-    if (module.widthMm <= 0 || module.depthMm <= 0 || module.heightMm <= 0) issues.push({ code: 'MODULE_INVALID', severity: 'critical', message: `Module ${module.id} has invalid dimensions.` });
+    if (![module.widthMm, module.depthMm, module.heightMm, module.position.xMm, module.position.yMm, module.position.zMm].every(Number.isFinite) || module.widthMm <= 0 || module.depthMm <= 0 || module.heightMm <= 0) issues.push({ code: 'MODULE_INVALID', severity: 'critical', message: `Module ${module.id} has invalid dimensions or position.` });
   }
   const partsByModule = new Set(scene.moduleParts.map((part) => part.moduleId));
   for (const module of scene.modules) {
     if (isPanelBasedFamily(module.family) && !partsByModule.has(module.id)) {
       issues.push({ code: 'MODULE_PARTS_MISSING', severity: 'critical', message: `Module ${module.id} must compile into cabinet parts before rendering.` });
     }
+  }
+  const moduleIds = new Set(scene.modules.map((module) => module.id));
+  for (const part of scene.moduleParts) {
+    if (!moduleIds.has(part.moduleId)) issues.push({ code: 'ORPHAN_MODULE_PART', severity: 'critical', message: `Module part ${part.id} references missing module ${part.moduleId}.` });
   }
   const blockingCount = issues.filter((issue) => issue.severity === 'critical').length;
   return { ready: blockingCount === 0, blockingCount, warningCount: issues.length - blockingCount, issues };
