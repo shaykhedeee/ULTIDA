@@ -8,7 +8,7 @@ import './modular-unit-planner.css';
 type CatalogModule = {
   id: string; family: string; name: string; roomTypes: string[]; widthMm: number; depthMm: number; heightMm: number;
   minClearanceMm: number; sku: string; tags: string[]; description?: string; manufacturingRules?: string[];
-  materialSlots: string[]; production: { cutlistSupported: boolean; hardwareSchedule: boolean };
+  materialSlots: string[]; production: { cutlistSupported: boolean; hardwareSchedule: boolean; panelBased?: boolean };
 };
 
 type PreparedModulePlan = {
@@ -94,6 +94,9 @@ export function ModularUnitPlanner() {
   const [modules, setModules] = useState<CatalogModule[]>([]);
   const [query, setQuery] = useState('');
   const [family, setFamily] = useState('all');
+  const [room, setRoom] = useState('all');
+  const [certification, setCertification] = useState<'all' | 'production' | 'visual'>('all');
+  const [favorites, setFavorites] = useState<string[]>(() => JSON.parse(window.localStorage.getItem('ultida_library_favorites') ?? '[]'));
   const [selectedId, setSelectedId] = useState('');
   const [width, setWidth] = useState(0); const [depth, setDepth] = useState(0); const [height, setHeight] = useState(0);
   const [wallWidth, setWallWidth] = useState(3000); const [clearance, setClearance] = useState(900);
@@ -114,7 +117,22 @@ export function ModularUnitPlanner() {
   const selected = modules.find((item) => item.id === selectedId) ?? null;
   useEffect(() => { if (selected) { setWidth(selected.widthMm); setDepth(selected.depthMm); setHeight(selected.heightMm); } }, [selectedId, selected]);
   const families = useMemo(() => [...new Set(modules.map((item) => item.family))].sort(), [modules]);
-  const visible = useMemo(() => modules.filter((item) => (family === 'all' || item.family === family) && (!query.trim() || `${item.name} ${item.tags.join(' ')} ${item.roomTypes.join(' ')}`.toLowerCase().includes(query.toLowerCase()))), [modules, family, query]);
+  const rooms = useMemo(() => [...new Set(modules.flatMap((item) => item.roomTypes))].sort(), [modules]);
+  const visible = useMemo(() => modules.filter((item) => {
+    const searchable = `${item.name} ${item.tags.join(' ')} ${item.roomTypes.join(' ')}`.toLowerCase();
+    const certified = item.production.cutlistSupported && item.production.hardwareSchedule;
+    return (family === 'all' || item.family === family)
+      && (room === 'all' || item.roomTypes.includes(room))
+      && (certification === 'all' || (certification === 'production' ? certified : !certified))
+      && (!query.trim() || searchable.includes(query.toLowerCase()));
+  }), [modules, family, room, certification, query]);
+  function toggleFavorite(id: string) {
+    setFavorites((current) => {
+      const next = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+      window.localStorage.setItem('ultida_library_favorites', JSON.stringify(next));
+      return next;
+    });
+  }
   const issues = selected ? [
     ...(width > wallWidth ? [`Module width exceeds the entered available wall width by ${width - wallWidth} mm.`] : []),
     ...(clearance < selected.minClearanceMm ? [`Keep at least ${selected.minClearanceMm} mm circulation for this template.`] : []),
@@ -360,7 +378,7 @@ export function ModularUnitPlanner() {
     ) : (
       <div className="module-planner-layout">
         <aside className="module-family-rail"><strong><Box size={16} /> Module families</strong><button className={family === 'all' ? 'active' : ''} onClick={() => setFamily('all')}>All templates <span>{modules.length}</span></button>{families.map((item) => <button key={item} className={family === item ? 'active' : ''} onClick={() => setFamily(item)}>{label(item)} <span>{modules.filter((module) => module.family === item).length}</span></button>)}</aside>
-        <section className="module-catalog"><label className="module-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search TV walls, crockery, wardrobes…" /></label><div className="module-card-grid">{visible.map((item) => <button key={item.id} className={`module-catalog-card ${selectedId === item.id ? 'selected' : ''}`} onClick={() => setSelectedId(item.id)}><ModulePreview module={item} compact /><span className="module-card-family">{label(item.family)}</span><strong>{item.name}</strong><small>{item.widthMm}W × {item.depthMm}D × {item.heightMm}H mm</small><em>{item.roomTypes.join(' · ')}</em></button>)}</div>{!visible.length && <div className="module-empty">No modules match this search. Clear a filter or try a different room or unit name.</div>}</section>
+        <section className="module-catalog"><label className="module-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search TV walls, crockery, wardrobes…" /></label><div className="module-library-filters"><label>Room<select value={room} onChange={(event) => setRoom(event.target.value)}><option value="all">All rooms</option>{rooms.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></label><label>Release<select value={certification} onChange={(event) => setCertification(event.target.value as typeof certification)}><option value="all">All releases</option><option value="production">Production certified</option><option value="visual">Visual draft</option></select></label><span>{visible.length} of {modules.length} modules</span></div><div className="module-card-grid">{visible.map((item) => { const certified = item.production.cutlistSupported && item.production.hardwareSchedule; return <article key={item.id} className={`module-catalog-card ${selectedId === item.id ? 'selected' : ''}`}><button type="button" className="module-card-select" onClick={() => { setSelectedId(item.id); window.localStorage.setItem('ultida_library_recent', item.id); }}><ModulePreview module={item} compact /><span className="module-card-family">{label(item.family)}</span><strong>{item.name}</strong><small>{item.widthMm}W × {item.depthMm}D × {item.heightMm}H mm</small><em>{item.roomTypes.join(' · ')}</em><span className={`module-certification ${certified ? 'certified' : 'visual'}`}>{certified ? 'Production certified' : 'Visual draft'}</span></button><button type="button" className={`module-favorite ${favorites.includes(item.id) ? 'active' : ''}`} aria-label={`${favorites.includes(item.id) ? 'Remove' : 'Add'} ${item.name} ${favorites.includes(item.id) ? 'from' : 'to'} favorites`} onClick={() => toggleFavorite(item.id)}>★</button></article>; })}</div>{!visible.length && <div className="module-empty">No modules match this search. Clear a filter or try a different room or unit name.</div>}</section>
         <aside className="module-config">{selected ? <><div className="module-config-heading"><span><SlidersHorizontal size={17} /> CONFIGURE</span><h2>{selected.name}</h2><p>{selected.description ?? 'A production-aware modular template.'}</p></div><ModulePreview module={{ ...selected, widthMm: width || selected.widthMm, depthMm: depth || selected.depthMm, heightMm: height || selected.heightMm }} /><div className="module-input-grid"><label>Width (mm)<input type="number" min="300" value={width} onChange={(event) => setWidth(Number(event.target.value))} /></label><label>Depth (mm)<input type="number" min="250" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /></label><label>Height (mm)<input type="number" min="300" value={height} onChange={(event) => setHeight(Number(event.target.value))} /></label><label>Available wall (mm)<input type="number" min="300" value={wallWidth} onChange={(event) => setWallWidth(Number(event.target.value))} /></label><label>Clear circulation (mm)<input type="number" min="0" value={clearance} onChange={(event) => setClearance(Number(event.target.value))} /></label></div><div className={`module-fit ${ready ? 'ready' : 'blocked'}`}><strong>{ready ? <><CheckCircle2 size={15} /> Fits the entered planning envelope</> : <><TriangleAlert size={15} /> Needs adjustment</>}</strong><ul>{ready ? <li>Initial Design specification can be prepared. Site verification remains required for production.</li> : issues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div><div className="module-production"><strong>Production notes</strong><ul>{(selected.manufacturingRules ?? ['Confirm wall, opening and service geometry in the project before production.']).map((rule) => <li key={rule}>{rule}</li>)}</ul></div><div className="module-actions"><button disabled={!ready} onClick={copySpecification}><Clipboard size={15} /> Copy specification</button><button disabled={!ready} onClick={downloadSpecification}><Download size={15} /> Download initial brief</button><button className="project" disabled={!ready} onClick={prepareProjectPlacement}><FilePlus2 size={15} /> Place in a project</button></div></> : <div className="module-empty">Choose a template to configure it.</div>}</aside>
       </div>
     )}
