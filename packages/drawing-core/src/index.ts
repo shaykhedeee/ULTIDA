@@ -1,5 +1,7 @@
-import type { SceneV1 } from '@ultida/scene-core';
-import PDFDocument from 'pdfkit';
+import { PdfWriter } from './pdf-writer.js';
+export * from './elevation-sheet.js';
+export * from './pdf-writer.js';
+export * from './production-dossier-pdf.js';
 
 export const ULTIDA_DRAWING_STANDARD_V1 = {
   schema: 'drawing.standard.v1' as const,
@@ -528,7 +530,7 @@ export function generateWallElevationsPdf(scene: SceneV1, outStream: any, option
 }
 
 export function generateProjectionPdf(projection: DrawingPackageProjection, outStream: NodeJS.WritableStream, production?: ProductionSnapshotV1) {
-  const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 24, info: { Title: `ULTIDA Production Drawings - ${projection.floorPlanVersionId}`, Author: 'ULTIDA', Subject: 'Approved scene production drawing package' } });
+  const doc = new PdfWriter({ size: 'A4', layout: 'landscape', margin: 24, info: { Title: `ULTIDA Production Drawings - ${projection.floorPlanVersionId}`, Author: 'ULTIDA', Subject: 'Approved scene production drawing package' } });
   doc.pipe(outStream);
   const pageWidth = 842; const pageHeight = 595;
   const drawFrame = (sheetTitle: string, sheetNumber: number, totalSheets: number, subtitle: string) => {

@@ -1,0 +1,124 @@
+/* working-drawings-dossier.css */
+.drawings-dossier-workspace {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 60px);
+  background: #0f172a;
+  color: #f1f5f9;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  padding-bottom: 70px;
+}
+
+.drawings-dossier-header {
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  padding: 16px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.drawings-dossier-nav-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 12px 24px;
+  background: #182234;
+  border-bottom: 1px solid #334155;
+  scrollbar-width: thin;
+}
+
+.drawings-sheet-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.drawings-sheet-tab:hover {
+  background: #1e293b;
+  color: #f8fafc;
+  border-color: #64748b;
+}
+
+.drawings-sheet-tab.active {
+  background: #1e293b;
+  color: #38bdf8;
+  border-color: #0284c7;
+  box-shadow: 0 0 12px rgba(2, 132, 199, 0.35);
+}
+
+.drawings-sheet-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: #334155;
+  color: #cbd5e1;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.drawings-sheet-tab.active .drawings-sheet-num {
+  background: #0284c7;
+  color: #fff;
+}
+
+.drawings-dossier-viewport {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 28px 24px;
+  overflow-y: auto;
+}
+
+.drawings-paper-sheet {
+  background: #ffffff;
+  color: #0f172a;
+  width: 100%;
+  max-width: 1280px;
+  min-height: 800px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  position: relative;
+  box-sizing: border-box;
+}
+
+@media print {
+  .drawings-dossier-header,
+  .drawings-dossier-nav-strip,
+  .drawings-bottom-bar {
+    display: none !important;
+  }
+  .drawings-dossier-workspace {
+    background: #ffffff !important;
+    padding: 0 !important;
+  }
+  .drawings-dossier-viewport {
+    padding: 0 !important;
+  }
+  .drawings-paper-sheet {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    page-break-after: always;
+  }
+}

@@ -2,7 +2,7 @@ import type { SceneV1 } from '@ultida/scene-core';
 
 /**
  * Generates an ultra-accurate, production-grade SketchUp Ruby script (.rb)
- * from an approved SceneV1 model.
+ * directly in the browser from an approved SceneV1 model.
  *
  * When loaded into SketchUp Desktop (Ruby Console: load 'model.rb'):
  * 1. Organizes entities into standard professional CAD Layers / Tags (A-WALL, A-DOOR, A-GLAZ, A-FLOR, A-CLNG, A-FURN-*)

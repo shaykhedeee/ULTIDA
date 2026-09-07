@@ -192,6 +192,7 @@ export const IndianModularCatalog: CatalogModule[] = [
 ];
 
 function supportsRoom(module: CatalogModule, roomType: z.infer<typeof RoomTypeSchema>) {
+  if (roomType === 'other') return true;
   return module.roomTypes.includes(roomType)
     || ((roomType === 'master_bedroom' || roomType === 'kids_bedroom') && module.roomTypes.includes('bedroom'));
 }
@@ -239,11 +240,11 @@ const FAMILY_ELEMENTS: Record<z.infer<typeof ModuleFamilySchema>, z.input<typeof
 };
 
 export function moduleElementsFor(module: CatalogModule): ModuleElement[] {
-  return module.elements?.map((element) => ModuleElementSchema.parse(element)) ?? FAMILY_ELEMENTS[module.family].map((element) => ModuleElementSchema.parse(element));
+  return module.elements?.map((element: unknown) => ModuleElementSchema.parse(element)) ?? FAMILY_ELEMENTS[module.family].map((element: unknown) => ModuleElementSchema.parse(element));
 }
 
 export function moduleConstraintsFor(module: CatalogModule): ModuleConstraint[] {
-  return module.constraints?.map((constraint) => ModuleConstraintSchema.parse(constraint)) ?? [
+  return module.constraints?.map((constraint: unknown) => ModuleConstraintSchema.parse(constraint)) ?? [
     { kind: 'wall_anchored', label: 'Anchor to a valid wall or room placement', required: true },
     { kind: 'circulation', label: `Maintain at least ${module.minClearanceMm}mm clear circulation`, valueMm: module.minClearanceMm, required: true },
   ];
@@ -253,7 +254,7 @@ export function getCatalogVault() {
   return {
     version: 'modular-vault.v1',
     sourceOfTruth: 'Approved plan, layout, scene.v1, and production contracts; references are advisory.',
-    families: ModuleFamilySchema.options.map((family) => ({ family, modules: IndianModularCatalog.filter((module) => module.family === family).map((module) => module.id) })),
+    families: ModuleFamilySchema.options.map((family: z.infer<typeof ModuleFamilySchema>) => ({ family, modules: IndianModularCatalog.filter((module) => module.family === family).map((module) => module.id) })),
     elementKinds: ModuleElementKindSchema.options,
     constraints: ['wall_anchored', 'opening_clearance', 'service_clearance', 'circulation', 'adjacency', 'stacking'],
     modules: IndianModularCatalog.map((module) => ({ ...module, elements: moduleElementsFor(module), constraints: moduleConstraintsFor(module) })),
