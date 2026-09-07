@@ -1181,6 +1181,9 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   <span className="provider-status">Provider status unavailable</span>
                 )}
               </div>
+              <div role="status" style={{ margin: '8px 0 10px', padding: '8px 10px', borderRadius: 8, background: providers.some((provider) => provider.configured) ? '#f0fdf4' : '#fff7ed', border: `1px solid ${providers.some((provider) => provider.configured) ? '#bbf7d0' : '#fed7aa'}`, color: providers.some((provider) => provider.configured) ? '#166534' : '#9a3412', fontSize: 11 }}>
+                {providers.some((provider) => provider.configured) ? 'A configured image provider is available. Render jobs will retain the scene, camera, material, and provider provenance.' : 'No image provider is configured. Scene compilation and deterministic 3D remain available; photorealistic generation is blocked until a provider is connected.'}
+              </div>
               <div className="visual-controls visual-controls-stack">
                 <div className="scene-lock-summary" role="status">
                   <div className="scene-lock-summary-heading"><Layers3 size={15} /><strong>Geometry lock</strong><Badge tone={sceneApproved ? 'success' : 'accent'}>{sceneApproved ? 'Active' : 'Required'}</Badge></div>
