@@ -1268,25 +1268,31 @@ export function generateFullProductionCutlist(scene: SceneV1) {
     totalPanelArea18mm += innerWidth * d * 2;
 
     // Back Panel (8mm MDF)
-    parts.push({
-      id: `${module.id}-back`,
-      moduleId: module.id,
-      family: module.family,
-      partName: 'back-panel',
-      lengthMm: h,
-      widthMm: w,
-      thicknessMm: 8,
-      edging: 'none',
-      grainDirection: 'none',
-      materialCode: '8mm-mdf',
-      quantity: 1,
-      status: 'review_required'
-    });
+    const maxBackWidth = 1180;
+    const backBays = w > maxBackWidth ? Math.ceil(w / maxBackWidth) : 1;
+    const bayBackWidth = Math.floor(w / backBays);
+    for (let b = 0; b < backBays; b++) {
+      const actualWidth = b === backBays - 1 ? w - bayBackWidth * (backBays - 1) : bayBackWidth;
+      parts.push({
+        id: backBays > 1 ? `${module.id}-back-${b + 1}` : `${module.id}-back`,
+        moduleId: module.id,
+        family: module.family,
+        partName: backBays > 1 ? `back-panel-${b + 1}` : 'back-panel',
+        lengthMm: h,
+        widthMm: actualWidth,
+        thicknessMm: 8,
+        edging: 'none',
+        grainDirection: 'none',
+        materialCode: '8mm-mdf',
+        quantity: 1,
+        status: 'review_required'
+      });
+    }
     totalPanelArea8mm += h * w;
 
     // Door/Shutter Panels
     if (['wardrobe', 'kitchen', 'cabinet', 'tv-unit'].includes(module.family)) {
-      const doorCount = w >= 900 ? 2 : 1;
+      const doorCount = w > 1200 ? Math.max(2, Math.ceil(w / 600)) : (w >= 900 ? 2 : 1);
       const doorWidth = Math.round(w / doorCount) - 4;
       const doorHeight = h - 6;
       const doorEdge: EdgeSchedule = { l1Mm: doorHeight, l2Mm: doorHeight, w1Mm: doorWidth, w2Mm: doorWidth, tapeType: '2.0mm PVC' };

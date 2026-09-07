@@ -3,7 +3,6 @@ import { once } from 'node:events';
 import test from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { app } from '../src/index.js';
-import { chromium } from 'playwright';
 
 async function withServer<T>(callback: (baseUrl: string) => Promise<T>) {
   const server = app.listen(0, '127.0.0.1');
@@ -43,6 +42,22 @@ test('Browser headless verification of api documentation & status endpoints', as
       return;
     }
     
+    let chromium: any;
+    try {
+      ({ chromium } = await import('@playwright/test'));
+    } catch {
+      try {
+        ({ chromium } = await import('playwright'));
+      } catch {}
+    }
+    if (!chromium) {
+      if (browserRequired) {
+        assert.fail('ULTIDA_REQUIRE_BROWSER_E2E=true but neither @playwright/test nor playwright is installed.');
+      }
+      t.skip('Browser automation package is not installed.');
+      return;
+    }
+
     let browser;
     try {
       browser = await chromium.launch({

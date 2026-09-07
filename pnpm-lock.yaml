@@ -133,9 +133,15 @@ importers:
       '@ultida/contracts':
         specifier: ^0.1.0
         version: link:../../packages/contracts
+      '@ultida/drawing-core':
+        specifier: ^0.1.0
+        version: link:../../packages/drawing-core
       '@ultida/scene-core':
         specifier: ^0.1.0
         version: link:../../packages/scene-core
+      '@ultida/spaces-core':
+        specifier: ^0.1.0
+        version: link:../../packages/spaces-core
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.2.8)
