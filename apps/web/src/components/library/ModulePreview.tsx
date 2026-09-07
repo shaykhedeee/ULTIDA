@@ -65,6 +65,7 @@ const paletteByFamily: Record<string, { front: string; frontEnd: string; side: s
   'false-ceiling': { front: '#f4f2ee', frontEnd: '#dfdcd4', side: '#b8b4a8', top: '#ffffff', accent: '#c59c2d', highlight: '#ffffff', led: '#fef08a' },
   'feature-wall': { front: '#2e3338', frontEnd: '#1e2226', side: '#131618', top: '#454c52', accent: '#c59c2d', highlight: '#5d676e', led: '#fef08a' },
   lighting: { front: '#eadcc5', frontEnd: '#d2c09f', side: '#51443a', top: '#fff7e8', accent: '#b9822f', highlight: '#ffffff', led: '#fff1c2' },
+  rug: { front: '#c9b39a', frontEnd: '#a98d70', side: '#80664e', top: '#eadfce', accent: '#7b4f3a', highlight: '#ffffff', led: '#fef08a' },
 };
 
 function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colours: (typeof paletteByFamily)['kitchen-base'] }) {
@@ -368,7 +369,7 @@ function DetailedLivingPreview({ module, colours }: { module: ModulePreviewData;
 export function ModulePreview({ module, compact = false, style, defaultView = 'vector', interactive = true }: Props) {
   const [viewMode, setViewMode] = useState<'vector' | 'real'>(defaultView);
   const colours = paletteByFamily[module.family] ?? paletteByFamily.storage;
-  const isLivingOrFurniture = ['tv-unit', 'bed', 'sofa', 'dining', 'feature-wall', 'lighting'].includes(module.family);
+  const isLivingOrFurniture = ['tv-unit', 'bed', 'sofa', 'dining', 'feature-wall', 'lighting', 'rug'].includes(module.family);
   // Prefer 3D render if available, then custom photoUrl, then real-life reference vault photo
   const photo = MODULE_3D_BY_FAMILY[module.family] ?? module.photoUrl ?? REAL_LIFE_PHOTO_BY_FAMILY[module.family] ?? '/reference-vault/013-52a29a1053dc.png';
   const has3D = Boolean(MODULE_3D_BY_FAMILY[module.family] ?? module.photoUrl);
@@ -409,7 +410,7 @@ export function ModulePreview({ module, compact = false, style, defaultView = 'v
           }}
           title="2D Architectural Elevation & Millimeter Geometry"
         >
-          <Layers size={10} /> 2D
+          <Layers size={8} /> 2D
         </button>
         <button
           type="button"
@@ -429,7 +430,7 @@ export function ModulePreview({ module, compact = false, style, defaultView = 'v
           }}
           title={has3D ? '3D Product Render — AI Generated' : 'Real-Life Installed Photography & Luxury Finish'}
         >
-          <Camera size={10} /> {has3D ? '3D' : 'Real'}
+          <Camera size={8} /> {has3D ? '3D' : 'Ref'}
         </button>
       </div>}
       {viewMode === 'real' ? (
@@ -454,7 +455,7 @@ export function ModulePreview({ module, compact = false, style, defaultView = 'v
               fontSize: '8px', fontWeight: 800, borderRadius: 6, padding: '2px 6px',
               letterSpacing: '.04em',
             }}>
-              3D RENDER · {module.widthMm}mm
+              {has3D ? `ASSET PREVIEW · ${module.widthMm}mm` : `REFERENCE · ${module.widthMm}mm`}
             </div>
           ) : (
             <div style={{

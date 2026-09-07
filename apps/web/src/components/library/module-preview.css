@@ -10,6 +10,8 @@
 .module-preview svg { display: block; width: 100%; height: 138px; }
 .module-preview.compact { width: 68px; min-height: 60px; border-radius: 8px; flex: 0 0 68px; }
 .module-preview.compact svg { width: 68px; height: 60px; }
+.module-preview.compact button { min-height: 16px; padding: 1px 4px !important; gap: 2px !important; font-size: 8px !important; }
+.module-preview.compact button svg { width: 8px !important; height: 8px !important; }
 .module-catalog-card { overflow: hidden; padding: 0; background: #fff; border: 1px solid #e7e5e4; border-radius: 12px; box-shadow: 0 8px 24px rgba(28,25,23,.07); }
 .module-reference-frame { position: relative; height: 210px; overflow: hidden; background: #eee9e2; }
 .module-reference-frame > img { width: 100%; height: 100%; display: block; object-fit: cover; transition: transform .35s ease; }
@@ -26,6 +28,7 @@
 .module-card-copy > span { margin-top: 2px; color: #8a6244; font-size: 11px; font-weight: 700; text-transform: capitalize; }
 .module-card-copy p { min-height: 34px; margin: 8px 0; color: #57534e; font-size: 11px; line-height: 1.45; }
 .module-card-copy > small { color: #a8a29e; font-size: 10px; }
+.moodboard-board { min-height: 620px; overflow: auto; background-image: linear-gradient(rgba(120,98,70,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(120,98,70,.06) 1px, transparent 1px); background-size: 24px 24px; }
 
 /* The library shares the module preview with the planner. Keep the two card
    layouts isolated so planner flex rules cannot collapse library cards. */

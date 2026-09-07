@@ -1099,7 +1099,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
             </CardContent>
           </Card>
 
-          <div style={{ background: moodboardBg === 'linen' ? '#f5f0e8' : moodboardBg === 'clay' ? '#ebe1d3' : moodboardBg === 'dark' ? '#1c1815' : '#ffffff', border: '1.5px solid #dfd5c7', borderRadius: 16, minHeight: 620, position: 'relative', overflow: 'hidden', padding: 24, boxShadow: '0 12px 36px rgba(0,0,0,0.08)' }}>
+          <div className="moodboard-board" style={{ background: moodboardBg === 'linen' ? '#f5f0e8' : moodboardBg === 'clay' ? '#ebe1d3' : moodboardBg === 'dark' ? '#1c1815' : '#ffffff', border: '1.5px solid #dfd5c7', borderRadius: 16, minHeight: 620, position: 'relative', padding: 24, boxShadow: '0 12px 36px rgba(0,0,0,0.08)' }}>
             <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 100, display: 'flex', gap: 8 }}>
               <span style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)', fontSize: 11, fontWeight: 700, color: '#635243', border: '1px solid rgba(0,0,0,0.08)' }}>
                 {moodboardItems.length} Cutout Assets Layered
