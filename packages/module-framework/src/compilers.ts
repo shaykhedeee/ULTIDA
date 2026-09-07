@@ -15,14 +15,38 @@ import {
 function baseParts(input: TemplateCompileInput, instanceId: string, wallW: number, wallH: number, totalW: number, totalH: number, totalD: number, carcassMat: string, shutterMat: string): Part[] {
   const t = DEFAULT_CARCASS_THICKNESS_MM;
   const bp = DEFAULT_BACK_PANEL_THICKNESS_MM;
+  const innerH = totalH - t * 2;
   const parts: Part[] = [
     { id: `${instanceId}-carcass-bottom`, templateVersionId: input.templateVersionId, instanceId, name: 'Carcass Bottom Panel', transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: totalD, heightMm: t }, anchor: { face: 'bottom' }, meta: { semanticType: 'carcass', parentId: null, materialSlot: { id: carcassMat, code: carcassMat, name: 'Carcass' }, drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 }, bom: { sku: 'CARCASS-18MM', qty: 1, unit: 'sqm', lengthMm: totalW, widthMm: totalD, thicknessMm: t } } },
     { id: `${instanceId}-carcass-top`, templateVersionId: input.templateVersionId, instanceId, name: 'Carcass Top Panel', transform: { xMm: 0, yMm: 0, zMm: totalH - t, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: totalD, heightMm: t }, anchor: { face: 'top' }, meta: { semanticType: 'carcass', parentId: null, materialSlot: { id: carcassMat, code: carcassMat, name: 'Carcass' }, drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 }, bom: { sku: 'CARCASS-18MM', qty: 1, unit: 'sqm', lengthMm: totalW, widthMm: totalD, thicknessMm: t } } },
     { id: `${instanceId}-back-panel`, templateVersionId: input.templateVersionId, instanceId, name: 'Back Panel', transform: { xMm: 0, yMm: totalD - bp, zMm: 0, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: bp, heightMm: totalH }, anchor: { face: 'back' }, meta: { semanticType: 'back_panel', parentId: null, materialSlot: { id: carcassMat, code: carcassMat, name: 'Back Panel' }, drawing: { layer: 'A-MOD-BACK', sortOrder: 0 }, bom: { sku: 'BACK-6MM', qty: 1, unit: 'sqm', lengthMm: totalW, heightMm: totalH, thicknessMm: bp } } },
-    { id: `${instanceId}-carcass-left-side`, templateVersionId: input.templateVersionId, instanceId, name: 'Carcass Left Side Panel', transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 }, size: { widthMm: t, depthMm: totalD, heightMm: totalH }, anchor: { face: 'left' }, meta: { semanticType: 'carcass', parentId: null, materialSlot: { id: carcassMat, code: carcassMat, name: 'Carcass Side' }, drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 }, bom: { sku: 'CARCASS-SIDE-18MM', qty: 1, unit: 'pc', lengthMm: totalD, widthMm: totalH, thicknessMm: t } } },
-    { id: `${instanceId}-carcass-right-side`, templateVersionId: input.templateVersionId, instanceId, name: 'Carcass Right Side Panel', transform: { xMm: totalW - t, yMm: 0, zMm: 0, rotationDeg: 0 }, size: { widthMm: t, depthMm: totalD, heightMm: totalH }, anchor: { face: 'right' }, meta: { semanticType: 'carcass', parentId: null, materialSlot: { id: carcassMat, code: carcassMat, name: 'Carcass Side' }, drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 }, bom: { sku: 'CARCASS-SIDE-18MM', qty: 1, unit: 'pc', lengthMm: totalD, widthMm: totalH, thicknessMm: t } } },
+    { id: `${instanceId}-carcass-left`, templateVersionId: input.templateVersionId, instanceId, name: 'Carcass Left Side Panel', transform: { xMm: 0, yMm: 0, zMm: t, rotationDeg: 0 }, size: { widthMm: t, depthMm: totalD, heightMm: innerH }, anchor: { face: 'left' }, meta: { semanticType: 'carcass', parentId: null, materialSlot: { id: carcassMat, code: carcassMat, name: 'Carcass Side' }, drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 }, bom: { sku: 'CARCASS-SIDE-18MM', qty: 1, unit: 'pc', lengthMm: totalD, widthMm: innerH, thicknessMm: t } } },
+    { id: `${instanceId}-carcass-right`, templateVersionId: input.templateVersionId, instanceId, name: 'Carcass Right Side Panel', transform: { xMm: totalW - t, yMm: 0, zMm: t, rotationDeg: 0 }, size: { widthMm: t, depthMm: totalD, heightMm: innerH }, anchor: { face: 'right' }, meta: { semanticType: 'carcass', parentId: null, materialSlot: { id: carcassMat, code: carcassMat, name: 'Carcass Side' }, drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 }, bom: { sku: 'CARCASS-SIDE-18MM', qty: 1, unit: 'pc', lengthMm: totalD, widthMm: innerH, thicknessMm: t } } },
   ];
   return parts;
+}
+
+function carcassSides(input: TemplateCompileInput, instanceId: string, idPrefix: string, totalW: number, totalH: number, totalD: number, carcassMat: string, zMm = 0): Part[] {
+  const t = DEFAULT_CARCASS_THICKNESS_MM;
+  const innerH = totalH - t * 2;
+  const prefix = `${instanceId}-${idPrefix ? `${idPrefix}-` : ''}`;
+  const make = (side: 'left' | 'right', xMm: number): Part => ({
+    id: `${prefix}carcass-${side}`,
+    templateVersionId: input.templateVersionId,
+    instanceId,
+    name: `${idPrefix ? `${idPrefix[0].toUpperCase()}${idPrefix.slice(1)} ` : ''}Carcass ${side === 'left' ? 'Left' : 'Right'} Side Panel`,
+    transform: { xMm, yMm: 0, zMm: zMm + t, rotationDeg: 0 },
+    size: { widthMm: t, depthMm: totalD, heightMm: innerH },
+    anchor: { face: side },
+    meta: {
+      semanticType: 'carcass',
+      parentId: null,
+      materialSlot: { id: carcassMat, code: carcassMat, name: 'Carcass Side' },
+      drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 },
+      bom: { sku: 'CARCASS-SIDE-18MM', qty: 1, unit: 'pc', lengthMm: totalD, widthMm: innerH, thicknessMm: t },
+    },
+  });
+  return [make('left', 0), make('right', totalW - t)];
 }
 
 function shutterRow(instanceId: string, templateVersionId: string, i: number, xPos: number, w: number, h: number, zBot: number, mat: string, totalD: number): Part[] {
@@ -74,7 +98,7 @@ export function compileCrockery(input: TemplateCompileInput): TemplateCompileRes
   const shutterCount = Math.max(2, p.shutterCount ?? Math.round(totalW / TARGET_SHUTTER_WIDTH_MM));
   const shutterW = (totalW - (shutterCount - 1) * 3) / shutterCount;
   const profileGlass = p.profileGlassOption === true || p.glassProfile === true || p.shutterStyle === 'profile-glass';
-  const parts: Part[] = [];
+  const parts: Part[] = carcassSides(input, instanceId, '', totalW, totalH, totalD, COMPAT.carcass);
   const add = (id: string, name: string, xMm: number, yMm: number, zMm: number, widthMm: number, depthMm: number, heightMm: number, semanticType: Part['meta']['semanticType'], materialId: string, layer: string, sku: string) => parts.push({
     id: `${instanceId}-${id}`, templateVersionId: input.templateVersionId, instanceId, name,
     transform: { xMm, yMm, zMm, rotationDeg: 0 }, size: { widthMm, depthMm, heightMm }, anchor: { face: 'front' },
@@ -151,6 +175,7 @@ export function compileKitchen(input: TemplateCompileInput): TemplateCompileResu
   const parts: Part[] = [];
   // base carcass + shutters
   parts.push({ id: `${instanceId}-base-carcass`, templateVersionId: input.templateVersionId, instanceId, name: 'Base Carcass', transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: totalD, heightMm: baseH }, anchor: { face: 'bottom' }, meta: { semanticType: 'carcass', parentId: null, materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Base Carcass' }, drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 }, bom: { sku: 'CARCASS-18MM', qty: 1, unit: 'sqm', lengthMm: totalW, widthMm: totalD, thicknessMm: DEFAULT_CARCASS_THICKNESS_MM } } });
+  parts.push(...carcassSides(input, instanceId, 'base', totalW, baseH, totalD, COMPAT.carcass));
   const baseShutters = p.baseShutterCount ?? Math.max(2, Math.round(totalW / TARGET_SHUTTER_WIDTH_MM));
   const bsW = totalW / baseShutters;
   for (let i = 0; i < baseShutters; i++) parts.push(...shutterRow(instanceId, input.templateVersionId, i, i * bsW, bsW, baseH - DEFAULT_CARCASS_THICKNESS_MM, DEFAULT_CARCASS_THICKNESS_MM, COMPAT.shutter, totalD));
@@ -158,6 +183,7 @@ export function compileKitchen(input: TemplateCompileInput): TemplateCompileResu
   parts.push({ id: `${instanceId}-countertop`, templateVersionId: input.templateVersionId, instanceId, name: 'Countertop', transform: { xMm: 0, yMm: 0, zMm: baseH, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: totalD, heightMm: 40 }, anchor: { face: 'top' }, meta: { semanticType: 'countertop', parentId: `${instanceId}-base-carcass`, materialSlot: { id: COMPAT.counter, code: COMPAT.counter, name: 'Countertop' }, drawing: { layer: 'A-MOD-COUNTER', sortOrder: 4 }, bom: { sku: 'QUARTZ-40MM', qty: 1, unit: 'sqm', lengthMm: totalW, widthMm: totalD, thicknessMm: 40 } } });
   // upper cabinets
   parts.push({ id: `${instanceId}-upper-carcass`, templateVersionId: input.templateVersionId, instanceId, name: 'Upper Carcass', transform: { xMm: 0, yMm: 0, zMm: baseH + 100, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: totalD - 300, heightMm: upperH }, anchor: { face: 'top' }, meta: { semanticType: 'carcass', parentId: null, materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Upper Carcass' }, drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 }, bom: { sku: 'CARCASS-18MM', qty: 1, unit: 'sqm', lengthMm: totalW, widthMm: totalD - 300, thicknessMm: DEFAULT_CARCASS_THICKNESS_MM } } });
+  parts.push(...carcassSides(input, instanceId, 'upper', totalW, upperH, totalD - 300, COMPAT.carcass, baseH + 100));
   if (!input.wall.id && warning.length === 0) warning.push('Kitchen requires plumbing service point.');
   return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts };
 }
@@ -176,17 +202,17 @@ export function compileBed(input: TemplateCompileInput): TemplateCompileResult {
   if (wallH > 0 && headboardH > wallH) blocking.push(`Headboard height ${headboardH}mm exceeds wall height ${wallH}mm.`);
   if (totalD < 1850) warning.push('Bed length below 1850mm requires mattress verification.');
   const parts: Part[] = [];
-  const addPanel = (id: string, name: string, xMm: number, yMm: number, zMm: number, widthMm: number, depthMm: number, heightMm: number, semanticType: Part['meta']['semanticType'], materialId = COMPAT.carcass, sku = 'BED-PANEL-18MM') => parts.push({
+  const addPanel = (id: string, name: string, xMm: number, yMm: number, zMm: number, widthMm: number, depthMm: number, heightMm: number, semanticType: Part['meta']['semanticType'], materialId = COMPAT.carcass, sku = 'BED-PANEL-18MM', anchorFace: Part['anchor']['face'] = 'bottom') => parts.push({
     id: `${instanceId}-${id}`, templateVersionId: input.templateVersionId, instanceId, name,
-    transform: { xMm, yMm, zMm, rotationDeg: 0 }, size: { widthMm, depthMm, heightMm }, anchor: { face: 'bottom' },
+    transform: { xMm, yMm, zMm, rotationDeg: 0 }, size: { widthMm, depthMm, heightMm }, anchor: { face: anchorFace },
     meta: { semanticType, parentId: null, materialSlot: { id: materialId, code: materialId, name: semanticType === 'panel' ? 'Headboard finish' : 'Bed carcass' }, drawing: { layer: semanticType === 'panel' ? 'A-MOD-PANEL' : 'A-MOD-CARCASS', sortOrder: parts.length + 1 }, bom: { sku, qty: 1, unit: 'pc', lengthMm: Math.max(widthMm, depthMm, heightMm), widthMm: [widthMm, depthMm, heightMm].sort((a, b) => b - a)[1], thicknessMm: t } },
   });
 
   // Exact sheet parts: the visible bed envelope is reconstructed from these
   // rails and deck panels by scene.v1, so render geometry and fabrication data
   // stay in sync.
-  addPanel('left-rail', 'Left Storage Bed Side Rail', 0, 0, 0, t, totalD, platformH, 'carcass');
-  addPanel('right-rail', 'Right Storage Bed Side Rail', totalW - t, 0, 0, t, totalD, platformH, 'carcass');
+  addPanel('carcass-left', 'Bed Carcass Left Side Panel', 0, 0, 0, t, totalD, platformH, 'carcass', COMPAT.carcass, 'CARCASS-SIDE-18MM', 'left');
+  addPanel('carcass-right', 'Bed Carcass Right Side Panel', totalW - t, 0, 0, t, totalD, platformH, 'carcass', COMPAT.carcass, 'CARCASS-SIDE-18MM', 'right');
   addPanel('foot-rail', 'Storage Bed Foot Rail', t, totalD - t, 0, totalW - t * 2, t, platformH, 'carcass');
   addPanel('head-rail', 'Storage Bed Head Rail', t, 0, 0, totalW - t * 2, t, platformH, 'carcass');
   addPanel('centre-partition', 'Hydraulic Storage Centre Partition', totalW / 2 - t / 2, t, 0, t, totalD - t * 2, platformH - t, 'carcass');
