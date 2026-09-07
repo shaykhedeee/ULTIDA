@@ -59,9 +59,11 @@ function detectRasterMimeType(bytes: Uint8Array): string | null {
  * whole job on a missing CV dependency — per ARCHITECTURE.md invariant #5).
  */
 async function runRemoteCvTrace(environment: Environment, raster: Uint8Array): Promise<{ result: CvTraceResult; stderr: string } | null> {
-  const configuredEndpoint = environment.PLAN_CV_SERVICE_URL?.trim();
-  const vercelOrigin = environment.VERCEL_URL ? `https://${environment.VERCEL_URL.replace(/^https?:\/\//, '')}` : '';
-  const endpoint = configuredEndpoint || (vercelOrigin ? `${vercelOrigin}/internal/cv/plan` : '');
+  // OpenCV cannot fit within Vercel's Python function bundle limit. Hosted
+  // deployments use an explicitly configured dedicated CV service; without
+  // one, analysis remains reviewable vision evidence rather than pretending a
+  // self-call to a non-existent Vercel Python endpoint succeeded.
+  const endpoint = environment.PLAN_CV_SERVICE_URL?.trim();
   const secret = environment.ULTIDA_WORKER_SHARED_SECRET || environment.WORKER_DISPATCH_SECRET;
   if (!endpoint || !secret) return null;
   try {
@@ -88,15 +90,14 @@ async function runRemoteCvTrace(environment: Environment, raster: Uint8Array): P
 }
 
 async function runCvTrace(environment: Environment, raster: Uint8Array, mimeType: string): Promise<{ result: CvTraceResult; stderr: string } | null> {
-  // Production uses the authenticated Python function when configured. Local
-  // development still runs the identical source file directly, so both paths
-  // produce the same candidate contract.
+  // Production uses an authenticated dedicated CV service only when it is
+  // explicitly configured. Local development still runs the identical source
+  // file directly, so both paths produce the same candidate contract.
   const remote = await runRemoteCvTrace(environment, raster);
   if (remote?.result) return remote;
   // A deployed Node function cannot reliably spawn the Python/OpenCV runtime.
-  // Once the authenticated Vercel Python function has timed out or returned an
-  // explicit error, retain that truthful evidence and let vision continue
-  // rather than adding a second, doomed local process delay.
+  // Retain explicit remote evidence and let vision continue rather than adding
+  // a second, doomed local process delay.
   if (remote && environment.VERCEL_URL) return remote;
   const scriptPath = resolveWallTracerPath();
   if (!scriptPath) return remote ?? { result: null as unknown as CvTraceResult, stderr: 'wall_tracer.py not found' };
