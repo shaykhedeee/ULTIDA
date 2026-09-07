@@ -288,7 +288,7 @@ function resolveRoomOverlaps(roomElements: PlanElement[]): PlanElement[] {
   return [...others, ...adjusted];
 }
 
-function autoSynthesizePartitionWallsAndOpenings(existingElements: PlanElement[], ceilingH = 2700): PlanElement[] {
+function autoSynthesizePartitionWallsAndOpenings(existingElements: PlanElement[], ceilingH = 2700, mmPerPixel?: number): PlanElement[] {
   const rooms = existingElements.filter((e) => e.kind === 'room' && e.status !== 'rejected');
   if (!rooms.length) return existingElements;
 
@@ -347,7 +347,7 @@ function autoSynthesizePartitionWallsAndOpenings(existingElements: PlanElement[]
           status: 'accepted',
           color: isExternal ? '#1d4ed8' : '#2563eb',
           geometry: { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y },
-          dimensionMm: Math.round(lengthPx * 15),
+          dimensionMm: mmPerPixel && mmPerPixel > 0 ? Math.round(lengthPx * mmPerPixel) : undefined,
           thicknessMm: isExternal ? 230 : 150,
           heightMm: ceilingH,
         };
@@ -663,7 +663,7 @@ export function PlanReviewWorkspace({
   };
 
   const handleAutoEnhanceFullPlan = () => {
-    const enhanced = autoSynthesizePartitionWallsAndOpenings(elements, ceilingHeightMm ?? 2700);
+    const enhanced = autoSynthesizePartitionWallsAndOpenings(elements, ceilingHeightMm ?? 2700, scale?.mmPerPixel);
     commitElements(enhanced);
     setContinuationHint('✨ AI Auto-Enhanced Plan: Generated all interior partition walls, doors, windows, and custom room flooring!');
   };
