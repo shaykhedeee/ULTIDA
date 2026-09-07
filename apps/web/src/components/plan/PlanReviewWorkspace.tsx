@@ -927,14 +927,12 @@ export function PlanReviewWorkspace({
     const totalWidth = Math.max(160, maxX - minX);
     const totalHeight = Math.max(140, maxY - minY);
 
-    const currentScale = scale ?? {
-      pointA: { x: minX, y: minY },
-      pointB: { x: maxX, y: minY },
-      pixelDistance: totalWidth,
-      realDistanceMm: Math.round(totalWidth * 15),
-      mmPerPixel: 15,
-    };
-    if (!scale) setScale(currentScale);
+    if (!scale) {
+      setContinuationHint('Enhancement paused: calibrate one trusted dimension before generating measured rooms and walls. ULTIDA will not invent a scale from sketch pixels.');
+      setActiveTool('calibrate');
+      return;
+    }
+    const currentScale = scale;
 
     const generatedRooms: PlanElement[] = [];
     const generatedWalls: PlanElement[] = [];
