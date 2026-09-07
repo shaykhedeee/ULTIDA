@@ -1,4 +1,5 @@
 import type { SceneV1 } from '@ultida/scene-core';
+import type { Writable } from 'node:stream';
 import PDFDocument from 'pdfkit';
 
 export const ULTIDA_DRAWING_STANDARD_V1 = {
@@ -111,7 +112,7 @@ function rotatedRectangle(x: number, y: number, width: number, depth: number, ro
 }
 
 function openingLine(opening: ProjectedOpening, walls: SceneV1['walls']) {
-  const wall = walls.find((candidate) => candidate.id === opening.wallId);
+  const wall = walls.find((candidate: SceneV1['walls'][number]) => candidate.id === opening.wallId);
   if (!wall) return null;
   const length = wallLength(wall);
   if (!finitePositive(length) || opening.offsetMm + opening.widthMm > length + 0.01) return null;
@@ -131,7 +132,7 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
       warnings.push(`Wall ${wall.id} has zero or invalid length and was skipped.`);
       continue;
     }
-    const duplicateOf = exportedWalls.find((candidate) => wallsCoincide(candidate, wall));
+    const duplicateOf = exportedWalls.find((candidate: SceneV1['walls'][number]) => wallsCoincide(candidate, wall));
     if (duplicateOf) {
       warnings.push(`Wall ${wall.id} duplicates canonical wall ${duplicateOf.id} and was skipped to prevent double-wall exports.`);
       continue;
@@ -145,7 +146,7 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
       warnings.push(`Module ${module.id} has invalid dimensions and was skipped.`);
       continue;
     }
-    const nearest = (scene.walls ?? []).map((wall) => ({ wall, ...moduleWallPosition(module, wall) })).sort((a, b) => a.distance - b.distance)[0];
+    const nearest = (scene.walls ?? []).map((wall: SceneV1['walls'][number]) => ({ wall, ...moduleWallPosition(module, wall) })).sort((a: { distance: number }, b: { distance: number }) => a.distance - b.distance)[0];
     const projected: ProjectedModule = { id: module.id, family: module.family, roomId: module.roomId, xMm: module.position.xMm, yMm: module.position.yMm, widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm, rotationDeg: module.rotationDeg, wallId: nearest?.wall.id, offsetAlongWallMm: nearest?.offset };
     modules.push(projected);
     const corners = rotatedRectangle(projected.xMm, projected.yMm, projected.widthMm, projected.depthMm, projected.rotationDeg);
@@ -154,18 +155,18 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
       lines.push({ id: `${module.id}-${index + 1}`, layer: 'modules', x1: corner.x, y1: corner.y, x2: next.x, y2: next.y });
     });
   }
-  const openings: ProjectedOpening[] = (scene.openings ?? []).map((opening) => ({ id: opening.id, kind: opening.kind, wallId: opening.wallId, offsetMm: opening.offsetMm, widthMm: opening.widthMm, heightMm: opening.heightMm }));
+  const openings: ProjectedOpening[] = (scene.openings ?? []).map((opening: SceneV1['openings'][number]) => ({ id: opening.id, kind: opening.kind, wallId: opening.wallId, offsetMm: opening.offsetMm, widthMm: opening.widthMm, heightMm: opening.heightMm }));
   for (const opening of openings) {
     const line = openingLine(opening, scene.walls ?? []);
     if (line) lines.push(line);
     else warnings.push(`Opening ${opening.id} could not be projected onto its wall and was skipped.`);
   }
-  const elevations = (scene.walls ?? []).filter((wall) => finitePositive(wallLength(wall))).map((wall) => ({
+  const elevations = (scene.walls ?? []).filter((wall: SceneV1['walls'][number]) => finitePositive(wallLength(wall))).map((wall: SceneV1['walls'][number]) => ({
     wallId: wall.id,
     lengthMm: wallLength(wall),
     heightMm: wall.heightMm,
-    openings: openings.filter((opening) => opening.wallId === wall.id),
-    modules: modules.filter((module) => module.wallId === wall.id).sort((a, b) => (a.offsetAlongWallMm ?? 0) - (b.offsetAlongWallMm ?? 0))
+    openings: openings.filter((opening: ProjectedOpening) => opening.wallId === wall.id),
+    modules: modules.filter((module: ProjectedModule) => module.wallId === wall.id).sort((a: ProjectedModule, b: ProjectedModule) => (a.offsetAlongWallMm ?? 0) - (b.offsetAlongWallMm ?? 0))
   }));
   return { schema: 'drawing.projection.v1', units: 'mm', projectId: scene.projectId, floorPlanVersionId: scene.floorPlanVersionId, sceneStatus: scene.metadata?.status ?? 'draft', lines, openings, modules, elevations, warnings };
 }
@@ -523,11 +524,11 @@ export function generateDrawingPackageSvg(scene: SceneV1): string {
   return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="-100 -150 ${maxWallLength * 2 + 700} ${Math.max(elevationHeight, maxWallLength) + 300}"><title>ULTIDA drawing package ${projection.floorPlanVersionId}</title><desc>Generated from drawing.projection.v1 for ${projection.projectId}</desc><style>.walls,.wall-face{stroke:#38291f;stroke-width:8;fill:none}.modules,.module{stroke:#38291f;stroke-width:5;fill:#c59c2d;fill-opacity:.25}.opening{stroke:#7a4b2d;stroke-width:5;fill:#fff}text{font:42px sans-serif;fill:#38291f}</style><g id="wall-elevations">${elevations}</g><g id="floor-plan" transform="translate(${floorOffset} 0)"><text x="0" y="-35">Floor plan / millimetres</text>${floorLines}</g></svg>`;
 }
 
-export function generateWallElevationsPdf(scene: SceneV1, outStream: any, options?: DrawingTemplateSettings) {
+export function generateWallElevationsPdf(scene: SceneV1, outStream: Writable, options?: DrawingTemplateSettings) {
   return generateProjectionPdf(buildDrawingProjection(scene), outStream);
 }
 
-export function generateProjectionPdf(projection: DrawingPackageProjection, outStream: NodeJS.WritableStream, production?: ProductionSnapshotV1) {
+export function generateProjectionPdf(projection: DrawingPackageProjection, outStream: Writable, production?: ProductionSnapshotV1) {
   const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 24, info: { Title: `ULTIDA Production Drawings - ${projection.floorPlanVersionId}`, Author: 'ULTIDA', Subject: 'Approved scene production drawing package' } });
   doc.pipe(outStream);
   const pageWidth = 842; const pageHeight = 595;
@@ -700,7 +701,7 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
       }
       if (index % 2 === 0) doc.rect(43, rowY - 4, 755, 16).fill('#faf7f2');
       const values = [part.partName, part.moduleId, part.materialCode, part.lengthMm, part.widthMm, part.thicknessMm, part.grainDirection ?? 'none', part.edgeSchedule?.tapeType ?? 'none', part.status];
-      values.forEach((value, valueIndex) => doc.font(valueIndex === 0 ? 'Helvetica-Bold' : 'Helvetica').fontSize(5.8).fillColor('#38291f').text(String(value), columns[valueIndex], rowY, { width: valueIndex === 0 ? 138 : valueIndex === 1 ? 105 : 78, ellipsis: true }));
+      values.forEach((value, valueIndex) => doc.font(valueIndex === 0 ? 'Helvetica-Bold' : 'Helvetica').fontSize(5.8).fillColor('#38291f').text(String(value), columns[valueIndex], rowY, { width: valueIndex === 0 ? 138 : valueIndex === 1 ? 105 : 78 }));
       rowY += 17;
     });
   }
@@ -1403,7 +1404,7 @@ export function generateProjectBOQ(scene: SceneV1, customRates?: Record<string, 
 }
 
 export function generateWallElevationSvg(scene: SceneV1, wallId: string): string {
-  const wall = (scene.walls ?? []).find((w) => w.id === wallId) || scene.walls?.[0];
+  const wall = (scene.walls ?? []).find((w: SceneV1['walls'][number]) => w.id === wallId) || scene.walls?.[0];
   const wallLength = wall ? Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm) : 5200;
   const wallHeight = wall?.heightMm || 2700;
 
