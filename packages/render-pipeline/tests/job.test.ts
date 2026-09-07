@@ -1,8 +1,31 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import sharp from 'sharp';
+import { inflateSync } from 'node:zlib';
 import { executeRenderJob, type RenderJobInput } from '../src/job.js';
 import { renderBaseArtifacts, renderScenePerspectiveArtifacts } from '../src/base-render.js';
+
+function decodePngRgba(pngBuffer: Buffer): { width: number; height: number; data: Buffer } {
+  const width = pngBuffer.readUInt32BE(16);
+  const height = pngBuffer.readUInt32BE(20);
+  const idatChunks: Buffer[] = [];
+  let offset = 8;
+  while (offset < pngBuffer.length) {
+    const chunkLength = pngBuffer.readUInt32BE(offset);
+    const chunkType = pngBuffer.toString('ascii', offset + 4, offset + 8);
+    if (chunkType === 'IDAT') {
+      idatChunks.push(pngBuffer.subarray(offset + 8, offset + 8 + chunkLength));
+    }
+    offset += 8 + chunkLength + 4;
+  }
+  const compressed = Buffer.concat(idatChunks);
+  const decompressed = inflateSync(compressed);
+  const stride = width * 4;
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    decompressed.copy(rgba, y * stride, y * (stride + 1) + 1, y * (stride + 1) + 1 + stride);
+  }
+  return { width, height, data: rgba };
+}
 
 const BOXES = [
   { id: 'room-1', kind: 'room' as const, x1: 0, y1: 0, x2: 4000, y2: 3000, materialId: 'mat-floor' },
@@ -69,16 +92,16 @@ test('raised exact parts retain elevation in RGB, depth, edges and masks', async
   const raisedMask = raised.objectMasks.find((mask) => mask.id === 'raised-panel')!;
   assert.notEqual(raisedMask.url, floorMask.url);
   assert.notEqual(raised.materialRegions[0].url, floor.materialRegions[0].url);
-  async function centroidY(url: string) {
-    const { data, info } = await sharp(Buffer.from(url.split(',')[1], 'base64')).raw().toBuffer({ resolveWithObject: true });
+  function centroidY(url: string) {
+    const { width, height, data } = decodePngRgba(Buffer.from(url.split(',')[1], 'base64'));
     let sum = 0, pixels = 0;
-    for (let pixel = 0; pixel < info.width * info.height; pixel++) {
-      if (data[pixel * info.channels] > 127) { sum += Math.floor(pixel / info.width); pixels++; }
+    for (let pixel = 0; pixel < width * height; pixel++) {
+      if (data[pixel * 4] > 127) { sum += Math.floor(pixel / width); pixels++; }
     }
     assert.ok(pixels > 0, 'The panel must be visible');
     return sum / pixels;
   }
-  assert.ok(await centroidY(raisedMask.url) < await centroidY(floorMask.url), 'Raising the panel moves it upward in the image');
+  assert.ok(centroidY(raisedMask.url) < centroidY(floorMask.url), 'Raising the panel moves it upward in the image');
   assert.equal(renderScenePerspectiveArtifacts(scene, { width: 320, height: 240 }).baseHash, raised.baseHash);
 });
 
@@ -189,10 +212,10 @@ test('perspective scene renderer derives decodable stable base and masks from wa
   const artifacts = [first.rgb, first.edgeMap, first.depth, ...first.objectMasks, ...first.materialRegions];
   for (const artifact of artifacts) {
     const bytes = Buffer.from(artifact.url.split(',')[1] ?? '', 'base64');
-    const metadata = await sharp(bytes).metadata();
-    assert.equal(metadata.format, 'png');
-    assert.ok((metadata.width ?? 0) > 0);
-    assert.ok((metadata.height ?? 0) > 0);
+    assert.equal(bytes.toString('ascii', 1, 4), 'PNG');
+    const { width, height } = decodePngRgba(bytes);
+    assert.ok(width > 0);
+    assert.ok(height > 0);
   }
 });
 

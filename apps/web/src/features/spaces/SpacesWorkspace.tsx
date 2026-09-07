@@ -2015,9 +2015,30 @@ export function SpacesWorkspace() {
 
                     {selectedWall && (
                       <div className="wall-elevation-panel">
-                        <div className="wep-title">
-                          <span>Technical Elevation — {roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall) >= 0 ? `Wall ${String.fromCharCode(65 + roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall))}` : 'Selected Wall'}</span>
-                          <small>Standard Height: {sel.room.ceilingHeightMm ?? ceilingHeightMm} mm</small>
+                        <div className="wep-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <span>Technical Elevation — {roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall) >= 0 ? `Wall ${String.fromCharCode(65 + roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall))}` : 'Selected Wall'}</span>
+                            <small style={{ display: 'block' }}>Standard Height: {sel.room.ceilingHeightMm ?? ceilingHeightMm} mm</small>
+                          </div>
+                          <button
+                            type="button"
+                            style={{
+                              background: '#1c1917',
+                              color: 'var(--gold)',
+                              border: '1px solid #44382e',
+                              borderRadius: 6,
+                              padding: '4px 10px',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                            onClick={() => navigate(`/projects/${projectId}/spaces?tab=modules`)}
+                          >
+                            Configure Modules &rarr;
+                          </button>
                         </div>
                         {/* 2D Technical Elevation Blueprint Vector */}
                         <div className="wep-canvas-box">
