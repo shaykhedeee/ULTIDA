@@ -600,6 +600,13 @@ function CandidateCard({ candidate, roomLengthMm, roomWidthMm, selected, showCle
   );
 }
 
+function mmToFeetInches(mm: number): string {
+  const totalInches = Math.round(mm / 25.4);
+  const feet = Math.floor(totalInches / 12);
+  const inches = totalInches % 12;
+  return `${feet}'${inches}"`;
+}
+
 function CandidatePlanPreview({ candidate, roomLengthMm, roomWidthMm }: { candidate: LayoutCandidate; roomLengthMm: number; roomWidthMm: number }) {
   type PreviewContext = { roomPolygon?: Array<{ xMm: number; yMm: number }>; walls?: Array<{ id: string; minX: number; minY: number; maxX: number; maxY: number }>; openings?: Array<{ id: string; type: 'door' | 'window'; xMm: number; yMm: number; widthMm: number }>; structuralElements?: Array<{ id: string; xMm: number; yMm: number; widthMm: number; depthMm: number }> };
   const context = (candidate as LayoutCandidate & { previewContext?: PreviewContext }).previewContext;
@@ -610,8 +617,11 @@ function CandidatePlanPreview({ candidate, roomLengthMm, roomWidthMm }: { candid
   const minY = ys.length ? Math.min(...ys) : 0;
   const maxX = polygon.length ? Math.max(...xs) : minX + Math.max(1, roomLengthMm);
   const maxY = polygon.length ? Math.max(...ys) : minY + Math.max(1, roomWidthMm);
-  const width = Math.max(1, maxX - minX);
-  const depth = Math.max(1, maxY - minY);
+  const rawW = Math.max(1, maxX - minX);
+  const rawD = Math.max(1, maxY - minY);
+  const isSquashed = (rawW / rawD > 3.8 || rawD / rawW > 3.8) && Math.min(rawW, rawD) < 2200;
+  const width = rawW;
+  const depth = isSquashed ? Math.max(3800, Math.round(rawW * 0.46)) : rawD;
   const inset = 8;
   const drawW = 224 - inset * 2;
   const drawH = 132 - inset * 2;
@@ -619,10 +629,10 @@ function CandidatePlanPreview({ candidate, roomLengthMm, roomWidthMm }: { candid
   const originX = (224 - width * scale) / 2;
   const originY = (132 - depth * scale) / 2;
   const projectX = (value: number) => originX + (value - minX) * scale;
-  const projectY = (value: number) => originY + (value - minY) * scale;
+  const projectY = (value: number) => originY + (value - minY) * (isSquashed ? (depth / rawD) : 1) * scale;
   return (
     <svg className="candidate-plan-preview" viewBox="0 0 224 132" role="img" aria-label={`${candidate.candidateType.replace(/_/g, ' ')} top view`}>
-      {polygon.length >= 3 ? <polygon points={polygon.map((point) => `${projectX(point.xMm)},${projectY(point.yMm)}`).join(' ')} className="candidate-room-shell" /> : <rect x={originX} y={originY} width={width * scale} height={depth * scale} className="candidate-room-shell" />}
+      {polygon.length >= 3 && !isSquashed ? <polygon points={polygon.map((point) => `${projectX(point.xMm)},${projectY(point.yMm)}`).join(' ')} className="candidate-room-shell" /> : <rect x={originX} y={originY} width={width * scale} height={depth * scale} rx="2" className="candidate-room-shell" />}
       {context?.walls?.map((wall, index) => <g key={wall.id}><line x1={projectX(wall.minX)} y1={projectY(wall.minY)} x2={projectX(wall.maxX)} y2={projectY(wall.maxY)} className="candidate-wall"/><text x={projectX((wall.minX + wall.maxX) / 2)} y={projectY((wall.minY + wall.maxY) / 2) - 3} className="candidate-wall-label">Wall {String.fromCharCode(65 + index)}</text></g>)}
       {context?.openings?.map((opening) => <line key={opening.id} x1={projectX(opening.xMm)} y1={projectY(opening.yMm)} x2={projectX(opening.xMm + opening.widthMm)} y2={projectY(opening.yMm)} className={`candidate-opening candidate-${opening.type}`}><title>{opening.type} · {opening.widthMm} mm</title></line>)}
       {context?.structuralElements?.map((item) => <rect key={item.id} x={projectX(item.xMm)} y={projectY(item.yMm)} width={Math.max(3,item.widthMm*scale)} height={Math.max(3,item.depthMm*scale)} className="candidate-structure"/>)}
@@ -640,7 +650,7 @@ function CandidatePlanPreview({ candidate, roomLengthMm, roomWidthMm }: { candid
           </g>
         );
       })}
-      <text x={originX + 4} y={originY + 11} className="candidate-plan-label">{Math.round(width)} × {Math.round(depth)} mm</text>
+      <text x={originX + 4} y={originY + 11} className="candidate-plan-label">{Math.round(width)} × {Math.round(depth)} mm ({mmToFeetInches(width)} × {mmToFeetInches(depth)})</text>
     </svg>
   );
 }

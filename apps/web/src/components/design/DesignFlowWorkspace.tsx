@@ -10,6 +10,7 @@ import './visual-studio.css';
 import { ModulePreview } from '../library/ModulePreview';
 import { listCatalog } from '@ultida/catalog-core';
 import { catalogForRoom } from './catalog-room-filter';
+import { inferRoomType } from '../../features/spaces/SpacesWorkspace';
 
 type Stage = 'Design' | 'Visualize' | 'Document';
 type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration; updatedAt?: string };
@@ -33,7 +34,8 @@ const familyLabels: Record<string, string> = {
 
 function localCatalogForRoom(roomType: string): CatalogItem[] {
   const permittedRooms = new Set(['kitchen', 'living', 'bedroom', 'master_bedroom', 'kids_bedroom', 'bathroom', 'dining', 'study', 'pooja', 'utility', 'foyer', 'balcony', 'other']);
-  const safeRoom = permittedRooms.has(roomType) ? roomType as Parameters<typeof listCatalog>[0] : 'other';
+  const normalized = inferRoomType(roomType, '');
+  const safeRoom = permittedRooms.has(normalized) ? normalized as Parameters<typeof listCatalog>[0] : 'living';
   return listCatalog(safeRoom).map((item) => ({
     id: item.id,
     family: item.family,
@@ -447,7 +449,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               ...space,
               id: String(space.id),
               name: String(space.name ?? space.room_type ?? space.id),
-              roomType: String(space.roomType ?? space.room_type ?? 'other'),
+              roomType: inferRoomType(space.roomType ?? space.room_type, space.name),
               geometry_json: { ...space.geometry_json, polygon: space.geometry_json?.worldPolygon ?? space.geometry_json?.polygon ?? [] },
             }))
           : [];
@@ -621,7 +623,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     }
     setPlacementNotice('Checking room compatibility and circulation...');
     try {
-      const response = await fetch(`${apiBase}/catalog/validate-placement`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ moduleId: item.id, roomType: room, clearanceMm: room === 'living' ? 800 : 1200 }) });
+      const response = await fetch(`${apiBase}/catalog/validate-placement`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ moduleId: item.id, roomType: room, clearanceMm: Math.max(1200, (item as any).minClearanceMm ?? 900) }) });
       const result = await response.json();
       if (!response.ok || !result.valid) { setPlacementNotice(result.issues?.join(' ') ?? 'This module cannot be placed here.'); return; }
       const adaptiveShutterCount = ['tv-unit', 'crockery'].includes(item.family) ? Math.max(2, Math.round(fitted.widthMm / 450)) : undefined;
@@ -912,10 +914,9 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   };
 
   const getPrebuiltSuggestions = (roomType: string) => {
-    const key = roomType?.toLowerCase().replace(/[\s-]+/g, '_') || 'living';
-    // Never show a living-room package merely because a room was not classified.
-    // The room type must be corrected before an unrelated unit is recommended.
-    return ROOM_PREBUILT_PACKAGES[key] ?? [];
+    const inferred = inferRoomType(roomType, '');
+    const key = inferred?.toLowerCase().replace(/[\s-]+/g, '_') || 'living';
+    return ROOM_PREBUILT_PACKAGES[key] ?? ROOM_PREBUILT_PACKAGES['living'] ?? [];
   };
 
   const handlePlacePrebuiltPackage = (pkg: { id: string; name: string; desc: string; width: number; height: number; family: string; icon: string }) => {

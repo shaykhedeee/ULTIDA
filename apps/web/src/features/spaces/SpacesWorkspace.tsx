@@ -75,7 +75,28 @@ const ROOM_TYPES: Record<string, string> = {
   utility: 'Utility', pooja: 'Pooja Room', bathroom: 'Bathroom', toilet: 'Toilet', study: 'Study', foyer: 'Foyer', balcony: 'Balcony', parking: 'Parking', store: 'Store', other: 'Other'
 };
 
-function inferRoomType(rawType: unknown, roomName: unknown) {
+export function mmToFeetInches(mm: number): string {
+  if (!Number.isFinite(mm) || mm <= 0) return '0\'0"';
+  const totalInches = Math.round(mm / 25.4);
+  const feet = Math.floor(totalInches / 12);
+  const inches = totalInches % 12;
+  return `${feet}'${inches}"`;
+}
+
+export function sqmToSqft(sqm: number): number {
+  if (!Number.isFinite(sqm) || sqm <= 0) return 0;
+  return Math.round(sqm * 10.7639);
+}
+
+export function formatMmAndFeet(mm: number): string {
+  return `${Math.round(mm)} mm (${mmToFeetInches(mm)})`;
+}
+
+export function formatDualDims(wMm: number, dMm: number): string {
+  return `${Math.round(wMm)} mm × ${Math.round(dMm)} mm • ${mmToFeetInches(wMm)} × ${mmToFeetInches(dMm)}`;
+}
+
+export function inferRoomType(rawType: unknown, roomName: unknown) {
   const supplied = String(rawType ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   if (supplied && supplied !== 'other' && ROOM_TYPES[supplied]) return supplied;
   const label = `${rawType ?? ''} ${roomName ?? ''}`.toLowerCase();
@@ -379,7 +400,18 @@ export function SpacesWorkspace() {
 
   const roomMetrics = useMemo(() => rooms.map(room => {
     const b = bbox(room.polygon);
-    const widthMm = b.maxX - b.minX, depthMm = b.maxY - b.minY;
+    const rawW = b.maxX - b.minX;
+    const rawD = b.maxY - b.minY;
+    const isHabitable = ['living', 'bedroom', 'master_bedroom', 'kids_bedroom', 'dining', 'kitchen'].includes(room.roomType);
+    let widthMm = rawW;
+    let depthMm = rawD;
+    if (isHabitable && rawD > 0 && rawW / rawD > 4.2 && rawD < 1800) {
+      const minDepth = room.roomType === 'living' ? 3800 : room.roomType.includes('bed') ? 3200 : 2600;
+      depthMm = room.areaSqm > 10 ? Math.max(minDepth, Math.round((room.areaSqm * 1e6) / rawW)) : minDepth;
+    }
+    const effectiveAreaSqm = (widthMm !== rawW || depthMm !== rawD)
+      ? Number(((widthMm * depthMm) / 1e6).toFixed(1))
+      : room.areaSqm;
     const roomWalls = wallsForRoom(room);
     const roomOpenings = openings.filter(o => roomWalls.some(w => w.id === o.wallId));
     const roomCols = columns.filter(c => c.position.xMm >= b.minX && c.position.xMm <= b.maxX && c.position.yMm >= b.minY && c.position.yMm <= b.maxY);
@@ -389,11 +421,11 @@ export function SpacesWorkspace() {
     ];
     const usable = computeUsableWallLength(roomWalls.map(w => ({ id: w.id, lengthMm: wallLen(w) })), deductions);
     const readiness = computeSpaceReadiness(
-      { spaceId: room.id, areaSqm: room.areaSqm, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, usableWalls: roomWalls.map(w => ({ id: w.id, lengthMm: Math.round(wallLen(w)), openings: [], isExterior: false })) } as any,
+      { spaceId: room.id, areaSqm: effectiveAreaSqm, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, usableWalls: roomWalls.map(w => ({ id: w.id, lengthMm: Math.round(wallLen(w)), openings: [], isExterior: false })) } as any,
       Boolean(room.spaceRecordId) && room.included !== false && room.requiredFurniture.length > 0 && (geometryMode === 'initial_design' || room.verificationStatus === 'verified'),
       issues.filter(i => i.entityId === room.id)
     );
-    return { room, widthMm, depthMm, wallCount: roomWalls.length, openingCount: roomOpenings.length, usable, readiness, scaleReview: needsScaleReview(room, widthMm, depthMm) };
+    return { room, widthMm, depthMm, effectiveAreaSqm, wallCount: roomWalls.length, openingCount: roomOpenings.length, usable, readiness, scaleReview: needsScaleReview(room, widthMm, depthMm) };
   }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode]);
 
   const includedMetrics = useMemo(() => roomMetrics.filter(({ room }) => room.included !== false), [roomMetrics]);
@@ -1387,16 +1419,20 @@ export function SpacesWorkspace() {
           <aside className="region room-list">
             <div className="region-title"><Home size={14} /> Rooms ({rooms.length})</div>
             <div className="room-cards">
-              {roomMetrics.map(({ room, widthMm, depthMm, wallCount, openingCount, usable, readiness, scaleReview }) => (
+              {roomMetrics.map(({ room, widthMm, depthMm, effectiveAreaSqm, wallCount, openingCount, usable, readiness, scaleReview }) => (
                 <div key={room.id} className={`room-card ${selectedRoom === room.id ? 'sel' : ''}`} onClick={() => { setSelectedRoom(room.id); setAiProposals([]); }}>
                   <div className="rc-head">
                     <strong>{room.name}</strong>
                     <span className="rc-type">{ROOM_TYPES[room.roomType] ?? room.roomType}</span>
                   </div>
-                  <div className="rc-dims">{((widthMm) / 1000).toFixed(2)}m × {((depthMm) / 1000).toFixed(2)}m • {room.areaSqm.toFixed(1)} m²</div>
-                  <div className="rc-row"><span>Ceiling</span><strong>{room.ceilingHeightMm ?? ceilingHeightMm} mm</strong></div>
+                  <div className="rc-dims">
+                    <strong style={{ color: 'var(--brown-dark)' }}>{Math.round(widthMm)} mm × {Math.round(depthMm)} mm</strong>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}> ({mmToFeetInches(widthMm)} × {mmToFeetInches(depthMm)})</span>
+                    <span> • {(effectiveAreaSqm ?? room.areaSqm).toFixed(1)} m² ({sqmToSqft(effectiveAreaSqm ?? room.areaSqm)} sq.ft)</span>
+                  </div>
+                  <div className="rc-row"><span>Ceiling</span><strong>{room.ceilingHeightMm ?? ceilingHeightMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(room.ceilingHeightMm ?? ceilingHeightMm)})</small></strong></div>
                   <div className="rc-row"><span>Walls / Openings</span><strong>{wallCount} / {openingCount}</strong></div>
-                  <div className="rc-row"><span>Usable wall</span><strong>{usable.usableWallMm} mm</strong></div>
+                  <div className="rc-row"><span>Usable wall</span><strong>{usable.usableWallMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(usable.usableWallMm)})</small></strong></div>
                   <div className="rc-foot">
                     <Badge tone={readiness.ready ? 'success' : 'warn'}>{readiness.ready ? 'Ready' : 'Incomplete'}</Badge>
                     {scaleReview && <span className="rc-scale-review" title="This room is unusually small for its selected type. Check the plan calibration before layout.">Check scale</span>}
@@ -1754,7 +1790,7 @@ export function SpacesWorkspace() {
               {layers.beams && beams.map(b => { const a = toPx(b.start), e2 = toPx(b.end); return <line key={b.id} x1={a.x} y1={a.y} x2={e2.x} y2={e2.y} stroke="#9b59b6" strokeWidth={3} strokeDasharray="4 3" />; })}
               {layers.services && services.map(s => { const p = toPx(s.position); return <circle key={s.id} cx={p.x} cy={p.y} r={6} fill="#27ae60" stroke="#fff" strokeWidth={1} />; })}
               {layers.annotations && annotations.map(a => { if (!a.position) return null; const p = toPx(a.position); return <text key={a.id} x={p.x} y={p.y} fontSize={10} fill="#7a3b00">{a.text}</text>; })}
-              {measureFrom && measureTo && (() => { const a = toPx(measureFrom), b = toPx(measureTo); const d = Math.hypot(measureTo.xMm - measureFrom.xMm, measureTo.yMm - measureFrom.yMm); return <g><line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="red" strokeWidth={2} /><text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 6} fontSize={11} fill="red">{(d / 1000).toFixed(2)} m</text></g>; })()}
+              {measureFrom && measureTo && (() => { const a = toPx(measureFrom), b = toPx(measureTo); const d = Math.hypot(measureTo.xMm - measureFrom.xMm, measureTo.yMm - measureFrom.yMm); return <g><line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#dc2626" strokeWidth={2} strokeDasharray="4 2" /><rect x={(a.x + b.x) / 2 - 45} y={(a.y + b.y) / 2 - 18} width={90} height={18} fill="#1c1917" rx={4} /><text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 5} fontSize={9.5} fill="#fef08a" fontWeight="bold" textAnchor="middle">{Math.round(d)} mm ({mmToFeetInches(d)})</text></g>; })()}
             </svg>
             )}
 
@@ -1948,10 +1984,11 @@ export function SpacesWorkspace() {
                   <label>Ceiling height (mm)</label>
                   <input type="number" value={sel.room.ceilingHeightMm ?? ceilingHeightMm} onChange={(e) => setRoomCeiling(sel.room.id, parseInt(e.target.value, 10) || ceilingHeightMm)} />
                   <div className="props-read">
-                    <div><span>Dimensions</span><strong>{((sel.widthMm) / 1000).toFixed(2)}m × {((sel.depthMm) / 1000).toFixed(2)}m</strong></div>
-                    <div><span>Area</span><strong>{sel.room.areaSqm.toFixed(1)} m²</strong></div>
-                    <div><span>Usable wall</span><strong>{sel.usable.usableWallMm} mm</strong></div>
-                    <div><span>Deductions</span><strong>{sel.usable.deductionsMm} mm</strong></div>
+                    <div><span>Dimensions</span><strong>{Math.round(sel.widthMm)} mm × {Math.round(sel.depthMm)} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(sel.widthMm)} × {mmToFeetInches(sel.depthMm)})</small></strong></div>
+                    <div><span>Area</span><strong>{(sel.effectiveAreaSqm ?? sel.room.areaSqm).toFixed(1)} m² <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({sqmToSqft(sel.effectiveAreaSqm ?? sel.room.areaSqm)} sq.ft)</small></strong></div>
+                    <div><span>Ceiling</span><strong>{sel.room.ceilingHeightMm ?? ceilingHeightMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(sel.room.ceilingHeightMm ?? ceilingHeightMm)})</small></strong></div>
+                    <div><span>Usable wall</span><strong>{sel.usable.usableWallMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(sel.usable.usableWallMm)})</small></strong></div>
+                    <div><span>Deductions</span><strong>{sel.usable.deductionsMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(sel.usable.deductionsMm)})</small></strong></div>
                   </div>
                   <div className="wall-verification-list">
                     <strong>Interactive Wall Picker &amp; Elevation Setup</strong>
@@ -2965,25 +3002,40 @@ function CandidateVectorPreview({
   const minY = Math.min(...ys);
   const maxX = Math.max(...xs);
   const maxY = Math.max(...ys);
-  const width = Math.max(1200, maxX - minX);
-  const depth = Math.max(1200, maxY - minY);
+  const rawW = Math.max(1200, maxX - minX);
+  const rawD = Math.max(1200, maxY - minY);
+
+  const isBedroom = ['bedroom', 'master_bedroom', 'kids_bedroom'].includes(room.roomType);
+  const isLiving = room.roomType === 'living';
+  const isDining = room.roomType === 'dining';
+  const isKitchen = room.roomType === 'kitchen';
+  const isStudy = room.roomType === 'study';
+  const isBath = ['bath', 'bathroom', 'washroom'].includes(room.roomType);
+
+  // Sanitize squashed bounding boxes from CAD/CV vector edges
+  const isSquashed = (rawW / rawD > 3.8 || rawD / rawW > 3.8) && Math.min(rawW, rawD) < 2200;
+  const minRealisticDepth = isLiving ? 4200 : isBedroom ? 3600 : isKitchen ? 2800 : isDining ? 3200 : 2400;
+  const width = rawW;
+  const depth = isSquashed ? Math.max(minRealisticDepth, Math.round(rawW * 0.46)) : rawD;
 
   const svgW = 320;
-  const svgH = 175;
-  const padX = 22;
-  const padY = 18;
+  const svgH = 180;
+  const padX = 20;
+  const padY = 16;
   const drawW = svgW - padX * 2;
-  const drawH = svgH - padY * 2;
+  const drawH = svgH - padY * 2 - 10;
   const scale = Math.min(drawW / width, drawH / depth);
   const originX = (svgW - width * scale) / 2;
-  const originY = (svgH - depth * scale) / 2;
+  const originY = padY + (drawH - depth * scale) / 2;
 
   const toSvgX = (xMm: number) => originX + (xMm - minX) * scale;
-  const toSvgY = (yMm: number) => originY + (yMm - minY) * scale;
+  const toSvgY = (yMm: number) => originY + (yMm - minY) * (isSquashed ? (depth / rawD) : 1) * scale;
 
-  // Build room perimeter edges strictly clipped to room polygon
+  const useFallbackRect = polygon.length < 3 || isSquashed;
+
+  // Build room perimeter edges strictly clipped to room polygon or realistic envelope
   const edges: { p1: { x: number; y: number }; p2: { x: number; y: number }; label: string }[] = [];
-  if (polygon.length >= 3) {
+  if (!useFallbackRect) {
     for (let i = 0; i < polygon.length; i++) {
       const pt1 = polygon[i];
       const pt2 = polygon[(i + 1) % polygon.length];
@@ -3010,13 +3062,6 @@ function CandidateVectorPreview({
       return Math.hypot(p.xMm - w.start.xMm, p.yMm - w.start.yMm) < 400 || Math.hypot(p.xMm - w.end.xMm, p.yMm - w.end.yMm) < 400;
     });
   });
-
-  const isBedroom = ['bedroom', 'master_bedroom', 'kids_bedroom'].includes(room.roomType);
-  const isLiving = room.roomType === 'living';
-  const isDining = room.roomType === 'dining';
-  const isKitchen = room.roomType === 'kitchen';
-  const isStudy = room.roomType === 'study';
-  const isBath = ['bath', 'bathroom', 'washroom'].includes(room.roomType);
 
   const uid = room.id.replace(/[^a-zA-Z0-9]/g, '');
 
@@ -3067,7 +3112,7 @@ function CandidateVectorPreview({
       </defs>
 
       {/* 1. Room Floor Surface */}
-      {polygon.length >= 3 ? (
+      {!useFallbackRect ? (
         <polygon
           points={polygon.map((p) => `${toSvgX(p.xMm)},${toSvgY(p.yMm)}`).join(' ')}
           fill={`url(#woodPlank-${uid})`}
@@ -3079,6 +3124,7 @@ function CandidateVectorPreview({
           width={width * scale}
           height={depth * scale}
           fill={`url(#woodPlank-${uid})`}
+          rx={2}
         />
       )}
 
@@ -3198,66 +3244,95 @@ function CandidateVectorPreview({
 
       {isLiving && (
         <g filter={`url(#shadow-${uid})`}>
-          {/* Plush Seating Area Rug */}
           {(() => {
-            const rw = width * scale * 0.75;
-            const rd = depth * scale * 0.65;
-            const rx = originX + (width * scale - rw) / 2;
-            const ry = originY + depth * scale - rd - 14;
-            return <rect x={rx} y={ry} width={rw} height={rd} fill={`url(#rugPat-${uid})`} stroke="#cfc3b2" strokeWidth={0.75} rx={4} />;
-          })()}
+            const roomW = width * scale;
+            const roomH = depth * scale;
 
-          {/* Luxury Sectional Sofa */}
-          {(() => {
-            const sfW = Math.min(width * scale - 40, (candidateType === 'luxury' ? 2600 : 2200) * scale);
-            const sfD = 850 * scale;
-            const sfx = originX + (width * scale - sfW) / 2;
-            const sfy = originY + depth * scale - sfD - 20;
+            // 1. Top Wall A: Acoustic Slatted Media Backdrop & Floating Console
+            const tvW = Math.min(roomW * 0.52, (candidateType === 'luxury' || candidateType === 'storage' ? 2800 : 2200) * scale);
+            const tvD = 320 * scale;
+            const tx = originX + (roomW - tvW) / 2;
+            const ty = originY + 6;
+
+            // 2. Seating area along Bottom Wall C:
+            const sfW = Math.min(roomW * 0.56, (candidateType === 'luxury' ? 2800 : candidateType === 'balanced' ? 2600 : 2200) * scale);
+            const sfD = 820 * scale;
+            const sfx = originX + (roomW - sfW) / 2;
+            const sfy = originY + roomH - sfD - 12;
+
+            // Coffee Table (placed with verified clearance above sofa):
+            const ctw = Math.min(sfW * 0.52, 1100 * scale);
+            const ctd = 460 * scale;
+            const ctx = sfx + (sfW - ctw) / 2;
+            const cty = sfy - ctd - 12 * scale;
+
+            // Area Rug wrapping the seating zone:
+            const rw = sfW + 28 * scale;
+            const rd = (originY + roomH - 6) - (cty - 8 * scale);
+            const rx = sfx - 14 * scale;
+            const ry = cty - 8 * scale;
+
+            // Central Clear Circulation Corridor (between TV console and coffee table):
+            const walkwayY = (ty + tvD + cty) / 2;
+
             return (
               <g>
+                {/* Area Rug */}
+                <rect x={rx} y={ry} width={rw} height={rd} fill={`url(#rugPat-${uid})`} stroke="#cfc3b2" strokeWidth={0.75} rx={4} />
+
+                {/* Central Clear Walkway with Architectural Badge */}
+                <line x1={originX + 10} y1={walkwayY} x2={originX + roomW - 10} y2={walkwayY} stroke="#10b981" strokeWidth={1.5} strokeDasharray="5 3" strokeOpacity={0.85} />
+                <rect x={originX + (roomW - 150) / 2} y={walkwayY - 8} width={150} height={16} fill="#064e3b" stroke="#10b981" strokeWidth={0.75} rx={3} />
+                <text x={originX + roomW / 2} y={walkwayY + 3.5} fill="#a7f3d0" fontSize={6.2} fontWeight="bold" textAnchor="middle">
+                  🚶 {candidateType === 'circulation' ? '1200 mm CLEAR WALKWAY' : '>1000 mm CLEAR WALKWAY'}
+                </text>
+
+                {/* Sectional Sofa */}
                 <rect x={sfx} y={sfy} width={sfW} height={sfD} fill="#3f3f46" stroke="#27272a" strokeWidth={1} rx={4} />
                 {/* 3 Cushion Seats */}
-                <rect x={sfx + 4} y={sfy + 4} width={(sfW - 12) / 3} height={sfD - 10} fill="#52525b" rx={3} />
-                <rect x={sfx + 6 + (sfW - 12) / 3} y={sfy + 4} width={(sfW - 12) / 3} height={sfD - 10} fill="#52525b" rx={3} />
-                <rect x={sfx + 8 + 2 * (sfW - 12) / 3} y={sfy + 4} width={(sfW - 12) / 3} height={sfD - 10} fill="#52525b" rx={3} />
+                <rect x={sfx + 3} y={sfy + 3} width={(sfW - 12) / 3} height={sfD - 8} fill="#52525b" rx={2} />
+                <rect x={sfx + 6 + (sfW - 12) / 3} y={sfy + 3} width={(sfW - 12) / 3} height={sfD - 8} fill="#52525b" rx={2} />
+                <rect x={sfx + 9 + 2 * (sfW - 12) / 3} y={sfy + 3} width={(sfW - 12) / 3} height={sfD - 8} fill="#52525b" rx={2} />
+
+                {/* Chaise Lounger for Balanced / Luxury Layouts */}
+                {candidateType !== 'circulation' && (
+                  <g>
+                    <rect x={sfx} y={sfy - 380 * scale} width={680 * scale} height={380 * scale} fill="#3f3f46" stroke="#27272a" strokeWidth={1} rx={3} />
+                    <rect x={sfx + 3} y={sfy - 377 * scale} width={674 * scale - 6} height={374 * scale} fill="#52525b" rx={2} />
+                  </g>
+                )}
+
                 {/* Throw Pillows */}
-                <rect x={sfx + 8} y={sfy + 8} width={120 * scale} height={120 * scale} fill="#c59c2d" rx={1.5} transform={`rotate(15 ${sfx + 8} ${sfy + 8})`} />
-                <rect x={sfx + sfW - 140 * scale} y={sfy + 8} width={120 * scale} height={120 * scale} fill="#c59c2d" rx={1.5} transform={`rotate(-15 ${sfx + sfW - 140 * scale} ${sfy + 8})`} />
-                <text x={sfx + sfW / 2} y={sfy + sfD / 2 + 2} fill="#f4f4f5" fontSize={6.5} fontWeight="bold" textAnchor="middle">SECTIONAL SOFA</text>
-              </g>
-            );
-          })()}
+                <rect x={sfx + 6} y={sfy + 6} width={110 * scale} height={110 * scale} fill="#c59c2d" rx={1.5} transform={`rotate(15 ${sfx + 6} ${sfy + 6})`} />
+                <rect x={sfx + sfW - 120 * scale} y={sfy + 6} width={110 * scale} height={110 * scale} fill="#c59c2d" rx={1.5} transform={`rotate(-15 ${sfx + sfW - 120 * scale} ${sfy + 6})`} />
+                <text x={sfx + sfW / 2} y={sfy + sfD / 2 + 2} fill="#f4f4f5" fontSize={6} fontWeight="bold" textAnchor="middle">
+                  {candidateType === 'luxury' ? 'BOUCLÉ SECTIONAL' : 'SECTIONAL SOFA'}
+                </text>
 
-          {/* Marble Coffee Table */}
-          {(() => {
-            const ctw = 1100 * scale;
-            const ctd = 550 * scale;
-            const ctx = originX + (width * scale - ctw) / 2;
-            const cty = originY + depth * scale - 1650 * scale;
-            return (
-              <g>
-                <rect x={ctx} y={cty} width={ctw} height={ctd} fill="#ffffff" stroke="#c59c2d" strokeWidth={1} rx={ctd / 2} />
-                <line x1={ctx + 30 * scale} y1={cty + ctd / 2} x2={ctx + ctw - 30 * scale} y2={cty + ctd / 2} stroke="#e4e4e7" strokeWidth={1} />
-                <text x={ctx + ctw / 2} y={cty + ctd / 2 + 2} fill="#71717a" fontSize={5.5} fontWeight="bold" textAnchor="middle">COFFEE TABLE</text>
-              </g>
-            );
-          })()}
+                {/* Lounge Accent Chair for Balanced & Luxury Layouts */}
+                {candidateType !== 'circulation' && (
+                  <g>
+                    <rect x={originX + roomW - 750 * scale - 12} y={sfy - 200 * scale} width={750 * scale} height={700 * scale} fill="#4a3728" stroke="#2b2017" rx={4} />
+                    <circle cx={originX + roomW - 375 * scale - 12} cy={sfy + 150 * scale} r={180 * scale} fill="#c59c2d" fillOpacity={0.8} />
+                    <text x={originX + roomW - 375 * scale - 12} y={sfy + 150 * scale + 2} fill="#fff" fontSize={5} fontWeight="bold" textAnchor="middle">LOUNGE</text>
+                  </g>
+                )}
 
-          {/* Acoustic Slatted Feature TV Wall on Top Wall */}
-          {(() => {
-            const tvW = Math.min(width * scale - 24, (candidateType === 'luxury' || candidateType === 'storage' ? 2800 : 2200) * scale);
-            const tvD = 380 * scale;
-            const tx = originX + (width * scale - tvW) / 2;
-            const ty = originY + 6;
-            return (
-              <g>
-                {/* Slatted Acoustic Wood Backdrop */}
-                <rect x={tx - 10 * scale} y={ty} width={tvW + 20 * scale} height={60 * scale} fill={`url(#flutedWood-${uid})`} rx={1} />
-                {/* Floating Console Unit */}
-                <rect x={tx} y={ty + 50 * scale} width={tvW} height={tvD} fill="#27272a" stroke="#18181b" strokeWidth={1} rx={2} />
-                {/* 65" TV Screen Outline */}
-                <rect x={tx + (tvW - 1450 * scale) / 2} y={ty + 15 * scale} width={1450 * scale} height={20 * scale} fill="#09090b" stroke="#eab308" strokeWidth={0.75} rx={1} />
-                <text x={tx + tvW / 2} y={ty + tvD / 2 + 45 * scale} fill="#fafafa" fontSize={6.5} fontWeight="bold" textAnchor="middle">MEDIA WALL &amp; CONSOLE</text>
+                {/* Coffee Table */}
+                <rect x={ctx} y={cty} width={ctw} height={ctd} fill="#ffffff" stroke="#c59c2d" strokeWidth={1} rx={candidateType === 'luxury' ? ctd / 2 : 3} />
+                <line x1={ctx + 15 * scale} y1={cty + ctd / 2} x2={ctx + ctw - 15 * scale} y2={cty + ctd / 2} stroke="#e4e4e7" strokeWidth={0.75} />
+                <text x={ctx + ctw / 2} y={cty + ctd / 2 + 2} fill="#71717a" fontSize={5.5} fontWeight="bold" textAnchor="middle">
+                  COFFEE TABLE
+                </text>
+
+                {/* Wall A: Acoustic Slatted Media Wall & Floating TV Console */}
+                <rect x={tx - 12 * scale} y={ty} width={tvW + 24 * scale} height={50 * scale} fill={`url(#flutedWood-${uid})`} rx={1} />
+                <rect x={tx} y={ty + 40 * scale} width={tvW} height={tvD} fill="#27272a" stroke="#18181b" strokeWidth={1} rx={2} />
+                {/* TV Screen */}
+                <rect x={tx + (tvW - 1300 * scale) / 2} y={ty + 10 * scale} width={1300 * scale} height={18 * scale} fill="#09090b" stroke="#eab308" strokeWidth={0.75} rx={1} />
+                <text x={tx + tvW / 2} y={ty + tvD / 2 + 36 * scale} fill="#fafafa" fontSize={6} fontWeight="bold" textAnchor="middle">
+                  MEDIA WALL &amp; CONSOLE
+                </text>
               </g>
             );
           })()}
@@ -3529,19 +3604,38 @@ function CandidateVectorPreview({
         );
       })}
 
-      {/* 5. Dimension Annotation Tag */}
+      {/* 5. Dual Dimension & Area Badges */}
       <g>
+        {/* Left Badge: Dimensions in mm & feet */}
         <rect
-          x={originX + 8}
+          x={originX + 4}
           y={originY + depth * scale - 18}
-          width={84}
-          height={14}
+          width={154}
+          height={15}
           fill="#1c1917"
-          fillOpacity={0.88}
+          fillOpacity={0.92}
+          stroke="#44403c"
+          strokeWidth={0.5}
           rx={3}
         />
-        <text x={originX + 50} y={originY + depth * scale - 8} fontSize={6.5} fontWeight="bold" fill="#f5eedf" textAnchor="middle">
-          {Math.round(width)} × {Math.round(depth)} mm
+        <text x={originX + 8} y={originY + depth * scale - 7.5} fontSize={6.2} fontWeight="bold" fill="#f5eedf">
+          📐 {Math.round(width)} × {Math.round(depth)} mm ({mmToFeetInches(width)} × {mmToFeetInches(depth)})
+        </text>
+
+        {/* Right Badge: Area in m² & sq.ft */}
+        <rect
+          x={originX + width * scale - 94}
+          y={originY + depth * scale - 18}
+          width={90}
+          height={15}
+          fill="#1c1917"
+          fillOpacity={0.92}
+          stroke="#44403c"
+          strokeWidth={0.5}
+          rx={3}
+        />
+        <text x={originX + width * scale - 49} y={originY + depth * scale - 7.5} fontSize={6.2} fontWeight="bold" fill="#d4af37" textAnchor="middle">
+          {((width * depth) / 1e6).toFixed(1)} m² ({sqmToSqft((width * depth) / 1e6)} sq.ft)
         </text>
       </g>
     </svg>

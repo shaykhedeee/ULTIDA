@@ -1,6 +1,9 @@
 import type { SceneV1 } from '@ultida/scene-core';
 import type { Writable } from 'node:stream';
 import PDFDocument from 'pdfkit';
+export * from './elevation-sheet.js';
+export * from './pdf-writer.js';
+export * from './production-dossier-pdf.js';
 
 export const ULTIDA_DRAWING_STANDARD_V1 = {
   schema: 'drawing.standard.v1' as const,
