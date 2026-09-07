@@ -21,7 +21,6 @@ test('parseHexColor parses 3-digit and 6-digit hex color strings correctly', () 
 
 test('PdfWriter generates a valid multi-page PDF 1.4 binary buffer', () => {
   const writer = new PdfWriter({ size: 'A4', layout: 'landscape' });
-  
   // Sheet 1
   writer.rect(20, 20, 800, 550).lineWidth(1.5).strokeColor('#1c1917').stroke();
   writer.font('Helvetica-Bold').fontSize(16).fillColor('#c59c2d').text('ULTIDA ARCHITECTURAL STUDIO', 40, 40);
@@ -47,7 +46,6 @@ test('PdfWriter generates a valid multi-page PDF 1.4 binary buffer', () => {
 
   const buffer = writer.toBuffer();
   assert.ok(buffer.length > 500, 'Buffer should be non-empty and reasonably sized');
-  
   const header = buffer.subarray(0, 8).toString('utf-8');
   assert.ok(header.startsWith('%PDF-1.4'), 'Header must be %PDF-1.4');
 
