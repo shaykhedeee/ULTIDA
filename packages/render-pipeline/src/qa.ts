@@ -15,6 +15,7 @@ export interface SceneExpectation {
   windowCount: number;
   moduleCount: number;
   cabinetDivisions: number; // expected shutter/drawer divisions across cabinetry
+  skirtingCount: number;
   camera: { positionMm: [number, number, number]; targetMm: [number, number, number]; fovDeg: number };
   expectedObjectIds: string[]; // modules + fixtures that MUST appear
   materialRegionIds: string[]; // material ids that must have a region
@@ -31,6 +32,7 @@ export interface MeasuredResult {
   measuredObjectIds: string[]; // objects detected in the output
   measuredMaterialRegionIds: string[];
   cabinetDivisionCount?: number;
+  measuredSkirtingCount?: number;
   inventedObjectLabels?: string[]; // labels the model added that were not in the scene
 }
 
@@ -71,6 +73,9 @@ export function runRenderQA(
   // 5. Cabinet divisions
   if (measured.cabinetDivisionCount != null && measured.cabinetDivisionCount !== expectation.cabinetDivisions) {
     issues.push({ kind: 'cabinet_divisions', message: `Cabinet divisions mismatch: expected ${expectation.cabinetDivisions}, found ${measured.cabinetDivisionCount}.`, severity: sev(false) });
+  }
+  if (measured.measuredSkirtingCount != null && measured.measuredSkirtingCount !== expectation.skirtingCount) {
+    issues.push({ kind: 'skirting', message: `Skirting count mismatch: expected ${expectation.skirtingCount}, found ${measured.measuredSkirtingCount}.`, severity: sev(true) });
   }
   // 6. Camera
   if (measured.cameraSimilarityMm > (geometryLock === 'strict' ? 50 : 300)) {

@@ -6,7 +6,7 @@ import { evaluateRenderImageQA } from '../src/visual-jobs';
 
 const SCENE: any = {
   schema: 'scene.v1', units: 'mm', coordinateSystem: 'right-handed-z-up', projectId: 'project-1', floorPlanVersionId: 'plan-1',
-  floors: [{ id: 'floor-1', name: 'Ground', elevationMm: 0, heightMm: 2700 }],
+  floors: [{ id: 'floor-1', name: 'Ground', elevationMm: 0, heightMm: 2700, surfaces: [{ id: 'floor-finish-1', roomId: 'room-1', materialVersionId: 'tile-v1', regionPolygon: [{ xMm: 0, yMm: 0 }, { xMm: 4000, yMm: 0 }, { xMm: 4000, yMm: 3000 }, { xMm: 0, yMm: 3000 }], elevationMm: 0, buildUpThicknessMm: 20, substrate: 'screed', skirting: { heightMm: 100, profile: 'flush', doorwayExclusions: [] } }] }],
   spaces: [{ id: 'space-1', floorId: 'floor-1', name: 'Living', type: 'living' }],
   rooms: [{ id: 'room-1', spaceId: 'space-1', name: 'Living', type: 'living', boundary: [{ xMm: 0, yMm: 0 }, { xMm: 4000, yMm: 0 }, { xMm: 4000, yMm: 3000 }, { xMm: 0, yMm: 3000 }, { xMm: 0, yMm: 0 }], confidence: 1 }],
   walls: [{ id: 'wall-1', floorId: 'floor-1', start: { xMm: 0, yMm: 0 }, end: { xMm: 4000, yMm: 0 }, thicknessMm: 150, heightMm: 2700, baseElevationMm: 0, spaceIds: ['space-1'], confidence: 1 }],
@@ -24,6 +24,7 @@ test('live render QA blocks an image whose measured door count differs from the 
 
   const qa = await evaluateRenderImageQA(SCENE, artifacts, alteredWithoutDoorEvidence);
   assert.ok(qa.issues.some((issue) => issue.message === 'Door count mismatch: expected 1, found 0.'));
+  assert.ok(qa.issues.some((issue) => issue.message === `Skirting count mismatch: expected ${artifacts.skirtingMasks.length}, found 0.`));
   assert.ok(qa.issues.some((issue) => issue.severity === 'blocking'));
 });
 

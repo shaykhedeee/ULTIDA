@@ -45,6 +45,7 @@ export function buildSceneExpectation(scene: import('@ultida/scene-core').SceneV
     windowCount: scene.openings.filter((opening) => opening.kind === 'window').length,
     moduleCount: scene.modules.length,
     cabinetDivisions: (scene.moduleParts ?? []).filter((part) => part.semanticType === 'shutter' || part.semanticType === 'drawer').length,
+    skirtingCount: artifacts.skirtingMasks.length,
     camera: {
       positionMm: camera ? [camera.position.xMm, camera.position.yMm, camera.position.zMm] : [0, 0, 0],
       targetMm: camera ? [camera.target.xMm, camera.target.yMm, camera.target.zMm] : [0, 0, 0],
@@ -53,6 +54,44 @@ export function buildSceneExpectation(scene: import('@ultida/scene-core').SceneV
     expectedObjectIds: artifacts.objectMasks.map((mask) => mask.id),
     materialRegionIds: artifacts.materialRegions.map((region) => region.materialId),
   };
+}
+
+export type RenderGeometryContract = {
+  valid: boolean;
+  issues: string[];
+  prompt: string;
+  negativePrompt: string;
+};
+
+/**
+ * Converts approved construction geometry into explicit image-provider
+ * constraints. This rejects incomplete opening data before provider credits are
+ * spent; AI never supplies a missing sill, door height, or skirting detail.
+ */
+export function compileRenderGeometryContract(scene: import('@ultida/scene-core').SceneV1, roomId: string): RenderGeometryContract {
+  const issues: string[] = [];
+  const room = scene.rooms.find((candidate) => candidate.id === roomId);
+  if (!room) return { valid: false, issues: [`Render room ${roomId} is missing from the approved scene.`], prompt: '', negativePrompt: '' };
+  if (!scene.cameras.length) issues.push('A saved scene camera is required before generating a geometry-locked render.');
+  const walls = scene.walls.filter((wall) => wall.spaceIds.includes(room.spaceId));
+  if (!walls.length) issues.push(`Room ${room.id} has no measured wall geometry.`);
+  const openings = scene.openings.filter((opening) => walls.some((wall) => wall.id === opening.wallId));
+  for (const opening of openings) {
+    const wall = walls.find((candidate) => candidate.id === opening.wallId);
+    if (!wall) { issues.push(`Opening ${opening.id} does not reference a measured room wall.`); continue; }
+    const wallLengthMm = Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm);
+    if (opening.offsetMm < 0 || opening.widthMm <= 0 || opening.offsetMm + opening.widthMm > wallLengthMm + 0.5) issues.push(`Opening ${opening.id} exceeds its measured wall run.`);
+    if (opening.sillHeightMm < 0 || opening.heightMm <= 0 || opening.sillHeightMm + opening.heightMm > wall.heightMm + 0.5) issues.push(`Opening ${opening.id} exceeds measured wall height; verify its sill and head dimensions.`);
+    if (opening.kind === 'door' && Math.abs(opening.sillHeightMm) > 0.5) issues.push(`Door ${opening.id} must use a 0mm sill or be reclassified before rendering.`);
+  }
+  const floorSurfaces = scene.floors.flatMap((floor) => floor.surfaces ?? []).filter((surface) => surface.roomId === room.id);
+  const openingLines = openings.length
+    ? openings.map((opening) => `${opening.kind} ${opening.id}: wall ${opening.wallId}, offset ${opening.offsetMm}mm, clear width ${opening.widthMm}mm, height ${opening.heightMm}mm, sill ${opening.sillHeightMm}mm`).join('; ')
+    : 'no openings recorded';
+  const skirtingLines = floorSurfaces.filter((surface) => surface.skirting).map((surface) => `floor surface ${surface.id}: ${surface.skirting!.heightMm}mm ${surface.skirting!.profile} skirting, ${surface.skirting!.doorwayExclusions.length} doorway exclusion(s)`).join('; ') || 'no skirting specified';
+  const prompt = `\nGEOMETRY LOCK — construction facts from approved scene.v1. Room ${room.name}: openings [${openingLines}]. Flooring and skirting [${skirtingLines}]. Preserve every opening offset, clear width, head height, sill height, wall thickness, floor build-up, skirting profile, saved camera, module envelope and cabinet division exactly.`;
+  const negativePrompt = 'Do not move, resize, remove, cover, add, or reinterpret any door or window. Do not change a window sill height, opening head height, skirting height/profile, floor level, wall thickness, camera, module position, shutter count, drawer count, or cabinet division.';
+  return { valid: issues.length === 0, issues, prompt, negativePrompt };
 }
 
 type Raster = { data: Buffer; width: number; height: number; channels: number };
@@ -161,6 +200,13 @@ export async function measureRenderImage(scene: import('@ultida/scene-core').Sce
     id: region.materialId,
     visible: fractionInside(maskPixels(await rasterize(region.url, reference.width, reference.height)), observedEdges) >= 0.003,
   })));
+  const skirtingEvidence = await Promise.all(artifacts.skirtingMasks.map(async (skirting) => ({
+    id: skirting.id,
+    // A skirting band is deliberately thin at room scale.  This threshold still
+    // requires observed edges in the projected, measured band without treating
+    // the scene specification itself as evidence.
+    visible: fractionInside(maskPixels(await rasterize(skirting.url, reference.width, reference.height)), observedEdges) >= 0.002,
+  })));
   const measuredDoorCount = openingEvidence.filter(({ opening, visible }) => opening.kind === 'door' && visible).length;
   const measuredWindowCount = openingEvidence.filter(({ opening, visible }) => opening.kind === 'window' && visible).length;
   const expectedOpeningCount = scene.openings.length;
@@ -169,6 +215,7 @@ export async function measureRenderImage(scene: import('@ultida/scene-core').Sce
     openingCountMatches: measuredDoorCount + measuredWindowCount === expectedOpeningCount,
     measuredDoorCount,
     measuredWindowCount,
+    measuredSkirtingCount: skirtingEvidence.filter(({ visible }) => visible).length,
     focalModuleVisible: scene.modules.length === 0 || objectEvidence.some(({ visible }) => visible),
     // A calibrated camera estimate needs a pose solver.  Until one is enabled,
     // edge alignment produces a conservative pixel-derived deviation instead
@@ -271,6 +318,7 @@ async function persistTechnicalArtifacts(
     { kind: 'render_edge_map', label: 'edge', value: artifacts.edgeMap },
     ...artifacts.objectMasks.map((value) => ({ kind: 'render_object_mask', label: `object-${value.id}`, value })),
     ...artifacts.openingMasks.map((value) => ({ kind: 'render_opening_mask', label: `opening-${value.id}`, value })),
+    ...artifacts.skirtingMasks.map((value) => ({ kind: 'render_skirting_mask', label: `skirting-${value.id}`, value })),
     ...artifacts.materialRegions.map((value) => ({ kind: 'render_material_mask', label: `material-${value.materialId}`, value })),
   ];
   const stored = await Promise.all(entries.map(async (entry) => {
@@ -302,6 +350,7 @@ async function persistTechnicalArtifacts(
     edge: byLabel.get('edge')!,
     objectMasks: stored.filter((entry) => entry.label.startsWith('object-')),
     openingMasks: stored.filter((entry) => entry.label.startsWith('opening-')),
+    skirtingMasks: stored.filter((entry) => entry.label.startsWith('skirting-')),
     materialMasks: stored.filter((entry) => entry.label.startsWith('material-')),
   };
 }
@@ -319,7 +368,7 @@ async function storeImage(client: SupabaseClient, context: { organizationId: str
     sourceSceneVersionId: context.sceneVersionId,
     inputFingerprint: context.inputFingerprint,
     schemaVersion: 'render-artifact.v1',
-    lockedElements: ['room shell', 'wall positions', 'door positions', 'window positions', 'ceiling height', 'camera pose', 'module bounds', 'shutter count'],
+    lockedElements: ['room shell', 'wall positions', 'door positions', 'window positions', 'opening sill and head heights', 'ceiling height', 'floor level and build-up', 'skirting geometry', 'camera pose', 'module bounds', 'shutter count'],
     materialRevision: context.revision ?? null,
     prompt,
     technicalArtifacts: context.technicalArtifacts,
@@ -406,17 +455,21 @@ export async function createVisualJob(environment: Record<string, string | undef
 
   try {
     const context = preflight ?? await jobContext(client, request);
+    const geometryContract = compileRenderGeometryContract(context.scene, request.roomId);
+    if (!geometryContract.valid) {
+      return { status: 'failed' as const, jobId, code: 'RENDER_GEOMETRY_INCOMPLETE', message: geometryContract.issues.join(' '), retryable: false };
+    }
     const brief = compileRenderBrief({ scene: context.scene, sceneVersionId: request.sceneVersionId, roomId: request.roomId, style: request.style, quality: request.quality, camera: request.camera });
     const referenceGuidance = await renderReferenceGuidance(client, context.project.organization_id, context.scene, brief.roomId, brief.style);
     const materialSwapInstruction = request.operation === 'material-swap'
       ? `\nMATERIAL REVISION LOCK: edit only the pixels inside the supplied mask for module ${request.targetModuleId} (${request.targetSemanticSlot ?? 'selected finish'}). Apply material ${request.targetMaterialId ?? 'selected by the studio'}. Do not alter any pixels outside that mask. Preserve the room shell, openings, ceiling, camera, module footprint, shutter count, hardware, lighting, and every unaffected finish.`
       : '';
-    const structuredPrompt = `${brief.positivePrompt}${referenceGuidance.prompt}${materialSwapInstruction}`;
+    const structuredPrompt = `${brief.positivePrompt}${geometryContract.prompt}${referenceGuidance.prompt}${materialSwapInstruction}`;
     const negativePrompt = request.operation === 'material-swap'
-      ? `${brief.negativePrompt}, changed architecture, moved door, moved window, changed room proportions, changed ceiling, changed camera, changed module layout, changed shutters, changed hardware, changed lighting, change outside selected mask`
-      : brief.negativePrompt;
+      ? `${brief.negativePrompt}, ${geometryContract.negativePrompt}, changed architecture, moved door, moved window, changed room proportions, changed ceiling, changed camera, changed module layout, changed shutters, changed hardware, changed lighting, change outside selected mask`
+      : `${brief.negativePrompt}, ${geometryContract.negativePrompt}`;
     const normalizedRequest: VisualProposalRequest = { ...request, roomId: brief.roomId, structuredPrompt, negativePrompt, promptVersion: brief.version };
-    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, style: brief.style, quality: brief.quality, camera: request.camera, references: referenceGuidance.ids, structuredPrompt, negativePrompt, promptVersion: brief.version });
+    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, style: brief.style, quality: brief.quality, camera: request.camera, references: referenceGuidance.ids, geometryContract, structuredPrompt, negativePrompt, promptVersion: brief.version });
     const idempotencyKey = request.idempotencyKey ?? `render:${inputFingerprint}`;
     
     const job = await client.from('jobs').insert({ organization_id: context.project.organization_id, project_id: request.projectId, kind: 'visual_proposal', status: 'queued', idempotency_key: idempotencyKey, input: { ...normalizedRequest, renderBrief: brief }, output: { reviewStatus: 'pending' }, attempts: 1, created_by: actorId ?? null }).select('id').single();
