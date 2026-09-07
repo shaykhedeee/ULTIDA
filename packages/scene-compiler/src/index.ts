@@ -1,5 +1,5 @@
 import { validateCanonicalPlan, type CanonicalPlanModel } from '@ultida/plan-core';
-import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
+import { SceneV1Schema, reconcileModuleFit, type SceneV1 } from '@ultida/scene-core';
 
 export type CompiledModulePart = {
   id: string;
@@ -67,6 +67,7 @@ export function checkRenderReadiness(scene: SceneV1) {
   checkDuplicateIds(scene.openings, 'opening');
   checkDuplicateIds(scene.modules, 'module');
   checkDuplicateIds(scene.moduleParts, 'module part');
+  checkDuplicateIds(scene.compositions ?? [], 'composition');
   for (const wall of scene.walls) {
     if (wall.heightMm <= 0 || wall.thicknessMm <= 0) issues.push({ code: 'WALL_INVALID', severity: 'critical', message: `Wall ${wall.id} is missing valid dimensions.` });
   }
@@ -92,8 +93,37 @@ export function checkRenderReadiness(scene: SceneV1) {
     const total = composition.bays.reduce((sum, bay) => sum + bay.widthMm, 0) + composition.fillers.reduce((sum, filler) => sum + filler.widthMm, 0);
     if (!wall) issues.push({ code: 'COMPOSITION_WALL_MISSING', severity: 'critical', message: `Composition ${composition.id} references missing wall ${composition.wallId}.` });
     if (composition.bays.some((bay) => !moduleIds.has(bay.moduleId))) issues.push({ code: 'COMPOSITION_MODULE_MISSING', severity: 'critical', message: `Composition ${composition.id} contains a bay whose module is missing.` });
-    if (Math.abs(total - composition.usableWidthMm) > 0.5) issues.push({ code: 'BAY_WIDTH_MISMATCH', severity: 'critical', message: `Composition ${composition.id} totals ${total} mm but its approved usable width is ${composition.usableWidthMm} mm.` });
-    if (wall && composition.usableWidthMm + composition.leftClearanceMm + composition.rightClearanceMm > wallLength + 0.5) issues.push({ code: 'COMPOSITION_EXCEEDS_WALL', severity: 'critical', message: `Composition ${composition.id} exceeds measured wall ${composition.wallId}.` });
+    if (Math.abs(total - composition.usableWidthMm) > 0.01) issues.push({ code: 'BAY_WIDTH_MISMATCH', severity: 'critical', message: `Composition ${composition.id} totals ${total} mm but its approved usable width is ${composition.usableWidthMm} mm.` });
+    if (wall && composition.usableWidthMm + composition.leftClearanceMm + composition.rightClearanceMm > wallLength + 0.01) issues.push({ code: 'COMPOSITION_EXCEEDS_WALL', severity: 'critical', message: `Composition ${composition.id} exceeds measured wall ${composition.wallId}.` });
+    const bayIds = new Set<string>();
+    const fillerIds = new Set<string>();
+    const bayRanges = [...composition.bays].sort((a, b) => a.offsetMm - b.offsetMm);
+    for (const filler of composition.fillers) {
+      if (fillerIds.has(filler.id)) issues.push({ code: 'DUPLICATE_FILLER_ID', severity: 'critical', message: `Composition ${composition.id} repeats filler id ${filler.id}.` });
+      fillerIds.add(filler.id);
+    }
+    for (const bay of composition.bays) {
+      if (bayIds.has(bay.id)) issues.push({ code: 'DUPLICATE_BAY_ID', severity: 'critical', message: `Composition ${composition.id} repeats bay id ${bay.id}.` });
+      bayIds.add(bay.id);
+      const module = scene.modules.find((candidate) => candidate.id === bay.moduleId);
+      if (module && Math.abs(module.widthMm - bay.widthMm) > 0.01) issues.push({ code: 'BAY_MODULE_WIDTH_MISMATCH', severity: 'critical', message: `Bay ${bay.id} is ${bay.widthMm} mm but module ${bay.moduleId} is ${module.widthMm} mm wide.` });
+      if (bay.offsetMm + bay.widthMm > composition.usableWidthMm + 0.01) issues.push({ code: 'BAY_OFFSET_MISMATCH', severity: 'critical', message: `Bay ${bay.id} extends beyond composition ${composition.id}'s approved usable width.` });
+      if (wall && moduleIds.has(bay.moduleId)) {
+        const fit = reconcileModuleFit({
+          wallLengthMm: wallLength,
+          moduleWidthMm: module?.widthMm ?? bay.widthMm,
+          moduleOffsetMm: composition.leftClearanceMm + bay.offsetMm,
+          rightClearanceMm: composition.rightClearanceMm,
+          keepOuts: scene.openings.filter((opening) => opening.wallId === wall.id).map((opening) => ({ id: opening.id, offsetMm: opening.offsetMm, widthMm: opening.widthMm })),
+        });
+        if (!fit.fits) issues.push({ code: 'BAY_KEEP_OUT_CONFLICT', severity: 'critical', message: `Bay ${bay.id} in composition ${composition.id} does not fit measured wall/opening geometry: ${fit.issues.join(' ')}` });
+      }
+    }
+    for (let index = 1; index < bayRanges.length; index += 1) {
+      const previous = bayRanges[index - 1];
+      const current = bayRanges[index];
+      if (current.offsetMm < previous.offsetMm + previous.widthMm - 0.01) issues.push({ code: 'BAY_OVERLAP', severity: 'critical', message: `Bays ${previous.id} and ${current.id} overlap in composition ${composition.id}.` });
+    }
     if (!composition.confirmed) issues.push({ code: 'COMPOSITION_UNCONFIRMED', severity: 'critical', message: `Composition ${composition.id} contains dimensions awaiting designer confirmation.` });
   }
   const blockingCount = issues.filter((issue) => issue.severity === 'critical').length;

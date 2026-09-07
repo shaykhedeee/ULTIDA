@@ -44,3 +44,43 @@ test('preserves a fallback module mounting elevation in the canonical scene', ()
 test('rejects a plan that has not been approved', () => {
   assert.throws(() => compileSceneV1({ projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan: { ...plan, state: 'designer_review' } }), SceneCompilationError);
 });
+
+test('certifies a composition only when bays reconcile with measured wall keep-outs', () => {
+  const scene = compileSceneV1({
+    projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan: {
+      ...plan,
+      openings: [{ id: '1b8c4f3e-25e6-4c4b-8d45-4a5bbf2f9a01', wallId: plan.walls[0].id, type: 'door', offsetMm: 2600, widthMm: 900, heightMm: 2100, confidence: 1 }],
+    },
+    modules: [{ id: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', widthMm: 1200, depthMm: 400, heightMm: 600, xMm: 0, yMm: 0, rotationDeg: 0 }],
+    moduleParts: [{ id: 'module-1-panel', moduleId: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', semanticType: 'side-panel', name: 'Side panel', widthMm: 1200, depthMm: 18, heightMm: 600, xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 }],
+  });
+  scene.compositions = [{ id: 'composition-1', wallId: plan.walls[0].id, usableWidthMm: 1200, leftClearanceMm: 0, rightClearanceMm: 0, bays: [{ id: 'bay-1', moduleId: 'module-1', widthMm: 1200, offsetMm: 0 }], fillers: [], confirmed: true }];
+  assert.equal(checkRenderReadiness(scene).ready, true);
+});
+
+test('blocks a composition bay that overlaps a measured opening', () => {
+  const scene = compileSceneV1({
+    projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan: {
+      ...plan,
+      openings: [{ id: '2c9d5e4f-36f7-4d5c-9e56-5b6ccf3a0b12', wallId: plan.walls[0].id, type: 'fixed', offsetMm: 1000, widthMm: 1000, sillMm: 900, headMm: 2100, confidence: 1 }],
+    },
+    modules: [{ id: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', widthMm: 1200, depthMm: 400, heightMm: 600, xMm: 900, yMm: 0, rotationDeg: 0 }],
+    moduleParts: [{ id: 'module-1-panel', moduleId: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', semanticType: 'side-panel', name: 'Side panel', widthMm: 1200, depthMm: 18, heightMm: 600, xMm: 900, yMm: 0, zMm: 0, rotationDeg: 0 }],
+  });
+  scene.compositions = [{ id: 'composition-1', wallId: plan.walls[0].id, usableWidthMm: 1200, leftClearanceMm: 0, rightClearanceMm: 0, bays: [{ id: 'bay-1', moduleId: 'module-1', widthMm: 1200, offsetMm: 900 }], fillers: [], confirmed: true }];
+  const readiness = checkRenderReadiness(scene);
+  assert.equal(readiness.ready, false);
+  assert.ok(readiness.issues.some((issue) => issue.code === 'BAY_KEEP_OUT_CONFLICT'));
+});
+
+test('blocks a schedule when a bay width no longer matches the resized module envelope', () => {
+  const scene = compileSceneV1({
+    projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan,
+    modules: [{ id: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', widthMm: 1400, depthMm: 400, heightMm: 600, xMm: 0, yMm: 0, rotationDeg: 0 }],
+    moduleParts: [{ id: 'module-1-panel', moduleId: 'module-1', roomId: plan.spaces[0].id, family: 'tv-unit', semanticType: 'side-panel', name: 'Side panel', widthMm: 1400, depthMm: 18, heightMm: 600, xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 }],
+  });
+  scene.compositions = [{ id: 'composition-1', wallId: plan.walls[0].id, usableWidthMm: 1200, leftClearanceMm: 0, rightClearanceMm: 0, bays: [{ id: 'bay-1', moduleId: 'module-1', widthMm: 1200, offsetMm: 0 }], fillers: [], confirmed: true }];
+  const readiness = checkRenderReadiness(scene);
+  assert.equal(readiness.ready, false);
+  assert.ok(readiness.issues.some((issue) => issue.code === 'BAY_MODULE_WIDTH_MISMATCH'));
+});

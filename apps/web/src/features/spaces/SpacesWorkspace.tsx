@@ -18,6 +18,7 @@ import {
   computeUsableWallLength, computeSpaceReadiness, polygonsOverlap,
   editSplitRoom, editMergeRooms, editAddWall, editAddOpening, editAddColumn, type CanonicalPlanFragment
 } from '@ultida/spaces-core';
+import { reconcileModuleFit } from '@ultida/scene-core';
 import { IndianModularCatalog, listCatalog, CuratedLaminateCatalog, type CatalogModule } from '@ultida/catalog-core';
 import { ModulePreview } from '../../components/library/ModulePreview';
 import TopViewFloorplanEnhancer, { type TopViewFurniture } from '../../components/spaces/TopViewFloorplanEnhancer';
@@ -256,6 +257,7 @@ export function SpacesWorkspace() {
   const [showDesignLibrary, setShowDesignLibrary] = useState(false);
   const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogFilterFamily, setCatalogFilterFamily] = useState('all');
+  const [catalogFitFilter, setCatalogFitFilter] = useState<'all' | 'fits'>('all');
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
@@ -453,6 +455,19 @@ export function SpacesWorkspace() {
   }
 
   const sel = roomMetrics.find(m => m.room.id === selectedRoom);
+
+  const activeCatalogWall = useMemo(() => {
+    if (!sel?.room) return null;
+    // Certification must use a persisted measured wall. Synthetic polygon
+    // edges are useful for previewing a room, but cannot certify production fit.
+    const wall = selectedWall ? walls.find((candidate) => candidate.id === selectedWall) : null;
+    if (!wall) return null;
+    return {
+      id: wall.id,
+      lengthMm: wallLen(wall),
+      openings: openings.filter((opening) => opening.wallId === wall.id).map((opening) => ({ id: opening.id, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm ?? 900 })),
+    };
+  }, [sel?.room, selectedWall, walls, openings]);
 
   const stagerItems = useMemo<TopViewFurniture[] | undefined>(() => {
     if (!sel?.room) return undefined;
@@ -1284,9 +1299,11 @@ export function SpacesWorkspace() {
       const matchesFamily = catalogFilterFamily === 'all' || mod.family === catalogFilterFamily;
       const matchesRoom = !selectedRoomType || mod.roomTypes.includes(selectedRoomType as never)
         || (['master_bedroom', 'kids_bedroom'].includes(selectedRoomType) && mod.roomTypes.includes('bedroom' as never));
-      return matchesSearch && matchesFamily && matchesRoom;
+      const fit = activeCatalogWall ? reconcileModuleFit({ wallLengthMm: activeCatalogWall.lengthMm, moduleWidthMm: mod.widthMm, keepOuts: activeCatalogWall.openings }) : null;
+      const matchesFit = catalogFitFilter === 'all' || Boolean(fit?.fits);
+      return matchesSearch && matchesFamily && matchesRoom && matchesFit;
     });
-  }, [catalogQuery, catalogFilterFamily, sel?.room.roomType]);
+  }, [catalogQuery, catalogFilterFamily, catalogFitFilter, sel?.room.roomType, activeCatalogWall]);
 
   return (
     <div className="spaces-workspace phase4" style={{ paddingBottom: 148 }}>
@@ -2379,11 +2396,23 @@ export function SpacesWorkspace() {
                 <option value="utility">Utility &amp; Vanity</option>
                 <option value="storage">Storage &amp; Foyer</option>
               </select>
+              <select value={catalogFitFilter} onChange={(e) => setCatalogFitFilter(e.target.value as 'all' | 'fits')} aria-label="Filter by measured wall fit">
+                <option value="all">All fit states</option>
+                <option value="fits">Fits current wall</option>
+              </select>
+            </div>
+
+            <div className="spaces-flow-note" role="status" style={{ margin: '10px 0 0' }}>
+              {activeCatalogWall
+                ? <>Measured fit context: <strong>{Math.round(activeCatalogWall.lengthMm)} mm wall</strong> · {activeCatalogWall.openings.length} keep-out{activeCatalogWall.openings.length === 1 ? '' : 's'} · {catalogFitFilter === 'fits' ? 'showing placeable modules only' : 'production badges require a verified fit'}</>
+                : <>Select a room with measured walls to certify placement. Modules remain visual drafts until a wall and its keep-outs are available.</>}
             </div>
 
             <div className="dld-grid">
-              {filteredCatalogModules.map((mod) => (
-                <div key={mod.id} className="dld-card">
+              {filteredCatalogModules.map((mod) => {
+                const fit = activeCatalogWall ? reconcileModuleFit({ wallLengthMm: activeCatalogWall.lengthMm, moduleWidthMm: mod.widthMm, keepOuts: activeCatalogWall.openings }) : null;
+                const productionCertified = Boolean(mod.production.panelBased && mod.production.hardwareSchedule && mod.production.cutlistSupported && fit?.fits);
+                return <div key={mod.id} className="dld-card">
                   <div className="dld-preview-wrap">
                     <ModulePreview module={mod} compact />
                   </div>
@@ -2392,9 +2421,14 @@ export function SpacesWorkspace() {
                       <Badge tone="neutral">{mod.family}</Badge>
                       <small className="dld-sku">{mod.sku}</small>
                     </div>
+                    <div className="dld-card-tags">
+                      <Badge tone={productionCertified ? 'success' : fit ? 'warn' : 'neutral'}>{productionCertified ? 'Production certified' : fit && !fit.fits ? 'Blocked by measured geometry' : 'Visual draft'}</Badge>
+                      {fit?.fits && <small className="dld-sku">Placeable at {Math.round(fit.suggestedOffsetMm ?? 0)} mm</small>}
+                    </div>
                     <h4>{mod.name}</h4>
                     <p className="dld-card-dims"><strong>{mod.widthMm}</strong> W × <strong>{mod.depthMm}</strong> D × <strong>{mod.heightMm}</strong> H mm</p>
                     {mod.description && <p className="dld-desc">{mod.description}</p>}
+                    {fit && !fit.fits && <p className="dld-desc" role="alert">{fit.issues[0]}</p>}
                     <div className="dld-slots">
                       <span>Slots:</span>
                       {mod.materialSlots.map((slot) => <Badge key={slot} tone="accent">{slot}</Badge>)}
@@ -2403,6 +2437,8 @@ export function SpacesWorkspace() {
                       <button
                         type="button"
                         className="btn-primary btn-sm btn-full"
+                        disabled={Boolean(fit && !fit.fits)}
+                        title={fit && !fit.fits ? fit.issues.join(' ') : productionCertified ? 'Add this measured, production-certified module to the room brief.' : 'Add as a visual draft; production certification requires measured wall fit.'}
                         onClick={() => {
                           const categoryKey = mod.family.includes('kitchen') ? 'kitchen_base' : mod.family === 'tv-unit' ? 'tv_unit' : mod.family === 'wardrobe' ? 'wardrobe' : mod.family === 'crockery' ? 'crockery_unit' : mod.family === 'study' ? 'study_unit' : mod.family === 'pooja' ? 'pooja_unit' : mod.family === 'bed' ? 'bed' : mod.family === 'utility' ? 'utility_unit' : 'storage_unit';
                           if (!sel.room.requiredFurniture.includes(categoryKey)) {
@@ -2416,8 +2452,9 @@ export function SpacesWorkspace() {
                       </button>
                     )}
                   </div>
-                </div>
-              ))}
+                </div>;
+              })}
+              {!filteredCatalogModules.length && <div className="props-empty">No modules match this room, family, and measured wall fit. Select another wall or switch to “All fit states” to inspect blocked templates.</div>}
             </div>
           </aside>
         </div>

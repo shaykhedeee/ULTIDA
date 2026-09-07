@@ -88,6 +88,93 @@ export const SceneV1Schema = z.object({
 
 export type SceneV1 = z.infer<typeof SceneV1Schema>;
 export const SCENE_SCHEMA_VERSION = 'scene.v1';
+
+export type WallKeepOutMm = {
+  id?: string;
+  offsetMm: number;
+  widthMm: number;
+  beforeMm?: number;
+  afterMm?: number;
+};
+
+export type ModuleFitInput = {
+  wallLengthMm: number;
+  moduleWidthMm: number;
+  moduleOffsetMm?: number;
+  leftClearanceMm?: number;
+  rightClearanceMm?: number;
+  keepOuts?: WallKeepOutMm[];
+};
+
+export type ModuleFitResult = {
+  fits: boolean;
+  issues: string[];
+  suggestedOffsetMm?: number;
+  availableSegments: Array<{ startMm: number; endMm: number; widthMm: number }>;
+};
+
+/**
+ * Reconcile a wall-mounted module against measured wall geometry and opening
+ * keep-outs. This is deliberately dependency-free so the compiler, library,
+ * and browser editor cannot drift into different fit rules.
+ */
+export function reconcileModuleFit(input: ModuleFitInput): ModuleFitResult {
+  const issues: string[] = [];
+  const wallLength = Number(input.wallLengthMm);
+  const moduleWidth = Number(input.moduleWidthMm);
+  const left = Number(input.leftClearanceMm ?? 0);
+  const right = Number(input.rightClearanceMm ?? 0);
+  if (![wallLength, moduleWidth, left, right].every(Number.isFinite) || wallLength <= 0 || moduleWidth <= 0 || left < 0 || right < 0) {
+    return { fits: false, issues: ['Wall, module, and clearance dimensions must be finite positive millimetres.'], availableSegments: [] };
+  }
+  if (left + right >= wallLength) {
+    return { fits: false, issues: ['Wall clearances consume the full measured wall.'], availableSegments: [] };
+  }
+
+  const wallStart = left;
+  const wallEnd = wallLength - right;
+  const ranges = (input.keepOuts ?? []).map((keepOut) => {
+    const offset = Number(keepOut.offsetMm);
+    const width = Number(keepOut.widthMm);
+    const before = Number(keepOut.beforeMm ?? 0);
+    const after = Number(keepOut.afterMm ?? 0);
+    if (![offset, width, before, after].every(Number.isFinite) || width <= 0 || offset < 0 || before < 0 || after < 0) {
+      issues.push(`Keep-out ${keepOut.id ?? 'opening'} has invalid measured geometry.`);
+      return null;
+    }
+    return { startMm: Math.max(wallStart, offset - before), endMm: Math.min(wallEnd, offset + width + after) };
+  }).filter((range): range is { startMm: number; endMm: number } => Boolean(range && range.endMm > range.startMm))
+    .sort((a, b) => a.startMm - b.startMm);
+
+  const merged: Array<{ startMm: number; endMm: number }> = [];
+  for (const range of ranges) {
+    const previous = merged[merged.length - 1];
+    if (previous && range.startMm <= previous.endMm) previous.endMm = Math.max(previous.endMm, range.endMm);
+    else merged.push({ ...range });
+  }
+  const availableSegments: ModuleFitResult['availableSegments'] = [];
+  let cursor = wallStart;
+  for (const range of merged) {
+    if (range.startMm > cursor) availableSegments.push({ startMm: cursor, endMm: range.startMm, widthMm: range.startMm - cursor });
+    cursor = Math.max(cursor, range.endMm);
+  }
+  if (cursor < wallEnd) availableSegments.push({ startMm: cursor, endMm: wallEnd, widthMm: wallEnd - cursor });
+
+  const requestedOffset = input.moduleOffsetMm === undefined ? undefined : Number(input.moduleOffsetMm);
+  if (requestedOffset !== undefined && !Number.isFinite(requestedOffset)) issues.push('Module offset must be a finite millimetre value.');
+  if (requestedOffset !== undefined && Number.isFinite(requestedOffset)) {
+    const moduleStart = requestedOffset;
+    const moduleEnd = moduleStart + moduleWidth;
+    if (moduleStart < wallStart || moduleEnd > wallEnd) issues.push('Module extends beyond the measured usable wall run.');
+    if (merged.some((range) => moduleStart < range.endMm && moduleEnd > range.startMm)) issues.push('Module overlaps a measured door, window, or other keep-out zone.');
+    return { fits: issues.length === 0, issues, suggestedOffsetMm: moduleStart, availableSegments };
+  }
+
+  const segment = availableSegments.find((candidate) => candidate.widthMm >= moduleWidth);
+  if (!segment) issues.push('No measured wall segment can contain this module without crossing a keep-out zone.');
+  return { fits: issues.length === 0, issues, suggestedOffsetMm: segment?.startMm, availableSegments };
+}
+
 export function migrateScene(input: unknown): SceneV1 {
   // Legacy callers use this name. It intentionally no longer migrates missing
   // geometry: a scene must be compiled from an approved plan, not repaired by
