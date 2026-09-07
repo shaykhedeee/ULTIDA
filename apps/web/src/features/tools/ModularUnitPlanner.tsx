@@ -258,6 +258,7 @@ export function ModularUnitPlanner() {
             <text x="800" y="542" fill="#94a3b8" fontSize="10">SCALE: 1:20 (ISO METRIC)</text>
             <text x="800" y="582" fill="#94a3b8" fontSize="10">DATE: {new Date().toISOString().split('T')[0]}</text>
             <text x="800" y="622" fill="#22c55e" fontSize="10" fontWeight="bold">STATUS: PRODUCTION RELEASE</text>
+            <text x="800" y="642" fill="#94a3b8" fontSize="9">DATUM: FFL 0 · ALL DIMENSIONS IN mm · VERIFY SITE</text>
 
             {/* Material Specifications Legend Bottom Left */}
             <text x="40" y="550" fill="#94a3b8" fontSize="10" fontWeight="bold">FABRICATION SPECIFICATIONS:</text>
@@ -281,6 +282,7 @@ export function ModularUnitPlanner() {
               {/* Dimensions */}
               <line x1="0" y1="-2" x2="260" y2="-2" stroke="#ef4444" strokeWidth="1" />
               <text x="130" y="-8" fill="#ef4444" fontSize="10" textAnchor="middle" fontWeight="bold">{width || selected?.widthMm} mm W</text>
+              {[0.12, 0.32, 0.52, 0.72, 0.88].map((ratio, i) => <g key={i}><line x1={260 * ratio} y1="-5" x2={260 * ratio} y2="2" stroke="#ef4444" strokeWidth="1" /><text x={260 * ratio} y="-14" fill="#ef4444" fontSize="7" textAnchor="middle">{Math.round((width || selected?.widthMm || 600) * (i === 0 ? .12 : i === 1 ? .20 : i === 2 ? .20 : i === 3 ? .20 : .16))}</text></g>)}
               <line x1="265" y1="0" x2="265" y2="340" stroke="#ef4444" strokeWidth="1" />
               <text x="275" y="170" fill="#ef4444" fontSize="10" fontWeight="bold">{height || selected?.heightMm} mm H</text>
             </g>
@@ -307,6 +309,7 @@ export function ModularUnitPlanner() {
               <text x="130" y="60" fill="#94a3b8" fontSize="9" textAnchor="middle">Ø5mm System 32 Grid (32mm c/c)</text>
               <text x="130" y="150" fill="#94a3b8" fontSize="9" textAnchor="middle">Adjustable Shelf Tier 1</text>
               <text x="130" y="250" fill="#94a3b8" fontSize="9" textAnchor="middle">Adjustable Shelf Tier 2</text>
+              <text x="130" y="356" fill="#38bdf8" fontSize="9" textAnchor="middle">32mm pitch · 5mm bore · 37mm front datum</text>
             </g>
 
             {/* View C: Side Cross-Section */}
@@ -321,6 +324,8 @@ export function ModularUnitPlanner() {
               {/* Dimensions */}
               <line x1="0" y1="-2" x2="180" y2="-2" stroke="#ef4444" strokeWidth="1" />
               <text x="90" y="-8" fill="#ef4444" fontSize="10" textAnchor="middle" fontWeight="bold">{depth || selected?.depthMm} mm D</text>
+              <line x1="188" y1="0" x2="188" y2="340" stroke="#ef4444" strokeWidth="1" />
+              <text x="198" y="170" fill="#ef4444" fontSize="9" fontWeight="bold" transform="rotate(90 198 170)">{height || selected?.heightMm} mm H · 100 mm plinth</text>
             </g>
           </svg>
         </div>
