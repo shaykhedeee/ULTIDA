@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
-import { buildFlooringQuantities } from '@ultida/contracts';
+import { buildFlooringQuantities } from '../../contracts/src/flooring.ts';
 import {
   generateProductionDossierPdf,
   type ProductionDossierSpecV1,
