@@ -315,6 +315,16 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     module?: CatalogModule;
   } | null>(null);
 
+  function arrangeMoodboard() {
+    setMoodboardItems((current) => current.map((item, index) => ({
+      ...item,
+      x: 32 + (index % 3) * 300,
+      y: 64 + Math.floor(index / 3) * 190,
+      zIndex: index + 1,
+    })));
+    setStatus('Moodboard arranged into a clean grid. Select any item to refine its position.');
+  }
+
   function placeModuleInProjectWallPicker(mod: CatalogModule) {
     const prepared = {
       schema: 'ultida.module-plan.v1',
@@ -1093,6 +1103,9 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                 </div>
               </div>
 
+              <button type="button" onClick={arrangeMoodboard} style={{ marginTop: 8, padding: '8px', borderRadius: 6, border: '1px solid #e7d7b7', background: '#fffaf0', color: '#7a5a22', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                Arrange board
+              </button>
               <button type="button" onClick={() => setMoodboardItems([])} style={{ marginTop: 8, padding: '8px', borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', color: '#991b1b', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                 <Trash2 size={13} /> Clear Moodboard
               </button>
