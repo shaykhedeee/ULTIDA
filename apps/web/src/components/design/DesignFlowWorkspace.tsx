@@ -8,10 +8,18 @@ import MaterialSwapPanel from './MaterialSwapPanel';
 import { getApiBase } from '../../lib/api-base';
 import './visual-studio.css';
 import { ModulePreview } from '../library/ModulePreview';
-import { listCatalog } from '@ultida/catalog-core';
+import { listCatalog, MaterialSlotSchema } from '@ultida/catalog-core';
 import { catalogForRoom } from './catalog-room-filter';
 import { inferRoomType } from '../../features/spaces/SpacesWorkspace';
 import WorkingDrawingsDossier from '../drawings/WorkingDrawingsDossier';
+import {
+  generateWallElevationSvg,
+  generateArchitecturalShopSheetSvg,
+  type SceneV1,
+  type SceneWallV1,
+  type SceneOpeningV1,
+  type SceneModuleV1,
+} from '@ultida/drawing-core';
 
 type Stage = 'Design' | 'Visualize' | 'Document';
 type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration; updatedAt?: string };
@@ -68,6 +76,102 @@ function fitModuleToMeasuredWall(item: CatalogItem, wallLengthMm: number) {
   const maxWidthMm = item.family === 'tv-unit' ? 4200 : 3600;
   const widthMm = Math.min(maxWidthMm, Math.max(minWidthMm, targetWidthMm));
   return { widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: widthMm !== item.widthMm };
+}
+
+function buildSceneForElevation(
+  projectId: string | null,
+  spaceId: string | null,
+  roomWalls: Array<{ id: string; start?: { xMm: number; yMm: number }; end?: { xMm: number; yMm: number } }>,
+  openings: Array<{ id: string; wallId?: string; kind?: string; widthMm?: number; heightMm?: number; sillHeightMm?: number; offsetAlongWallMm?: number; offsetMm?: number }>,
+  draftModules: Module[],
+  availableMaterials: any[],
+  isApproved: boolean
+): SceneV1 {
+  const targetRoomModules = draftModules.filter((m) => !spaceId || m.roomId === spaceId);
+  const sceneWalls: SceneWallV1[] = roomWalls.map((w) => ({
+    id: w.id,
+    start: { xMm: w.start?.xMm ?? 0, yMm: w.start?.yMm ?? 0 },
+    end: { xMm: w.end?.xMm ?? 3000, yMm: w.end?.yMm ?? 0 },
+    heightMm: 2700,
+  }));
+
+  const sceneOpenings: SceneOpeningV1[] = openings.map((op) => ({
+    id: op.id,
+    wallId: op.wallId ?? '',
+    kind: op.kind ?? 'door',
+    offsetMm: Number(op.offsetAlongWallMm ?? op.offsetMm ?? 0),
+    widthMm: Number(op.widthMm ?? 900),
+    heightMm: Number(op.heightMm ?? 2100),
+    sillHeightMm: Number(op.sillHeightMm ?? (op.kind === 'window' ? 900 : 0)),
+  }));
+
+  const sceneModules: SceneModuleV1[] = targetRoomModules.map((m) => {
+    const wall = roomWalls.find((w) => w.id === m.wallId);
+    let posX = m.xMm ?? 0;
+    let posY = m.yMm ?? 0;
+    let rotDeg = m.rotationDeg ?? 0;
+
+    if (wall?.start && wall?.end) {
+      const wlen = Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm) || 1;
+      const ux = (wall.end.xMm - wall.start.xMm) / wlen;
+      const uy = (wall.end.yMm - wall.start.yMm) / wlen;
+      const off = m.offsetMm ?? 0;
+      posX = wall.start.xMm + ux * off;
+      posY = wall.start.yMm + uy * off;
+      rotDeg = Math.atan2(uy, ux) * (180 / Math.PI);
+    }
+
+    return {
+      id: m.id,
+      family: m.family,
+      roomId: m.roomId,
+      widthMm: m.widthMm,
+      depthMm: m.depthMm,
+      heightMm: m.heightMm,
+      position: { xMm: posX, yMm: posY, zMm: 0 },
+      rotationDeg: rotDeg,
+    };
+  });
+
+  const sceneMaterials = (availableMaterials || []).map((m) => ({
+    id: String(m.id),
+    name: String(m.name),
+    code: String(m.code ?? m.id),
+    unitCost: Number(m.unit_cost ?? m.unitCost ?? 0),
+    finish: String(m.finish ?? m.category ?? 'laminate'),
+  }));
+
+  return {
+    schema: 'scene.v1',
+    projectId: projectId ?? 'default-project',
+    floorPlanVersionId: 'fp-current',
+    walls: sceneWalls,
+    openings: sceneOpenings,
+    modules: sceneModules,
+    materials: sceneMaterials,
+    metadata: {
+      designVersion: '1.0.0',
+      status: isApproved ? 'approved' : 'draft',
+    },
+  };
+}
+
+function getSemanticSlotsForModule(module: Module | null): string[] {
+  if (!module) return ['carcass', 'shutter', 'hardware', 'lighting'];
+  const fam = module.family.toLowerCase();
+  if (fam.includes('kitchen-base')) return ['carcass', 'shutter', 'countertop', 'hardware', 'lighting'];
+  if (fam.includes('kitchen-wall')) return ['carcass', 'shutter', 'glass', 'hardware', 'lighting'];
+  if (fam.includes('kitchen-tall')) return ['carcass', 'shutter', 'hardware', 'lighting'];
+  if (fam.includes('wardrobe')) return ['carcass', 'shutter', 'back-panel', 'hardware', 'glass', 'lighting'];
+  if (fam.includes('tv-unit')) return ['carcass', 'shutter', 'back-panel', 'hardware', 'metal', 'lighting'];
+  if (fam.includes('crockery')) return ['carcass', 'shutter', 'glass', 'hardware', 'lighting'];
+  if (fam.includes('bed')) return ['carcass', 'fabric', 'metal', 'lighting'];
+  if (fam.includes('sofa')) return ['fabric', 'metal'];
+  if (fam.includes('study')) return ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'];
+  if (fam.includes('pooja')) return ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'];
+  if (fam.includes('utility')) return ['carcass', 'shutter', 'countertop', 'hardware'];
+  if (fam.includes('dining')) return ['countertop', 'carcass', 'metal'];
+  return ['carcass', 'shutter', 'hardware', 'lighting'];
 }
 
 const ROOM_PREBUILT_PACKAGES: Record<string, Array<{ id: string; name: string; desc: string; width: number; depth?: number; height: number; family: string; icon: string }>> = {
@@ -188,7 +292,10 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const moduleEditPending = useRef(false);
   const [moduleSaving, setModuleSaving] = useState(false);
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
-  const [designMode, setDesignMode] = useState<'layout' | 'moodboard'>(focus === 'materials' ? 'moodboard' : 'layout');
+  const [designMode, setDesignMode] = useState<'layout' | 'elevations' | 'moodboard'>(focus === 'materials' ? 'moodboard' : 'layout');
+  const [elevationRenderType, setElevationRenderType] = useState<'elevation' | 'shop-sheet'>('elevation');
+  const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
+  const [activePickerSlot, setActivePickerSlot] = useState<string>('shutter');
   const [visualState, setVisualState] = useState('No visual proposal requested');
   const [providers, setProviders] = useState<Provider[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -274,6 +381,9 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const selectedWall = roomWalls.find((wall) => wall.id === wallId) ?? roomWalls[0] ?? null;
   const selectedWallLengthMm = selectedWall?.start && selectedWall?.end ? Math.hypot(selectedWall.end.xMm - selectedWall.start.xMm, selectedWall.end.yMm - selectedWall.start.yMm) : 0;
   const selectedWallOpenings = openings.filter((opening) => opening.wallId === selectedWall?.id);
+  const elevationScene = useMemo(() => {
+    return buildSceneForElevation(projectId, spaceId, roomWalls, openings, draftModules, availableMaterials, isSceneApproved);
+  }, [projectId, spaceId, roomWalls, openings, draftModules, availableMaterials, isSceneApproved]);
   useEffect(() => {
     if (!roomWalls.length) { setWallId(null); return; }
     setWallId((current) => current && roomWalls.some((wall) => wall.id === current) ? current : roomWalls[0].id);
@@ -1613,14 +1723,226 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
           <Sparkles size={15} style={{ marginRight: '0.5rem', color: 'var(--gold)' }} /> Suggest a room module
         </Button>
         <Button variant={designMode === 'layout' ? 'default' : 'outline'} onClick={() => setDesignMode('layout')} style={{ height: '38px', padding: '0 16px' }}>
-          <Layers3 size={15} style={{ marginRight: '0.5rem' }} /> Modular Layout
+          <Boxes size={15} style={{ marginRight: '0.5rem' }} /> 📦 Modules &amp; Planner
+        </Button>
+        <Button
+          variant={designMode === 'elevations' ? 'default' : 'outline'}
+          onClick={() => setDesignMode('elevations')}
+          style={{
+            height: '38px',
+            padding: '0 16px',
+            background: designMode === 'elevations' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : undefined,
+            color: designMode === 'elevations' ? '#e8c96a' : undefined,
+            borderColor: designMode === 'elevations' ? 'var(--gold)' : undefined,
+          }}
+        >
+          <Ruler size={15} style={{ marginRight: '0.5rem', color: designMode === 'elevations' ? 'var(--gold)' : undefined }} /> 📐 Wall Elevations (A/B/C/D)
         </Button>
         <Button variant={designMode === 'moodboard' ? 'default' : 'outline'} onClick={() => setDesignMode('moodboard')} style={{ height: '38px', padding: '0 16px' }}>
-          <Palette size={15} style={{ marginRight: '0.5rem' }} /> Moodboard &amp; Materials
+          <Palette size={15} style={{ marginRight: '0.5rem' }} /> 🎨 Moodboard &amp; Materials
         </Button>
       </div>
 
-      <div className="module-layout">
+      {designMode === 'elevations' ? (
+        <div className="elevation-dedicated-view" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
+          <Card style={{ border: '1px solid #dcd3c5', borderRadius: '12px', background: '#fff', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+            <CardHeader style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ede5d8', padding: '16px 20px', background: 'linear-gradient(135deg, #faf7f2, #fff)' }}>
+              <div>
+                <small style={{ color: 'var(--gold-dim)', fontWeight: 800, letterSpacing: '0.08em', fontSize: '10.5px' }}>
+                  ARCHITECTURAL WALL ELEVATION ENGINE · SYSTEM 32
+                </small>
+                <h3 style={{ margin: '3px 0 0', fontSize: '18px', fontWeight: 800, color: '#1c1917' }}>
+                  {spaces.find((s) => s.id === spaceId)?.name ?? room.toUpperCase()} · Wall Elevations
+                </h3>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{ display: 'inline-flex', background: '#f5f2ec', padding: '3px', borderRadius: '8px', border: '1px solid #e5dccf' }}>
+                  <button
+                    type="button"
+                    onClick={() => setElevationRenderType('elevation')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      fontSize: '11.5px',
+                      fontWeight: elevationRenderType === 'elevation' ? 800 : 500,
+                      background: elevationRenderType === 'elevation' ? '#fff' : 'transparent',
+                      color: elevationRenderType === 'elevation' ? '#1c1917' : '#78716c',
+                      border: elevationRenderType === 'elevation' ? '1px solid #d6cbba' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📐 Technical Wall Elevation
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setElevationRenderType('shop-sheet')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      fontSize: '11.5px',
+                      fontWeight: elevationRenderType === 'shop-sheet' ? 800 : 500,
+                      background: elevationRenderType === 'shop-sheet' ? '#fff' : 'transparent',
+                      color: elevationRenderType === 'shop-sheet' ? '#1c1917' : '#78716c',
+                      border: elevationRenderType === 'shop-sheet' ? '1px solid #d6cbba' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📋 Turnkey Shop Sheet
+                  </button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent style={{ padding: '20px' }}>
+              {/* Wall Selector Bar: Wall A, Wall B, Wall C, Wall D */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '16px' }}>
+                <span style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--text-secondary)' }}>SELECT ACTIVE WALL:</span>
+                {roomWalls.length ? (
+                  roomWalls.map((wall, index) => {
+                    const letter = String.fromCharCode(65 + index);
+                    const isWallActive = (wallId || roomWalls[0]?.id) === wall.id;
+                    const wallLen = wall.start && wall.end ? Math.round(Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm)) : 3000;
+                    const count = draftModules.filter((m) => m.wallId === wall.id).length;
+                    return (
+                      <button
+                        key={wall.id}
+                        type="button"
+                        className={`elevation-wall-tab ${isWallActive ? 'active' : ''}`}
+                        onClick={() => {
+                          setWallId(wall.id);
+                          setActiveCanvasWallId(wall.id);
+                        }}
+                        style={{
+                          padding: '8px 16px',
+                          borderRadius: '8px',
+                          fontSize: '12.5px',
+                          fontWeight: isWallActive ? 800 : 600,
+                          background: isWallActive ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fdfbf7',
+                          color: isWallActive ? '#e8c96a' : '#44403c',
+                          border: isWallActive ? '1.5px solid var(--gold)' : '1px solid #e7dcce',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: isWallActive ? '0 3px 10px rgba(0,0,0,0.15)' : 'none',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <span>WALL {letter}</span>
+                        <span style={{ fontSize: '11px', opacity: 0.85 }}>({wallLen} mm · {count} unit{count === 1 ? '' : 's'})</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <span style={{ fontSize: '11.5px', color: '#a8a29e' }}>No walls verified for this room yet.</span>
+                )}
+              </div>
+
+              {/* Elevation Stage & Sidebar Layout */}
+              <div style={{ display: 'grid', gridTemplateColumns: selectedModule ? '1fr 340px' : '1fr', gap: '20px', alignItems: 'start' }}>
+                {/* Main SVG Render Area */}
+                <div className="elevation-full-stage" style={{ background: '#fbfaf8', border: '1.5px solid #dcd3c5', borderRadius: '10px', padding: '16px', overflowX: 'auto', position: 'relative' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Badge tone="accent">
+                        WALL {String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === (wallId || roomWalls[0]?.id))))}
+                      </Badge>
+                      <span style={{ fontSize: '11px', color: '#78716c' }}>
+                        Datum lines: 100mm Plinth · 850mm Counter · 2100mm Lintel · True mm Dimension Chains
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '10.5px', color: '#a8a29e' }}>
+                      💡 Click any cabinet on elevation to inspect &amp; view finish swatches
+                    </span>
+                  </div>
+
+                  {/* Drawing Core Wall Elevation SVG with Lineage-Aware Picking */}
+                  <DrawingCoreWallElevation
+                    scene={elevationScene}
+                    activeWallId={wallId || roomWalls[0]?.id || ''}
+                    renderType={elevationRenderType}
+                    selectedModuleId={selectedModuleId}
+                    onSelectModule={(id) => setSelectedModuleId(id)}
+                  />
+                </div>
+
+                {/* Module Inspector & Material Swatch Panel */}
+                {selectedModule && (
+                  <Card style={{ border: '1px solid #e7dcce', borderRadius: '10px', background: '#fff' }}>
+                    <CardHeader style={{ padding: '14px 16px', borderBottom: '1px solid #f0e8dc', background: '#faf7f2' }}>
+                      <small style={{ color: 'var(--gold-dim)', fontWeight: 800, fontSize: '10.5px' }}>SELECTED CABINET INSPECTOR</small>
+                      <h4 style={{ margin: '2px 0 0', fontSize: '14px', fontWeight: 800, color: '#1c1917' }}>{selectedModule.label}</h4>
+                      <div style={{ fontSize: '11px', color: '#78716c', marginTop: '2px' }}>
+                        {selectedModule.family} · {selectedModule.widthMm} × {selectedModule.depthMm} × {selectedModule.heightMm} mm
+                      </div>
+                    </CardHeader>
+                    <CardContent style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      {/* Nudge & Centering Quick Actions */}
+                      <div>
+                        <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+                          Wall Placement (Offset: {Math.round(selectedModule.offsetMm ?? 0)} mm)
+                        </span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => void nudgeModule(selectedModule.id, -50)}
+                            style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
+                          >
+                            ◀ 50mm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void centerModule(selectedModule.id)}
+                            style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
+                          >
+                            Center
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void nudgeModule(selectedModule.id, 50)}
+                            style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
+                          >
+                            50mm ▶
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Material & Finish Swatch Grid (A4) */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase' }}>
+                            Material Swatches &amp; Finishes
+                          </span>
+                          <span style={{ fontSize: '9.5px', color: '#a8a29e' }}>Click to swap</span>
+                        </div>
+                        <ModuleMaterialSwatchGrid
+                          module={selectedModule}
+                          selectedCarcassLaminate={selectedCarcassLaminate}
+                          selectedShutterLaminate={selectedShutterLaminate}
+                          selectedHardwareObj={selectedHardwareObj}
+                          onOpenPicker={(slot) => {
+                            setActivePickerSlot(slot);
+                            setMaterialPickerOpen(true);
+                          }}
+                        />
+                      </div>
+
+                      {/* Switch to Planner to edit parameters */}
+                      <Button
+                        variant="outline"
+                        onClick={() => setDesignMode('layout')}
+                        style={{ fontSize: '11.5px', padding: '8px 12px' }}
+                      >
+                        Edit in Module Planner →
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="module-layout">
         {designMode === 'layout' ? (
           <Card className="catalog-panel">
             <CardHeader>
@@ -1677,6 +1999,26 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     <Button type="submit" disabled={moduleSaving}>{moduleSaving ? 'Saving...' : 'Save module'}</Button>
                   </fieldset>
                 </form>
+              )}
+              {selectedModule && (
+                <div style={{ marginTop: '10px', padding: '12px', border: '1px solid #e7dcce', borderRadius: '8px', background: '#faf8f5' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <small style={{ fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', fontSize: '10.5px' }}>
+                      CABINET FINISHES &amp; SWATCHES
+                    </small>
+                    <span style={{ fontSize: '9.5px', color: '#78716c' }}>Click swatch to swap</span>
+                  </div>
+                  <ModuleMaterialSwatchGrid
+                    module={selectedModule}
+                    selectedCarcassLaminate={selectedCarcassLaminate}
+                    selectedShutterLaminate={selectedShutterLaminate}
+                    selectedHardwareObj={selectedHardwareObj}
+                    onOpenPicker={(slot) => {
+                      setActivePickerSlot(slot);
+                      setMaterialPickerOpen(true);
+                    }}
+                  />
+                </div>
               )}
               <p className="placement-notice" role="status" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 {catalogLoading && <Loader2 className="ultida-spinner" size={14} aria-hidden="true" />}
@@ -2372,17 +2714,38 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   {/* Canvas Stage Viewports */}
                   {canvasViewMode === 'elevation' ? (
                     currentCanvasWall ? (
-                      <WallElevationPreview
-                        wallLabel={`Wall ${String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === currentCanvasWall.id)))}`}
-                        wallLengthMm={currentWallLengthMm}
-                        ceilingHeightMm={2700}
-                        openings={currentWallOpenings}
-                        modules={roomModules.filter((module) => module.wallId === currentCanvasWall.id)}
-                        selectedModuleId={selectedModuleId}
-                        onSelectModule={(id) => setSelectedModuleId(id)}
-                        onNudgeModule={(id, delta) => void nudgeModule(id, delta)}
-                        onCenterModule={(id) => void centerModule(id)}
-                      />
+                      <div>
+                        <WallElevationPreview
+                          wallLabel={`Wall ${String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === currentCanvasWall.id)))}`}
+                          wallLengthMm={currentWallLengthMm}
+                          ceilingHeightMm={2700}
+                          openings={currentWallOpenings}
+                          modules={roomModules.filter((module) => module.wallId === currentCanvasWall.id)}
+                          selectedModuleId={selectedModuleId}
+                          onSelectModule={(id) => setSelectedModuleId(id)}
+                          onNudgeModule={(id, delta) => void nudgeModule(id, delta)}
+                          onCenterModule={(id) => void centerModule(id)}
+                        />
+                        <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            onClick={() => setDesignMode('elevations')}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#78350f',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <Ruler size={13} /> Open Full Architectural Wall Elevation Sub-View →
+                          </button>
+                        </div>
+                      </div>
                     ) : (
                       <div style={{ padding: '36px', textAlign: 'center', background: '#faf8f5', border: '1px dashed #d6cbba', borderRadius: '10px', color: '#78716c' }}>
                         No walls verified in {spaces.find(s => s.id === spaceId)?.name ?? room.toUpperCase()} yet.
@@ -2471,6 +2834,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
           </CardContent>
         </Card>
       </div>
+      )}
       <div className="workflow-next-action" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap', padding: '16px 20px', borderRadius: '12px', background: '#fff', border: '1px solid #e5dccf', borderLeft: '5px solid var(--gold)', boxShadow: '0 4px 16px rgba(0,0,0,0.05)' }}>
         <div>
           <small style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '0.12em', color: 'var(--gold-dim)', textTransform: 'uppercase' }}>
@@ -2537,7 +2901,246 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
           )}
         </div>
       </div>
+
+      {/* Material Picker Modal for Swatch Swapping */}
+      {materialPickerOpen && selectedModule && (
+        <div
+          className="material-picker-modal-backdrop"
+          onClick={() => setMaterialPickerOpen(false)}
+        >
+          <div
+            className="material-picker-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #ede5d8', paddingBottom: '10px' }}>
+              <div>
+                <small style={{ color: 'var(--gold-dim)', fontWeight: 800, fontSize: '10.5px' }}>MATERIAL CATALOG SWAP</small>
+                <h3 style={{ margin: '2px 0 0', fontSize: '16px', fontWeight: 800, color: '#1c1917' }}>
+                  Assign {activePickerSlot.replace('-', ' ')} Finish to {selectedModule.label}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMaterialPickerOpen(false)}
+                style={{ background: '#f5f5f4', border: '1px solid #d6d3d1', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+              >
+                ✕ Close
+              </button>
+            </div>
+            <MaterialSwapPanel
+              projectId={projectId}
+              entityId={selectedModule.id}
+              moduleInstanceId={selectedModule.id}
+              semanticSlot={activePickerSlot.replace('-', '_') as any}
+              currentLaminate={selectedLaminateObj.name}
+              onConfirmCatalogSwap={({ laminate, materialId, semanticSlot }) => {
+                if (semanticSlot === 'carcass') setCarcassLaminateId(materialId);
+                else if (semanticSlot === 'shutter') setShutterLaminateId(materialId);
+                else setActiveLaminate(materialId);
+                setMaterialAssignmentsSaved(true);
+                setPlacementNotice(`✓ Saved ${laminate} on ${selectedModule.label} (${semanticSlot})`);
+                setMaterialPickerOpen(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </section>
+  );
+}
+
+function DrawingCoreWallElevation({
+  scene,
+  activeWallId,
+  renderType = 'elevation',
+  selectedModuleId,
+  onSelectModule,
+}: {
+  scene: SceneV1;
+  activeWallId: string;
+  renderType?: 'elevation' | 'shop-sheet';
+  selectedModuleId?: string | null;
+  onSelectModule?: (id: string) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const svgContent = useMemo(() => {
+    try {
+      if (renderType === 'shop-sheet') {
+        return generateArchitecturalShopSheetSvg(scene, activeWallId);
+      }
+      return generateWallElevationSvg(scene, activeWallId);
+    } catch (err: any) {
+      return `<div style="padding: 24px; color: #dc2626; font-size: 13px;">Elevation generation error: ${err?.message ?? 'Unknown error'}</div>`;
+    }
+  }, [scene, activeWallId, renderType]);
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = (e.target as HTMLElement).closest('[data-module-id]');
+    const modId = el?.getAttribute('data-module-id');
+    if (modId) {
+      onSelectModule?.(modId);
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className="drawing-core-elevation-container"
+      onClick={handleClick}
+      style={{
+        width: '100%',
+        minHeight: '420px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#fff',
+        borderRadius: '8px',
+        padding: '12px',
+        overflowX: 'auto',
+      }}
+      dangerouslySetInnerHTML={{ __html: svgContent }}
+    />
+  );
+}
+
+function ModuleMaterialSwatchGrid({
+  module,
+  selectedCarcassLaminate,
+  selectedShutterLaminate,
+  selectedHardwareObj,
+  onOpenPicker,
+}: {
+  module: Module | null;
+  selectedCarcassLaminate?: { id: string; name: string; code: string; hex?: string };
+  selectedShutterLaminate?: { id: string; name: string; code: string; hex?: string };
+  selectedHardwareObj?: { id: string; name: string; code?: string };
+  onOpenPicker: (slot: string) => void;
+}) {
+  const slots = getSemanticSlotsForModule(module);
+
+  const slotMetadata: Record<string, { name: string; code: string; hex?: string; isCertified: boolean }> = {
+    carcass: {
+      name: selectedCarcassLaminate?.name || '18mm HDHMR Smoked Oak',
+      code: selectedCarcassLaminate?.code || 'ULT-WOD-03',
+      hex: selectedCarcassLaminate?.hex || '#654321',
+      isCertified: Boolean(selectedCarcassLaminate?.code && !selectedCarcassLaminate.code.startsWith('REF-')),
+    },
+    shutter: {
+      name: selectedShutterLaminate?.name || 'Mirror High-Gloss Acrylic',
+      code: selectedShutterLaminate?.code || 'ULT-HG-01',
+      hex: selectedShutterLaminate?.hex || '#F7F7F2',
+      isCertified: Boolean(selectedShutterLaminate?.code && !selectedShutterLaminate.code.startsWith('REF-')),
+    },
+    countertop: {
+      name: 'Calacatta Honed Sintered Stone (40mm)',
+      code: 'ULT-STN-04',
+      hex: '#F3EDE2',
+      isCertified: true,
+    },
+    'back-panel': {
+      name: '9mm Smoked Walnut Backing',
+      code: 'ULT-WOD-03',
+      hex: '#654321',
+      isCertified: true,
+    },
+    hardware: {
+      name: selectedHardwareObj?.name || 'Blum Clip-Top Soft-Close Hinge',
+      code: selectedHardwareObj?.code || 'BLUM-CLIP-01',
+      hex: '#a1a1aa',
+      isCertified: Boolean(selectedHardwareObj?.code && !selectedHardwareObj.code.startsWith('REF-')),
+    },
+    glass: {
+      name: 'Graphite Aluminium Tinted Fluted Glass',
+      code: 'ULT-GLS-05',
+      hex: '#38424d',
+      isCertified: true,
+    },
+    lighting: {
+      name: '3000K Warm Under-Cabinet LED Strip',
+      code: 'ULT-LGT-3000K',
+      hex: '#ffe8a3',
+      isCertified: true,
+    },
+    metal: {
+      name: 'Brushed Brass Edge Profile & Trims',
+      code: 'ULT-MTL-BRASS',
+      hex: '#d4af37',
+      isCertified: true,
+    },
+    fabric: {
+      name: 'Sand Bouclé Ergonomic Fabric',
+      code: 'ULT-FAB-BOUCLE',
+      hex: '#e8e2d5',
+      isCertified: true,
+    },
+  };
+
+  return (
+    <div className="material-swatch-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+      {slots.map((slot) => {
+        const item = slotMetadata[slot] || {
+          name: `${slot} finish`,
+          code: 'REF-PHOTO',
+          hex: '#d6c7b8',
+          isCertified: false,
+        };
+        const isCertified = item.isCertified;
+        return (
+          <div
+            key={slot}
+            className="material-swatch-card"
+            onClick={() => onOpenPicker(slot)}
+            title={`Click to swap ${slot} finish`}
+            style={{
+              padding: '8px 10px',
+              border: '1px solid #e7dcce',
+              borderRadius: '8px',
+              background: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+              transition: 'all 0.15s ease',
+              textAlign: 'left',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span
+                style={{
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '4px',
+                  background: item.hex ?? '#d6c7b8',
+                  border: '1px solid rgba(0,0,0,0.15)',
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase' }}>
+                {slot.replace('-', ' ')}
+              </span>
+            </div>
+            <strong style={{ fontSize: '11px', color: '#1c1917', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {item.name}
+            </strong>
+            <small style={{ fontSize: '9.5px', color: '#78716c', fontFamily: 'monospace' }}>
+              {item.code}
+            </small>
+            <div>
+              {isCertified ? (
+                <span className="material-swatch-badge-certified" style={{ fontSize: '8.5px', fontWeight: 800, color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '1px 5px', borderRadius: '4px' }}>
+                  ✓ CERTIFIED CATALOG
+                </span>
+              ) : (
+                <span className="material-swatch-badge-reference" style={{ fontSize: '8.5px', fontWeight: 800, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 5px', borderRadius: '4px' }}>
+                  📷 REFERENCE / INSPIRATION
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
