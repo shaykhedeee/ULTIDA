@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildProductionSnapshot, generateProductionLabelsSvg, generateProductionNestingSvg, nestPanels2D } from '../src/index.ts';
+import { buildProductionSnapshot, generateFullProductionCutlist, generateProductionLabelsSvg, generateProductionNestingSvg, nestPanels2D } from '../src/index.ts';
 
 test('production snapshot separates panel thickness from its visible height', () => {
   const snapshot = buildProductionSnapshot({
@@ -27,4 +27,17 @@ test('production labels and nesting remain linked to physical scene part identit
   assert.match(labels, /1200 x 900 x 18 mm/);
   assert.match(nesting, /panel-1/);
   assert.match(nesting, /oak 18 mm/);
+});
+
+test('legacy cutlist entrypoint uses compiled parts and never invents a carcass', () => {
+  const scene = {
+    projectId: 'project-1',
+    modules: [{ id: 'module-1', family: 'wardrobe', widthMm: 2400, depthMm: 600, heightMm: 2700 }],
+    moduleParts: [{ id: 'approved-panel', moduleId: 'module-1', roomId: 'bedroom', semanticType: 'panel', name: 'Approved side panel', widthMm: 18, depthMm: 600, heightMm: 2400, position: { xMm: 0, yMm: 0, zMm: 0 }, rotationDeg: 0, materialId: 'oak-18', confidence: 1 }],
+    metadata: { status: 'approved', designVersion: 'scene-10' },
+  } as any;
+  const cutlist = generateFullProductionCutlist(scene);
+  assert.deepEqual(cutlist.parts.map((part) => part.id), ['approved-panel']);
+  assert.equal(cutlist.parts[0]?.materialCode, 'oak-18');
+  assert.equal(cutlist.parts.some((part) => part.id === 'module-1-left'), false);
 });

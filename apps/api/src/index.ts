@@ -840,11 +840,12 @@ app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/cutlist.xlsx
   }
 });
 
-app.post('/api/production/boq', (request, response) => {
+app.post('/api/production/boq', requireProjectUser, (request, response) => {
   try {
     const { projectId, sceneVersionId, scene, customRates } = request.body ?? {};
     if (!projectId || !scene) return response.status(400).json({ success: false, code: 'INVALID_BOQ_REQUEST', message: 'projectId and scene are required.' });
     const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
+    if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before generating a commercial BOQ.' });
     assertSceneBayReconciliation(normalized);
     const boq = generateProjectBOQ(normalized, customRates);
     return response.status(200).json({ success: true, boq });
@@ -853,11 +854,12 @@ app.post('/api/production/boq', (request, response) => {
   }
 });
 
-app.post('/api/production/boq.csv', (request, response) => {
+app.post('/api/production/boq.csv', requireProjectUser, (request, response) => {
   try {
     const { projectId, scene, customRates } = request.body ?? {};
     if (!projectId || !scene) return response.status(400).json({ success: false, code: 'INVALID_BOQ_REQUEST', message: 'projectId and scene are required.' });
     const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
+    if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before generating a commercial BOQ.' });
     assertSceneBayReconciliation(normalized);
     const boq = generateProjectBOQ(normalized, customRates);
     response.setHeader('content-type', 'text/csv');
