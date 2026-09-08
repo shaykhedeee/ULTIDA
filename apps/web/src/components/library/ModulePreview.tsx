@@ -418,6 +418,18 @@ export function ModulePreview({ module, compact = false, style, defaultView = 'v
               padding: has3D ? '4px' : 0,
             }}
           />
+          {/* Explicit Reference / Inspiration Watermark to prevent silent mixing */}
+          {!has3D && (
+            <div style={{
+              position: 'absolute', top: 4, left: 4,
+              background: 'rgba(180, 83, 9, 0.92)', color: '#ffffff',
+              fontSize: '7.5px', fontWeight: 800, borderRadius: 3, padding: '2px 5px',
+              letterSpacing: '.04em', zIndex: 2, display: 'inline-flex', alignItems: 'center', gap: 3,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.4)',
+            }}>
+              📷 REFERENCE / INSPIRATION
+            </div>
+          )}
           {/* Overlay — dark for real-life photos, minimal badge for 3D renders */}
           {has3D ? (
             <div style={{
@@ -426,7 +438,7 @@ export function ModulePreview({ module, compact = false, style, defaultView = 'v
               fontSize: '8px', fontWeight: 800, borderRadius: 6, padding: '2px 6px',
               letterSpacing: '.04em',
             }}>
-              {has3D ? `ASSET PREVIEW · ${module.widthMm}mm` : `REFERENCE · ${module.widthMm}mm`}
+              ASSET PREVIEW · {module.widthMm}mm
             </div>
           ) : (
             <div style={{

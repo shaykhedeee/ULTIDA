@@ -82,7 +82,7 @@ try {
       await runWorkspace('@ultida/render-pipeline', 'test');
       break;
     case 'rooms':
-      await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/vastu-readiness.test.ts']);
+      await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/vastu-readiness.test.ts', 'apps/web/test/wall-bay-editor.test.ts']);
       await runCommand(node, ['--test', 'apps/web/test/room-catalog.test.mjs']);
       break;
     case 'all':
@@ -92,7 +92,7 @@ try {
       await runWorkspace('@ultida/api', 'test');
       await runWorkspace('@ultida/aura-tools', 'test');
       await runWorkspace('@ultida/render-pipeline', 'test');
-      await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/vastu-readiness.test.ts']);
+      await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/vastu-readiness.test.ts', 'apps/web/test/wall-bay-editor.test.ts']);
       await runCommand(node, ['--test', 'apps/web/test/room-catalog.test.mjs']);
       break;
   }

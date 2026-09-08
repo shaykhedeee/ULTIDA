@@ -28,6 +28,8 @@ import TopViewFloorplanEnhancer, {
   type VastuAnalysis,
   type VastuFinding,
 } from '../../components/spaces/TopViewFloorplanEnhancer';
+import WallBayEditor from '../../components/spaces/WallBayEditor';
+import { type CompositionScheduleV1 } from '@ultida/contracts';
 import { getApiBase } from '../../lib/api-base';
 import './spaces.css';
 
@@ -377,7 +379,11 @@ export function SpacesWorkspace() {
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
-  const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'brief' | 'scene'>('candidates');
+  const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'modules' | 'brief' | 'scene'>(() => {
+    const tab = searchParams.get('tab');
+    return tab === 'modules' || tab === 'bays' ? 'modules' : 'candidates';
+  });
+  const [compositionSchedules, setCompositionSchedules] = useState<Record<string, CompositionScheduleV1>>({});
   const [canvasRenderMode, setCanvasRenderMode] = useState<'2d' | '3d_isometric' | 'stager'>('2d');
   const [roomFurnitureMap, setRoomFurnitureMap] = useState<Record<string, TopViewFurniture[]>>({});
   const [roomVastuMap, setRoomVastuMap] = useState<Record<string, VastuAnalysis>>({});
@@ -2060,13 +2066,13 @@ export function SpacesWorkspace() {
             {sel ? (
               <div className="props-body">
                 <div className="room-workflow-summary">
-                  <span>{spacePanel === 'geometry' ? '1' : spacePanel === 'candidates' ? '2' : spacePanel === 'brief' ? '3' : spacePanel === 'scene' ? '4' : '★'}</span>
+                  <span>{spacePanel === 'geometry' ? '1' : spacePanel === 'candidates' ? '2' : spacePanel === 'modules' ? '3' : spacePanel === 'brief' ? '4' : spacePanel === 'scene' ? '5' : '★'}</span>
                   <div>
                     <strong>
-                      {spacePanel === 'geometry' ? 'Verify the physical room' : spacePanel === 'candidates' ? 'Deterministic Layout Candidates' : spacePanel === 'brief' ? 'Define the design brief' : spacePanel === 'scene' ? 'Prepare the scene' : 'Senior Designer Architectural Audit'}
+                      {spacePanel === 'geometry' ? 'Verify the physical room' : spacePanel === 'candidates' ? 'Deterministic Layout Candidates' : spacePanel === 'modules' ? 'Wall Bays & Modular Reconciliation' : spacePanel === 'brief' ? 'Define the design brief' : spacePanel === 'scene' ? 'Prepare the scene' : 'Senior Designer Architectural Audit'}
                     </strong>
                     <small>
-                      {spacePanel === 'geometry' ? 'Room edges, wall sizes, openings and ceiling.' : spacePanel === 'candidates' ? 'Select an architecturally verified layout candidate.' : spacePanel === 'brief' ? 'Required modules, priorities and client intent.' : spacePanel === 'scene' ? 'Feature walls, finishes and preferred camera.' : '10-Year expert ergonomics, work triangles, lighting and material harmony.'}
+                      {spacePanel === 'geometry' ? 'Room edges, wall sizes, openings and ceiling.' : spacePanel === 'candidates' ? 'Select an architecturally verified layout candidate.' : spacePanel === 'modules' ? 'Adjust bay boundaries, enforce keep-outs, and reconcile live usable width.' : spacePanel === 'brief' ? 'Required modules, priorities and client intent.' : spacePanel === 'scene' ? 'Feature walls, finishes and preferred camera.' : '10-Year expert ergonomics, work triangles, lighting and material harmony.'}
                     </small>
                   </div>
                 </div>
@@ -2075,6 +2081,7 @@ export function SpacesWorkspace() {
                   <button type="button" className={spacePanel === 'candidates' ? 'active' : ''} onClick={() => setSpacePanel('candidates')}>Candidates</button>
                   <button type="button" className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>AI Architect (10Y)</button>
                   <button type="button" className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>Geometry</button>
+                  <button type="button" className={spacePanel === 'modules' ? 'active' : ''} onClick={() => setSpacePanel('modules')}>Bays &amp; Modules</button>
                   <button type="button" className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>Design brief</button>
                   <button type="button" className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>Scene setup</button>
                 </div>
@@ -2354,7 +2361,7 @@ export function SpacesWorkspace() {
                               alignItems: 'center',
                               gap: 4
                             }}
-                            onClick={() => navigate(`/projects/${projectId}/spaces?tab=modules`)}
+                            onClick={() => setSpacePanel('modules')}
                           >
                             Configure Modules &rarr;
                           </button>
@@ -2419,6 +2426,126 @@ export function SpacesWorkspace() {
                     )}
                   </div>
                 </>}
+
+                {spacePanel === 'modules' && (() => {
+                  const boundaryWalls = roomBoundaryWalls(sel.room);
+                  const activeWall = selectedWall
+                    ? walls.find((w) => w.id === selectedWall) || boundaryWalls.find((w) => w.id === selectedWall)
+                    : boundaryWalls[0] || null;
+                  const activeWallIndex = activeWall
+                    ? boundaryWalls.findIndex((w) => w.id === activeWall.id)
+                    : 0;
+                  const activeWallLabel = activeWallIndex >= 0 ? `Wall ${String.fromCharCode(65 + activeWallIndex)}` : 'Selected Wall';
+                  const activeWallLength = activeWall ? Math.round(wallLen(activeWall)) : 3000;
+                  const activeWallOpenings = activeWall
+                    ? openings
+                        .filter((o) => o.wallId === activeWall.id)
+                        .map((o) => ({
+                          id: o.id,
+                          wallId: activeWall.id,
+                          kind: o.kind,
+                          offsetAlongWallMm: o.offsetAlongWallMm,
+                          widthMm: o.widthMm,
+                        }))
+                    : [];
+
+                  return (
+                    <div className="modules-panel" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      <div className="modules-panel-intro">
+                        <strong style={{ fontSize: 13, color: '#f0f4f8', display: 'block', marginBottom: 3 }}>
+                          Wall Bays &amp; Usable Width Reconciliation
+                        </strong>
+                        <p style={{ margin: 0, fontSize: 11.5, color: '#9ba8b7', lineHeight: 1.4 }}>
+                          Configure modular bays along each measured wall of <strong>{sel.room.name}</strong>.
+                          Enforces door/window keep-out zones and reconciles bay widths against approved usable dimensions in real time.
+                        </p>
+                      </div>
+
+                      {/* Wall Picker Tabs */}
+                      <div className="wall-picker-tabs" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+                        {boundaryWalls.map((w, idx) => {
+                          const isCurrent = activeWall?.id === w.id;
+                          const wLabel = `Wall ${String.fromCharCode(65 + idx)}`;
+                          const wL = Math.round(wallLen(w));
+                          return (
+                            <button
+                              key={w.id}
+                              type="button"
+                              className={`wall-tab-btn ${isCurrent ? 'active' : ''}`}
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: 6,
+                                border: isCurrent ? '1px solid var(--gold, #d4af37)' : '1px solid var(--line, #282f37)',
+                                background: isCurrent ? '#222b37' : '#171d24',
+                                color: isCurrent ? 'var(--gold, #d4af37)' : 'var(--text-secondary, #9ba8b7)',
+                                cursor: 'pointer',
+                                fontSize: 11,
+                                fontWeight: 600,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'flex-start',
+                                gap: 2,
+                                flexShrink: 0
+                              }}
+                              onClick={() => setSelectedWall(w.id)}
+                            >
+                              <span>{wLabel}</span>
+                              <small style={{ fontSize: 9, opacity: 0.8 }}>{wL.toLocaleString()} mm</small>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {activeWall ? (
+                        <WallBayEditor
+                          wall={{
+                            id: activeWall.id,
+                            lengthMm: activeWallLength,
+                            name: `${activeWallLabel} (${activeWallLength}mm)`,
+                            start: activeWall.start,
+                            end: activeWall.end,
+                          }}
+                          openings={activeWallOpenings}
+                          leftClearanceMm={50}
+                          rightClearanceMm={50}
+                          initialSchedule={compositionSchedules[activeWall.id] || null}
+                          onScheduleChange={(newSchedule) => {
+                            setCompositionSchedules((prev) => ({
+                              ...prev,
+                              [activeWall.id]: newSchedule,
+                            }));
+                          }}
+                          onConfirmSchedule={(confirmedSchedule) => {
+                            setCompositionSchedules((prev) => ({
+                              ...prev,
+                              [activeWall.id]: confirmedSchedule,
+                            }));
+                            setSaveState(`Wall ${activeWallLabel} bay schedule confirmed for production!`);
+                          }}
+                        />
+                      ) : (
+                        <div className="empty-panel-note" style={{ padding: 16, background: '#191f26', borderRadius: 6, textAlign: 'center', fontSize: 12, color: '#8fa0b2' }}>
+                          Select a wall from the room boundary above to configure its modular bays.
+                        </div>
+                      )}
+
+                      {/* Catalog quick-access */}
+                      <div style={{ marginTop: 10, paddingTop: 12, borderTop: '1px solid var(--line, #282f37)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: '#f0f4f8', display: 'block' }}>Indian Modular Catalog</span>
+                          <small style={{ color: '#8fa0b2', fontSize: 11 }}>Browse certified modular assemblies sized for this wall</small>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-secondary btn-sm"
+                          onClick={() => setShowDesignLibrary(true)}
+                        >
+                          <BookOpen size={13} style={{ marginRight: 4 }} /> Open Catalog
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {spacePanel === 'brief' && <>
                   <div className="ai-brief-trigger">

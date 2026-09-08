@@ -913,7 +913,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                         <div className="module-preview-fallback" style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
                           <ModulePreview module={module} interactive={false} />
                         </div>
-                        <span>{moduleImageMode === 'nobg' ? '📐 3D Parametric CAD Schematic (No BG)' : 'Approved style reference (click to inspect)'}</span>
+                        <span>{moduleImageMode === 'nobg' ? '📐 3D Parametric CAD Schematic (No BG)' : '📷 REFERENCE / INSPIRATION (Click to inspect)'}</span>
                       </div>
                       <div className="module-technical-strip">
                         <ModulePreview module={module} compact interactive={false} />
