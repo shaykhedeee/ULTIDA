@@ -21,7 +21,7 @@ function run(label, args, timeoutMs = 180_000) {
   return new Promise((resolve, reject) => {
     process.stdout.write(`\n[check] ${label} started\n`);
     const child = spawn(npm, args, {
-      stdio: 'inherit',
+      stdio: ['ignore', 'inherit', 'inherit'],
       shell: process.platform === 'win32',
       env: {
         ...process.env,

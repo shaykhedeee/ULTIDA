@@ -47,7 +47,7 @@ function runWorkspace(name, script = 'build', timeoutMs = 180_000) {
     process.stdout.write(`\n[build] ${name} ${script} started\n`);
     const args = isPnpm ? ['--filter', name, 'run', script] : ['run', script, '--workspace', name];
     const child = spawn(npm, args, {
-      stdio: 'inherit',
+      stdio: ['ignore', 'inherit', 'inherit'],
       shell: process.platform === 'win32',
       cwd: rootDir,
       env: {

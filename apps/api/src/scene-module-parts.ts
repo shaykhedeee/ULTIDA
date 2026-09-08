@@ -27,6 +27,7 @@ function compilerCategory(family: string): CategoryType | null {
   if (normalized.includes('kitchen')) return 'kitchen';
   if (normalized.includes('bed')) return 'bed';
   if (normalized.includes('utility')) return 'utility';
+  if (normalized.includes('light')) return 'freestanding_lighting';
   return null;
 }
 
