@@ -654,11 +654,11 @@ async function readApprovedProductionScene(request: express.Request) {
 export async function buildDossierSpecFromContext(request: express.Request, scene: SceneV1, snapshot: any): Promise<ProductionDossierSpecV1> {
   const projectId = String(request.params.projectId);
   const client = getRequestSupabaseClient(request);
-  let projectName = 'SHARMA LUXURY RESIDENCE (3BHK)';
-  let clientName = 'MR. ROHIT & MRS. ANANYA SHARMA';
-  let location = 'Pali Hill, Bandra West, Mumbai 400050';
-  let designerName = 'MUSKAN PAREEK';
-  let factoryManager = 'VIKRAM SINGH';
+  let projectName = 'PROJECT NAME TO BE CONFIRMED';
+  let clientName = 'CLIENT TO BE CONFIRMED';
+  let location = 'SITE LOCATION TO BE CONFIRMED';
+  let designerName = 'DESIGNER TO BE CONFIRMED';
+  let factoryManager = 'FACTORY MANAGER TO BE CONFIRMED';
 
   try {
     const projResult = await client.from('projects').select('*').eq('id', projectId).maybeSingle();
@@ -679,7 +679,6 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
     }
   } catch {}
 
-  const boq = generateProjectBOQ(scene);
   const edgeSummary = calculateEdgeBandingSummary(snapshot.parts);
   const roomNames = new Map(scene.rooms.map((room) => [room.id, room.name]));
   const flooring = buildFlooringQuantities(scene.floors.flatMap((floor) => floor.surfaces ?? [])).map((quantity) => ({
@@ -693,7 +692,7 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
       name: projectName,
       clientName,
       location,
-      phone: '+91 98201 44521 / +91 98203 11842',
+      phone: undefined,
       designerName,
       factoryManager,
       date: new Date().toISOString().split('T')[0],
@@ -701,22 +700,18 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
       status: (scene.metadata?.status as any) || 'approved',
     },
     brief: {
-      lifestyleBrief: briefData?.lifestyle || 'Client envisions a modern luxury residence with clean architectural lines, concealed joinery, and warm organic textures. Conforms to System 32 joinery standard and IS 710 Boiling Water Proof (BWP) / Action TESA HDHMR substrates.',
-      roomsScope: [
-        { name: 'Modular Kitchen & Utility Suite', areaSqm: 14.8, areaSqFt: 159.3, modulesCount: 6, scopeSummary: 'L-Shaped Counter + Breakfast Island + 4-Door Pantry with Blum Aventos Lifts' },
-        { name: 'Master Bedroom Suite', areaSqm: 24.5, areaSqFt: 263.7, modulesCount: 5, scopeSummary: '4-Door Floor-to-Ceiling Wardrobe + Integrated Bay Seating + Vanity Dresser' },
-        { name: 'Kids Bedroom Suite', areaSqm: 18.2, areaSqFt: 195.9, modulesCount: 4, scopeSummary: '3-Door Sliding Wardrobe with Bronze Fluted Glass + Ergonomic Study Return' },
-        { name: 'Living & Dining Lounge', areaSqm: 38.4, areaSqFt: 413.3, modulesCount: 5, scopeSummary: '3200mm Floating TV Console + Fluted CNC Mandir + 2100mm Crockery Bar' },
-        { name: 'Master Washroom Suite', areaSqm: 6.5, areaSqFt: 70.0, modulesCount: 2, scopeSummary: '1200mm Floating Vanity with Concealed Cistern Box + LED Capsule Mirror' },
-      ],
-      appliances: [
-        { name: 'Kitchen Hob', brand: 'Bosch Serie 6', model: '4-Burner Glass Top (Built-in)', dimensionsMm: '780×510mm', status: 'client_provided' },
-        { name: 'Kitchen Chimney', brand: 'Faber Primus Plus', model: '90cm Filterless Auto-Clean', dimensionsMm: '900×500mm', status: 'studio_supplied' },
-        { name: 'Built-in Microwave', brand: 'Hafele Diamond Line', model: '28L Convection Microwave', dimensionsMm: '595×388mm', status: 'studio_supplied' },
-        { name: 'Dishwasher', brand: 'Bosch Serie 4', model: '14 Place Settings Free-standing', dimensionsMm: '600×845mm', status: 'client_provided' },
-      ],
+      lifestyleBrief: typeof briefData?.lifestyle === 'string' ? briefData.lifestyle : 'No approved project brief has been recorded for this scene.',
+      roomsScope: scene.rooms.map((room) => {
+        const modules = scene.modules.filter((module) => module.roomId === room.id);
+        const areaSqm = Math.abs(room.boundary.slice(0, -1).reduce((sum, point, index) => {
+          const next = room.boundary[index + 1] ?? room.boundary[0];
+          return sum + point.xMm * next.yMm - next.xMm * point.yMm;
+        }, 0)) / 2 / 1_000_000;
+        return { name: room.name, areaSqm, areaSqFt: areaSqm * 10.7639, modulesCount: modules.length, scopeSummary: modules.length ? modules.map((module) => module.family).join(', ') : 'No modular units placed' };
+      }),
+      appliances: Array.isArray(briefData?.appliances) ? briefData.appliances.filter((item: any) => item && typeof item.name === 'string').map((item: any) => ({ name: item.name, brand: typeof item.brand === 'string' ? item.brand : undefined, model: typeof item.model === 'string' ? item.model : undefined, dimensionsMm: typeof item.dimensionsMm === 'string' ? item.dimensionsMm : undefined, status: ['client_provided', 'studio_supplied', 'provisional'].includes(item.status) ? item.status : 'provisional' })) : [],
     },
-    elevations: [], // Defaults generate authentic kitchen, master-bed, and living/dining sheets
+    elevations: [],
     finishes: {
       coreSubstrates: [],
       surfaceFinishes: [],
@@ -726,25 +721,16 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
     },
     bom: {
       boardNesting: {
-        sheets18mm: boq.summary.plywoodSheets18mm || 18,
-        sheets8mm: boq.summary.mdfSheets8mm || 7,
-        sheetsLaminate: boq.summary.laminateSheets || 12,
-        totalAreaSqm: 48.2,
-        totalAreaSqFt: 518.8,
-        nestingYieldPct: 87.4,
+        sheets18mm: nestPanels2D(snapshot.parts.filter((part: any) => part.thicknessMm >= 16), snapshot.fabricationRules).sheets.length,
+        sheets8mm: nestPanels2D(snapshot.parts.filter((part: any) => part.thicknessMm < 16), snapshot.fabricationRules).sheets.length,
+        sheetsLaminate: 0,
+        totalAreaSqm: snapshot.parts.reduce((total: number, part: any) => total + (part.lengthMm * part.widthMm * part.quantity) / 1_000_000, 0),
+        totalAreaSqFt: snapshot.parts.reduce((total: number, part: any) => total + (part.lengthMm * part.widthMm * part.quantity) / 1_000_000, 0) * 10.7639,
+        nestingYieldPct: 0,
         stockSheetSizeMm: '2440 × 1220 mm',
       },
-      edgeBandingSummary: edgeSummary.length ? edgeSummary : [
-        { tapeType: '2.0mm ABS (Shutters)', totalMeters: 142.5 },
-        { tapeType: '0.8mm PVC (Carcass)', totalMeters: 318.0 },
-      ],
-      hardwareTotals: snapshot.hardware.length ? snapshot.hardware : [
-        { name: 'Blum Clip-top 110° Soft-close Hinges', category: 'hinge', quantity: 48, unit: 'pcs' },
-        { name: 'Hettich InnoTech Atira 500mm Runners', category: 'slide', quantity: 14, unit: 'sets' },
-        { name: 'Blum Aventos HK-S Bi-fold Lifts', category: 'lift', quantity: 4, unit: 'sets' },
-        { name: 'Champagne Gola Profile Handle', category: 'handle', quantity: 18.5, unit: 'meters' },
-        { name: 'Minifix & Expanding Cam Locks', category: 'fastener', quantity: 120, unit: 'sets' },
-      ],
+      edgeBandingSummary: edgeSummary,
+      hardwareTotals: snapshot.hardware,
       flooring,
       cutlistParts: snapshot.parts.map((p: any) => ({
         partName: p.partName,
@@ -757,40 +743,7 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
         grain: p.grainDirection || 'none',
       })),
     },
-    boq: {
-      lineItems: boq.items.map((it) => ({
-        category: it.category,
-        description: it.description,
-        qty: it.quantity,
-        unit: it.unit,
-        rateInr: it.rateInr,
-        amountInr: it.totalInr,
-      })),
-      subtotalInr: boq.subtotalInr,
-      gstRatePct: 18,
-      taxInr: boq.taxInr,
-      totalInr: boq.totalInr,
-      milestones: [
-        { stage: 'Stage 1: Design Booking Advance', pct: 10, amountInr: Math.round(boq.totalInr * 0.1), trigger: 'Upon 3D design brief approval & laser site survey' },
-        { stage: 'Stage 2: Production Release Sign-Off', pct: 40, amountInr: Math.round(boq.totalInr * 0.4), trigger: 'Upon signing of this complete architectural dossier & CNC release' },
-        { stage: 'Stage 3: Factory Dispatch Readiness', pct: 40, amountInr: Math.round(boq.totalInr * 0.4), trigger: 'Upon manufacturing completion & factory quality audit' },
-        { stage: 'Stage 4: Handover & Sign-off', pct: 10, amountInr: Math.round(boq.totalInr * 0.1), trigger: 'Upon site installation & 10-point checklist completion' },
-      ],
-    },
-    checklist: {
-      items: [
-        { check: '1. Civil Plaster & 90° Wall Corners', tolerance: '±2mm laser square', status: 'VERIFIED_READY', inspectedBy: 'Lead Architect' },
-        { check: '2. Flooring & Skirting Level', tolerance: 'FFL verified flat', status: 'VERIFIED_READY', inspectedBy: 'Site Supervisor' },
-        { check: '3. False Ceiling Level & Clearances', tolerance: '+2700mm datum', status: 'VERIFIED_READY', inspectedBy: 'Lead Architect' },
-        { check: '4. Chimney Duct & Core Cutting', tolerance: '150mm Ø at +2250mm FFL', status: 'VERIFIED_READY', inspectedBy: 'MEP Engineer' },
-        { check: '5. Plumbing Inlets & Drainage Outlets', tolerance: 'Pressure tested', status: 'VERIFIED_READY', inspectedBy: 'Plumbing Lead' },
-        { check: '6. Electrical Conduit & LED Drivers', tolerance: 'Concealed at +1100mm', status: 'VERIFIED_READY', inspectedBy: 'Electrical Lead' },
-        { check: '7. Wall Moisture Content Test', tolerance: '< 12% moisture meter', status: 'VERIFIED_READY', inspectedBy: 'Quality Auditor' },
-        { check: '8. Lift & Staircase Access Verification', tolerance: '2440mm sheet passage', status: 'VERIFIED_READY', inspectedBy: 'Logistics Lead' },
-        { check: '9. Power Supply for Power Tools', tolerance: 'Dedicated 16A continuous', status: 'VERIFIED_READY', inspectedBy: 'Site Supervisor' },
-        { check: '10. Site Security & Lock & Key', tolerance: 'Weatherproof & lockable', status: 'VERIFIED_READY', inspectedBy: 'Client / PM' },
-      ],
-    },
+    checklist: { items: [] },
   };
 }
 

@@ -6,9 +6,6 @@ import {
   Palette, Grid, Maximize2, Compass, Box
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { getApiBase } from '../../lib/api-base';
-import { generateSketchUpRubyScript } from '../../lib/sketchup-exporter';
-import { createDefaultDemoScene } from '../../features/scene/SceneStudio';
 import ArchitecturalElevationSignOffSheet from '../modular/ArchitecturalElevationSignOffSheet';
 import './working-drawings-dossier.css';
 
@@ -40,10 +37,10 @@ export function WorkingDrawingsDossier({
     designerName: string;
     date: string;
   }>({
-    name: 'SHARMA LUXURY RESIDENCE (3BHK)',
-    clientName: 'MR. ROHIT & MRS. ANANYA SHARMA',
-    location: 'Pali Hill, Bandra West, Mumbai 400050',
-    designerName: 'MUSKAN PAREEK',
+    name: 'PROJECT NAME TO BE CONFIRMED',
+    clientName: 'CLIENT TO BE CONFIRMED',
+    location: 'SITE LOCATION TO BE CONFIRMED',
+    designerName: 'DESIGNER TO BE CONFIRMED',
     date: new Date().toISOString().split('T')[0],
   });
 
@@ -81,135 +78,6 @@ export function WorkingDrawingsDossier({
 
   const currentSheet = SHEETS[activeSheetIndex] || SHEETS[0];
 
-  function downloadCompleteDxfPackage() {
-    // Generate comprehensive multi-entity AutoCAD DXF file (R12/2000 compliant)
-    const lines = [
-      '0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC',
-      '0', 'SECTION', '2', 'TABLES',
-      '0', 'TABLE', '2', 'LAYER', '70', '7',
-      '0', 'LAYER', '2', 'A-WALL', '70', '0', '62', '7', '6', 'CONTINUOUS', '0',
-      '0', 'LAYER', '2', 'A-CABN-OUTLINE', '70', '0', '62', '4', '6', 'CONTINUOUS', '0',
-      '0', 'LAYER', '2', 'A-CABN-INTERIOR', '70', '0', '62', '3', '6', 'CONTINUOUS', '0',
-      '0', 'LAYER', '2', 'A-CABN-DIMS', '70', '0', '62', '1', '6', 'CONTINUOUS', '0',
-      '0', 'LAYER', '2', 'A-CABN-TEXT', '70', '0', '62', '2', '6', 'CONTINUOUS', '0',
-      '0', 'LAYER', '2', 'A-HARDWARE', '70', '0', '62', '5', '6', 'CONTINUOUS', '0',
-      '0', 'LAYER', '2', 'A-CABN-SPEC', '70', '0', '62', '6', '6', 'CONTINUOUS', '0',
-      '0', 'ENDTAB', '0', 'ENDSEC',
-      '0', 'SECTION', '2', 'ENTITIES',
-    ];
-
-    function addLine(layer: string, x1: number, y1: number, x2: number, y2: number) {
-      lines.push('0', 'LINE', '8', layer, '10', x1.toFixed(2), '20', y1.toFixed(2), '30', '0.0', '11', x2.toFixed(2), '21', y2.toFixed(2), '31', '0.0');
-    }
-
-    function addText(layer: string, text: string, x: number, y: number, heightMm: number) {
-      lines.push('0', 'TEXT', '8', layer, '10', x.toFixed(2), '20', y.toFixed(2), '30', '0.0', '40', heightMm.toString(), '1', text);
-    }
-
-    // Sheet Border & Title Box at (0, 0)
-    addLine('A-CABN-OUTLINE', 0, 0, 4200, 0);
-    addLine('A-CABN-OUTLINE', 4200, 0, 4200, 2970);
-    addLine('A-CABN-OUTLINE', 4200, 2970, 0, 2970);
-    addLine('A-CABN-OUTLINE', 0, 2970, 0, 0);
-    addText('A-CABN-TEXT', `PROJECT: ${projectData.name}`, 2600, 200, 60);
-    addText('A-CABN-TEXT', `CLIENT: ${projectData.clientName}`, 2600, 120, 50);
-    addText('A-CABN-TEXT', `DRAWING: ${currentSheet.code} - ${currentSheet.title}`, 2600, 50, 45);
-
-    // Carcass Drafting entities for active sheet
-    addLine('A-CABN-OUTLINE', 300, 400, 2400, 400);
-    addLine('A-CABN-OUTLINE', 2400, 400, 2400, 2500);
-    addLine('A-CABN-OUTLINE', 2400, 2500, 300, 2500);
-    addLine('A-CABN-OUTLINE', 300, 2500, 300, 400);
-    // 100mm Skirting
-    addLine('A-CABN-INTERIOR', 300, 500, 2400, 500);
-    addText('A-CABN-TEXT', 'SKIRTING 100mm', 1200, 430, 35);
-    // Vertical Mullion
-    addLine('A-CABN-INTERIOR', 1350, 500, 1350, 2500);
-    // Shelves
-    addLine('A-CABN-INTERIOR', 300, 1550, 1350, 1550);
-    addLine('A-CABN-INTERIOR', 1350, 1550, 2400, 1550);
-    addText('A-CABN-TEXT', '1050 MM CLEAR HANGING', 700, 1950, 40);
-    addText('A-CABN-TEXT', 'AS / EQ SHELVING', 1750, 1950, 40);
-
-    // Dimension lines (Red)
-    addLine('A-CABN-DIMS', 300, 2600, 2400, 2600);
-    addText('A-CABN-DIMS', '2100 mm', 1300, 2650, 45);
-    addLine('A-CABN-DIMS', 2500, 400, 2500, 2500);
-    addText('A-CABN-DIMS', '2100 mm', 2550, 1400, 45);
-
-    lines.push('0', 'ENDSEC', '0', 'EOF');
-    const dxfString = lines.join('\r\n');
-    const blob = new Blob([dxfString], { type: 'application/dxf' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${projectData.name.replace(/[^a-z0-9]+/gi, '-')}-${currentSheet.code}.dxf`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function downloadSketchUpModel() {
-    try {
-      const demo = createDefaultDemoScene();
-      const sceneToExport = {
-        ...demo,
-        projectId: projectId || 'sharma-residence',
-        modules: (modules && modules.length > 0) ? modules.map((m) => ({
-          id: m.id,
-          roomId: m.roomId || 'room-master-bed',
-          family: m.family || m.label || 'Modular Casework',
-          widthMm: m.widthMm || 1200,
-          depthMm: m.depthMm || 600,
-          heightMm: m.heightMm || 2100,
-          position: { xMm: 500, yMm: 200 },
-          rotationDeg: 0,
-          anchor: 'floor',
-          confidence: 1,
-        })) : demo.modules,
-      };
-
-      const rubyScript = generateSketchUpRubyScript(sceneToExport as any);
-      const blob = new Blob([rubyScript], { type: 'text/x-ruby;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${projectData.name.replace(/[^a-z0-9]+/gi, '-')}-3D-SketchUp-Model.rb`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Failed to generate SketchUp Ruby script:', err);
-    }
-  }
-
-  async function downloadCompleteProductionPdf() {
-    try {
-      const apiBase = getApiBase();
-      const endpoint = (projectId && sceneVersionId)
-        ? `${apiBase}/api/projects/${projectId}/scenes/${sceneVersionId}/production/package.pdf`
-        : projectId
-        ? `${apiBase}/api/projects/${projectId}/dossier.pdf`
-        : null;
-
-      if (endpoint) {
-        const resp = await fetch(endpoint);
-        if (resp.ok) {
-          const blob = await resp.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${projectData.name.replace(/[^a-z0-9]+/gi, '-')}-Master-Sign-Off-Dossier.pdf`;
-          a.click();
-          URL.revokeObjectURL(url);
-          return;
-        }
-      }
-      window.print();
-    } catch (err) {
-      console.error('Failed to download PDF dossier from server, falling back to print dialog:', err);
-      window.print();
-    }
-  }
-
   return (
     <main className="drawings-dossier-workspace">
       {/* Top Header Command Bar */}
@@ -234,7 +102,8 @@ export function WorkingDrawingsDossier({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             type="button"
-            onClick={downloadCompleteProductionPdf}
+            onClick={() => navigate(`/projects/${projectId}/production?tab=exports`)}
+            disabled={!projectId || !sceneVersionId || !sceneApproved}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -250,30 +119,12 @@ export function WorkingDrawingsDossier({
               boxShadow: '0 2px 10px rgba(197, 156, 45, 0.4)',
             }}
           >
-            <FileText size={15} /> Download Master Sign-Off PDF
+            <FileText size={15} /> Open approved production exports
           </button>
           <button
             type="button"
-            onClick={() => window.print()}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '8px 14px',
-              borderRadius: 8,
-              background: '#334155',
-              color: '#f8fafc',
-              border: '1px solid #475569',
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-          >
-            <Printer size={14} /> Print
-          </button>
-          <button
-            type="button"
-            onClick={downloadCompleteDxfPackage}
+            onClick={() => navigate(`/projects/${projectId}/production?tab=exports`)}
+            disabled={!projectId || !sceneVersionId || !sceneApproved}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -289,11 +140,12 @@ export function WorkingDrawingsDossier({
               boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)',
             }}
           >
-            <Download size={15} /> Download AutoCAD DXF
+            <Download size={15} /> Open authoritative DXF export
           </button>
           <button
             type="button"
-            onClick={downloadSketchUpModel}
+            onClick={() => navigate(`/projects/${projectId}/3d`)}
+            disabled={!projectId || !sceneVersionId}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -309,7 +161,7 @@ export function WorkingDrawingsDossier({
               boxShadow: '0 2px 8px rgba(5, 150, 105, 0.4)',
             }}
           >
-            <Box size={15} /> Download SketchUp 3D (.rb)
+            <Box size={15} /> Open scene-linked 3D studio
           </button>
         </div>
       </header>
@@ -358,7 +210,7 @@ export function WorkingDrawingsDossier({
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', borderBottom: '1px solid #e2e8f0', padding: '14px 20px' }}>
                   <strong style={{ fontSize: 13, color: '#334155' }}>MOBILE NUMBER:</strong>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>+91 98201 44521 / +91 98203 11842</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>CONTACT TO BE CONFIRMED</span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', borderBottom: '1px solid #e2e8f0', padding: '14px 20px', background: '#f8fafc' }}>
                   <strong style={{ fontSize: 13, color: '#334155' }}>PROJECT SITE ADDRESS:</strong>
@@ -366,7 +218,7 @@ export function WorkingDrawingsDossier({
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', borderBottom: '1px solid #e2e8f0', padding: '14px 20px' }}>
                   <strong style={{ fontSize: 13, color: '#334155' }}>LEAD DESIGN ARCHITECT:</strong>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>{projectData.designerName} (Ph: 6360240132)</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>{projectData.designerName} </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', padding: '14px 20px', background: '#f8fafc' }}>
                   <strong style={{ fontSize: 13, color: '#334155' }}>EXECUTION STANDARD:</strong>
@@ -384,10 +236,10 @@ export function WorkingDrawingsDossier({
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, borderTop: '2px solid #cbd5e1', paddingTop: 30 }}>
                   {[
                     { role: 'Client Signature', name: 'Authorized Signatory' },
-                    { role: 'Design Manager', name: 'Ar. Muskan Pareek' },
-                    { role: 'Sales Manager', name: 'Kunal Sharma' },
-                    { role: 'Execution Manager', name: 'Praveen Nair' },
-                    { role: 'Operational Manager', name: 'Sanjay Reddy' },
+                    { role: 'Design Manager', name: 'DESIGNER TO BE CONFIRMED' },
+                    { role: 'Sales Manager', name: 'UNASSIGNED' },
+                    { role: 'Execution Manager', name: 'UNASSIGNED' },
+                    { role: 'Operational Manager', name: 'UNASSIGNED' },
                   ].map((sig, i) => (
                     <div key={i} style={{ textAlign: 'center' }}>
                       <div style={{ height: 40, borderBottom: '1.5px dashed #94a3b8', marginBottom: 8 }} />
@@ -400,7 +252,7 @@ export function WorkingDrawingsDossier({
 
               {/* Footer metadata */}
               <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #e2e8f0', paddingTop: 12, marginTop: 30, fontSize: 11, color: '#94a3b8' }}>
-                <span>Dossier Reference: ULT-DWG-2026-SHARMA-01</span>
+                <span>Dossier Reference: SCENE-LINKED REFERENCE PENDING</span>
                 <span>Cube Decors &amp; Aakar Interior Solutions · Sheet 01 of 10</span>
               </div>
             </div>
@@ -482,7 +334,7 @@ export function WorkingDrawingsDossier({
                 </div>
                 <div style={{ padding: '8px 12px' }}>
                   <strong>DRAWN BY: CUBE DECORS</strong>
-                  <span style={{ display: 'block', color: '#64748b' }}>CHECKED: AR. MUSKAN</span>
+                  <span style={{ display: 'block', color: '#64748b' }}>CHECKED: PENDING ASSIGNMENT</span>
                 </div>
               </div>
             </div>
@@ -537,7 +389,7 @@ export function WorkingDrawingsDossier({
                 </div>
                 <div style={{ padding: '8px 12px' }}>
                   <strong>DRAWN BY: CUBE DECORS</strong>
-                  <span style={{ display: 'block', color: '#64748b' }}>CHECKED: AR. MUSKAN</span>
+                  <span style={{ display: 'block', color: '#64748b' }}>CHECKED: PENDING ASSIGNMENT</span>
                 </div>
               </div>
             </div>
@@ -640,7 +492,7 @@ export function WorkingDrawingsDossier({
                 </div>
                 <div style={{ padding: '8px 12px' }}>
                   <strong>DRAWN BY: CUBE DECORS</strong>
-                  <span style={{ display: 'block', color: '#64748b' }}>CHECKED: AR. MUSKAN</span>
+                  <span style={{ display: 'block', color: '#64748b' }}>CHECKED: PENDING ASSIGNMENT</span>
                 </div>
               </div>
             </div>

@@ -24,60 +24,6 @@ interface ProductionWorkspaceProps {
   onSceneApproved: () => Promise<void>;
 }
 
-const DEMO_CALIBRATED_CUTLIST: ProductionCutlist = {
-  status: 'approved',
-  fabricationRules: { version: 'v1.4', sheetWidthMm: 2440, sheetHeightMm: 1220, kerfMm: 4, trimMm: 10 },
-  warnings: [],
-  parts: [
-    { id: 'part-01', partInstanceId: 'PNT-KB-SHT-L', moduleId: 'kit-base-600', family: 'kitchen-base', roomId: 'kitchen', semanticType: 'shutter', partName: 'Base Cabinet Shutter (Left)', lengthMm: 716, widthMm: 296, thicknessMm: 18, quantity: 2, grainDirection: 'none', edging: '2.0mm ABS matching gloss', materialCode: 'ROY-HG-WHT', status: 'approved' },
-    { id: 'part-02', partInstanceId: 'PNT-KB-SHT-R', moduleId: 'kit-base-600', family: 'kitchen-base', roomId: 'kitchen', semanticType: 'shutter', partName: 'Base Cabinet Shutter (Right)', lengthMm: 716, widthMm: 296, thicknessMm: 18, quantity: 2, grainDirection: 'none', edging: '2.0mm ABS matching gloss', materialCode: 'ROY-HG-WHT', status: 'approved' },
-    { id: 'part-03', partInstanceId: 'PNT-KB-CAR-L', moduleId: 'kit-base-600', family: 'kitchen-base', roomId: 'kitchen', semanticType: 'carcass', partName: 'Carcass Side Panel (Left)', lengthMm: 750, widthMm: 560, thicknessMm: 18, quantity: 2, grainDirection: 'vertical', edging: '1.0mm PVC carcass tape', materialCode: 'CORE-HDHMR-18', status: 'approved' },
-    { id: 'part-04', partInstanceId: 'PNT-KB-CAR-R', moduleId: 'kit-base-600', family: 'kitchen-base', roomId: 'kitchen', semanticType: 'carcass', partName: 'Carcass Side Panel (Right)', lengthMm: 750, widthMm: 560, thicknessMm: 18, quantity: 2, grainDirection: 'vertical', edging: '1.0mm PVC carcass tape', materialCode: 'CORE-HDHMR-18', status: 'approved' },
-    { id: 'part-05', partInstanceId: 'PNT-KB-CAR-BOT', moduleId: 'kit-base-600', family: 'kitchen-base', roomId: 'kitchen', semanticType: 'carcass', partName: 'Carcass Bottom Deck Slab', lengthMm: 564, widthMm: 560, thicknessMm: 18, quantity: 2, grainDirection: 'horizontal', edging: '1.0mm PVC carcass tape', materialCode: 'CORE-HDHMR-18', status: 'approved' },
-    { id: 'part-06', partInstanceId: 'PNT-WD-SHT-01', moduleId: 'wardrobe-2100', family: 'wardrobe', roomId: 'bedroom', semanticType: 'shutter', partName: 'Wardrobe Full Shutter Panel', lengthMm: 2060, widthMm: 520, thicknessMm: 18, quantity: 4, grainDirection: 'vertical', edging: '2.0mm ABS matching gloss', materialCode: 'ROY-HG-CSH', status: 'approved' },
-    { id: 'part-07', partInstanceId: 'PNT-TV-FLT-01', moduleId: 'tv-fluted-2100', family: 'tv-unit', roomId: 'living', semanticType: 'cladding', partName: 'TV Console Fluted Accent Panel', lengthMm: 2100, widthMm: 300, thicknessMm: 18, quantity: 1, grainDirection: 'vertical', edging: 'Seamless PU finish', materialCode: 'ROY-FLUTE-PU', status: 'approved' },
-  ],
-  hardware: [
-    { name: 'Hettich Sensys Obsidian 110° Soft-Close Hinges', category: 'hinge', quantity: 16, unit: 'Nos' },
-    { name: 'Blum Tandembox Antaro 500mm Soft-Close Drawers', category: 'slide', quantity: 6, unit: 'Sets' },
-    { name: 'Concealed Magnetic Push-to-Open Latches', category: 'accessory', quantity: 4, unit: 'Nos' },
-    { name: 'Camar 807 Heavy Duty Wall Hanging Brackets', category: 'fastener', quantity: 8, unit: 'Pairs' },
-  ],
-  edgeBanding: [
-    { tapeType: '2.0mm ABS High-Gloss Matching Edge', thicknessMm: 2, totalMeters: 48 },
-    { tapeType: '1.0mm PVC Moisture-Proof Carcass Edge', thicknessMm: 1, totalMeters: 124 },
-  ],
-  nesting: [
-    {
-      sheetId: 'SHT-HDHMR-18-01',
-      materialCode: 'CORE-HDHMR-18',
-      thicknessMm: 18,
-      sheetWidthMm: 2440,
-      sheetHeightMm: 1220,
-      utilizationPercentage: 88.4,
-      usedAreaSqm: 2.63,
-      placedPanels: [
-        { partId: 'PNT-KB-CAR-L', xMm: 10, yMm: 10, widthMm: 560, lengthMm: 750, rotated: false },
-        { partId: 'PNT-KB-CAR-R', xMm: 10, yMm: 770, widthMm: 560, lengthMm: 750, rotated: false },
-        { partId: 'PNT-KB-CAR-BOT', xMm: 580, yMm: 10, widthMm: 560, lengthMm: 564, rotated: false },
-      ],
-    },
-    {
-      sheetId: 'SHT-ACRYLIC-18-01',
-      materialCode: 'ROY-HG-WHT',
-      thicknessMm: 18,
-      sheetWidthMm: 2440,
-      sheetHeightMm: 1220,
-      utilizationPercentage: 82.1,
-      usedAreaSqm: 2.44,
-      placedPanels: [
-        { partId: 'PNT-KB-SHT-L', xMm: 10, yMm: 10, widthMm: 296, lengthMm: 716, rotated: false },
-        { partId: 'PNT-KB-SHT-R', xMm: 316, yMm: 10, widthMm: 296, lengthMm: 716, rotated: false },
-      ],
-    },
-  ],
-};
-
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'parts', label: 'Parts', icon: <ClipboardList size={14} /> },
   { id: 'edges', label: 'Edges', icon: <Settings size={14} /> },
@@ -95,8 +41,8 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   // Production outputs may only come from compiler-emitted PartV1 records. Module boxes are not manufacturing parts.
-  const [parts, setParts] = useState<Part[]>(DEMO_CALIBRATED_CUTLIST.parts);
-  const [cutlist, setCutlist] = useState<ProductionCutlist | null>(DEMO_CALIBRATED_CUTLIST);
+  const [parts, setParts] = useState<Part[]>([]);
+  const [cutlist, setCutlist] = useState<ProductionCutlist | null>(null);
   const [cncAssets, setCncAssets] = useState<CncAsset[]>([]);
   const [preflightResult, setPreflightResult] = useState<{ status: 'idle' | 'running' | 'passed' | 'failed'; issues: string[] } | null>(null);
   const [exportState, setExportState] = useState('Choose an approved scene export.');
@@ -179,25 +125,35 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
 
   useEffect(() => {
     if (!projectId || !sceneVersionId || !sceneApproved) {
-      setCutlist(DEMO_CALIBRATED_CUTLIST);
-      setParts(DEMO_CALIBRATED_CUTLIST.parts);
+      setCutlist(null);
+      setParts([]);
+      setExportState('Approve a scene to load authoritative production data.');
       return;
     }
     void (async () => {
       const token = (await supabase?.auth.getSession())?.data.session?.access_token;
-      if (!token) return;
+      if (!token) {
+        setCutlist(null);
+        setParts([]);
+        setExportState('Sign in to load production data for this scene.');
+        return;
+      }
       const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production-snapshot`, { headers: { Authorization: `Bearer ${token}` } });
       const payload = await response.json().catch(() => null);
-      const authoritative = response.ok && payload?.success ? payload.cutlist as ProductionCutlist : DEMO_CALIBRATED_CUTLIST;
+      const authoritative = response.ok && payload?.success ? payload.cutlist as ProductionCutlist : null;
       setCutlist(authoritative);
-      setParts(authoritative?.parts ?? DEMO_CALIBRATED_CUTLIST.parts);
+      setParts(authoritative?.parts ?? []);
       setExportState(authoritative ? 'Production snapshot loaded from the approved scene.' : (payload?.message ?? 'The approved scene could not produce a manufacturing snapshot.'));
     })();
   }, [projectId, sceneVersionId, sceneApproved]);
 
   function downloadClientCsv() {
-    const activeParts = parts.length ? parts : DEMO_CALIBRATED_CUTLIST.parts;
+    if (!sceneApproved || !parts.length) {
+      setExportState('No approved production snapshot is available to export.');
+      return;
+    }
+    const activeParts = parts;
     const headers = ['Part Instance ID', 'Part Name', 'Module Family', 'Room', 'Length (mm)', 'Width (mm)', 'Thickness (mm)', 'Quantity', 'Material Code', 'Grain', 'Edging'];
     const rows = activeParts.map((p) => [
       p.partInstanceId || p.id,
@@ -217,7 +173,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Sharma-Residence-Panel-Cutlist.csv`;
+    link.download = `ultida-${sceneVersionId ?? 'unapproved'}-panel-cutlist.csv`;
     link.click();
     URL.revokeObjectURL(url);
     setExportState('Cutlist CSV downloaded with exact millimetre specifications.');

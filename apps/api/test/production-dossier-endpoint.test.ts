@@ -5,7 +5,7 @@ import { PassThrough } from 'node:stream';
 import type { AddressInfo } from 'node:net';
 import { app, buildDossierSpecFromContext } from '../src/index.js';
 import { generateProductionDossierPdf, buildProductionSnapshot } from '@ultida/drawing-core';
-import type { SceneV1 } from '@ultida/schema';
+import type { SceneV1 } from '@ultida/scene-core';
 
 const sampleScene: SceneV1 = {
   schema: 'scene.v1',
@@ -97,32 +97,23 @@ test('buildDossierSpecFromContext constructs an authoritative ProductionDossierS
   assert.equal(spec.project.status, 'approved');
 
   // Verify brief & rooms scope
-  assert.ok(spec.brief.lifestyleBrief.length > 20);
-  assert.ok(spec.brief.roomsScope.length >= 3);
-  assert.ok(spec.brief.appliances.length >= 2);
+  assert.equal(spec.brief?.lifestyleBrief, 'No approved project brief has been recorded for this scene.');
+  assert.equal(spec.brief?.roomsScope.length, 2, 'Only rooms in the approved scene are listed');
+  assert.equal(spec.brief?.roomsScope[0]?.areaSqm, 10.8, 'Room area comes from its measured boundary');
+  assert.equal(spec.brief?.appliances.length, 0, 'Appliances are not invented from a template');
 
   // Verify BOM and Cutlist
   assert.ok(spec.bom.boardNesting.sheets18mm >= 1);
-  assert.ok(spec.bom.hardwareTotals.length >= 3);
+  assert.equal(spec.bom.hardwareTotals.length, 0, 'Hardware is absent until scene components record it');
   assert.ok(spec.bom.cutlistParts.length >= 5);
   assert.equal(spec.finishes?.flooring?.length, 2, 'Each persisted floor region is included in the finishes matrix');
   assert.equal(spec.bom.flooring?.length, 2, 'The BOM uses the same flooring quantities');
   assert.equal(spec.finishes?.flooring?.[0]?.netAreaSqm, 0.72);
   assert.equal(spec.finishes?.flooring?.[1]?.netAreaSqm, 0.54);
 
-  // Verify Commercial BOQ & Milestones
-  assert.ok(spec.boq.lineItems.length >= 1);
-  assert.equal(spec.boq.milestones.length, 4);
-  assert.equal(spec.boq.milestones[0].pct, 10);
-  assert.equal(spec.boq.milestones[1].pct, 40);
-  assert.equal(spec.boq.milestones[2].pct, 40);
-  assert.equal(spec.boq.milestones[3].pct, 10);
-
-  // Verify 10-Point Pre-Installation Checklist
-  assert.equal(spec.checklist.items.length, 10);
-  assert.ok(spec.checklist.items.some((item) => item.check.includes('Civil Plaster')));
-  assert.ok(spec.checklist.items.some((item) => item.check.includes('Chimney Duct')));
-  assert.ok(spec.checklist.items.some((item) => item.check.includes('Moisture')));
+  // Commercial and site approval values require separately persisted records.
+  assert.equal(spec.boq, undefined, 'A production package never fabricates a quote');
+  assert.equal(spec.checklist?.items.length, 0, 'A production package never marks a site inspection as complete');
 });
 
 test('generateProductionDossierPdf streams complete turnkey architectural PDF from built spec', async () => {
@@ -146,19 +137,19 @@ test('generateProductionDossierPdf streams complete turnkey architectural PDF fr
   await completed;
 
   const buffer = Buffer.concat(chunks);
-  assert.ok(buffer.length > 35000, `Expected PDF buffer to be > 35KB, got ${buffer.length} bytes`);
+  assert.ok(buffer.length > 10000, `Expected PDF buffer to be > 10KB, got ${buffer.length} bytes`);
   assert.equal(buffer.subarray(0, 5).toString('ascii'), '%PDF-');
   const pdfString = buffer.toString('binary');
   assert.ok(pdfString.includes('DWG-001'), 'DWG-001 Cover Sheet present');
   assert.ok(pdfString.includes('DWG-002'), 'DWG-002 Design Brief present');
   assert.ok(pdfString.includes('DWG-003'), 'DWG-003 Key Plan present');
   assert.ok(pdfString.includes('DWG-004'), 'DWG-004 Material Spec Matrix present');
-  assert.ok(pdfString.includes('DWG-005'), 'DWG-005 Elevation Detail Sheet present');
   assert.ok(pdfString.includes('DWG-008'), 'DWG-008 Production Nesting present');
   assert.ok(pdfString.includes('DWG-009'), 'DWG-009 Commercial BOQ present');
   assert.ok(pdfString.includes('DWG-010'), 'DWG-010 Civil Readiness present');
   assert.ok(pdfString.includes('IS 710'), 'IS 710 Marine specification present');
   assert.ok(pdfString.includes('System 32'), 'System 32 joinery standard present');
+  assert.ok(pdfString.includes('NOT QUOTED'), 'No commercial figures are invented');
 });
 
 test('production package and turnkey dossier routes enforce authentication', async () => {

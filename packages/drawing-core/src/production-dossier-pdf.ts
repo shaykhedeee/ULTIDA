@@ -264,9 +264,9 @@ export function generateProductionDossierPdf(
     ['PROJECT NAME', dossier.project.name],
     ['CLIENT NAME', dossier.project.clientName],
     ['SITE ADDRESS', dossier.project.location],
-    ['CLIENT CONTACT', dossier.project.phone || '+91 98201 44521 / +91 98203 11842'],
+    ['CLIENT CONTACT', dossier.project.phone || 'CONTACT TO BE CONFIRMED'],
     ['LEAD DESIGN ARCHITECT', `${dossier.project.designerName} (Authorized Studio Lead)`],
-    ['FACTORY PRODUCTION HEAD', `${dossier.project.factoryManager || 'VIKRAM SINGH'} (CNC Works Division)`],
+    ['FACTORY PRODUCTION HEAD', `${dossier.project.factoryManager || 'FACTORY MANAGER TO BE CONFIRMED'} (CNC Works Division)`],
     ['REVISION & LINEAGE', `${dossier.project.revision} (Parametric Scene Model Locked)`],
     ['RELEASE DATE', `${dossier.project.date} (Precision Millwork Standard)`],
   ];
@@ -354,7 +354,7 @@ export function generateProductionDossierPdf(
   writer.font('Helvetica-Bold').fontSize(8).fillColor('#1c1917').text('3. FACTORY PRODUCTION HEAD', 40 + (sigW + 20) * 2 + 10, sigY + 6);
   writer.font('Helvetica').fontSize(7).fillColor('#475569').text('CNC beam saw cutlist & 2D nesting authorized.', 40 + (sigW + 20) * 2 + 10, sigY + 30);
   writer.line(40 + (sigW + 20) * 2 + 10, sigY + 80, pw - 50, sigY + 80);
-  writer.font('Helvetica-Bold').fontSize(7.5).fillColor('#1c1917').text(`${dossier.project.factoryManager || 'VIKRAM SINGH'}`, 40 + (sigW + 20) * 2 + 10, sigY + 86);
+  writer.font('Helvetica-Bold').fontSize(7.5).fillColor('#1c1917').text(`${dossier.project.factoryManager || 'FACTORY MANAGER TO BE CONFIRMED'}`, 40 + (sigW + 20) * 2 + 10, sigY + 86);
   writer.font('Helvetica').fontSize(6.5).fillColor('#64748b').text('Production Release Stamp & Date', 40 + (sigW + 20) * 2 + 10, sigY + 97);
 
   // ═══════════════════════════════════════════════════════════════════
@@ -383,15 +383,7 @@ export function generateProductionDossierPdf(
   const scopeY = bY + 98;
   writer.font('Helvetica-Bold').fontSize(10).fillColor('#1c1917').text('ROOM-BY-ROOM SCOPE REGISTER', 40, scopeY);
 
-  const defaultRooms = [
-    { name: 'Modular Kitchen & Utility Suite', areaSqm: 14.8, areaSqFt: 159.3, modulesCount: 6, scopeSummary: 'L-Shaped Counter + Breakfast Island + 4-Door Pantry with Blum Aventos Lifts' },
-    { name: 'Master Bedroom Suite', areaSqm: 24.5, areaSqFt: 263.7, modulesCount: 5, scopeSummary: '4-Door Floor-to-Ceiling Wardrobe + Integrated Bay Seating + Vanity Dresser' },
-    { name: 'Kids Bedroom Suite', areaSqm: 18.2, areaSqFt: 195.9, modulesCount: 4, scopeSummary: '3-Door Sliding Wardrobe with Bronze Fluted Glass + Ergonomic Study Return' },
-    { name: 'Living & Dining Lounge', areaSqm: 38.4, areaSqFt: 413.3, modulesCount: 5, scopeSummary: '3200mm Floating TV Console + Fluted CNC Mandir + 2100mm Crockery Bar' },
-    { name: 'Master Washroom Suite', areaSqm: 6.5, areaSqFt: 70.0, modulesCount: 2, scopeSummary: '1200mm Floating Vanity with Concealed Cistern Box + LED Capsule Mirror' },
-  ];
-
-  const roomsToRender = dossier.brief?.roomsScope?.length ? dossier.brief.roomsScope : defaultRooms;
+  const roomsToRender = dossier.brief?.roomsScope ?? [];
   const roomRows = roomsToRender.map((r) => [
     r.name,
     `${r.areaSqm.toFixed(1)} m²  [${Math.round(r.areaSqFt)} sq.ft]`,
@@ -403,7 +395,7 @@ export function generateProductionDossierPdf(
     40,
     scopeY + 14,
     ['ROOM / SPACE', 'FLOOR AREA (DUAL UNITS)', 'CASEWORK UNITS', 'SCOPE OF ARCHITECTURAL JOINERY'],
-    roomRows,
+    roomRows.length ? roomRows : [['No rooms are recorded in this approved scene.', '—', '—', 'Complete room setup before releasing the dossier.']],
     [180, 140, 90, pw - 80 - 410],
     { headerBg: '#1e293b', headerColor: '#ffffff', rowAltBg: '#f8fafc', fontSize: 7.5, cellPadding: 4.5 }
   );
@@ -412,20 +404,13 @@ export function generateProductionDossierPdf(
   const appY = scopeY + 160;
   writer.font('Helvetica-Bold').fontSize(10).fillColor('#1c1917').text('APPLIANCE & FIXTURE INTEGRATION SCHEDULE', 40, appY);
 
-  const defaultAppliances = [
-    ['Kitchen Hob', 'Bosch Serie 6', '4-Burner Glass Top (Built-in)', '780 × 510 mm', 'CLIENT PROVIDED (Cutout: 750×480mm)'],
-    ['Kitchen Chimney', 'Faber Primus Plus', '90cm Filterless Auto-Clean', '900 × 500 mm', 'STUDIO SUPPLIED (Duct 150mm Ø)'],
-    ['Built-in Microwave', 'Hafele Diamond Line', '28L Convection Microwave', '595 × 388 mm', 'STUDIO SUPPLIED (Cavity 560×380mm)'],
-    ['Dishwasher', 'Bosch Serie 4', '14 Place Settings Free-standing', '600 × 845 mm', 'CLIENT PROVIDED (Plumbing ready)'],
-    ['Water Purifier', 'Kent Grand Plus', 'RO + UV + UF Under-counter', '400 × 520 mm', 'STUDIO SUPPLIED (Sink bottom cavity)'],
-    ['Master Suite TV', 'Sony Bravia OLED', '65-inch 4K HDR Smart TV', '1448 × 836 mm', 'CLIENT PROVIDED (Reinforced ply back)'],
-  ];
-
   writer.drawTable(
     40,
     appY + 14,
     ['APPLIANCE / FIXTURE', 'SPECIFIED BRAND', 'MODEL / SPECIFICATION', 'DIMENSIONS (W×H)', 'PROVISIONING & CUTOUT STATUS'],
-    defaultAppliances,
+    (dossier.brief?.appliances ?? []).length
+      ? (dossier.brief?.appliances ?? []).map((appliance) => [appliance.name, appliance.brand ?? 'Not specified', appliance.model ?? 'Not specified', appliance.dimensionsMm ?? 'Not specified', appliance.status.replace('_', ' ')])
+      : [['No appliance records are approved for this scene.', '—', '—', '—', 'PENDING CONFIRMATION']],
     [130, 120, 180, 120, pw - 80 - 550],
     { headerBg: '#0f172a', headerColor: '#ffffff', rowAltBg: '#f8fafc', fontSize: 7, cellPadding: 4 }
   );
@@ -608,127 +593,7 @@ export function generateProductionDossierPdf(
   // ═══════════════════════════════════════════════════════════════════
   // SHEETS 5+: ROOM-BY-ROOM ARCHITECTURAL ELEVATIONS & JOINERY SECTIONS
   // ═══════════════════════════════════════════════════════════════════
-  const defaultElevations: RoomElevationSpec[] = [
-    {
-      roomId: 'kitchen',
-      roomName: 'MODULAR KITCHEN & BREAKFAST SUITE',
-      drawingCode: 'DWG-005',
-      moduleName: '3600 L-Shaped Modular Kitchen with Island Breakfast Counter',
-      family: 'kitchen-base',
-      overallWidthMm: 3600,
-      overallHeightMm: 2700,
-      overallDepthMm: 600,
-      externalShutters: [
-        { id: 'sh-1', xMm: 0, yMm: 100, widthMm: 900, heightMm: 750, kind: 'drawer', label: '3-Tier Tandem Drawer Stack (Cutlery/Cup/Thali)' },
-        { id: 'sh-2', xMm: 900, yMm: 100, widthMm: 900, heightMm: 750, kind: 'shutter', label: 'Under-Sink BWP Double Shutter' },
-        { id: 'sh-3', xMm: 1800, yMm: 100, widthMm: 900, heightMm: 750, kind: 'shutter', label: 'Built-in Microwave Cavity + Deep Drawer' },
-        { id: 'sh-4', xMm: 2700, yMm: 100, widthMm: 900, heightMm: 750, kind: 'drawer', label: 'Pantry Pull-out & Bottle Basket' },
-        { id: 'sh-wall', xMm: 0, yMm: 1450, widthMm: 3600, heightMm: 650, kind: 'shutter', label: 'Wall Overhead Units with Aventos HK-S Lifts' },
-        { id: 'sh-loft', xMm: 0, yMm: 2100, widthMm: 3600, heightMm: 600, kind: 'loft', label: 'Loft Units (Deep Luggage Storage)' },
-      ],
-      internalJoinery: [
-        { id: 'ij-1', xMm: 0, yMm: 100, widthMm: 900, heightMm: 750, kind: 'drawer-box', label: 'Hettich Atira 150/200/350mm Drawers' },
-        { id: 'ij-2', xMm: 900, yMm: 100, widthMm: 900, heightMm: 750, kind: 'carcass', label: 'Water Purifier & SS Drip Tray' },
-        { id: 'ij-3', xMm: 1800, yMm: 100, widthMm: 900, heightMm: 750, kind: 'shelf', label: 'Reinforced 25mm Appliance Shelf' },
-        { id: 'ij-4', xMm: 2700, yMm: 100, widthMm: 900, heightMm: 750, kind: 'carcass', label: '6-Tier Chrome Pantry Pull-out' },
-        { id: 'ij-wall', xMm: 0, yMm: 1450, widthMm: 3600, heightMm: 650, kind: 'shelf', label: 'System 32 Adjustable Glass Shelves' },
-        { id: 'ij-loft', xMm: 0, yMm: 2100, widthMm: 3600, heightMm: 600, kind: 'loft-shelf', label: 'Fixed Central Divider + Heavy Duty Catches' },
-      ],
-      materialSchedule: [
-        { component: 'Base Carcass', specification: '19mm Century Club Prime BWP Marine Ply', brandCode: 'IS 710' },
-        { component: 'Base Shutters', specification: '18mm HDHMR + Royale Touche Velvet Charcoal', brandCode: 'RT-1142' },
-        { component: 'Wall Shutters', specification: '18mm HDHMR + Ultra High Gloss Acrylic', brandCode: 'MR-8201' },
-        { component: 'Countertop', specification: '40mm Mitered Statuario Quartz Composite', brandCode: 'Silestone' },
-      ],
-      hardwareSchedule: [
-        { item: 'Soft-close hinges', qty: 16, spec: 'Blum Clip-top 110°' },
-        { item: 'Tandembox runners', qty: 6, spec: 'Hettich InnoTech Atira 500mm' },
-        { item: 'Bi-fold lifts', qty: 4, spec: 'Blum Aventos HK-S' },
-        { item: 'Gola profile', qty: 7.2, spec: 'Champagne Gold J-Pull (m)' },
-      ],
-      electricalNotes: [
-        '3000K warm LED profile lighting concealed under wall units with 45° diffuser.',
-        '16A electrical sockets provided at +1100mm FFL for microwave, mixer & kettle.',
-        'Concealed chimney duct cut (150mm Ø) at +2250mm FFL.',
-      ],
-    },
-    {
-      roomId: 'master-bed',
-      roomName: 'MASTER BEDROOM WARDROBE & DRESSER',
-      drawingCode: 'DWG-006',
-      moduleName: '3300 4-Door Master Wardrobe with Integrated Bay Seating',
-      family: 'wardrobe',
-      overallWidthMm: 3300,
-      overallHeightMm: 2785,
-      overallDepthMm: 580,
-      externalShutters: [
-        { id: 'wd-1', xMm: 0, yMm: 100, widthMm: 900, heightMm: 2000, kind: 'shutter', label: 'His Wardrobe Double Shutter' },
-        { id: 'wd-2', xMm: 900, yMm: 100, widthMm: 900, heightMm: 2000, kind: 'shutter', label: 'Her Wardrobe Double Shutter' },
-        { id: 'wd-3', xMm: 1800, yMm: 100, widthMm: 600, heightMm: 2000, kind: 'profile-glass', label: 'Bronze Tinted Fluted Glass Shutter' },
-        { id: 'wd-bay', xMm: 2400, yMm: 100, widthMm: 900, heightMm: 450, kind: 'open-niche', label: 'Cushioned Bay Window Seating' },
-        { id: 'wd-loft', xMm: 0, yMm: 2100, widthMm: 3300, heightMm: 685, kind: 'loft', label: 'Continuous 4-Door Loft Suite' },
-      ],
-      internalJoinery: [
-        { id: 'in-1', xMm: 0, yMm: 100, widthMm: 900, heightMm: 2000, kind: 'hanger-rod', label: '1050mm Coat Hanger + 2 Lockable Drawers' },
-        { id: 'in-2', xMm: 900, yMm: 100, widthMm: 900, heightMm: 2000, kind: 'hanger-rod', label: '1400mm Long Dress Hanger + Saree Organizers' },
-        { id: 'in-3', xMm: 1800, yMm: 100, widthMm: 600, heightMm: 2000, kind: 'shelf', label: 'Backlit Glass Display Shelves for Watches/Bags' },
-        { id: 'in-bay', xMm: 2400, yMm: 100, widthMm: 900, heightMm: 450, kind: 'drawer-box', label: '2 Deep Storage Drawers Under Seating' },
-        { id: 'in-loft', xMm: 0, yMm: 2100, widthMm: 3300, heightMm: 685, kind: 'loft-shelf', label: 'Reinforced Suitcase Storage with Center Partitions' },
-      ],
-      materialSchedule: [
-        { component: 'Carcass Core', specification: '18mm Action TESA HDHMR Grade I', brandCode: 'TESA-HD' },
-        { component: 'External Shutters', specification: 'Dorby Mica Suede Champagne Linen', brandCode: 'DM-4092' },
-        { component: 'Glass Shutter', specification: 'Toughened Fluted Bronze Glass in Slim Profile', brandCode: 'TG-BRZ' },
-        { component: 'Internal Liner', specification: '0.8mm Fabric Texture Balancer', brandCode: 'MR-1002' },
-      ],
-      hardwareSchedule: [
-        { item: 'Soft-close hinges', qty: 22, spec: 'Blum Clip-top 110°' },
-        { item: 'Hanger rods', qty: 3, spec: 'Oval Chrome Rod with Center Support' },
-        { item: 'Lockable drawers', qty: 2, spec: 'Ebco Digital Lock Mechanism' },
-        { item: 'Slim handles', qty: 5, spec: '1200mm Champagne Edge Pulls' },
-      ],
-      electricalNotes: [
-        'Concealed IR sensor switch: LED lights trigger automatically upon door opening.',
-        'Dual USB-C and 6A power sockets inside dresser drawer for hair dryer & grooming.',
-      ],
-    },
-    {
-      roomId: 'tv-pooja',
-      roomName: 'LIVING TV CONSOLE & MANDIR SUITE',
-      drawingCode: 'DWG-007',
-      moduleName: '3200 Living TV Console & Backlit CNC Mandir Suite',
-      family: 'tv-unit',
-      overallWidthMm: 3200,
-      overallHeightMm: 2700,
-      overallDepthMm: 450,
-      externalShutters: [
-        { id: 'tv-base', xMm: 0, yMm: 100, widthMm: 2200, heightMm: 400, kind: 'drawer', label: 'Floating 4-Drawer Media Console' },
-        { id: 'tv-panel', xMm: 0, yMm: 500, widthMm: 2200, heightMm: 2200, kind: 'shutter', label: 'Fluted Acoustic Charcoal Wall Paneling' },
-        { id: 'mnd-unit', xMm: 2200, yMm: 100, widthMm: 1000, heightMm: 2600, kind: 'profile-glass', label: 'Backlit CNC Jali Mandir with Brass Inlay' },
-      ],
-      internalJoinery: [
-        { id: 'itv-1', xMm: 0, yMm: 100, widthMm: 2200, heightMm: 400, kind: 'drawer-box', label: 'Soft-close Drawers with Wire Mesh for AV heat dissipation' },
-        { id: 'itv-2', xMm: 0, yMm: 500, widthMm: 2200, heightMm: 2200, kind: 'carcass', label: 'Concealed Cable Raceway & 65" TV Bracket Mounting' },
-        { id: 'imnd-1', xMm: 2200, yMm: 100, widthMm: 1000, heightMm: 2600, kind: 'shelf', label: 'Corian Solid Surface Altar + Storage for Pooja Samagri' },
-      ],
-      materialSchedule: [
-        { component: 'TV Console Base', specification: '18mm HDHMR with Fluted Walnut Veneer', brandCode: 'Century' },
-        { component: 'Backdrop Paneling', specification: 'Charcoal Matte Acoustic Louvers', brandCode: 'EuroPratik' },
-        { component: 'Mandir Altar', specification: '12mm DuPont Corian Glacier White', brandCode: 'DuPont' },
-      ],
-      hardwareSchedule: [
-        { item: 'Heavy-duty wall anchors', qty: 8, spec: 'Fischer 100kg Chemical Anchor' },
-        { item: 'Soft-close drawer slides', qty: 4, spec: 'Hettich Quadro V6 400mm' },
-        { item: 'Pooja door bi-fold kit', qty: 1, spec: 'Hafele Slido Fold 20' },
-      ],
-      electricalNotes: [
-        'Dedicated 4-port surge protector with HDMI 2.1 conduits concealed in wall raceway.',
-        'Dimmable 3000K warm backlit LED panel behind Mandir CNC Jali.',
-      ],
-    },
-  ];
-
-  const elevationsToRender = dossier.elevations?.length ? dossier.elevations : defaultElevations;
+  const elevationsToRender = dossier.elevations ?? [];
 
   for (const elev of elevationsToRender) {
     writer.addPage({ size: 'A4', layout: 'landscape' });
@@ -897,10 +762,10 @@ export function generateProductionDossierPdf(
   const kpiW = (pw - 80 - 36) / 4;
 
   const kpis = [
-    { label: '18MM HDHMR / BWP PLY', value: `${dossier.bom?.boardNesting.sheets18mm ?? 18} SHEETS`, note: '2440 × 1220 mm Standard' },
-    { label: '8MM BACKING MDF', value: `${dossier.bom?.boardNesting.sheets8mm ?? 7} SHEETS`, note: 'Both Sides White Pre-lam' },
-    { label: 'EDGE BANDING TOTAL', value: `${Math.round(dossier.bom?.edgeBandingSummary.reduce((s, e) => s + e.totalMeters, 0) ?? 460)} METERS`, note: '2.0mm ABS & 0.8mm PVC' },
-    { label: 'NESTING EFFICIENCY', value: `${dossier.bom?.boardNesting.nestingYieldPct ?? 87.4}% YIELD`, note: 'Saw Kerf 3.0mm Included' },
+    { label: '18MM HDHMR / BWP PLY', value: `${dossier.bom?.boardNesting.sheets18mm ?? 0} SHEETS`, note: '2440 × 1220 mm Standard' },
+    { label: '8MM BACKING MDF', value: `${dossier.bom?.boardNesting.sheets8mm ?? 0} SHEETS`, note: 'Both Sides White Pre-lam' },
+    { label: 'EDGE BANDING TOTAL', value: `${Math.round(dossier.bom?.edgeBandingSummary.reduce((s, e) => s + e.totalMeters, 0) ?? 0)} METERS`, note: 'Exact scene components only' },
+    { label: 'NESTING EFFICIENCY', value: dossier.bom ? `${dossier.bom.boardNesting.nestingYieldPct}% YIELD` : 'NOT AVAILABLE', note: 'No inferred yield' },
   ];
 
   kpis.forEach((k, i) => {
@@ -916,19 +781,6 @@ export function generateProductionDossierPdf(
   const clY = kpiY + 58;
   writer.font('Helvetica-Bold').fontSize(9.5).fillColor('#1c1917').text('TRACEABLE PANEL CUTLIST SCHEDULE (FINISHED MILLIMETRES)', 40, clY);
 
-  const defaultParts = [
-    ['side-panel-left', 'wardrobe-master', '2785', '580', '18', formatDualMm(2785) + ' × ' + formatDualMm(580), 'Front 0.8mm', 'Vertical', '18mm HDHMR'],
-    ['side-panel-right', 'wardrobe-master', '2785', '580', '18', formatDualMm(2785) + ' × ' + formatDualMm(580), 'Front 0.8mm', 'Vertical', '18mm HDHMR'],
-    ['top-panel', 'wardrobe-master', '3264', '580', '18', formatDualMm(3264) + ' × ' + formatDualMm(580), 'Front 0.8mm', 'Horizontal', '18mm HDHMR'],
-    ['bottom-panel', 'wardrobe-master', '3264', '580', '18', formatDualMm(3264) + ' × ' + formatDualMm(580), 'Front 0.8mm', 'Horizontal', '18mm HDHMR'],
-    ['back-panel', 'wardrobe-master', '2785', '3264', '8', formatDualMm(2785) + ' × ' + formatDualMm(3264), 'None', 'None', '8mm MDF'],
-    ['shutter-door-1', 'wardrobe-master', '1994', '446', '18', formatDualMm(1994) + ' × ' + formatDualMm(446), 'All 4 Sides 2mm', 'Vertical', '18mm HDHMR'],
-    ['shutter-door-2', 'wardrobe-master', '1994', '446', '18', formatDualMm(1994) + ' × ' + formatDualMm(446), 'All 4 Sides 2mm', 'Vertical', '18mm HDHMR'],
-    ['kitchen-base-side-L', 'kitchen-base-sink', '750', '600', '19', formatDualMm(750) + ' × ' + formatDualMm(600), 'Front 0.8mm', 'Vertical', '19mm BWP Marine'],
-    ['kitchen-base-bottom', 'kitchen-base-sink', '862', '600', '19', formatDualMm(862) + ' × ' + formatDualMm(600), 'Front 0.8mm', 'Horizontal', '19mm BWP Marine'],
-    ['kitchen-drawer-front', 'kitchen-base-3d', '744', '246', '18', formatDualMm(744) + ' × ' + formatDualMm(246), 'All 4 Sides 2mm', 'Horizontal', '18mm HDHMR'],
-  ];
-
   const partsToRender = dossier.bom?.cutlistParts?.length
     ? dossier.bom.cutlistParts.slice(0, 10).map((p) => [
         p.partName,
@@ -941,7 +793,7 @@ export function generateProductionDossierPdf(
         p.grain,
         p.materialCode,
       ])
-    : defaultParts;
+    : [['No authoritative module parts are present for this approved scene.', '—', '—', '—', '—', '—', '—', '—', '—']];
 
   writer.drawTable(
     40,
@@ -956,19 +808,11 @@ export function generateProductionDossierPdf(
   const hwtY = clY + 200;
   writer.font('Helvetica-Bold').fontSize(9.5).fillColor('#1c1917').text('AUTHENTIC HARDWARE PROCUREMENT REGISTER', 40, hwtY);
 
-  const defaultHwTotals = [
-    ['Auto-close Soft-close Hinges (110°)', 'Hinge', '48 pcs', 'Blum Clip-top Blumotion with 0mm mounting plates'],
-    ['InnoTech Atira Drawer Runners (500mm)', 'Runner', '14 sets', 'Hettich full extension 45kg dynamic load rating'],
-    ['Aventos HK-S Bi-fold Lift Systems', 'Lift', '4 sets', 'Blum mechanism with integrated variable stop'],
-    ['Gola Profile Handle (Champagne Gold)', 'Handle', '18.5 m', 'Aluminum extrusion with end caps and 90° corner joints'],
-    ['Minifix & Expanding Dowel Connectors', 'Fastener', '120 sets', 'Hafele 15mm zinc alloy cam lock fasteners'],
-  ];
-
   writer.drawTable(
     40,
     hwtY + 14,
     ['HARDWARE COMPONENT', 'CATEGORY', 'TOTAL QTY', 'MANUFACTURING SPECIFICATION & MODEL'],
-    defaultHwTotals,
+    dossier.bom?.hardwareTotals?.length ? dossier.bom.hardwareTotals.map((hardware) => [hardware.name, hardware.category, `${hardware.quantity} ${hardware.unit}`, 'Exact scene hardware component']) : [['No hardware components are recorded in this approved scene.', '—', '—', 'PENDING CONFIRMATION']],
     [180, 80, 80, pw - 80 - 340],
     { headerBg: '#1e293b', headerColor: '#ffffff', rowAltBg: '#f8fafc', fontSize: 7, cellPadding: 3.5 }
   );
@@ -1001,21 +845,12 @@ export function generateProductionDossierPdf(
   const boqTblY = boqY + 36;
   writer.font('Helvetica-Bold').fontSize(9.5).fillColor('#1c1917').text('ITEMIZED TURNKEY SCOPE BREAKDOWN', 40, boqTblY);
 
-  const defaultLines = [
-    ['Modular Kitchen Suite', 'BWP Marine Ply Carcass + Acrylic Shutters + Quartz Top', '1', 'Suite', '₹ 3,45,000', '₹ 3,45,000'],
-    ['Master Bedroom Suite', '4-Door HDHMR Wardrobe + Bay Seating + Dresser Unit', '1', 'Suite', '₹ 2,85,000', '₹ 2,85,000'],
-    ['Kids Bedroom Wardrobe', '3-Door Sliding Wardrobe with Fluted Glass & Study Desk', '1', 'Suite', '₹ 2,15,000', '₹ 2,15,000'],
-    ['Living TV & Mandir Unit', '3200mm Media Console + Acoustic Louvers + CNC Mandir', '1', 'Suite', '₹ 1,95,000', '₹ 1,95,000'],
-    ['Dining Crockery & Bar', '2100mm Fluted Console with Backlit Glass Shelves', '1', 'Suite', '₹ 1,45,000', '₹ 1,45,000'],
-    ['Washroom Floating Vanities', '2 Units BWP Marine with Concealed Cistern Boxes', '2', 'Units', '₹ 85,000', '₹ 1,70,000'],
-  ];
-
-  const boqRows = defaultLines;
+  const boqRows = (dossier.boq?.lineItems ?? []).map((line) => [line.category, line.description, `${line.qty}`, line.unit, `₹ ${line.rateInr.toLocaleString('en-IN')}`, `₹ ${line.amountInr.toLocaleString('en-IN')}`]);
   writer.drawTable(
     40,
     boqTblY + 14,
     ['ROOM / SPACE', 'SCOPE & MATERIAL FINISH SUMMARY', 'QTY', 'UNIT', 'UNIT RATE (INR)', 'TOTAL AMOUNT (INR)'],
-    boqRows,
+    boqRows.length ? boqRows : [['Commercial quote has not been approved for this scene.', 'No rate or payment figure is inferred by ULTIDA.', '—', '—', '—', '—']],
     [150, pw - 80 - 450, 40, 50, 100, 110],
     { headerBg: '#0f172a', headerColor: '#ffffff', rowAltBg: '#f8fafc', fontSize: 7, cellPadding: 4 }
   );
@@ -1027,31 +862,25 @@ export function generateProductionDossierPdf(
   writer.rect(totX, totY, 260, 68).lineWidth(1).strokeColor('#cbd5e1').stroke();
 
   writer.font('Helvetica-Bold').fontSize(8).fillColor('#475569').text('SUBTOTAL (EXCL. TAX):', totX + 12, totY + 10);
-  writer.font('Helvetica-Bold').fontSize(8).fillColor('#0f172a').text('₹ 13,55,000', totX + 160, totY + 10, { width: 88, align: 'right' });
+  writer.font('Helvetica-Bold').fontSize(8).fillColor('#0f172a').text(dossier.boq ? `₹ ${dossier.boq.subtotalInr.toLocaleString('en-IN')}` : 'NOT QUOTED', totX + 160, totY + 10, { width: 88, align: 'right' });
 
   writer.font('Helvetica').fontSize(8).fillColor('#475569').text('GST @ 18% (SGST+CGST):', totX + 12, totY + 26);
-  writer.font('Helvetica').fontSize(8).fillColor('#0f172a').text('₹ 2,43,900', totX + 160, totY + 26, { width: 88, align: 'right' });
+  writer.font('Helvetica').fontSize(8).fillColor('#0f172a').text(dossier.boq ? `₹ ${dossier.boq.taxInr.toLocaleString('en-IN')}` : 'NOT QUOTED', totX + 160, totY + 26, { width: 88, align: 'right' });
 
   writer.line(totX + 10, totY + 42, totX + 250, totY + 42).stroke();
   writer.font('Helvetica-Bold').fontSize(9.5).fillColor('#0284c7').text('TOTAL PROJECT VALUE:', totX + 12, totY + 48);
-  writer.font('Helvetica-Bold').fontSize(10.5).fillColor('#0284c7').text('₹ 15,98,900', totX + 150, totY + 48, { width: 98, align: 'right' });
+  writer.font('Helvetica-Bold').fontSize(10.5).fillColor('#0284c7').text(dossier.boq ? `₹ ${dossier.boq.totalInr.toLocaleString('en-IN')}` : 'NOT QUOTED', totX + 150, totY + 48, { width: 98, align: 'right' });
 
   // 4-Stage Payment Milestones Table
   const msY = totY + 84;
   writer.font('Helvetica-Bold').fontSize(9.5).fillColor('#1c1917').text('4-STAGE PAYMENT MILESTONES', 40, msY);
 
-  const msRows = [
-    ['Stage 1: Design Booking Advance', '10%', '₹ 1,59,890', 'Upon initial 3D design brief approval & laser site survey verification'],
-    ['Stage 2: Production Release Sign-Off', '40%', '₹ 6,39,560', 'Upon formal signing of this complete architectural dossier & CNC release'],
-    ['Stage 3: Factory Dispatch Readiness', '40%', '₹ 6,39,560', 'Upon manufacturing completion & pre-dispatch photo verification from factory'],
-    ['Stage 4: Handover & Sign-off', '10%', '₹ 1,59,890', 'Upon site installation completion & 10-point checklist snag rectification'],
-  ];
-
+  const msRows = (dossier.boq?.milestones ?? []).map((milestone) => [milestone.stage, `${milestone.pct}%`, `₹ ${milestone.amountInr.toLocaleString('en-IN')}`, milestone.trigger]);
   writer.drawTable(
     40,
     msY + 14,
     ['PAYMENT MILESTONE STAGE', 'PERCENTAGE', 'AMOUNT (INR)', 'TRIGGER & RELEASE CONDITIONS'],
-    msRows,
+    msRows.length ? msRows : [['No approved commercial milestones are available.', '—', '—', 'Create and approve a project quote before payment scheduling.']],
     [160, 80, 100, pw - 80 - 340],
     { headerBg: '#1e293b', headerColor: '#ffffff', rowAltBg: '#f8fafc', fontSize: 7, cellPadding: 4 }
   );
@@ -1070,24 +899,12 @@ export function generateProductionDossierPdf(
   const clkY = cY + 36;
   writer.font('Helvetica-Bold').fontSize(9.5).fillColor('#1c1917').text('10-POINT PRE-INSTALLATION SITE INSPECTION CHECKLIST', 40, clkY);
 
-  const checklistItems = [
-    ['1. Civil Plaster & 90° Wall Corners', 'Corners verified at 90° with laser square (±2mm tolerance across 2400mm)', 'VERIFIED READY', 'Lead Architect'],
-    ['2. Flooring & Skirting Level', 'Finished floor level (FFL) verified flat; plinth datum marked at +100mm', 'VERIFIED READY', 'Site Supervisor'],
-    ['3. False Ceiling Level & Clearances', 'Ceiling level verified at +2700mm; loft top clear height confirmed', 'VERIFIED READY', 'Lead Architect'],
-    ['4. Chimney Duct & Core Cutting', '150mm Ø core cut completed at +2250mm FFL with weather cowl', 'VERIFIED READY', 'MEP Engineer'],
-    ['5. Plumbing Inlets & Drainage Outlets', 'Hot/cold water points & 40mm waste pipe positioned per drawing DWG-005', 'VERIFIED READY', 'Plumbing Lead'],
-    ['6. Electrical Conduit & LED Drivers', 'Concealed boxes ready at +1100mm; 12V LED driver cavities verified', 'VERIFIED READY', 'Electrical Lead'],
-    ['7. Wall Moisture Content Test', 'Moisture meter test shows < 12% moisture across all masonry walls', 'VERIFIED READY', 'Quality Auditor'],
-    ['8. Lift & Staircase Access Verification', 'Clear passage for 2440×1220mm board panels verified in service lift', 'VERIFIED READY', 'Logistics Lead'],
-    ['9. Power Supply for Power Tools', 'Dedicated 16A continuous power supply available on site for installation', 'VERIFIED READY', 'Site Supervisor'],
-    ['10. Site Security & Lock & Key', 'Site fully lockable with weatherproof windows for material safety', 'VERIFIED READY', 'Client / PM'],
-  ];
-
+  const checklistItems = (dossier.checklist?.items ?? []).map((item) => [item.check, item.tolerance, item.status.replace('_', ' '), item.inspectedBy]);
   writer.drawTable(
     40,
     clkY + 14,
     ['INSPECTION PARAMETER', 'TOLERANCE & VERIFICATION STANDARD', 'AUDIT STATUS', 'INSPECTED BY'],
-    checklistItems,
+    checklistItems.length ? checklistItems : [['No site inspection has been recorded for this scene.', 'Inspection must be recorded before manufacturing authorization.', 'PENDING INSPECTION', 'UNASSIGNED']],
     [160, pw - 80 - 370, 110, 100],
     { headerBg: '#0f172a', headerColor: '#ffffff', rowAltBg: '#f8fafc', fontSize: 6.5, cellPadding: 3.5 }
   );
@@ -1120,7 +937,7 @@ export function generateProductionDossierPdf(
 
   // Sig 3: Factory Head
   writer.line(55 + sigColW * 2, fSigY + 85, pw - 55, fSigY + 85);
-  writer.font('Helvetica-Bold').fontSize(7.5).fillColor('#0f172a').text(dossier.project.factoryManager || 'VIKRAM SINGH', 55 + sigColW * 2, fSigY + 90);
+  writer.font('Helvetica-Bold').fontSize(7.5).fillColor('#0f172a').text(dossier.project.factoryManager || 'FACTORY MANAGER TO BE CONFIRMED', 55 + sigColW * 2, fSigY + 90);
   writer.font('Helvetica').fontSize(6.5).fillColor('#64748b').text('Factory Production Manager Authorization', 55 + sigColW * 2, fSigY + 100);
 
   writer.end();
