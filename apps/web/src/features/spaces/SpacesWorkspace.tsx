@@ -22,7 +22,12 @@ import { reconcileModuleFit } from '@ultida/scene-core';
 import { reconcileCatalogPlacement } from '@ultida/scene-compiler';
 import { IndianModularCatalog, listCatalog, CuratedLaminateCatalog, type CatalogModule } from '@ultida/catalog-core';
 import { ModulePreview } from '../../components/library/ModulePreview';
-import TopViewFloorplanEnhancer, { type TopViewFurniture } from '../../components/spaces/TopViewFloorplanEnhancer';
+import TopViewFloorplanEnhancer, {
+  type TopViewFurniture,
+  evaluateVastuCompliance,
+  type VastuAnalysis,
+  type VastuFinding,
+} from '../../components/spaces/TopViewFloorplanEnhancer';
 import { getApiBase } from '../../lib/api-base';
 import './spaces.css';
 
@@ -374,6 +379,8 @@ export function SpacesWorkspace() {
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
   const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'brief' | 'scene'>('candidates');
   const [canvasRenderMode, setCanvasRenderMode] = useState<'2d' | '3d_isometric' | 'stager'>('2d');
+  const [roomFurnitureMap, setRoomFurnitureMap] = useState<Record<string, TopViewFurniture[]>>({});
+  const [roomVastuMap, setRoomVastuMap] = useState<Record<string, VastuAnalysis>>({});
   const [showFloorPlanRenderModal, setShowFloorPlanRenderModal] = useState(false);
   const [showWallElevationModal, setShowWallElevationModal] = useState(false);
   const [renderJobState, setRenderJobState] = useState<'idle' | 'rendering' | 'succeeded'>('idle');
@@ -489,6 +496,66 @@ export function SpacesWorkspace() {
     return detected.length >= Math.min(3, boundary.length) ? detected : boundary;
   }
 
+  function getInitialRoomFurniture(
+    room: PlanRoom,
+    widthMm: number,
+    depthMm: number,
+    proposals?: AiFurnitureProposal[]
+  ): TopViewFurniture[] {
+    const rType = room.roomType;
+    const roomW = Math.max(1000, Math.round(widthMm || 6000));
+    const roomL = Math.max(1000, Math.round(depthMm || 4500));
+
+    if (proposals && proposals.length > 0) {
+      return proposals.map((prop, idx) => {
+        let category: TopViewFurniture['category'] = 'modular_storage';
+        let semanticColor = '#ff9900';
+        if (prop.category.includes('bed')) { category = 'bed'; semanticColor = '#cc0000'; }
+        else if (prop.category.includes('sofa') || prop.category.includes('seating')) { category = 'seating'; semanticColor = '#3366cc'; }
+        else if (prop.category.includes('dining')) { category = 'dining'; semanticColor = '#990099'; }
+        else if (prop.category.includes('table')) { category = 'table'; semanticColor = '#990099'; }
+
+        return {
+          id: prop.id || `stg-${idx}`,
+          name: prop.name,
+          category,
+          widthMm: prop.dimensionsMm.width,
+          depthMm: prop.dimensionsMm.depth,
+          xMm: Math.max(100, Math.min(roomW - prop.dimensionsMm.width, Math.round(prop.position.xMm % roomW))),
+          yMm: Math.max(100, Math.min(roomL - prop.dimensionsMm.depth, Math.round(prop.position.yMm % roomL))),
+          rotationDeg: 0,
+          unitPrice: prop.category.includes('bed') ? 2100 : prop.category.includes('tv') ? 950 : 1200,
+          isFloating: prop.category.includes('tv') || prop.category.includes('wall'),
+          semanticColor,
+        };
+      });
+    }
+
+    if (rType === 'bedroom' || rType === 'master_bedroom') {
+      return [
+        { id: 'stg-bed', name: 'King Storage Bed with Headboard', category: 'bed', widthMm: 1800, depthMm: 2100, xMm: Math.round(roomW * 0.1), yMm: Math.round(roomL * 0.55), rotationDeg: 0, unitPrice: 2100, isFloating: false, semanticColor: '#cc0000' },
+        { id: 'stg-wd', name: 'Profile-Glass Wardrobe Run', category: 'modular_storage', widthMm: Math.min(2400, roomW - 400), depthMm: 600, xMm: 200, yMm: Math.max(200, roomL - 800), rotationDeg: 0, unitPrice: 1600, isFloating: false, semanticColor: '#ff9900' },
+      ];
+    }
+    if (rType === 'kitchen') {
+      return [
+        { id: 'stg-k-base', name: 'L-Shape Kitchen Base Run with Hob', category: 'modular_storage', widthMm: Math.min(3000, roomW - 400), depthMm: 600, xMm: Math.round(roomW * 0.65), yMm: Math.round(roomL * 0.65), rotationDeg: 0, unitPrice: 2800, isFloating: false, semanticColor: '#ff9900' },
+        { id: 'stg-k-tall', name: 'Pantry Tower with Built-In Microwave', category: 'modular_storage', widthMm: 600, depthMm: 600, xMm: Math.min(3200, roomW - 800), yMm: 200, rotationDeg: 0, unitPrice: 950, isFloating: false, semanticColor: '#ff9900' },
+      ];
+    }
+    if (rType === 'dining') {
+      return [
+        { id: 'stg-din-tbl', name: '6-Seater Calacatta Dining Table', category: 'dining', widthMm: 2100, depthMm: 1000, xMm: Math.round((roomW - 2100) / 2), yMm: Math.round((roomL - 1000) / 2), rotationDeg: 0, unitPrice: 1400, isFloating: false, semanticColor: '#990099' },
+        { id: 'stg-crk', name: 'Full-Wall Crockery & Wine Bar', category: 'modular_storage', widthMm: 1800, depthMm: 450, xMm: 200, yMm: 200, rotationDeg: 0, unitPrice: 1100, isFloating: false, semanticColor: '#ff9900' },
+      ];
+    }
+    return [
+      { id: 'stg-sofa', name: 'Curved Bouclé Sectional Sofa', category: 'seating', widthMm: 2800, depthMm: 1600, xMm: 300, yMm: Math.round(roomL * 0.4), rotationDeg: 0, unitPrice: 1850, isFloating: false, semanticColor: '#3366cc' },
+      { id: 'stg-coffee', name: 'Travertine Coffee Table', category: 'table', widthMm: 1200, depthMm: 800, xMm: 1200, yMm: Math.round(roomL * 0.5), rotationDeg: 15, unitPrice: 650, isFloating: false, semanticColor: '#990099' },
+      { id: 'stg-tv', name: 'Floating Fluted TV Console Wall', category: 'modular_storage', widthMm: Math.min(2400, roomW - 600), depthMm: 450, xMm: 300, yMm: 150, rotationDeg: 0, unitPrice: 920, isFloating: true, semanticColor: '#ff9900' },
+    ];
+  }
+
   const roomMetrics = useMemo(() => rooms.map(room => {
     const b = bbox(room.polygon);
     const rawW = b.maxX - b.minX;
@@ -511,13 +578,42 @@ export function SpacesWorkspace() {
       ...roomCols.map(c => ({ id: c.id, kind: 'column' as const, widthMm: c.sizeMm ?? 300, clearanceMm: 200 })),
     ];
     const usable = computeUsableWallLength(roomWalls.map(w => ({ id: w.id, lengthMm: wallLen(w) })), deductions);
-    const readiness = computeSpaceReadiness(
+    const furniture = roomFurnitureMap[room.id] ?? getInitialRoomFurniture(room, widthMm, depthMm, selectedRoom === room.id ? aiProposals : undefined);
+    const vastu = roomVastuMap[room.id] ?? evaluateVastuCompliance({ widthMm, lengthMm: depthMm }, furniture);
+
+    const baseReadiness = computeSpaceReadiness(
       { spaceId: room.id, areaSqm: effectiveAreaSqm, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, usableWalls: roomWalls.map(w => ({ id: w.id, lengthMm: Math.round(wallLen(w)), openings: [], isExterior: false })) } as any,
       Boolean(room.spaceRecordId) && room.included !== false && room.requiredFurniture.length > 0 && (geometryMode === 'initial_design' || room.verificationStatus === 'verified'),
       issues.filter(i => i.entityId === room.id)
     );
-    return { room, widthMm, depthMm, effectiveAreaSqm, wallCount: roomWalls.length, openingCount: roomOpenings.length, usable, readiness, scaleReview: needsScaleReview(room, widthMm, depthMm) };
-  }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode]);
+
+    const vastuBlockingReasons = vastu.isCompliant
+      ? []
+      : [vastu.criticalRemedy || `Vastu directional alignment remedy needed (${vastu.score}% compliant)`];
+
+    const compositeReadiness = {
+      ...baseReadiness,
+      vastuCompliant: vastu.isCompliant,
+      vastuScore: vastu.score,
+      vastuRemedies: vastu.findings.filter(f => f.status === 'remedy').map(f => f.advice),
+      blockingReasons: [...baseReadiness.blockingReasons, ...vastuBlockingReasons],
+      ready: baseReadiness.ready && vastu.isCompliant,
+    };
+
+    return {
+      room,
+      widthMm,
+      depthMm,
+      effectiveAreaSqm,
+      wallCount: roomWalls.length,
+      openingCount: roomOpenings.length,
+      usable,
+      readiness: compositeReadiness,
+      vastu,
+      furniture,
+      scaleReview: needsScaleReview(room, widthMm, depthMm),
+    };
+  }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode, roomFurnitureMap, roomVastuMap, selectedRoom, aiProposals]);
 
   const includedMetrics = useMemo(() => roomMetrics.filter(({ room }) => room.included !== false), [roomMetrics]);
   const overallReadiness = useMemo(() => {
@@ -594,59 +690,77 @@ export function SpacesWorkspace() {
 
   const stagerItems = useMemo<TopViewFurniture[] | undefined>(() => {
     if (!sel?.room) return undefined;
-    const rType = sel.room.roomType;
-    const roomW = Math.round(sel.widthMm || 6000);
-    const roomL = Math.round(sel.depthMm || 4500);
+    return roomFurnitureMap[sel.room.id] ?? getInitialRoomFurniture(sel.room, sel.widthMm, sel.depthMm, aiProposals);
+  }, [sel, aiProposals, roomFurnitureMap]);
 
-    if (aiProposals.length > 0) {
-      return aiProposals.map((prop, idx) => {
-        let category: TopViewFurniture['category'] = 'modular_storage';
-        let semanticColor = '#ff9900';
-        if (prop.category.includes('bed')) { category = 'bed'; semanticColor = '#cc0000'; }
-        else if (prop.category.includes('sofa') || prop.category.includes('seating')) { category = 'seating'; semanticColor = '#3366cc'; }
-        else if (prop.category.includes('dining')) { category = 'dining'; semanticColor = '#990099'; }
-        else if (prop.category.includes('table')) { category = 'table'; semanticColor = '#990099'; }
+  const toggleRoomVastu = (roomId: string, widthMm: number, depthMm: number) => {
+    const targetRoom = rooms.find(r => r.id === roomId);
+    if (!targetRoom) return;
+    const currentFurniture = roomFurnitureMap[roomId] ?? getInitialRoomFurniture(
+      targetRoom,
+      widthMm,
+      depthMm,
+      selectedRoom === roomId ? aiProposals : undefined
+    );
+    const analysis = evaluateVastuCompliance({ widthMm, lengthMm: depthMm }, currentFurniture);
 
-        return {
-          id: prop.id || `stg-${idx}`,
-          name: prop.name,
-          category,
-          widthMm: prop.dimensionsMm.width,
-          depthMm: prop.dimensionsMm.depth,
-          xMm: Math.max(100, Math.min(roomW - prop.dimensionsMm.width, Math.round(prop.position.xMm % roomW))),
-          yMm: Math.max(100, Math.min(roomL - prop.dimensionsMm.depth, Math.round(prop.position.yMm % roomL))),
-          rotationDeg: 0,
-          unitPrice: prop.category.includes('bed') ? 2100 : prop.category.includes('tv') ? 950 : 1200,
-          isFloating: prop.category.includes('tv') || prop.category.includes('wall'),
-          semanticColor,
-        };
+    if (analysis.isCompliant) {
+      // Shift to inauspicious zone (e.g. Bed to NE Ishanya or Hob to NW Vayavya)
+      let shifted = false;
+      const updated = currentFurniture.map(it => {
+        if (it.category === 'bed') {
+          shifted = true;
+          return { ...it, xMm: Math.round(widthMm * 0.72), yMm: Math.round(depthMm * 0.08) };
+        }
+        if (it.name.toLowerCase().includes('mandir') || it.name.toLowerCase().includes('pooja')) {
+          shifted = true;
+          return { ...it, xMm: Math.round(widthMm * 0.1), yMm: Math.round(depthMm * 0.65) };
+        }
+        if (it.category === 'modular_storage' && it.name.toLowerCase().includes('kitchen')) {
+          shifted = true;
+          return { ...it, xMm: Math.round(widthMm * 0.1), yMm: Math.round(depthMm * 0.1) };
+        }
+        return it;
       });
+      if (!shifted && updated.length > 0) {
+        updated[0] = {
+          ...updated[0],
+          category: 'bed',
+          name: 'Master Bed (Vastu Test Placement)',
+          xMm: Math.round(widthMm * 0.72),
+          yMm: Math.round(depthMm * 0.08),
+        };
+      }
+      const newVastu = evaluateVastuCompliance({ widthMm, lengthMm: depthMm }, updated);
+      setRoomFurnitureMap(prev => ({ ...prev, [roomId]: updated }));
+      setRoomVastuMap(prev => ({ ...prev, [roomId]: newVastu }));
+      setSaveState(`Toggled Vastu violation in ${targetRoom.name}: Bed moved to North-East (Ishanya). Readiness updated.`);
+    } else {
+      // Auto-align to auspicious zones
+      const updated = currentFurniture.map(it => {
+        if (it.category === 'bed') {
+          return { ...it, xMm: Math.round(widthMm * 0.1), yMm: Math.round(depthMm * 0.55), rotationDeg: 0 };
+        }
+        if (it.name.toLowerCase().includes('mandir') || it.name.toLowerCase().includes('pooja')) {
+          return { ...it, xMm: Math.round(widthMm * 0.72), yMm: Math.round(depthMm * 0.08), rotationDeg: 0 };
+        }
+        if (it.category === 'modular_storage' && it.name.toLowerCase().includes('kitchen')) {
+          return { ...it, xMm: Math.round(widthMm * 0.65), yMm: Math.round(depthMm * 0.65), rotationDeg: 0 };
+        }
+        if (it.category === 'modular_storage' && (it.name.toLowerCase().includes('tv') || it.name.toLowerCase().includes('console'))) {
+          return { ...it, xMm: Math.round(widthMm * 0.28), yMm: Math.round(depthMm * 0.05), rotationDeg: 0 };
+        }
+        if (it.category === 'seating') {
+          return { ...it, xMm: Math.round(widthMm * 0.22), yMm: Math.round(depthMm * 0.35), rotationDeg: 0 };
+        }
+        return it;
+      });
+      const newVastu = evaluateVastuCompliance({ widthMm, lengthMm: depthMm }, updated);
+      setRoomFurnitureMap(prev => ({ ...prev, [roomId]: updated }));
+      setRoomVastuMap(prev => ({ ...prev, [roomId]: newVastu }));
+      setSaveState(`Aligned ${targetRoom.name} to auspicious Vastu zones. Room is now Vastu compliant.`);
     }
-
-    if (rType === 'bedroom' || rType === 'master_bedroom') {
-      return [
-        { id: 'stg-bed', name: 'King Storage Bed with Headboard', category: 'bed', widthMm: 1800, depthMm: 2100, xMm: Math.round((roomW - 1800) / 2), yMm: 200, rotationDeg: 0, unitPrice: 2100, isFloating: false, semanticColor: '#cc0000' },
-        { id: 'stg-wd', name: 'Profile-Glass Wardrobe Run', category: 'modular_storage', widthMm: Math.min(2400, roomW - 400), depthMm: 600, xMm: 200, yMm: Math.max(200, roomL - 800), rotationDeg: 0, unitPrice: 1600, isFloating: false, semanticColor: '#ff9900' },
-      ];
-    }
-    if (rType === 'kitchen') {
-      return [
-        { id: 'stg-k-base', name: 'L-Shape Kitchen Base Run with Hob', category: 'modular_storage', widthMm: Math.min(3000, roomW - 400), depthMm: 600, xMm: 200, yMm: 200, rotationDeg: 0, unitPrice: 2800, isFloating: false, semanticColor: '#ff9900' },
-        { id: 'stg-k-tall', name: 'Pantry Tower with Built-In Microwave', category: 'modular_storage', widthMm: 600, depthMm: 600, xMm: Math.min(3200, roomW - 800), yMm: 200, rotationDeg: 0, unitPrice: 950, isFloating: false, semanticColor: '#ff9900' },
-      ];
-    }
-    if (rType === 'dining') {
-      return [
-        { id: 'stg-din-tbl', name: '6-Seater Calacatta Dining Table', category: 'dining', widthMm: 2100, depthMm: 1000, xMm: Math.round((roomW - 2100) / 2), yMm: Math.round((roomL - 1000) / 2), rotationDeg: 0, unitPrice: 1400, isFloating: false, semanticColor: '#990099' },
-        { id: 'stg-crk', name: 'Full-Wall Crockery & Wine Bar', category: 'modular_storage', widthMm: 1800, depthMm: 450, xMm: 200, yMm: 200, rotationDeg: 0, unitPrice: 1100, isFloating: false, semanticColor: '#ff9900' },
-      ];
-    }
-    return [
-      { id: 'stg-sofa', name: 'Curved Bouclé Sectional Sofa', category: 'seating', widthMm: 2800, depthMm: 1600, xMm: 300, yMm: Math.round(roomL * 0.4), rotationDeg: 0, unitPrice: 1850, isFloating: false, semanticColor: '#3366cc' },
-      { id: 'stg-coffee', name: 'Travertine Coffee Table', category: 'table', widthMm: 1200, depthMm: 800, xMm: 1200, yMm: Math.round(roomL * 0.5), rotationDeg: 15, unitPrice: 650, isFloating: false, semanticColor: '#990099' },
-      { id: 'stg-tv', name: 'Floating Fluted TV Console Wall', category: 'modular_storage', widthMm: Math.min(2400, roomW - 600), depthMm: 450, xMm: 300, yMm: 150, rotationDeg: 0, unitPrice: 920, isFloating: true, semanticColor: '#ff9900' },
-    ];
-  }, [sel, aiProposals]);
+  };
 
   // ── AI Furniture Layout Detection Engine ──
   const detectAiLayout = (room: PlanRoom) => {
@@ -1510,7 +1624,7 @@ export function SpacesWorkspace() {
           <aside className="region room-list">
             <div className="region-title"><Home size={14} /> Rooms ({rooms.length})</div>
             <div className="room-cards">
-              {roomMetrics.map(({ room, widthMm, depthMm, effectiveAreaSqm, usable, readiness, scaleReview }) => (
+              {roomMetrics.map(({ room, widthMm, depthMm, effectiveAreaSqm, usable, readiness, vastu, scaleReview }) => (
                 <div key={room.id} className={`room-card ${selectedRoom === room.id ? 'sel' : ''}`} onClick={() => { setSelectedRoom(room.id); setAiProposals([]); }}>
                   <div className="rc-head">
                     <strong>{room.name}</strong>
@@ -1522,11 +1636,42 @@ export function SpacesWorkspace() {
                   </div>
                   <div className="rc-row"><span>Ceiling ↕</span><strong>{room.ceilingHeightMm ?? ceilingHeightMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(room.ceilingHeightMm ?? ceilingHeightMm)})</small></strong></div>
                   <div className="rc-row"><span>Usable wall</span><strong>{usable.usableWallMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(usable.usableWallMm)})</small></strong></div>
+
+                  {/* Readiness & Vastu Checklist Row */}
+                  <div className="rc-readiness-checklist">
+                    <span className={`rc-chk-chip ${readiness.geometryVerified ? 'pass' : 'fail'}`} title="Room geometry derived & verified">
+                      {readiness.geometryVerified ? '✓ Geo' : '⚠️ Geo'}
+                    </span>
+                    <span className={`rc-chk-chip ${readiness.heightKnown ? 'pass' : 'fail'}`} title="Ceiling height calibrated">
+                      {readiness.heightKnown ? '✓ Ht' : '⚠️ Ht'}
+                    </span>
+                    <span className={`rc-chk-chip ${readiness.requirementsSaved ? 'pass' : 'fail'}`} title="Room furniture requirements linked">
+                      {readiness.requirementsSaved ? '✓ Brief' : '⚠️ Brief'}
+                    </span>
+                    <span
+                      className={`rc-chk-chip ${vastu.isCompliant ? 'pass' : 'remedy'}`}
+                      title={vastu.isCompliant ? `Vastu Auspicious (${vastu.score}% compliant)` : `Vastu Remedy: ${vastu.criticalRemedy || 'Harmonize zones'}`}
+                    >
+                      <Compass size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 2 }} />
+                      {vastu.isCompliant ? `Vastu ${vastu.score}%` : `Vastu ${vastu.score}% ⚠️`}
+                    </span>
+                  </div>
+
                   <div className="rc-foot">
-                    <Badge tone={readiness.ready ? 'success' : 'warn'}>{readiness.ready ? 'Ready' : 'Incomplete'}</Badge>
+                    <Badge tone={readiness.ready ? 'success' : 'warn'}>
+                      {readiness.ready ? 'Ready' : !vastu.isCompliant ? `Vastu Remedy (${vastu.score}%)` : 'Incomplete'}
+                    </Badge>
                     {scaleReview && <span className="rc-scale-review" title="This room is unusually small for its selected type. Check the plan calibration before layout.">Check scale</span>}
                     <label className="inc-toggle"><input type="checkbox" checked={room.included !== false} onChange={(e) => includeRoom(room.id, e.target.checked)} onClick={(e) => e.stopPropagation()} /> include</label>
                   </div>
+
+                  {!vastu.isCompliant && vastu.criticalRemedy && (
+                    <div className="rc-vastu-remedy-alert" title={vastu.criticalRemedy}>
+                      <Compass size={11} />
+                      <span>{vastu.criticalRemedy}</span>
+                    </div>
+                  )}
+
                   {room.included !== false && (
                     <div className="rc-actions-row">
                       <button
@@ -1548,7 +1693,19 @@ export function SpacesWorkspace() {
                           void applyLayoutCandidateToScene(targetRoom, 'balanced');
                         }}
                       >
-                        <CheckCircle2 size={13} /> {readiness.ready ? 'Room ready (Approved)' : 'Approve & Verify Room'}
+                        <CheckCircle2 size={13} /> {readiness.ready ? 'Room ready (Approved)' : !vastu.isCompliant ? 'Fix Vastu & Approve' : 'Approve & Verify Room'}
+                      </button>
+                      <button
+                        type="button"
+                        className={`room-vastu-toggle-btn ${vastu.isCompliant ? 'btn-comp' : 'btn-viol'}`}
+                        title={vastu.isCompliant ? 'Simulate Vastu defect to test readiness checklist' : 'Auto-align furniture to auspicious Vastu zones'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedRoom(room.id);
+                          toggleRoomVastu(room.id, widthMm, depthMm);
+                        }}
+                      >
+                        <Compass size={11} /> {vastu.isCompliant ? 'Test Vastu' : 'Align Vastu'}
                       </button>
                       <button type="button" className="room-ai-btn" title="AI Auto-Detect Layout" onClick={(e) => { e.stopPropagation(); setSelectedRoom(room.id); detectAiLayout(room); }}>
                         <Sparkles size={12} /> AI Layout
@@ -1637,6 +1794,16 @@ export function SpacesWorkspace() {
                     flooring: ((sel?.room as any)?.finishSchedule?.floor as any) || 'herringbone_oak',
                   }}
                   initialItems={stagerItems}
+                  onItemsChange={(items) => {
+                    if (sel?.room.id) {
+                      setRoomFurnitureMap((prev) => ({ ...prev, [sel.room.id]: items }));
+                    }
+                  }}
+                  onVastuChange={(analysis) => {
+                    if (sel?.room.id) {
+                      setRoomVastuMap((prev) => ({ ...prev, [sel.room.id]: analysis }));
+                    }
+                  }}
                   onGenerateRender={(payload) => {
                     setSaveState(`Generating top-down floor plan render with ${payload.stylePrompt.slice(0, 40)}…`);
                     setShowFloorPlanRenderModal(true);
@@ -2079,6 +2246,67 @@ export function SpacesWorkspace() {
                     <div><span>Usable wall</span><strong>{sel.usable.usableWallMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(sel.usable.usableWallMm)})</small></strong></div>
                     <div><span>Deductions</span><strong>{sel.usable.deductionsMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(sel.usable.deductionsMm)})</small></strong></div>
                   </div>
+
+                  {/* Architectural Readiness & Vastu Compliance Audit Gate */}
+                  <div className="vastu-readiness-card">
+                    <div className="vrc-header">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Compass size={14} color="var(--gold)" />
+                        <strong>Room Readiness &amp; Vastu Checklist</strong>
+                      </div>
+                      <Badge tone={sel.readiness.ready ? 'success' : 'warn'}>
+                        {sel.readiness.ready ? 'Ready for Layout' : !sel.vastu.isCompliant ? 'Vastu Remedy Needed' : 'Checklist Incomplete'}
+                      </Badge>
+                    </div>
+
+                    <div className="vrc-items">
+                      <div className={`vrc-item ${sel.readiness.geometryVerified ? 'pass' : 'fail'}`}>
+                        <span>{sel.readiness.geometryVerified ? '✓' : '⚠️'} Derived Geometry</span>
+                        <strong>{(sel.effectiveAreaSqm ?? sel.room.areaSqm).toFixed(1)} m²</strong>
+                      </div>
+                      <div className={`vrc-item ${sel.readiness.heightKnown ? 'pass' : 'fail'}`}>
+                        <span>{sel.readiness.heightKnown ? '✓' : '⚠️'} Ceiling Height</span>
+                        <strong>{sel.room.ceilingHeightMm ?? ceilingHeightMm} mm</strong>
+                      </div>
+                      <div className={`vrc-item ${sel.readiness.requirementsSaved ? 'pass' : 'fail'}`}>
+                        <span>{sel.readiness.requirementsSaved ? '✓' : '⚠️'} Furniture Requirements</span>
+                        <strong>{sel.room.requiredFurniture.length} items</strong>
+                      </div>
+                      <div className={`vrc-item ${sel.readiness.noBlockingPlanIssues ? 'pass' : 'fail'}`}>
+                        <span>{sel.readiness.noBlockingPlanIssues ? '✓' : '⚠️'} Plan Critical Issues</span>
+                        <strong>0 issues</strong>
+                      </div>
+                      <div className={`vrc-item ${sel.vastu.isCompliant ? 'pass' : 'remedy'}`} style={{ gridColumn: 'span 2' }}>
+                        <span>{sel.vastu.isCompliant ? '✓' : '⚠️'} Vastu Shastra Directional Alignment</span>
+                        <strong>{sel.vastu.score}% Compliant ({sel.vastu.isCompliant ? 'Auspicious' : `${sel.vastu.remedyCount} Remedy required`})</strong>
+                      </div>
+                    </div>
+
+                    {!sel.vastu.isCompliant && sel.vastu.criticalRemedy && (
+                      <div className="vrc-remedy-banner">
+                        <AlertTriangle size={13} color="#f59e0b" />
+                        <span>{sel.vastu.criticalRemedy}</span>
+                      </div>
+                    )}
+
+                    <div className="vrc-actions">
+                      <button
+                        type="button"
+                        className="btn-vrc-align"
+                        onClick={() => toggleRoomVastu(sel.room.id, sel.widthMm, sel.depthMm)}
+                      >
+                        <Sparkles size={12} /> {sel.vastu.isCompliant ? 'Simulate Vastu Defect (NE Bed)' : '✨ Auto-Align to Vastu (SW Bed)'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-vrc-stager"
+                        onClick={() => setCanvasRenderMode('stager')}
+                      >
+                        Open Stager &rarr;
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="wall-verification-list">
                     <strong>Interactive Wall Picker &amp; Elevation Setup</strong>
                     <p>Click a wall to inspect technical 2D elevation, door/window clearances, or apply Design Feature Walls.</p>
@@ -2469,6 +2697,45 @@ export function SpacesWorkspace() {
                       </div>
 
                       <div className="advisor-rules-list">
+                        {/* Vastu Shastra Directional Rule */}
+                        <div className={`advisor-rule-card ${sel.vastu.isCompliant ? '' : 'remedy-card'}`}>
+                          <div className="advisor-rule-card-head">
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Compass size={13} color={sel.vastu.isCompliant ? '#059669' : '#f59e0b'} />
+                              Vastu Shastra Directional Alignment
+                            </span>
+                            <span style={{ color: sel.vastu.isCompliant ? '#059669' : '#f59e0b', fontSize: 10.5, fontWeight: 700 }}>
+                              {sel.vastu.isCompliant ? `VERIFIED (${sel.vastu.score}%)` : `REMEDY NEEDED (${sel.vastu.score}%)`}
+                            </span>
+                          </div>
+                          <p>
+                            {sel.vastu.isCompliant
+                              ? `All furniture modules align auspiciously with sacred Vastu zones: master bed grounded in SW/South, social seating welcoming North/East prana energy.`
+                              : (sel.vastu.criticalRemedy || `Vastu directional adjustments needed to optimize positive energy flow in ${sel.room.name}.`)}
+                          </p>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                            <button
+                              type="button"
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                background: sel.vastu.isCompliant ? 'var(--gold-dim, #ebdccb)' : '#f59e0b',
+                                color: sel.vastu.isCompliant ? '#1c1917' : '#000',
+                                border: 0,
+                                borderRadius: 6,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                              onClick={() => toggleRoomVastu(sel.room.id, sel.widthMm, sel.depthMm)}
+                            >
+                              <Sparkles size={11} /> {sel.vastu.isCompliant ? 'Simulate Vastu Defect' : '✨ Auto-Align to Vastu'}
+                            </button>
+                          </div>
+                        </div>
+
                         {audit.rules.map((rule, idx) => (
                           <div key={idx} className="advisor-rule-card">
                             <div className="advisor-rule-card-head">

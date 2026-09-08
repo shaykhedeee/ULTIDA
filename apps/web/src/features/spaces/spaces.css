@@ -1374,3 +1374,191 @@
   color: #ffffff;
   transform: translateY(-1px);
 }
+
+/* ── Room Card Vastu & Readiness Checklist ── */
+.rc-readiness-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+}
+
+.rc-chk-chip {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.rc-chk-chip.pass {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.rc-chk-chip.fail {
+  background: rgba(239, 68, 68, 0.08);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.rc-chk-chip.remedy {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.rc-vastu-remedy-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 5px 8px;
+  margin-top: 6px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 6px;
+  color: #b45309;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.room-vastu-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  min-height: 28px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  color: var(--text-secondary);
+}
+
+.room-vastu-toggle-btn.btn-comp {
+  color: #d97706;
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.room-vastu-toggle-btn.btn-viol {
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+/* ── Vastu Readiness Card in Inspector ── */
+.vastu-readiness-card {
+  background: #fffdfa;
+  border: 1px solid rgba(184, 138, 67, 0.3);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vrc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(184, 138, 67, 0.15);
+  padding-bottom: 8px;
+  font-size: 12px;
+}
+
+.vrc-items {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.vrc-item {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.vrc-item span {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.vrc-item strong {
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+
+.vrc-item.pass strong {
+  color: #059669;
+}
+
+.vrc-item.remedy strong {
+  color: #d97706;
+}
+
+.vrc-item.fail strong {
+  color: #dc2626;
+}
+
+.vrc-remedy-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #b45309;
+  line-height: 1.4;
+}
+
+.vrc-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-vrc-align {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--gold);
+  background: linear-gradient(135deg, #c59c2d, #8f6c12);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-vrc-stager {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+

@@ -12,6 +12,7 @@ import {
   DollarSign,
   Grid,
   Palette,
+  AlertTriangle,
 } from 'lucide-react';
 
 export type FlooringType =
@@ -158,9 +159,146 @@ export const FURNITURE_PRESETS: Omit<TopViewFurniture, 'id' | 'xMm' | 'yMm' | 'r
   },
 ];
 
+export interface VastuFinding {
+  title: string;
+  zone: string;
+  status: 'auspicious' | 'neutral' | 'remedy';
+  advice: string;
+}
+
+export interface VastuAnalysis {
+  score: number;
+  findings: VastuFinding[];
+  isCompliant: boolean;
+  remedyCount: number;
+  criticalRemedy?: string;
+}
+
+export function evaluateVastuCompliance(
+  room: { widthMm: number; lengthMm: number },
+  items: TopViewFurniture[]
+): VastuAnalysis {
+  const findings: VastuFinding[] = [];
+  let compliantPoints = 0;
+  let totalEvaluated = 0;
+
+  items.forEach((item) => {
+    totalEvaluated += 1;
+    const normX = (item.xMm + item.widthMm / 2) / (room.widthMm || 1); // 0 (West) -> 1 (East)
+    const normY = (item.yMm + item.depthMm / 2) / (room.lengthMm || 1); // 0 (North) -> 1 (South)
+
+    // Determine Zone:
+    // Top-Right = NE (Ishanya), Bottom-Right = SE (Agneya)
+    // Bottom-Left = SW (Nairutya), Top-Left = NW (Vayavya)
+    // Top-Center = N (Kubera), Bottom-Center = S (Yama)
+    // Left-Center = W (Varuna), Right-Center = E (Indra)
+    const isNorth = normY < 0.4;
+    const isSouth = normY > 0.6;
+    const isEast = normX > 0.6;
+    const isWest = normX < 0.4;
+
+    let zoneName = 'Central Brahmasthan';
+    if (isNorth && isEast) zoneName = 'North-East (Ishanya)';
+    else if (isSouth && isEast) zoneName = 'South-East (Agneya)';
+    else if (isSouth && isWest) zoneName = 'South-West (Nairutya)';
+    else if (isNorth && isWest) zoneName = 'North-West (Vayavya)';
+    else if (isNorth) zoneName = 'North (Kubera)';
+    else if (isSouth) zoneName = 'South (Yama)';
+    else if (isEast) zoneName = 'East (Indra / Surya)';
+    else if (isWest) zoneName = 'West (Varuna)';
+
+    if (item.category === 'bed') {
+      if (zoneName.includes('South-West') || zoneName.includes('South')) {
+        compliantPoints += 1;
+        findings.push({
+          title: `${item.name} in ${zoneName}`,
+          zone: zoneName,
+          status: 'auspicious',
+          advice: 'Auspicious: Master bed in SW/South zone promotes leadership, health, and grounding stability.',
+        });
+      } else {
+        findings.push({
+          title: `${item.name} in ${zoneName}`,
+          zone: zoneName,
+          status: 'remedy',
+          advice: 'Vastu Recommendation: Shift bed towards South-West (Nairutya) for maximum energetic harmony.',
+        });
+      }
+    } else if (item.name.toLowerCase().includes('mandir') || item.name.toLowerCase().includes('pooja')) {
+      if (zoneName.includes('North-East') || zoneName.includes('East')) {
+        compliantPoints += 1;
+        findings.push({
+          title: `${item.name} in ${zoneName}`,
+          zone: zoneName,
+          status: 'auspicious',
+          advice: 'Highly Auspicious: Sacred Mandir in Ishanya (NE) channels divine spiritual vibrations and clarity.',
+        });
+      } else {
+        findings.push({
+          title: `${item.name} in ${zoneName}`,
+          zone: zoneName,
+          status: 'remedy',
+          advice: 'Vastu Recommendation: Position Mandir in North-East corner for divine alignment.',
+        });
+      }
+    } else if (item.category === 'modular_storage' && item.name.toLowerCase().includes('kitchen')) {
+      if (zoneName.includes('South-East') || zoneName.includes('East')) {
+        compliantPoints += 1;
+        findings.push({
+          title: `${item.name} in ${zoneName}`,
+          zone: zoneName,
+          status: 'auspicious',
+          advice: 'Auspicious: Cooking zone in Agneya (SE) governs the fire element (Agni), bestowing prosperity.',
+        });
+      } else {
+        findings.push({
+          title: `${item.name} in ${zoneName}`,
+          zone: zoneName,
+          status: 'remedy',
+          advice: 'Vastu Recommendation: Align cooking hob and kitchen base towards South-East.',
+        });
+      }
+    } else if (item.category === 'seating' || item.category === 'modular_storage') {
+      if (zoneName.includes('North') || zoneName.includes('East') || zoneName.includes('West')) {
+        compliantPoints += 1;
+        findings.push({
+          title: `${item.name} in ${zoneName}`,
+          zone: zoneName,
+          status: 'auspicious',
+          advice: 'Auspicious: Entertainment & social seating welcomes positive Kubera/Indra prana energy.',
+        });
+      } else {
+        compliantPoints += 0.5;
+        findings.push({
+          title: `${item.name} in ${zoneName}`,
+          zone: zoneName,
+          status: 'neutral',
+          advice: 'Harmonious placement.',
+        });
+      }
+    } else {
+      compliantPoints += 0.8;
+    }
+  });
+
+  const score = totalEvaluated > 0 ? Math.min(100, Math.round((compliantPoints / totalEvaluated) * 100)) : 92;
+  const remedies = findings.filter((f) => f.status === 'remedy');
+  const isCompliant = remedies.length === 0 && (totalEvaluated === 0 || score >= 75);
+
+  return {
+    score,
+    findings,
+    isCompliant,
+    remedyCount: remedies.length,
+    criticalRemedy: remedies[0]?.advice,
+  };
+}
+
 export interface TopViewFloorplanEnhancerProps {
   initialRoom?: RoomZone;
   initialItems?: TopViewFurniture[];
+  onItemsChange?: (items: TopViewFurniture[]) => void;
+  onVastuChange?: (analysis: VastuAnalysis) => void;
   onGenerateRender?: (payload: {
     semanticMapBase64: string;
     stylePrompt: string;
@@ -178,6 +316,8 @@ export default function TopViewFloorplanEnhancer({
     flooring: 'herringbone_oak',
   },
   initialItems,
+  onItemsChange,
+  onVastuChange,
   onGenerateRender,
 }: TopViewFloorplanEnhancerProps) {
   const [room, setRoom] = useState<RoomZone>(initialRoom);
@@ -235,116 +375,16 @@ export default function TopViewFloorplanEnhancer({
   // VASTU SHASTRA DIRECTIONAL ANALYSIS
   // ------------------------------------------
   const vastuAnalysis = useMemo(() => {
-    const findings: Array<{ title: string; zone: string; status: 'auspicious' | 'neutral' | 'remedy'; advice: string }> = [];
-    let compliantPoints = 0;
-    let totalEvaluated = 0;
-
-    items.forEach((item) => {
-      totalEvaluated += 1;
-      const normX = (item.xMm + item.widthMm / 2) / room.widthMm; // 0 (West) -> 1 (East)
-      const normY = (item.yMm + item.depthMm / 2) / room.lengthMm; // 0 (North) -> 1 (South)
-
-      // Determine Zone:
-      // Top-Right = NE (Ishanya), Bottom-Right = SE (Agneya)
-      // Bottom-Left = SW (Nairutya), Top-Left = NW (Vayavya)
-      // Top-Center = N (Kubera), Bottom-Center = S (Yama)
-      // Left-Center = W (Varuna), Right-Center = E (Indra)
-      const isNorth = normY < 0.4;
-      const isSouth = normY > 0.6;
-      const isEast = normX > 0.6;
-      const isWest = normX < 0.4;
-
-      let zoneName = 'Central Brahmasthan';
-      if (isNorth && isEast) zoneName = 'North-East (Ishanya)';
-      else if (isSouth && isEast) zoneName = 'South-East (Agneya)';
-      else if (isSouth && isWest) zoneName = 'South-West (Nairutya)';
-      else if (isNorth && isWest) zoneName = 'North-West (Vayavya)';
-      else if (isNorth) zoneName = 'North (Kubera)';
-      else if (isSouth) zoneName = 'South (Yama)';
-      else if (isEast) zoneName = 'East (Indra / Surya)';
-      else if (isWest) zoneName = 'West (Varuna)';
-
-      if (item.category === 'bed') {
-        if (zoneName.includes('South-West') || zoneName.includes('South')) {
-          compliantPoints += 1;
-          findings.push({
-            title: `${item.name} in ${zoneName}`,
-            zone: zoneName,
-            status: 'auspicious',
-            advice: 'Auspicious: Master bed in SW/South zone promotes leadership, health, and grounding stability.',
-          });
-        } else {
-          findings.push({
-            title: `${item.name} in ${zoneName}`,
-            zone: zoneName,
-            status: 'remedy',
-            advice: 'Vastu Recommendation: Shift bed towards South-West (Nairutya) for maximum energetic harmony.',
-          });
-        }
-      } else if (item.name.toLowerCase().includes('mandir') || item.name.toLowerCase().includes('pooja')) {
-        if (zoneName.includes('North-East') || zoneName.includes('East')) {
-          compliantPoints += 1;
-          findings.push({
-            title: `${item.name} in ${zoneName}`,
-            zone: zoneName,
-            status: 'auspicious',
-            advice: 'Highly Auspicious: Sacred Mandir in Ishanya (NE) channels divine spiritual vibrations and clarity.',
-          });
-        } else {
-          findings.push({
-            title: `${item.name} in ${zoneName}`,
-            zone: zoneName,
-            status: 'remedy',
-            advice: 'Vastu Recommendation: Position Mandir in North-East corner for divine alignment.',
-          });
-        }
-      } else if (item.category === 'modular_storage' && item.name.toLowerCase().includes('kitchen')) {
-        if (zoneName.includes('South-East') || zoneName.includes('East')) {
-          compliantPoints += 1;
-          findings.push({
-            title: `${item.name} in ${zoneName}`,
-            zone: zoneName,
-            status: 'auspicious',
-            advice: 'Auspicious: Cooking zone in Agneya (SE) governs the fire element (Agni), bestowing prosperity.',
-          });
-        } else {
-          findings.push({
-            title: `${item.name} in ${zoneName}`,
-            zone: zoneName,
-            status: 'remedy',
-            advice: 'Vastu Recommendation: Align cooking hob and kitchen base towards South-East.',
-          });
-        }
-      } else if (item.category === 'seating' || item.category === 'modular_storage') {
-        if (zoneName.includes('North') || zoneName.includes('East') || zoneName.includes('West')) {
-          compliantPoints += 1;
-          findings.push({
-            title: `${item.name} in ${zoneName}`,
-            zone: zoneName,
-            status: 'auspicious',
-            advice: 'Auspicious: Entertainment & social seating welcomes positive Kubera/Indra prana energy.',
-          });
-        } else {
-          compliantPoints += 0.5;
-          findings.push({
-            title: `${item.name} in ${zoneName}`,
-            zone: zoneName,
-            status: 'neutral',
-            advice: 'Harmonious placement.',
-          });
-        }
-      } else {
-        compliantPoints += 0.8;
-      }
-    });
-
-    const score = totalEvaluated > 0 ? Math.min(100, Math.round((compliantPoints / totalEvaluated) * 100)) : 92;
-
-    return {
-      score,
-      findings,
-    };
+    return evaluateVastuCompliance(room, items);
   }, [items, room]);
+
+  useEffect(() => {
+    onVastuChange?.(vastuAnalysis);
+  }, [vastuAnalysis, onVastuChange]);
+
+  useEffect(() => {
+    onItemsChange?.(items);
+  }, [items, onItemsChange]);
 
   const handleAutoAlignVastu = () => {
     const updated = items.map((item) => {
@@ -372,6 +412,15 @@ export default function TopViewFloorplanEnhancer({
           ...item,
           xMm: Math.round(room.widthMm * 0.28),
           yMm: Math.round(room.lengthMm * 0.05),
+          rotationDeg: 0,
+        };
+      }
+      if (item.category === 'modular_storage' && item.name.toLowerCase().includes('kitchen')) {
+        // SE (Agneya)
+        return {
+          ...item,
+          xMm: Math.round(room.widthMm * 0.65),
+          yMm: Math.round(room.lengthMm * 0.65),
           rotationDeg: 0,
         };
       }
@@ -403,6 +452,62 @@ export default function TopViewFloorplanEnhancer({
       }
       return item;
     });
+
+    setItems(updated);
+  };
+
+  const handleToggleVastuViolation = () => {
+    if (!vastuAnalysis.isCompliant) {
+      handleAutoAlignVastu();
+      return;
+    }
+
+    // Currently compliant: shift a critical item into an inauspicious zone
+    // Bed -> North-East (Ishanya), Kitchen Hob -> North-West, Mandir -> South-West
+    let hasShifted = false;
+    const updated = items.map((item) => {
+      if (item.category === 'bed') {
+        hasShifted = true;
+        return {
+          ...item,
+          xMm: Math.round(room.widthMm * 0.7),
+          yMm: Math.round(room.lengthMm * 0.08),
+        };
+      }
+      if (item.name.toLowerCase().includes('mandir') || item.name.toLowerCase().includes('pooja')) {
+        hasShifted = true;
+        return {
+          ...item,
+          xMm: Math.round(room.widthMm * 0.1),
+          yMm: Math.round(room.lengthMm * 0.65),
+        };
+      }
+      if (item.category === 'modular_storage' && item.name.toLowerCase().includes('kitchen')) {
+        hasShifted = true;
+        return {
+          ...item,
+          xMm: Math.round(room.widthMm * 0.1),
+          yMm: Math.round(room.lengthMm * 0.1),
+        };
+      }
+      return item;
+    });
+
+    if (!hasShifted && items.length > 0) {
+      // If no bed/kitchen/mandir found, convert first item to bed in NE to demonstrate violation
+      const first = items[0];
+      setItems([
+        {
+          ...first,
+          category: 'bed',
+          name: 'Master Bed (Vastu Test Placement)',
+          xMm: Math.round(room.widthMm * 0.72),
+          yMm: Math.round(room.lengthMm * 0.08),
+        },
+        ...items.slice(1),
+      ]);
+      return;
+    }
 
     setItems(updated);
   };
@@ -777,6 +882,27 @@ export default function TopViewFloorplanEnhancer({
               }}
             >
               <Sparkles size={13} /> ✨ Align to Vastu
+            </button>
+
+            <button
+              type="button"
+              onClick={handleToggleVastuViolation}
+              title="Toggle a Vastu-violating furniture placement to test readiness checklist reaction"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                background: vastuAnalysis.isCompliant ? '#292524' : 'rgba(239, 68, 68, 0.15)',
+                border: vastuAnalysis.isCompliant ? '1px solid #44403c' : '1px solid #ef4444',
+                color: vastuAnalysis.isCompliant ? '#fbbf24' : '#f87171',
+                padding: '6px 12px',
+                borderRadius: 8,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <AlertTriangle size={13} /> {vastuAnalysis.isCompliant ? 'Simulate Vastu Defect' : 'Fix Vastu Violation'}
             </button>
 
             {selectedItem && (
