@@ -8,7 +8,7 @@ import {
   Home, CheckCircle2, Circle, Edit3, AlertTriangle, Layers, Ruler, Square, SplitSquareHorizontal,
   Merge, Columns, Plug, DoorOpen, Pencil, Undo2, Redo2, Eye, EyeOff, Sparkles,
   MapPin, TriangleAlert, Save, Plus, X, Maximize, ArrowRight, ArrowLeft, LayoutGrid, Sofa,
-  BookOpen, Search, Image as ImageIcon, Sliders, Check, Wand2, Info, ChevronRight
+  BookOpen, Search, Image as ImageIcon, Sliders, Check, Wand2, Info, ChevronRight, Compass, Download
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -262,6 +262,75 @@ function getFloorPatternId(finish?: string) {
 function wallLen(w: PlanWall) { return Math.hypot(w.end.xMm - w.start.xMm, w.end.yMm - w.start.yMm); }
 function entityId() { return crypto.randomUUID(); }
 
+function getWallElevationTemplate(wallId: string | null, room: PlanRoom | null) {
+  const role = wallId && room?.wallRoles?.[wallId] ? room.wallRoles[wallId] : '';
+  const rType = room?.roomType || '';
+
+  if (role === 'tv_wall' || (!role && (rType === 'living' || rType === 'dining'))) {
+    return {
+      id: 'tv-wall',
+      title: 'Living Room TV Entertainment Media Wall Elevation',
+      tag: '5BHK VILLA · LIVING ROOM',
+      svgPath: '/elevations/test-tv-unit.svg',
+      dxfPath: '/elevations/test-tv-unit.dxf',
+      widthMm: 5030,
+      heightMm: 3229,
+      materials: 'Backlit Onyx · Fluted Walnut · Champagne Metal Trim',
+      specs: '3,200mm cantilevered console, 2 × 30mm dummy fillers, zero-plumb wall tolerance',
+    };
+  }
+  if (role === 'wardrobe_wall' || (!role && (rType.includes('bed')))) {
+    return {
+      id: 'wardrobe',
+      title: 'Master Bedroom 4-Shutter Wardrobe & Lofts Elevation',
+      tag: '5BHK VILLA · MASTER SUITE',
+      svgPath: '/elevations/test-wardrobe.svg',
+      dxfPath: '/elevations/test-wardrobe.dxf',
+      widthMm: 2977,
+      heightMm: 2690,
+      materials: 'Smoked Oak Veneer · Fluted Profile Glass · Champagne Aluminium',
+      specs: '4 carcass bays, 32mm System 32 line boring pitch, 30mm architrave scribe fillers',
+    };
+  }
+  if (role === 'pooja_wall' || (!role && (rType === 'pooja'))) {
+    return {
+      id: 'mandir',
+      title: 'Sacred Sanctuary Backlit Marble Mandir Elevation',
+      tag: '5BHK VILLA · SACRED SANCTUARY',
+      svgPath: '/elevations/test-mandir.svg',
+      dxfPath: '/elevations/test-mandir.dxf',
+      widthMm: 1775,
+      heightMm: 3000,
+      materials: 'Backlit Onyx · CNC Brass Jaali · Makrana Marble Base',
+      specs: '2-tier sanctum altar, pullout brass thali tray, 95+ CRI warm illumination',
+    };
+  }
+  if (role === 'kitchen_working_wall' || (!role && (rType === 'kitchen' || rType === 'utility'))) {
+    return {
+      id: 'kitchen',
+      title: 'Show Kitchen Working Run & Upper Cabinets Elevation',
+      tag: '5BHK VILLA · GOURMET KITCHEN',
+      svgPath: '/elevations/test-kitchen.svg',
+      dxfPath: '/elevations/test-kitchen.dxf',
+      widthMm: 6669,
+      heightMm: 3000,
+      materials: 'High-Gloss Pearl White Acrylic · Calacatta Quartz · Matte Anthracite',
+      specs: 'Tandembox base units, cutlery organizers, bi-fold lift-up profile glass upper cabinets',
+    };
+  }
+  return {
+    id: 'tv-wall',
+    title: 'Architectural Feature Wall Elevation',
+    tag: '5BHK VILLA · FEATURE WALL',
+    svgPath: '/elevations/test-tv-unit.svg',
+    dxfPath: '/elevations/test-tv-unit.dxf',
+    widthMm: 5030,
+    heightMm: 3229,
+    materials: 'Fluted Architectural Cladding · Shadow Gap Profiles',
+    specs: 'System 32 modular joinery datum, 30mm dummy fillers for zero-plumb wall tolerance',
+  };
+}
+
 export function SpacesWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
@@ -306,6 +375,7 @@ export function SpacesWorkspace() {
   const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'brief' | 'scene'>('candidates');
   const [canvasRenderMode, setCanvasRenderMode] = useState<'2d' | '3d_isometric' | 'stager'>('2d');
   const [showFloorPlanRenderModal, setShowFloorPlanRenderModal] = useState(false);
+  const [showWallElevationModal, setShowWallElevationModal] = useState(false);
   const [renderJobState, setRenderJobState] = useState<'idle' | 'rendering' | 'succeeded'>('idle');
   const [layers, setLayers] = useState({ backdrop: true, walls: true, openings: true, columns: true, beams: true, services: true, annotations: true, rooms: true, aiOverlay: true });
   const [tool, setTool] = useState<string>('select');
@@ -2320,6 +2390,67 @@ export function SpacesWorkspace() {
                         <option value="feature_to_entry">Feature wall to entry</option>
                         <option value="elevation">Straight technical elevation</option>
                       </select>
+
+                      {/* 2D CAD Architectural Wall Elevation & Sheet */}
+                      <div style={{ marginTop: 10, padding: '10px 12px', background: '#fdfbf7', border: '1px solid #ebdccb', borderRadius: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#1c1917', display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <Compass size={13} style={{ color: 'var(--gold)' }} />
+                            Architectural 2D Elevation
+                          </span>
+                          <span style={{ fontSize: 9.5, fontWeight: 700, color: '#92400e', background: '#fef3c7', padding: '1px 6px', borderRadius: 4 }}>
+                            System 32 CAD
+                          </span>
+                        </div>
+                        <p style={{ margin: '0 0 8px', fontSize: 11, color: '#78716c', lineHeight: 1.4 }}>
+                          Millimetre-accurate elevation with dual dimensions, 30mm dummy fillers, and direct AutoCAD DXF generation.
+                        </p>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => setShowWallElevationModal(true)}
+                            style={{
+                              flex: 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 6,
+                              padding: '7px 10px',
+                              background: '#1c1917',
+                              color: '#fdfbf7',
+                              border: 'none',
+                              borderRadius: 6,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                            }}
+                          >
+                            <Compass size={12} /> View 2D CAD Sheet
+                          </button>
+                          <a
+                            href={getWallElevationTemplate(selectedWall, sel.room).dxfPath}
+                            download={`ultida-${selectedWall || 'wall'}.dxf`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '7px 10px',
+                              background: '#f3ece0',
+                              color: '#44403c',
+                              border: '1px solid #dcd3c5',
+                              borderRadius: 6,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              textDecoration: 'none',
+                              cursor: 'pointer',
+                            }}
+                            title="Download AutoCAD DXF"
+                          >
+                            <Download size={13} />
+                          </a>
+                        </div>
+                      </div>
                     </div>
                   );
                 })()}
@@ -2618,6 +2749,85 @@ export function SpacesWorkspace() {
           </div>
         </div>
       )}
+
+      {/* 2D CAD Architectural Wall Elevation Modal */}
+      {showWallElevationModal && selectedRoom && (() => {
+        const room = rooms.find((r) => r.id === selectedRoom) || null;
+        const elevation = getWallElevationTemplate(selectedWall, room);
+        return (
+          <div className="floor-render-modal-backdrop" onClick={() => setShowWallElevationModal(false)}>
+            <div className="floor-render-modal" style={{ maxWidth: '980px', width: '92vw' }} onClick={(e) => e.stopPropagation()}>
+              <div className="floor-render-header">
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#92400e', background: '#fef3c7', padding: '2px 8px', borderRadius: 4, letterSpacing: '0.05em' }}>
+                      {elevation.tag}
+                    </span>
+                    <h3 style={{ margin: 0, fontSize: 16, color: '#1c1917' }}>{elevation.title}</h3>
+                  </div>
+                  <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: 2 }}>
+                    Wall: {selectedWall ?? 'Selected Wall'} · Controlled Width: {elevation.widthMm.toLocaleString()} mm · Ceiling: {elevation.heightMm.toLocaleString()} mm
+                  </small>
+                </div>
+                <button type="button" className="icon-btn" onClick={() => setShowWallElevationModal(false)}><X size={18} /></button>
+              </div>
+              <div style={{ padding: 16, background: '#faf9f6', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 380, maxHeight: '60vh', overflow: 'auto' }}>
+                <img
+                  src={elevation.svgPath}
+                  alt={elevation.title}
+                  style={{ maxWidth: '100%', maxHeight: '56vh', objectFit: 'contain', background: '#fff', border: '1px solid #e7dfd5', borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.06)' }}
+                />
+              </div>
+              <div style={{ padding: '12px 18px', background: '#fdfbf7', borderTop: '1px solid #ebdccb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <div style={{ fontSize: 11.5, color: '#57534e' }}>
+                  <strong>System 32 Joinery:</strong> {elevation.specs}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <a
+                    href={elevation.svgPath}
+                    download={`ultida-${elevation.id}.svg`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      padding: '6px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #d6d3d1',
+                      background: '#fff',
+                      color: '#292524',
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                    }}
+                  >
+                    <Download size={13} /> Download SVG
+                  </a>
+                  <a
+                    href={elevation.dxfPath}
+                    download={`ultida-${elevation.id}.dxf`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      padding: '6px 14px',
+                      borderRadius: 6,
+                      border: 'none',
+                      background: '#166534',
+                      color: '#fff',
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      textDecoration: 'none',
+                      boxShadow: '0 2px 6px rgba(22,101,52,0.25)',
+                    }}
+                  >
+                    <Download size={13} /> Download AutoCAD DXF (.dxf)
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="spaces-stage-dock" role="navigation" aria-label="Room design progression">
         <div className="spaces-stage-dock-copy">
