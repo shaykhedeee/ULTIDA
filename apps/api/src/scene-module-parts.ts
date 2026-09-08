@@ -137,6 +137,10 @@ export function compileStoredModuleForScene(
       ...scenePosition(modulePosition, part.transform),
       rotationDeg,
       materialId: part.meta.materialSlot.id,
+      kind: part.kind ?? (part.meta.semanticType === 'lighting_anchor' ? 'lighting_anchor' : undefined),
+      fixtureType: part.fixtureType ?? part.meta.fixtureType,
+      colorTemperatureK: part.colorTemperatureK ?? part.meta.colorTemperatureK,
+      lengthMm: part.lengthMm ?? part.meta.lengthMm,
     })),
   };
 }

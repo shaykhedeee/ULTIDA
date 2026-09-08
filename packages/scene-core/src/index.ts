@@ -36,6 +36,10 @@ export const SceneV1Schema = z.object({
     rotationDeg: z.number().finite(),
     materialId: Id.optional(),
     confidence: Confidence,
+    kind: z.string().optional(),
+    fixtureType: z.string().optional(),
+    colorTemperatureK: z.number().optional(),
+    lengthMm: z.number().optional(),
   })).default([]),
   // Optional parametric composition schedule. When present, this is the
   // measured wall reconciliation used by elevations and production exports.

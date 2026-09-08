@@ -18,6 +18,10 @@ export type CompiledModulePart = {
   materialId?: string;
   semanticType?: string;
   name?: string;
+  kind?: string;
+  fixtureType?: string;
+  colorTemperatureK?: number;
+  lengthMm?: number;
 };
 
 export type SceneCompilerInput = {
@@ -425,6 +429,10 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     rotationDeg: part.rotationDeg ?? 0,
     materialId: part.materialId,
     confidence: 1,
+    kind: part.kind,
+    fixtureType: part.fixtureType,
+    colorTemperatureK: part.colorTemperatureK,
+    lengthMm: part.lengthMm,
   }));
   const firstRoom = rooms[0];
   const cameraCenter = firstRoom ? polygonCenter(firstRoom.boundary) : { xMm: 0, yMm: 0 };
