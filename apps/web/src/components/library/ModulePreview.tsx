@@ -366,7 +366,7 @@ function DetailedLivingPreview({ module, colours }: { module: ModulePreviewData;
   );
 }
 
-export function ModulePreview({ module, compact = false, style, defaultView = 'vector', interactive = true }: Props) {
+export function ModulePreview({ module, compact = false, style, defaultView = 'vector', interactive = false }: Props) {
   const [viewMode, setViewMode] = useState<'vector' | 'real'>(defaultView);
   const colours = paletteByFamily[module.family] ?? paletteByFamily.storage;
   const isLivingOrFurniture = ['tv-unit', 'bed', 'sofa', 'dining', 'feature-wall', 'lighting', 'rug'].includes(module.family);
@@ -378,59 +378,30 @@ export function ModulePreview({ module, compact = false, style, defaultView = 'v
     <div className={`module-preview${compact ? ' compact' : ''}`} style={{ position: 'relative', overflow: 'hidden', ...style }} aria-label={`${module.name} architectural preview`} role="img">
       {/* Static previews can be safely embedded in catalog placement buttons. */}
       {interactive && <div
-        style={{
-          position: 'absolute',
-          top: 4,
-          left: 4,
-          zIndex: 10,
-          display: 'flex',
-          gap: 2,
-          background: 'rgba(28, 25, 23, 0.85)',
-          backdropFilter: 'blur(4px)',
-          borderRadius: 14,
-          padding: '2px 4px',
-        }}
+        className="module-preview-view-switcher"
         onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
           onClick={() => setViewMode('vector')}
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 3,
-            padding: '2px 6px',
-            fontSize: '9px',
-            fontWeight: 800,
-            borderRadius: 10,
-            border: 0,
             background: viewMode === 'vector' ? 'var(--gold, #c59c2d)' : 'transparent',
             color: viewMode === 'vector' ? '#1c1917' : '#d6d3d1',
-            cursor: 'pointer',
           }}
           title="2D Architectural Elevation & Millimeter Geometry"
         >
-          <Layers size={8} /> 2D
+          <Layers size={9} /> 2D
         </button>
         <button
           type="button"
           onClick={() => setViewMode('real')}
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 3,
-            padding: '2px 6px',
-            fontSize: '9px',
-            fontWeight: 800,
-            borderRadius: 10,
-            border: 0,
             background: viewMode === 'real' ? 'var(--gold, #c59c2d)' : 'transparent',
             color: viewMode === 'real' ? '#1c1917' : '#d6d3d1',
-            cursor: 'pointer',
           }}
           title={has3D ? '3D Product Render — AI Generated' : 'Real-Life Installed Photography & Luxury Finish'}
         >
-          <Camera size={8} /> {has3D ? '3D' : 'Ref'}
+          <Camera size={9} /> {has3D ? '3D' : 'Ref'}
         </button>
       </div>}
       {viewMode === 'real' ? (
@@ -470,7 +441,7 @@ export function ModulePreview({ module, compact = false, style, defaultView = 'v
           )}
         </div>
       ) : (
-        <svg viewBox="0 0 168 138" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style={{ background: 'transparent', width: '100%', height: '100%' }}>
+        <svg viewBox="0 0 168 138" preserveAspectRatio="xMidYMid meet" aria-hidden="true" className="module-preview-canvas-svg" style={{ background: 'transparent', width: '100%', height: '100%' }}>
           <defs>
             {/* Gradients */}
             <linearGradient id={`grad-front-${module.id}`} x1="0" y1="0" x2="0" y2="1">

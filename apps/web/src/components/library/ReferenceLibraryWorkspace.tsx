@@ -1,4 +1,4 @@
-import { BookOpen, Library as LibraryIcon, Loader2, Palette, Search, Upload, Sparkles, Plus, Trash2, Layers, Move, Download, Layout, Check, ArrowRight, Home } from 'lucide-react';
+import { BookOpen, Library as LibraryIcon, Loader2, Palette, Search, Upload, Sparkles, Plus, Trash2, Layers, Move, Download, Layout, Check, ArrowRight, Home, Camera } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
@@ -810,40 +810,57 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ display: 'inline-flex', background: '#f5f5f4', padding: 3, borderRadius: 8, border: '1px solid #e7e5e4' }}>
+              <div style={{
+                display: 'inline-flex',
+                background: '#f5f4f0',
+                padding: 3,
+                borderRadius: 10,
+                border: '1.5px solid #e7e3dc',
+                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.03)',
+              }}>
                 <button
                   type="button"
                   onClick={() => setModuleImageMode('photo')}
                   style={{
-                    padding: '5px 12px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: moduleImageMode === 'photo' ? '#fff' : 'transparent',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 14px',
+                    borderRadius: 7,
+                    border: moduleImageMode === 'photo' ? '1px solid #dcd3c4' : 'none',
+                    background: moduleImageMode === 'photo' ? '#ffffff' : 'transparent',
                     color: moduleImageMode === 'photo' ? '#1c1917' : '#78716c',
-                    fontWeight: moduleImageMode === 'photo' ? 700 : 500,
+                    fontWeight: moduleImageMode === 'photo' ? 800 : 600,
                     fontSize: 12,
                     cursor: 'pointer',
-                    boxShadow: moduleImageMode === 'photo' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    boxShadow: moduleImageMode === 'photo' ? '0 2px 6px rgba(44, 34, 20, 0.08)' : 'none',
+                    transition: 'all 0.15s ease',
                   }}
                 >
-                  🖼️ Photorealistic Renders
+                  <Camera size={13} style={{ color: moduleImageMode === 'photo' ? 'var(--gold, #c59c2d)' : '#a8a29e' }} />
+                  Photorealistic Renders
                 </button>
                 <button
                   type="button"
                   onClick={() => setModuleImageMode('nobg')}
                   style={{
-                    padding: '5px 12px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: moduleImageMode === 'nobg' ? '#fff' : 'transparent',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 14px',
+                    borderRadius: 7,
+                    border: moduleImageMode === 'nobg' ? '1px solid #dcd3c4' : 'none',
+                    background: moduleImageMode === 'nobg' ? '#ffffff' : 'transparent',
                     color: moduleImageMode === 'nobg' ? '#1c1917' : '#78716c',
-                    fontWeight: moduleImageMode === 'nobg' ? 700 : 500,
+                    fontWeight: moduleImageMode === 'nobg' ? 800 : 600,
                     fontSize: 12,
                     cursor: 'pointer',
-                    boxShadow: moduleImageMode === 'nobg' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    boxShadow: moduleImageMode === 'nobg' ? '0 2px 6px rgba(44, 34, 20, 0.08)' : 'none',
+                    transition: 'all 0.15s ease',
                   }}
                 >
-                  📐 Isolated 3D Modules (No BG)
+                  <Layers size={13} style={{ color: moduleImageMode === 'nobg' ? 'var(--gold, #c59c2d)' : '#a8a29e' }} />
+                  Isolated 3D Modules (No BG)
                 </button>
               </div>
               <Badge tone="success">{visibleModules.filter((module) => module.production.cutlistSupported).length} cutlist-ready</Badge>
@@ -879,7 +896,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                       >
                         {moduleImageMode === 'nobg' || !referenceImage ? (
                           <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
-                            <ModulePreview module={module} />
+                            <ModulePreview module={module} interactive={false} />
                           </div>
                         ) : (
                           <img
@@ -894,12 +911,12 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                           />
                         )}
                         <div className="module-preview-fallback" style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
-                          <ModulePreview module={module} />
+                          <ModulePreview module={module} interactive={false} />
                         </div>
                         <span>{moduleImageMode === 'nobg' ? '📐 3D Parametric CAD Schematic (No BG)' : 'Approved style reference (click to inspect)'}</span>
                       </div>
                       <div className="module-technical-strip">
-                        <ModulePreview module={module} compact />
+                        <ModulePreview module={module} compact interactive={false} />
                         <div>
                           <strong>Parametric build</strong>
                           <small>{module.widthMm}W × {module.depthMm}D × {module.heightMm}H mm</small>
@@ -912,7 +929,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                         <p>{module.description ?? 'Configurable modular assembly with editable dimensions and component-level finishes.'}</p>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
                           <small>{module.sku} · {module.roomTypes.join(', ')}</small>
-                          <div style={{ display: 'flex', gap: 6 }}>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             <button
                               type="button"
                               onClick={() => {
@@ -932,20 +949,23 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                                 setActiveTab('moodboard');
                               }}
                               style={{
-                                border: '1px solid var(--gold)',
-                                background: 'rgba(197,156,45,0.1)',
-                                color: 'var(--gold-dim)',
-                                borderRadius: 6,
-                                padding: '5px 8px',
-                                fontSize: 11,
-                                fontWeight: 700,
+                                border: '1.5px solid #d97706',
+                                background: 'linear-gradient(135deg, #fffbeb, #fef3c7)',
+                                color: '#92400e',
+                                borderRadius: 8,
+                                padding: '6px 11px',
+                                fontSize: '11px',
+                                fontWeight: 800,
                                 cursor: 'pointer',
-                                display: 'flex',
+                                display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: 4,
+                                gap: 5,
+                                boxShadow: '0 1px 3px rgba(217, 119, 6, 0.15)',
+                                transition: 'all 0.15s ease',
                               }}
+                              title="Add to project moodboard"
                             >
-                              <Plus size={12} /> Board
+                              <Plus size={13} style={{ strokeWidth: 2.5 }} /> Board
                             </button>
                             {!module.tags.includes('scene-asset') && <button
                               type="button"
@@ -970,21 +990,23 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                                 }
                               }}
                               style={{
-                                border: '1px solid #16a34a',
-                                background: 'rgba(22,163,74,0.1)',
-                                color: '#15803d',
-                                borderRadius: 6,
-                                padding: '5px 8px',
-                                fontSize: 11,
-                                fontWeight: 700,
+                                border: '1.5px solid #15803d',
+                                background: 'linear-gradient(135deg, #16a34a, #15803d)',
+                                color: '#ffffff',
+                                borderRadius: 8,
+                                padding: '6px 13px',
+                                fontSize: '11px',
+                                fontWeight: 800,
                                 cursor: 'pointer',
-                                display: 'flex',
+                                display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: 4,
+                                gap: 5,
+                                boxShadow: '0 2px 6px rgba(22, 163, 74, 0.28)',
+                                transition: 'all 0.15s ease',
                               }}
                               title="Place this module directly on measured space wall elevation"
                             >
-                              <Home size={12} /> Use in Room
+                              <Home size={13} style={{ strokeWidth: 2.2 }} /> Use in Room
                             </button>}
                           </div>
                         </div>
