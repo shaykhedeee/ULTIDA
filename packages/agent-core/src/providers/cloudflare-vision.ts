@@ -24,8 +24,9 @@ export class CloudflareVisionProvider implements VisionProvider {
 
     const candidateModels = Array.from(
       new Set([
-        this.env.CLOUDFLARE_VISION_MODEL,
         this.env.CLOUDFLARE_PLAN_MODEL,
+        this.env.CLOUDFLARE_VISION_MODEL,
+        '@cf/meta/llama-4-scout-17b-16e-instruct',
         '@cf/meta/llama-3.2-11b-vision-instruct',
         '@cf/llava-hf/llava-1.5-7b-hf',
       ].filter(Boolean) as string[])
@@ -37,9 +38,12 @@ export class CloudflareVisionProvider implements VisionProvider {
       if (model.includes('8b-instruct') && !model.includes('vision')) continue;
       try {
         const isMoondream = model.includes('moondream');
+        const isLlama4 = model.includes('llama-4-');
         const image = `data:${mimeType};base64,${imageBase64}`;
         const response = await fetch(
-          `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
+          isLlama4
+            ? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`
+            : `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
           {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -53,6 +57,20 @@ export class CloudflareVisionProvider implements VisionProvider {
                   temperature: 0,
                   max_tokens: 4096,
                 }
+              : isLlama4
+                ? {
+                    model,
+                    messages: [{
+                      role: 'user',
+                      content: [
+                        { type: 'text', text: `${prompt}\nRequest ID: ${requestId}. Return JSON only.` },
+                        { type: 'image_url', image_url: { url: image } },
+                      ],
+                    }],
+                    response_format: { type: 'json_object' },
+                    temperature: 0,
+                    max_tokens: 3200,
+                  }
               : {
                   messages: [
                     { role: 'system', content: prompt },
@@ -65,10 +83,11 @@ export class CloudflareVisionProvider implements VisionProvider {
         const payload = (await response.json()) as {
           success?: boolean;
           result?: { response?: string; text?: string; answer?: string; result?: { answer?: string; response?: string; text?: string } };
+          choices?: Array<{ message?: { content?: string } }>;
           errors?: Array<{ message?: string }>;
         };
-        const raw = payload.result?.response || payload.result?.text || payload.result?.answer || payload.result?.result?.answer || payload.result?.result?.response || payload.result?.result?.text;
-        if (response.ok && payload.success && raw) {
+        const raw = payload.result?.response || payload.result?.text || payload.result?.answer || payload.result?.result?.answer || payload.result?.result?.response || payload.result?.result?.text || payload.choices?.[0]?.message?.content;
+        if (response.ok && payload.success !== false && raw) {
           const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
           const result = PlanVisionOutputSchema.safeParse(parsed);
           if (!result.success) {

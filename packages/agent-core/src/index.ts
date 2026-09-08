@@ -43,7 +43,7 @@ export const PROMPT_VERSIONS = {
   spatialReviewer: 'spatial-reviewer.v1',
   layoutAssistant: 'layout-assistant.v1',
   materialsStylist: 'materials-stylist.v1',
-  renderDirector: 'render-director.v2',
+  renderDirector: 'render-director.v3',
   budgetOptimizer: 'budget-optimizer.v1',
   documentationReviewer: 'documentation-reviewer.v1'
   ,sceneChangeQuickChanger: 'scene-change-quick-changer.v1'
@@ -102,6 +102,23 @@ function formatModulePart(part: SceneV1['moduleParts'][number]) {
   return `${part.semanticType} ${part.name}: ${part.widthMm} x ${part.depthMm} x ${part.heightMm} mm for module ${part.moduleId}`;
 }
 
+function modularRenderRules(module: SceneV1['modules'][number]) {
+  const family = module.family.toLowerCase();
+  if (family.includes('tv')) {
+    return 'TV unit: preserve the TV-centre alignment, cable-management panel, exact base/shutter divisions, any glass display bay, and only the approved lighting anchors.';
+  }
+  if (family.includes('crockery')) {
+    return 'Crockery unit: preserve every display bay, glass shutter division, shelf rhythm, counter niche, lower storage and controlled warm display lighting; do not add extra strips.';
+  }
+  if (family.includes('wardrobe')) {
+    return 'Wardrobe: preserve full-height extent, loft line, shutter count, filler panels, handles and internal division envelope.';
+  }
+  if (family.includes('kitchen')) {
+    return 'Kitchen: preserve base, wall and tall-unit divisions, appliance/service voids, worktop heights and circulation clearances.';
+  }
+  return `${module.family}: preserve its exact modular envelope and every compiled component.`;
+}
+
 export function compileRenderBrief(input: {
   scene: SceneV1;
   sceneVersionId: string;
@@ -127,7 +144,7 @@ export function compileRenderBrief(input: {
     `room ${room.name} (${room.type}) with ${room.boundary.length} reviewed boundary points`,
     ...wallFacts,
     ...openingFacts,
-    ...roomModules.map(formatModule),
+    ...roomModules.map((module) => `${formatModule(module)}. ${modularRenderRules(module)}`),
     ...roomParts.map(formatModulePart)
   ];
   const positivePrompt = [
@@ -137,7 +154,8 @@ export function compileRenderBrief(input: {
     'Treat every geometry fact below as immutable. Preserve exact room proportions, openings, circulation, module count, cabinet part divisions, shutter and drawer counts, dimensions and placements.',
     ...geometryFacts,
     materialFacts.length ? `Approved materials: ${materialFacts.join('; ')}.` : 'Use a restrained, buildable material palette and clearly mark it as proposed.',
-    'Use physically plausible daylight, artificial lighting, joinery thicknesses, shadows, reflections and camera perspective.'
+    'Render at architectural-photography quality: physically plausible daylight and artificial lighting, accurate joinery thicknesses, restrained materials, believable shadows/reflections, straight verticals and a natural camera perspective.',
+    'The result must read as a buildable, premium modular interior—not a generic showroom, concept collage, or furniture catalog image.'
   ].join('\n');
   const negativePrompt = [
     'Do not move, add or remove walls, doors or windows.',

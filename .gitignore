@@ -23,6 +23,8 @@ supabase/.temp/
 
 .vercel
 .playwright-browsers/
+.playwright-cli/
+output/
 .peridot/
 .agents/
 

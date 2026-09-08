@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyFile, reconcileToElements, UNSUPPORTED_FORMATS, type PlanElementDraft } from '../src/plan-analysis-service.js';
+import { classifyFile, extractOcrMeasurements, reconcileToElements, UNSUPPORTED_FORMATS, type PlanElementDraft } from '../src/plan-analysis-service.js';
 import { PlanVisionOutputSchema, normalizeVisionOutput } from '@ultida/agent-core';
 import { buildPlanPrompt, parseProposals } from '../src/plan-analyzer.js';
 
@@ -27,6 +27,13 @@ test('plan prompt keeps detected furniture symbols review-only', () => {
   const prompt = buildPlanPrompt();
   assert.match(prompt, /existing furniture symbol/i);
   assert.match(prompt, /never turn them into modular furniture/i);
+});
+
+test('plan prompt treats designer room guides as advisory coverage checks', () => {
+  const prompt = buildPlanPrompt(undefined, [{ id: 'guide-1', label: 'Kitchen', x: 120, y: 220, width: 310, height: 260 }]);
+  assert.match(prompt, /DESIGNER GUIDE REGIONS/);
+  assert.match(prompt, /Guide 1 \(Kitchen\): x=120, y=220, width=310, height=260/);
+  assert.match(prompt, /not geometry authority/i);
 });
 
 // Build a minimal (provider-shaped) raw output and normalize it.
@@ -115,6 +122,15 @@ test('reconcileToElements notes OCR presence when dimension lacks value', () => 
   assert.ok((dim.note ?? '').includes('OCR'));
 });
 
+test('OCR evidence converts one unambiguous imperial dimension to canonical millimetres', () => {
+  assert.deepEqual(extractOcrMeasurements(`Living width 12' 6\"`), [{ originalText: `12' 6\"`, valueMm: 3810, source: 'ocr' }]);
+  const ai = rawSample({ dimensionCandidates: [{ id: 'dim1', confidence: 0.8, x1: 100, y1: 350, x2: 400, y2: 350 }] });
+  const { elements } = reconcileToElements(ai, null, `Visible dimension 12' 6\"`);
+  const dimension = elements.find((element) => element.kind === 'dimension')!;
+  assert.equal(dimension.geometry.valueMm, 3810);
+  assert.match(dimension.note ?? '', /OCR evidence: 12' 6\" = 3810 mm/);
+});
+
 test('reconcileToElements turns a warning into a review issue', () => {
   const ai = rawSample({ warnings: ['Drawing rotated 90 degrees — verify orientation'] });
   const { issues } = reconcileToElements(ai, null, '');
@@ -145,4 +161,18 @@ test('provider proposals retain only distinct, drawable structural evidence', ()
   assert.equal(proposals.filter((proposal) => proposal.kind === 'wall').length, 1);
   assert.equal(proposals.find((proposal) => proposal.kind === 'dimension')?.geometry.unexpected, undefined);
   assert.equal(proposals.length, 3);
+});
+
+test('provider proposals ignore unknown entity kinds without throwing includes errors', () => {
+  const response = JSON.stringify({
+    proposals: [
+      { kind: 'text_label', confidence: 0.9, geometry: { x: 10, y: 10 }, note: 'Living room' },
+      { kind: null, confidence: 0.9, geometry: { x1: 10, y1: 10, x2: 20, y2: 20 } },
+      { kind: 'wall', confidence: 0.9, geometry: { x1: 100, y1: 100, x2: 900, y2: 100 }, note: 'External wall' },
+      { kind: 'room', confidence: 0.8, geometry: { x: 110, y: 120, width: 700, height: 500 }, note: 'Living room' },
+    ],
+  });
+  const proposals = parseProposals(response, 'detector');
+  assert.equal(proposals.length, 2);
+  assert.deepEqual(proposals.map((proposal) => proposal.kind), ['wall', 'room']);
 });

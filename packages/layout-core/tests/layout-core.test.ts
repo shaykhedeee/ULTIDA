@@ -22,6 +22,25 @@ describe('layout-core', () => {
     });
     assert.ok(candidates.length > 0);
     assert.ok(candidates.some(c => c.shape === 'l_shaped'), 'expected l_shaped candidate');
+    const first = candidates[0];
+    assert.ok(first.placements.every((placement) => placement.positionMm[0] >= 0 && placement.positionMm[1] >= 0));
+    assert.ok(first.placements.filter((placement) => placement.anchor === 'wall').every((placement) => placement.wallRef === 'w1' || placement.wallRef === 'w2'));
+    assert.strictEqual(generateCandidates({
+      projectId: 'p1', spaceId: 's1', roomCategory: 'kitchen', floorPlanVersionId: 'fpv1', shape: 'l_shaped', candidateTypes: ['balanced'], requirements: {},
+      roomBoundingBoxMm: { minX: 0, minY: 0, maxX: 4000, maxY: 3000 }, usableWalls: [{ id: 'w1', minX: 0, minY: 0, maxX: 4000, maxY: 0 }, { id: 'w2', minX: 0, minY: 0, maxX: 0, maxY: 3000 }], openings: [], servicePoints: [], structuralElements: []
+    })[0].id, first.id, 'candidate IDs must remain stable across refreshes');
+  });
+
+  test('bedroom furniture uses measured room coordinates and real wall anchors', () => {
+    const candidates = generateCandidates({
+      projectId: 'p1', spaceId: 'bedroom-space', roomCategory: 'bedroom', floorPlanVersionId: 'fpv1', shape: 'bed_centred', candidateTypes: ['balanced'], requirements: {},
+      roomBoundingBoxMm: { minX: 5000, minY: 7000, maxX: 9200, maxY: 10600 },
+      usableWalls: [{ id: 'north-wall', minX: 5000, minY: 7000, maxX: 9200, maxY: 7000 }, { id: 'west-wall', minX: 5000, minY: 7000, maxX: 5000, maxY: 10600 }],
+      openings: [], servicePoints: [], structuralElements: []
+    });
+    const candidate = candidates.find(item => item.shape === 'bed_centred')!;
+    assert.ok(candidate.placements.every(item => item.positionMm[0] >= 5000 && item.positionMm[1] >= 7000));
+    assert.ok(candidate.placements.filter(item => item.anchor === 'wall').every(item => Boolean(item.wallRef)));
   });
 
   test('placement validation blocks out-of-bounds furniture', () => {

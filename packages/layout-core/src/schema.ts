@@ -3,12 +3,16 @@ import { z } from 'zod';
 export const CandidateTypeSchema = z.enum(['maximum_storage', 'best_circulation', 'balanced', 'cost_efficient']);
 export const RenderTypeSchema = z.enum(['technical_preview', 'material_preview', 'concept_render', 'photoreal_render']);
 export const GeometryLockSchema = z.enum(['strict', 'moderate', 'creative']).default('strict');
-export const RoomCategorySchema = z.enum(['kitchen', 'tv_unit', 'wardrobe', 'living', 'bedroom', 'other']);
+export const RoomCategorySchema = z.enum(['kitchen', 'tv_unit', 'wardrobe', 'living', 'bedroom', 'dining', 'study', 'pooja', 'utility', 'foyer', 'bathroom', 'other']);
 export const KitchenShapeSchema = z.enum(['single_wall', 'parallel', 'l_shaped', 'u_shaped', 'peninsula', 'island', 'g_shaped']);
 export const TvUnitShapeSchema = z.enum(['linear', 'floating', 'full_wall', 'asymmetrical', 'l_shaped', 'partition', 'tv_plus_study', 'tv_plus_crockery']);
 export const WardrobeShapeSchema = z.enum(['linear', 'l_shaped', 'walk_in', 'wardrobe_plus_dresser', 'wardrobe_plus_study', 'wardrobe_plus_tv']);
 export const LivingShapeSchema = z.enum(['tv_opposite_sofa', 'tv_adjacent_entrance', 'l_seating', 'parallel_seating', 'open_living_dining', 'partition_layout']);
 export const BedroomShapeSchema = z.enum(['bed_centred', 'side_wall_bed', 'wardrobe_opposite_bed', 'wardrobe_near_entrance', 'study_near_window']);
+export const DiningShapeSchema = z.enum(['centred_dining', 'wall_side_dining', 'crockery_focused']);
+export const StudyShapeSchema = z.enum(['window_facing_desk', 'full_wall_study', 'study_plus_storage']);
+export const PoojaShapeSchema = z.enum(['wall_mounted', 'floor_unit', 'pooja_plus_storage']);
+export const UtilityShapeSchema = z.enum(['single_wall_utility', 'parallel_utility', 'utility_plus_storage']);
 export const PlacementAnchorSchema = z.enum(['wall', 'room', 'corner']);
 export const LayoutConstraintKindSchema = z.enum([
   'must_be_wall_anchored',

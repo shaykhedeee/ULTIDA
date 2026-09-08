@@ -12,6 +12,7 @@
     "test": "node --import tsx --test tests/index.test.ts"
   },
   "dependencies": {
+    "@ultida/contracts": "0.1.0",
     "@ultida/plan-core": "0.1.0",
     "@ultida/scene-core": "0.1.0"
   },

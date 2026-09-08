@@ -5,6 +5,7 @@ import {
   type SymbolicPlacement, type DesignMode, type DesignValidationContext,
 } from '@ultida/design-core';
 import { Layers, Sparkles, MousePointer2, CheckCircle2, AlertTriangle, Save } from 'lucide-react';
+import { getApiBase } from '../../lib/api-base';
 import './design.css';
 
 const DESIGN_MODES: { id: DesignMode; label: string; icon: typeof Layers; hint: string }[] = [
@@ -22,6 +23,17 @@ const LAYOUT_SHAPES = [
 ];
 
 interface RoomLike { id: string; name: string; roomType: string; widthMm: number; depthMm: number; }
+
+const MODULE_DEFAULTS: Record<string, { widthMm: number; heightMm: number; depthMm: number; parameters: Record<string, unknown> }> = {
+  tv_unit: { widthMm: 3000, heightMm: 2400, depthMm: 450, parameters: { family: 'full_wall_storage', baseType: 'floor_standing', overheadStorage: true, profileGlassOption: true, shelfOption: true, lighting: 'both', shutterCount: 4, deviceStorage: true, wiringRoute: true } },
+  crockery_unit: { widthMm: 2400, heightMm: 2400, depthMm: 450, parameters: { archetype: 'profile_glass_display', profileGlassOption: true, lighting: 'profile_led', includeLoft: true, drawerCount: 2, shutterCount: 4 } },
+  wardrobe: { widthMm: 2400, heightMm: 2600, depthMm: 600, parameters: { includeLoft: true, shutterCount: 4, drawerCount: 2 } },
+  kitchen: { widthMm: 3000, heightMm: 2400, depthMm: 600, parameters: { baseShutterCount: 5, upperShutterCount: 5 } },
+  study_unit: { widthMm: 1500, heightMm: 1800, depthMm: 550, parameters: { drawerCount: 2, shelfOption: true } },
+  pooja_unit: { widthMm: 1200, heightMm: 2100, depthMm: 400, parameters: { shutterCount: 2, lighting: 'profile_led' } },
+  bed: { widthMm: 1600, heightMm: 450, depthMm: 2000, parameters: { headboardHeightMm: 1100 } },
+  utility: { widthMm: 1800, heightMm: 2400, depthMm: 600, parameters: { shutterCount: 3, includeLoft: true } },
+};
 
 async function loadDesignSession() {
   const { createClient } = await import('@supabase/supabase-js');
@@ -54,7 +66,7 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
     (async () => {
       const { session } = await loadDesignSession();
       if (!session) return;
-      const base = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8800/api';
+      const base = getApiBase();
       const res = await fetch(`${base}/projects/${projectId}/floor-plan/active`, { headers: { authorization: `Bearer ${session.access_token}` } });
       if (!res.ok) return;
       const data = await res.json();
@@ -120,21 +132,28 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
       setGeometryNotice('Manual furniture placement is locked until this room has measured geometry and verified walls.');
       return;
     }
-    const wall = { id: activeRoom.id + '-wall', widthMm: activeRoom.widthMm, heightMm: 2700, depthMm: 400 };
+    const defaults = MODULE_DEFAULTS[templateFamily] ?? { widthMm: 1200, heightMm: 900, depthMm: 450, parameters: {} };
+    const widthMm = Math.max(450, Math.min(defaults.widthMm, activeRoom.widthMm - 200));
+    const heightMm = Math.min(defaults.heightMm, 2700);
+    const wall = { id: activeRoom.id + '-wall', widthMm: activeRoom.widthMm, heightMm: 2700, depthMm: defaults.depthMm };
     const id = `man-${Date.now().toString(36)}`;
     const p: SymbolicPlacement = {
       id, spaceId: activeRoom?.id ?? '', category: (shape as any), templateFamily,
-      anchor: 'wall', wallId: activeRoom.id + '-wall', offsetMm: [Math.round(activeRoom.widthMm / 2 - 1000), 0, 0],
-      rotationDeg: 0, widthMm: 2000, heightMm: 600, depthMm: 400, clearanceZoneMm: 150,
-      requiredServicePoints: [], materialSlots: {}, source: 'manual', confirmed: true,
+      anchor: 'wall', wallId: activeRoom.id + '-wall', offsetMm: [Math.max(0, Math.round((activeRoom.widthMm - widthMm) / 2)), 0, 0],
+      rotationDeg: 0, widthMm, heightMm, depthMm: defaults.depthMm, clearanceZoneMm: 150,
+      requiredServicePoints: [], parameters: defaults.parameters, materialSlots: {}, source: 'manual', confirmed: true,
     };
-    void compileModule({ family: (templateFamily as any), parameters: { totalWidthMm: p.widthMm, totalHeightMm: p.heightMm, totalDepthMm: p.depthMm }, wall });
+    void compileModule({ family: (templateFamily as any), parameters: { ...p.parameters, totalWidthMm: p.widthMm, totalHeightMm: p.heightMm, totalDepthMm: p.depthMm }, wall, instanceId: id });
     setPlacements((ps) => [...ps, p]);
     setSelectedId(id);
   }
   function updateMaterial(partSemantic: string, code: string) {
     if (!selectedId) return;
     setPlacements((ps) => ps.map((p) => (p.id === selectedId ? { ...p, materialSlots: { ...p.materialSlots, [partSemantic]: code } } : p)));
+  }
+  function updateParameters(parameters: Record<string, unknown>) {
+    if (!selectedId) return;
+    setPlacements((ps) => ps.map((p) => (p.id === selectedId ? { ...p, parameters: { ...p.parameters, ...parameters } } : p)));
   }
 
   function doApprove() {
@@ -144,7 +163,7 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
       const materials: Record<string, Record<string, string>> = {};
       for (const p of placements) {
         const wall = { id: p.wallId ?? 'w1', widthMm: activeRoom?.widthMm ?? 4000, heightMm: 2700, depthMm: p.depthMm };
-        moduleParts[p.id] = compileModule({ family: (p.templateFamily as any), parameters: { totalWidthMm: p.widthMm, totalHeightMm: p.heightMm, totalDepthMm: p.depthMm, materialZones: p.materialSlots }, wall });
+        moduleParts[p.id] = compileModule({ family: (p.templateFamily as any), parameters: { ...p.parameters, totalWidthMm: p.widthMm, totalHeightMm: p.heightMm, totalDepthMm: p.depthMm, materialZones: p.materialSlots }, wall, instanceId: p.id });
         materials[p.id] = p.materialSlots;
       }
       const dv = approveDesign({
@@ -238,7 +257,9 @@ export function DesignWorkspace({ projectId, rooms: initialRooms = [] }: { proje
         <aside className="dw-right">
           <ModuleInspector
             placement={placements.find((p) => p.id === selectedId) ?? null}
+            roomWidthMm={activeRoom?.widthMm ?? 4000}
             onMaterial={updateMaterial}
+            onParameters={updateParameters}
             onConfirm={selectedId ? () => confirmPlacement(selectedId) : undefined}
           />
           <div className="dw-approve">
@@ -275,9 +296,12 @@ function DesignCanvas({ room, placements, selectedId, onSelect }: { room?: RoomL
   );
 }
 
-function ModuleInspector({ placement, onMaterial, onConfirm }: { placement: SymbolicPlacement | null; onMaterial: (semantic: string, code: string) => void; onConfirm?: () => void }) {
+function ModuleInspector({ placement, roomWidthMm, onMaterial, onParameters, onConfirm }: { placement: SymbolicPlacement | null; roomWidthMm: number; onMaterial: (semantic: string, code: string) => void; onParameters: (parameters: Record<string, unknown>) => void; onConfirm?: () => void }) {
   if (!placement) return <section className="dw-section"><h4>Module Inspector</h4><p className="dw-hint">Select a placement.</p></section>;
   const semantics = ['carcass', 'shutter', 'drawer', 'shelf', 'back_panel', 'countertop', 'panel', 'glass', 'profile', 'hardware', 'filler', 'lighting_channel'];
+  let compiled: ReturnType<typeof compileModule> | null = null;
+  try { compiled = compileModule({ family: placement.templateFamily as any, parameters: { ...placement.parameters, totalWidthMm: placement.widthMm, totalHeightMm: placement.heightMm, totalDepthMm: placement.depthMm, materialZones: placement.materialSlots }, wall: { id: placement.wallId, widthMm: roomWidthMm, heightMm: 2700, depthMm: placement.depthMm }, instanceId: placement.id }); } catch { compiled = null; }
+  const familyOptions = placement.templateFamily === 'tv_unit' ? ['minimal_floating', 'full_wall_storage', 'asymmetric_profile_glass', 'tv_plus_partition', 'tv_plus_study', 'tv_plus_crockery', 'curved_contemporary', 'french_beading_panel'] : placement.templateFamily === 'crockery_unit' ? ['profile_glass_display', 'full_height_bar', 'open_niche_storage'] : [];
   return (
     <section className="dw-section">
       <h4>Module Inspector — {placement.templateFamily}</h4>
@@ -287,6 +311,13 @@ function ModuleInspector({ placement, onMaterial, onConfirm }: { placement: Symb
       <div className="dw-prop"><span>Offset</span><b>{placement.offsetMm.join(', ')}</b></div>
       <div className="dw-prop"><span>Rotation</span><b>{placement.rotationDeg}°</b></div>
       <div className="dw-prop"><span>Clearance</span><b>{placement.clearanceZoneMm}mm</b></div>
+      {familyOptions.length > 0 && <label className="dw-field">Assembly archetype<select className="dw-select" value={String(placement.parameters.family ?? placement.parameters.archetype ?? familyOptions[0])} onChange={(e) => onParameters(placement.templateFamily === 'tv_unit' ? { family: e.target.value } : { archetype: e.target.value })}>{familyOptions.map((option) => <option key={option} value={option}>{option.replaceAll('_', ' ')}</option>)}</select></label>}
+      {(placement.templateFamily === 'tv_unit' || placement.templateFamily === 'crockery_unit') && <div className="dw-toggle-grid">
+        <label><input type="checkbox" checked={placement.parameters.profileGlassOption === true} onChange={(e) => onParameters({ profileGlassOption: e.target.checked })} /> Profile glass</label>
+        <label><input type="checkbox" checked={placement.parameters.includeLoft === true || placement.parameters.overheadStorage === true} onChange={(e) => onParameters(placement.templateFamily === 'tv_unit' ? { overheadStorage: e.target.checked } : { includeLoft: e.target.checked })} /> Loft / overhead</label>
+        <label><input type="checkbox" checked={placement.parameters.lighting !== 'none'} onChange={(e) => onParameters({ lighting: e.target.checked ? 'both' : 'none' })} /> Integrated lighting</label>
+      </div>}
+      {compiled && <CompiledModuleElevation compiled={compiled} widthMm={placement.widthMm} heightMm={placement.heightMm} />}
       <h5>Material assignment</h5>
       {semantics.map((s) => (
         <div key={s} className="dw-matrow">
@@ -297,4 +328,13 @@ function ModuleInspector({ placement, onMaterial, onConfirm }: { placement: Symb
       {!placement.confirmed && onConfirm && <button className="dw-btn" onClick={onConfirm}>Confirm placement</button>}
     </section>
   );
+}
+
+function CompiledModuleElevation({ compiled, widthMm, heightMm }: { compiled: ReturnType<typeof compileModule>; widthMm: number; heightMm: number }) {
+  const scale = Math.min(260 / Math.max(widthMm, 1), 220 / Math.max(heightMm, 1));
+  const colors: Record<string, string> = { carcass: '#c7a982', shutter: '#e5d6c5', drawer: '#b8946c', shelf: '#8d6748', back_panel: '#8b6a52', panel: '#aa8568', glass: '#b7d5dc', profile: '#342f2c', hardware: '#62594f', filler: '#d8c5ae', lighting_channel: '#f1c75b', countertop: '#4e4844' };
+  return <div className="dw-assembly"><div className="dw-assembly-head"><b>Compiled elevation</b><span>{compiled.parts.length} physical parts</span></div><svg viewBox={`0 0 ${widthMm * scale + 16} ${heightMm * scale + 16}`} aria-label="Construction-aware module elevation">
+    <rect x="8" y="8" width={widthMm * scale} height={heightMm * scale} fill="#f8f3ed" stroke="#bda991" />
+    {compiled.parts.map((part) => { const x = 8 + part.transform.xMm * scale; const y = 8 + (heightMm - part.transform.zMm - part.size.heightMm) * scale; return <rect key={part.id} x={x} y={Math.max(8, y)} width={Math.max(1, part.size.widthMm * scale)} height={Math.max(1, part.size.heightMm * scale)} fill={colors[part.meta.semanticType] ?? '#c9b49d'} stroke="#57493c" strokeWidth="0.7"><title>{part.name}: {part.size.widthMm} × {part.size.heightMm} × {part.size.depthMm} mm</title></rect>; })}
+  </svg><div className={`dw-compile-state ${compiled.valid ? 'ok' : 'bad'}`}>{compiled.valid ? 'Scene-ready assembly' : compiled.blockingViolations.join(' ')}</div></div>;
 }

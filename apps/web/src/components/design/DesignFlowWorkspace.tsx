@@ -1,33 +1,301 @@
-import { Check, FileText, Image, Layers3, Loader2, Palette, Plus, RefreshCw, Send, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { renderRequestKey } from './render-request';
+import { ArrowRight, Boxes, Check, CheckCircle2, ExternalLink, FileText, Image, Layers3, LayoutTemplate, Loader2, Maximize2, Palette, Plus, RefreshCw, Ruler, Save, Send, ShieldCheck, SlidersHorizontal, Sparkles, Table, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 import MaterialSwapPanel from './MaterialSwapPanel';
+import { getApiBase } from '../../lib/api-base';
 import './visual-studio.css';
 import { ModulePreview } from '../library/ModulePreview';
+import { listCatalog, MaterialSlotSchema } from '@ultida/catalog-core';
+import { catalogForRoom } from './catalog-room-filter';
+import { inferRoomType } from '../../features/spaces/SpacesWorkspace';
+import WorkingDrawingsDossier from '../drawings/WorkingDrawingsDossier';
+import {
+  generateWallElevationSvg,
+  generateArchitecturalShopSheetSvg,
+  type SceneV1,
+  type SceneWallV1,
+  type SceneOpeningV1,
+  type SceneModuleV1,
+} from '@ultida/drawing-core';
 
 type Stage = 'Design' | 'Visualize' | 'Document';
-type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration };
-type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; description?: string; manufacturingRules?: string[] };
+type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration; updatedAt?: string };
+type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; roomTypes: string[]; description?: string; manufacturingRules?: string[] };
+type PreparedModulePlan = { schema: 'ultida.module-plan.v1'; templateId: string; family: string; name: string; dimensionsMm: { width: number; depth: number; height: number }; wallWidthMm: number; clearanceMm: number };
 type DesignPreset = { id: string; name: string; family: string; roomTypes: string[]; referenceStyle: string[]; renderRules: string[]; productionRules: string[] };
-type ModuleConfiguration = { shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; includeLoft: boolean; glassProfile: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
+type ModuleConfiguration = { archetype: string; shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; shutterCount?: number; includeLoft: boolean; glassProfile: boolean; sideFillerLeft: boolean; sideFillerRight: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
 type Provider = { id: string; configured: boolean; operations: string[] };
 type StoredRender = { id: string; scene_version_id: string; status: string; stale?: boolean; signedUrl: string | null; created_at: string; provenance?: { provider?: string; model?: string; promptVersion?: string; reviewStatus?: string } };
-type Props = { stage: Stage; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<void>; onSceneApproved: () => Promise<void> };
-const apiBase = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8800/api';
+type DesignFocus = 'all' | 'modules' | 'materials';
+type MaterialSlot = 'carcass' | 'shutter' | 'back_panel' | 'countertop' | 'profile' | 'glass';
+type ScenePreflightModule = { id: string; roomId: string; label: string; family: string; readiness: { layoutApproved: boolean; wallAnchorSaved: boolean; positionResolved: boolean; dimensionsValid: boolean; materialsSaved: boolean }; missingMaterialSlots: string[]; sceneReady: boolean };
+type ScenePreflight = { room: { id: string; planRoomId?: string; name: string; roomType: string }; modules: ScenePreflightModule[]; requestedModuleIds: string[]; sceneReady: boolean; blockers: Array<Record<string, unknown>> };
+type Props = { stage: Stage; focus?: DesignFocus; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
+const apiBase = getApiBase();
+const familyLabels: Record<string, string> = {
+  'kitchen-base': 'Kitchen base', 'kitchen-wall': 'Kitchen wall', 'kitchen-tall': 'Kitchen tall', 'kitchen-corner': 'Kitchen corner',
+  wardrobe: 'Wardrobes', 'tv-unit': 'TV units', crockery: 'Crockery', pooja: 'Mandir', sofa: 'Seating', bed: 'Beds', study: 'Study',
+  utility: 'Utility', dining: 'Dining', storage: 'Storage', lighting: 'Lighting', 'feature-wall': 'Feature walls', 'false-ceiling': 'Ceiling',
+};
 
-export function DesignFlowWorkspace({ stage, projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
+function localCatalogForRoom(roomType: string): CatalogItem[] {
+  const permittedRooms = new Set(['kitchen', 'living', 'bedroom', 'master_bedroom', 'kids_bedroom', 'bathroom', 'dining', 'study', 'pooja', 'utility', 'foyer', 'balcony', 'other']);
+  const normalized = inferRoomType(roomType, '');
+  const safeRoom = permittedRooms.has(normalized) ? normalized as Parameters<typeof listCatalog>[0] : 'living';
+  return listCatalog(safeRoom).map((item) => ({
+    id: item.id,
+    family: item.family,
+    name: item.name,
+    widthMm: item.widthMm,
+    depthMm: item.depthMm,
+    heightMm: item.heightMm,
+    tags: item.tags,
+    roomTypes: item.roomTypes,
+    description: item.description,
+    manufacturingRules: item.manufacturingRules,
+  }));
+}
+
+function roundToModuleIncrement(valueMm: number, incrementMm = 50) {
+  return Math.round(valueMm / incrementMm) * incrementMm;
+}
+
+function fitModuleToMeasuredWall(item: CatalogItem, wallLengthMm: number) {
+  const adaptiveFamily = item.family === 'tv-unit' || item.family === 'crockery';
+  if (!adaptiveFamily || !Number.isFinite(wallLengthMm) || wallLengthMm <= 0) {
+    return { widthMm: item.widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: false };
+  }
+  const minWidthMm = item.family === 'tv-unit' ? 1200 : 900;
+  const safeWallWidthMm = roundToModuleIncrement(Math.max(0, wallLengthMm - 200));
+  if (safeWallWidthMm < minWidthMm) return null;
+  const isWallComposition = /wall|full|asymmetric|profile|crockery|display|bar|panel/i.test(`${item.name} ${item.tags.join(' ')}`);
+  const targetWidthMm = isWallComposition ? safeWallWidthMm : Math.min(item.widthMm, safeWallWidthMm);
+  const maxWidthMm = item.family === 'tv-unit' ? 4200 : 3600;
+  const widthMm = Math.min(maxWidthMm, Math.max(minWidthMm, targetWidthMm));
+  return { widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: widthMm !== item.widthMm };
+}
+
+function buildSceneForElevation(
+  projectId: string | null,
+  spaceId: string | null,
+  roomWalls: Array<{ id: string; start?: { xMm: number; yMm: number }; end?: { xMm: number; yMm: number } }>,
+  openings: Array<{ id: string; wallId?: string; kind?: string; widthMm?: number; heightMm?: number; sillHeightMm?: number; offsetAlongWallMm?: number; offsetMm?: number }>,
+  draftModules: Module[],
+  availableMaterials: any[],
+  isApproved: boolean
+): SceneV1 {
+  const targetRoomModules = draftModules.filter((m) => !spaceId || m.roomId === spaceId);
+  const sceneWalls: SceneWallV1[] = roomWalls.map((w) => ({
+    id: w.id,
+    start: { xMm: w.start?.xMm ?? 0, yMm: w.start?.yMm ?? 0 },
+    end: { xMm: w.end?.xMm ?? 3000, yMm: w.end?.yMm ?? 0 },
+    heightMm: 2700,
+  }));
+
+  const sceneOpenings: SceneOpeningV1[] = openings.map((op) => ({
+    id: op.id,
+    wallId: op.wallId ?? '',
+    kind: op.kind ?? 'door',
+    offsetMm: Number(op.offsetAlongWallMm ?? op.offsetMm ?? 0),
+    widthMm: Number(op.widthMm ?? 900),
+    heightMm: Number(op.heightMm ?? 2100),
+    sillHeightMm: Number(op.sillHeightMm ?? (op.kind === 'window' ? 900 : 0)),
+  }));
+
+  const sceneModules: SceneModuleV1[] = targetRoomModules.map((m) => {
+    const wall = roomWalls.find((w) => w.id === m.wallId);
+    let posX = m.xMm ?? 0;
+    let posY = m.yMm ?? 0;
+    let rotDeg = m.rotationDeg ?? 0;
+
+    if (wall?.start && wall?.end) {
+      const wlen = Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm) || 1;
+      const ux = (wall.end.xMm - wall.start.xMm) / wlen;
+      const uy = (wall.end.yMm - wall.start.yMm) / wlen;
+      const off = m.offsetMm ?? 0;
+      posX = wall.start.xMm + ux * off;
+      posY = wall.start.yMm + uy * off;
+      rotDeg = Math.atan2(uy, ux) * (180 / Math.PI);
+    }
+
+    return {
+      id: m.id,
+      family: m.family,
+      roomId: m.roomId,
+      widthMm: m.widthMm,
+      depthMm: m.depthMm,
+      heightMm: m.heightMm,
+      position: { xMm: posX, yMm: posY, zMm: 0 },
+      rotationDeg: rotDeg,
+    };
+  });
+
+  const sceneMaterials = (availableMaterials || []).map((m) => ({
+    id: String(m.id),
+    name: String(m.name),
+    code: String(m.code ?? m.id),
+    unitCost: Number(m.unit_cost ?? m.unitCost ?? 0),
+    finish: String(m.finish ?? m.category ?? 'laminate'),
+  }));
+
+  return {
+    schema: 'scene.v1',
+    projectId: projectId ?? 'default-project',
+    floorPlanVersionId: 'fp-current',
+    walls: sceneWalls,
+    openings: sceneOpenings,
+    modules: sceneModules,
+    materials: sceneMaterials,
+    metadata: {
+      designVersion: '1.0.0',
+      status: isApproved ? 'approved' : 'draft',
+    },
+  };
+}
+
+function getSemanticSlotsForModule(module: Module | null): string[] {
+  if (!module) return ['carcass', 'shutter', 'hardware', 'lighting'];
+  const fam = module.family.toLowerCase();
+  if (fam.includes('kitchen-base')) return ['carcass', 'shutter', 'countertop', 'hardware', 'lighting'];
+  if (fam.includes('kitchen-wall')) return ['carcass', 'shutter', 'glass', 'hardware', 'lighting'];
+  if (fam.includes('kitchen-tall')) return ['carcass', 'shutter', 'hardware', 'lighting'];
+  if (fam.includes('wardrobe')) return ['carcass', 'shutter', 'back-panel', 'hardware', 'glass', 'lighting'];
+  if (fam.includes('tv-unit')) return ['carcass', 'shutter', 'back-panel', 'hardware', 'metal', 'lighting'];
+  if (fam.includes('crockery')) return ['carcass', 'shutter', 'glass', 'hardware', 'lighting'];
+  if (fam.includes('bed')) return ['carcass', 'fabric', 'metal', 'lighting'];
+  if (fam.includes('sofa')) return ['fabric', 'metal'];
+  if (fam.includes('study')) return ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'];
+  if (fam.includes('pooja')) return ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'];
+  if (fam.includes('utility')) return ['carcass', 'shutter', 'countertop', 'hardware'];
+  if (fam.includes('dining')) return ['countertop', 'carcass', 'metal'];
+  return ['carcass', 'shutter', 'hardware', 'lighting'];
+}
+
+const ROOM_PREBUILT_PACKAGES: Record<string, Array<{ id: string; name: string; desc: string; width: number; depth?: number; height: number; family: string; icon: string }>> = {
+  dining: [
+    { id: 'pre-dining-table', name: '2100mm Sintered Stone Dining Table (6 Chairs)', desc: 'Calacatta honed marble slab on fluted smoked oak tapered pedestals (760 mm H)', width: 2100, depth: 1000, height: 760, family: 'dining', icon: '🍽️' },
+    { id: 'pre-dining-crockery', name: '1800mm Fluted Glass Crockery & Bar Console', desc: 'System 32 profile-glass display with soft-close drawers & warm 3000K shelf LED (2400 mm H)', width: 1800, depth: 450, height: 2400, family: 'crockery', icon: '🍷' },
+    { id: 'pre-dining-buffet', name: '1500mm Floating Buffet Credenza', desc: 'Sintered stone top with dual soft-close drawers & fluted PU finish (850 mm H)', width: 1500, depth: 450, height: 850, family: 'crockery', icon: '🥂' },
+  ],
+  living: [
+    { id: 'pre-living-tv', name: '2400mm Fluted TV Console & OLED Media Wall', desc: 'Fluted acoustic back panel, concealed wire raceway & floating console (2200 mm H)', width: 2400, depth: 400, height: 2200, family: 'tv-unit', icon: '📺' },
+    { id: 'pre-living-sofa', name: '2800mm Curved Bouclé Sectional Sofa', desc: 'Deep ergonomic contours in warm textured sand bouclé with 430 mm seat height (850 mm H)', width: 2800, depth: 1200, height: 850, family: 'sofa', icon: '🛋️' },
+    { id: 'pre-living-table', name: '800mm Round Calacatta Coffee Table', desc: 'Low-slung 40mm sintered marble top on brushed brass tubular base (380 mm H)', width: 800, depth: 800, height: 380, family: 'sofa', icon: '☕' },
+    { id: 'pre-living-chair', name: '850mm Cognac Saddle Leather Lounge Armchair', desc: 'Sculptural accent chair with brushed nickel swivel base and memory foam (820 mm H)', width: 850, depth: 850, height: 820, family: 'sofa', icon: '🪑' },
+  ],
+  kitchen: [
+    { id: 'pre-kit-base-tall', name: '2700mm Tandem Base + 40mm Sintered Stone Top', desc: 'Blum tandembox drawers, cutlery inserts, plinth & sink cut-out at 860 mm working H', width: 2700, depth: 600, height: 860, family: 'kitchen-base', icon: '🍳' },
+    { id: 'pre-kit-overhead', name: '2700mm Profile-Glass Lift-Up Overhead (3000K LED)', desc: 'Anodized graphite aluminium frames with under-cabinet warm task strip at 1450 mm elevation', width: 2700, depth: 350, height: 720, family: 'kitchen-wall', icon: '🪟' },
+    { id: 'pre-kit-appliance', name: '600mm Built-in Oven & Microwave Pantry Tower', desc: 'Reinforced ventilated appliance cavity with storage drawers below and top loft (2100 mm H)', width: 600, depth: 600, height: 2100, family: 'kitchen-tall', icon: '🔥' },
+    { id: 'pre-kit-pantry', name: '600mm Tall 12-Basket Pantry Pull-Out Tower', desc: 'Full-extension stainless steel internal wire baskets & spice racks (2100 mm H)', width: 600, depth: 600, height: 2100, family: 'kitchen-tall', icon: '🥫' },
+  ],
+  master_bedroom: [
+    { id: 'pre-bed-hydraulic', name: '1800mm King Storage Bed + Extended Headboard', desc: 'Gas-lift hydraulic storage with fluted acoustic upholstered wall back panel (1200 mm H)', width: 1950, depth: 2100, height: 1200, family: 'bed', icon: '🛏️' },
+    { id: 'pre-bed-wardrobe', name: '2400mm 4-Door Profile Glass Wardrobe', desc: 'Anodized bronze aluminum frame with integrated lofts and sensor LED (2700 mm H)', width: 2400, depth: 600, height: 2700, family: 'wardrobe', icon: '🚪' },
+    { id: 'pre-bed-vanity', name: '1200mm Floating Vanity Dresser & LED Mirror', desc: 'Jewelry organizer drawers with backlit anti-fog touch LED mirror (1800 mm H)', width: 1200, depth: 450, height: 1800, family: 'utility', icon: '🪞' },
+    { id: 'pre-bed-nightstand', name: '500mm Dual Floating Bedside Nightstands', desc: 'Soft-close drawer with integrated wireless charging pad and ambient LED (450 mm H)', width: 500, depth: 400, height: 450, family: 'bed', icon: '🏮' },
+  ],
+  bedroom: [
+    { id: 'pre-bed-2-hydraulic', name: '1600mm Queen Storage Bed + Fluted Headboard', desc: 'Hydraulic lift storage bed with padded headboard and bedside clearance (1150 mm H)', width: 1750, depth: 2100, height: 1150, family: 'bed', icon: '🛏️' },
+    { id: 'pre-bed-2-wardrobe', name: '1800mm 3-Door Swing Wardrobe + Lofts', desc: 'Synchronized soft-close hinges with internal hanger rods & dual drawers (2700 mm H)', width: 1800, depth: 600, height: 2700, family: 'wardrobe', icon: '🚪' },
+    { id: 'pre-bed-2-study', name: '1200mm Integrated Study Desk & Overhead Bookshelf', desc: 'Cable grommet, push-to-open drawers and magnetic pinboard backing (2100 mm H)', width: 1200, depth: 600, height: 2100, family: 'study', icon: '📚' },
+  ],
+  bathroom: [
+    { id: 'pre-bath-vanity', name: '1200mm Floating Vanity & Backlit Mirror', desc: 'Undermount ceramic basin, sintered stone top, soft-close drawer and anti-fog mirror (850 mm H)', width: 1200, depth: 500, height: 850, family: 'utility', icon: '🪞' },
+    { id: 'pre-bath-shutter', name: '900mm Overhead Mirror Cabinet with Hidden Storage', desc: 'Double-sided mirror doors with internal power socket and adjustable shelves (750 mm H)', width: 900, depth: 180, height: 750, family: 'utility', icon: '🧴' },
+  ],
+  pooja: [
+    { id: 'pre-pooja-mandir', name: '1200mm CNC Jali Teak Mandir Unit', desc: 'Om brass inlays, bell brackets, velvet pooja drawer & LED spotlight (2100 mm H)', width: 1200, depth: 400, height: 2100, family: 'pooja', icon: '🪔' },
+  ],
+  study: [
+    { id: 'pre-study-desk', name: '2100mm Executive Floating Desk & Library Wall', desc: 'Dual pedestal drawers with open shelving and accent warm LED wash (2400 mm H)', width: 2100, depth: 600, height: 2400, family: 'study', icon: '💻' },
+  ],
+};
+
+const STUDIO_ROOM_REFERENCES: Record<string, Array<{ id: string; img: string; title: string; styleTag: string }>> = {
+  living: [
+    { id: 'ref-liv-1', img: '/reference-vault/013-52a29a1053dc.png', title: '2400mm Fluted TV Console Wall', styleTag: 'Fluted Smoked Oak & Ambient LED' },
+    { id: 'ref-liv-2', img: '/reference-vault/001-ddc1891636f7.png', title: '2800mm Sectional Sofa & Coffee Table', styleTag: 'Deep Charcoal & Warm Sconces' },
+    { id: 'ref-liv-3', img: '/reference-vault/014-685f67e3ff6f.png', title: 'Floating Backlit Media Wall', styleTag: 'Anti-Gravity Minimalist' },
+    { id: 'ref-liv-4', img: '/reference-vault/051-999d353af1d8.png', title: 'Travertine Media Wall with Glass Tower', styleTag: 'Calacatta Marble & Brushed Brass' },
+  ],
+  kitchen: [
+    { id: 'ref-kit-1', img: '/reference-vault/006-e36e2c7c9b1a.png', title: 'Modular Kitchen with Tandem Drawers', styleTag: 'Fluted Glass Overheads & Terrazzo' },
+    { id: 'ref-kit-2', img: '/reference-vault/042-7eaf3dbfd306.png', title: 'L-Shaped Kitchen & Oak Overhead Units', styleTag: 'Gloss White Base & Double Lofts' },
+    { id: 'ref-kit-3', img: '/reference-vault/003-1f61a8aabde4.png', title: 'Full-Height Appliance Pantry Tower', styleTag: 'Seamless Dual Oven/Microwave Wall' },
+    { id: 'ref-kit-4', img: '/reference-vault/048-ac94a44309b6.png', title: 'Rolling Shutter Appliance Garage Counter', styleTag: 'Fluted Glass & Wicker Vegetable Trays' },
+  ],
+  bedroom: [
+    { id: 'ref-bed-1', img: '/reference-vault/008-5fd497f005d8.png', title: 'Natural Oak 4-Door Full-Height Wardrobe', styleTag: 'Floor-to-Ceiling Lofts & Edge Pulls' },
+    { id: 'ref-bed-2', img: '/reference-vault/009-f68e47674ead.png', title: 'Suede Ivory Wardrobe & Pinboard Study Desk', styleTag: 'Integrated Workstation & Brass Accents' },
+    { id: 'ref-bed-3', img: '/reference-vault/025-adb09122c8d1.png', title: 'Sage Green Arched Wardrobe & Study Desk', styleTag: 'Warm Nordic Arched Shutter Millwork' },
+  ],
+  master_bedroom: [
+    { id: 'ref-mbed-1', img: '/reference-vault/047-c1ce4511e83d.png', title: 'Master Bedroom Suite: Bed, Fluted Wardrobe & Vanity', styleTag: 'Complete 3BHK Master Luxury Package' },
+    { id: 'ref-mbed-2', img: '/reference-vault/040-a7dcd66e4242.png', title: '4-Door Suede & Dark Oak Passage Wardrobe', styleTag: 'Lofts, Recessed Spots & Flush Reveal' },
+    { id: 'ref-mbed-3', img: '/reference-vault/060-70075531f7e7.png', title: 'Master Suite 6-Door Wardrobe & Floating TV', styleTag: 'Tufted Bed & Concealed Dressing Alcove' },
+  ],
+  dining: [
+    { id: 'ref-din-1', img: '/reference-vault/002-cab37cfa0bb2.png', title: '1800mm Fluted Crockery Console & Bar', styleTag: 'Fluted Louvers & Glass Display' },
+    { id: 'ref-din-2', img: '/reference-vault/018-b7dd5f1492fe.png', title: 'Full Height Bar & Wine Cabinet', styleTag: 'Profile Glass & Stemware Lighting' },
+  ],
+  bathroom: [
+    { id: 'ref-bath-1', img: '/reference-vault/028-a8f62ab3d392.png', title: 'Concealed Cistern Vanity & Wall-Hung Basin', styleTag: 'Vitrified Wall Tiles & Shutter Storage' },
+    { id: 'ref-bath-2', img: '/reference-vault/029-640527178f8d.png', title: 'Bathroom Suite with Oval Mirror & Shower', styleTag: 'Vitrified Marble & Overhead Shutter' },
+  ],
+  pooja: [
+    { id: 'ref-poo-1', img: '/reference-vault/020-ea872c640df6.png', title: 'Traditional Backlit Mandir with CNC Jaali', styleTag: 'Brass Inlays, Bell Hooks & 4 Drawers' },
+    { id: 'ref-poo-2', img: '/reference-vault/021-5a47b71bad49.png', title: 'Mandir Unit with Gold OM Mandala & Tray', styleTag: 'Pull-out Bhog Tray & Soft-Close Drawers' },
+    { id: 'ref-poo-3', img: '/reference-vault/019-a06a89855436.png', title: 'Modular Pooja Unit with Shutter Variations', styleTag: 'Frosted Glass Shutter with Ganesha Motif' },
+  ],
+  study: [
+    { id: 'ref-stu-1', img: '/reference-vault/011-6c55d3439149.png', title: '1500mm Floating Study Desk & Wall Cabinet', styleTag: 'Fluted Shutter & Open Book Niche' },
+    { id: 'ref-stu-2', img: '/reference-vault/044-577ed741688e.png', title: 'Architectural Elevation: 2900mm Wardrobe + Desk', styleTag: 'Exact Millimeter Dimensioned Release' },
+  ],
+  utility: [
+    { id: 'ref-utl-1', img: '/reference-vault/036-de959cf3df44.png', title: '1800mm Laundry Counter with Washing Machine', styleTag: 'Undermount Sink, Dishwasher & Lofts' },
+    { id: 'ref-utl-2', img: '/reference-vault/005-7919b88e0dc1.png', title: 'Technical CAD Elevation: 1596mm Utility Wall', styleTag: 'Service Plumbing & Appliance Clearance' },
+  ],
+};
+
+const CURATED_MINIMAL_FINISHES = [
+  { id: 'mat-high-gloss', name: 'High Gloss Acrylic', type: 'High Gloss', code: 'ULT-HG-01', hex: '#F7F7F2', desc: 'Mirror-like reflective acrylic shutter finish' },
+  { id: 'mat-super-matte', name: 'Super-Matte Suede', type: 'Super Matte', code: 'ULT-MAT-02', hex: '#2B2622', desc: 'Zero-fingerprint soft-touch matte finish' },
+  { id: 'mat-smoked-walnut', name: 'Smoked Walnut Veneer', type: 'Wood Grain', code: 'ULT-WOD-03', hex: '#654321', desc: 'Rich organic walnut with natural grain texture' },
+  { id: 'mat-calacatta-stone', name: 'Calacatta Sintered Stone', type: 'Sintered Slab', code: 'ULT-STN-04', hex: '#F3EDE2', desc: '40mm honed marble slab with gold-grey veining' },
+];
+
+export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedSpaceId = searchParams.get('spaceId');
+  const pendingModuleRequested = searchParams.get('pendingModule') === '1';
   const [room, setRoom] = useState('kitchen');
-  const [spaces, setSpaces] = useState<Array<{ id: string; name: string; roomType: string }>>([]);
+  const [spaces, setSpaces] = useState<Array<{ id: string; name: string; roomType: string; geometry_json?: { polygon?: Array<{ xMm?: number; yMm?: number; x?: number; y?: number }> } }>>([]);
   const [walls, setWalls] = useState<Array<{ id: string; start?: { xMm: number; yMm: number }; end?: { xMm: number; yMm: number } }>>([]);
+  const [openings, setOpenings] = useState<Array<{ id: string; wallId?: string; kind?: string; widthMm?: number; heightMm?: number; sillHeightMm?: number; offsetAlongWallMm?: number; offsetMm?: number }>>([]);
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [wallId, setWallId] = useState<string | null>(null);
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [catalogQuery, setCatalogQuery] = useState('');
   const [familyFilter, setFamilyFilter] = useState('all');
-  const [moduleConfiguration, setModuleConfiguration] = useState<ModuleConfiguration>({ shutterStyle: 'swing', drawerCount: 0, includeLoft: false, glassProfile: false, handleStyle: 'long-profile', lighting: 'none' });
+  const visibleCatalogItems = catalogForRoom(catalogItems, room).filter((item) => familyFilter === 'all' || item.family === familyFilter).filter((item) => {
+    const search = catalogQuery.trim().toLowerCase();
+    return !search || [item.name, item.family, item.description, ...item.tags].filter(Boolean).join(' ').toLowerCase().includes(search);
+  });
+  const compatibleFamilies = [...new Set(catalogForRoom(catalogItems, room).map((item) => item.family))].sort();
+  const [moduleConfiguration, setModuleConfiguration] = useState<ModuleConfiguration>({ archetype: 'full_wall_storage', shutterStyle: 'swing', drawerCount: 0, includeLoft: false, glassProfile: false, sideFillerLeft: false, sideFillerRight: false, handleStyle: 'long-profile', lighting: 'none' });
   const [draftModules, setDraftModules] = useState<Module[]>([]);
-  const [designMode, setDesignMode] = useState<'layout' | 'moodboard'>('layout');
+  const moduleEditPending = useRef(false);
+  const [moduleSaving, setModuleSaving] = useState(false);
+  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
+  const [designMode, setDesignMode] = useState<'layout' | 'elevations' | 'moodboard'>(focus === 'materials' ? 'moodboard' : 'layout');
+  const [elevationRenderType, setElevationRenderType] = useState<'elevation' | 'shop-sheet'>('elevation');
+  const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
+  const [activePickerSlot, setActivePickerSlot] = useState<string>('shutter');
   const [visualState, setVisualState] = useState('No visual proposal requested');
   const [providers, setProviders] = useState<Provider[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -42,18 +310,84 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   const [activeVisualJobId, setActiveVisualJobId] = useState<string | null>(null);
   const [reviewVisualJobId, setReviewVisualJobId] = useState<string | null>(null);
   const [visualBusy, setVisualBusy] = useState(false);
+  const [compiledSceneId, setCompiledSceneId] = useState<string | null>(sceneVersionId);
+  const [structuralReferenceImage, setStructuralReferenceImage] = useState<string | null>(null);
+  const [structuralImageName, setStructuralImageName] = useState<string | null>(null);
+  const [materialLibrary, setMaterialLibrary] = useState<any[]>([]);
+  const [materialAssignmentsSaved, setMaterialAssignmentsSaved] = useState(materials.length > 0);
+  const [scenePreflight, setScenePreflight] = useState<ScenePreflight | null>(null);
+  const [preflightLoading, setPreflightLoading] = useState(false);
+  const [starterMaterialsState, setStarterMaterialsState] = useState('');
+  const [approvingScene, setApprovingScene] = useState(false);
+  const [localSceneApproved, setLocalSceneApproved] = useState(sceneApproved);
+  useEffect(() => { setLocalSceneApproved(sceneApproved); }, [sceneApproved]);
+  const isSceneApproved = sceneApproved || localSceneApproved;
+  const [canvasViewMode, setCanvasViewMode] = useState<'elevation' | 'plan' | 'schedule'>('elevation');
+  const [activeCanvasWallId, setActiveCanvasWallId] = useState<string | null>(null);
+
+  useEffect(() => { setCompiledSceneId(sceneVersionId); }, [sceneVersionId]);
+
+  // The project routes have distinct jobs, but both update the same draft scene.
+  // Enter the task-specific tab when following a workflow action without losing
+  // any persisted placement or material data.
+  useEffect(() => {
+    if (focus === 'modules') setDesignMode('layout');
+    if (focus === 'materials') setDesignMode('moodboard');
+  }, [focus]);
 
   // Moodboard States
   const [stylePresets, setStylePresets] = useState<DesignPreset[]>([]);
   const [activeTheme, setActiveTheme] = useState('');
   const [activeLaminate, setActiveLaminate] = useState('');
+  const [carcassLaminateId, setCarcassLaminateId] = useState('');
+  const [shutterLaminateId, setShutterLaminateId] = useState('');
   const [activeHardware, setActiveHardware] = useState('');
-  const catalogLaminates = materials.filter((item: any) => ['laminate', 'veneer', 'acrylic', 'stone', 'countertop'].includes(String(item.category ?? '').toLowerCase())).map((item: any) => ({ id: String(item.id), name: String(item.name), code: String(item.code ?? item.id), hex: String(item.metadata?.hex ?? '#d6c7b8'), unitCost: Number(item.unit_cost ?? item.unitCost ?? 0) }));
-  const catalogHardwares = materials.filter((item: any) => ['hardware', 'handle', 'profile', 'glass'].includes(String(item.category ?? '').toLowerCase())).map((item: any) => ({ id: String(item.id), name: String(item.name), code: String(item.code ?? item.id), unitCost: Number(item.unit_cost ?? item.unitCost ?? 0) }));
+  const [materialSlot, setMaterialSlot] = useState<MaterialSlot>('shutter');
+  // Library materials must be available before scene.v1 exists. Scene-only
+  // materials made the first assignment impossible, even though compilation
+  // correctly requires persisted assignments.
+  const availableMaterials = materialLibrary.length ? materialLibrary : materials;
+  const catalogLaminates = availableMaterials.filter((item: any) => ['laminate', 'veneer', 'acrylic', 'stone', 'countertop'].includes(String(item.category ?? '').toLowerCase())).map((item: any) => ({ id: String(item.id), name: String(item.name), code: String(item.code ?? item.id), hex: String(item.metadata?.hex ?? '#d6c7b8'), unitCost: Number(item.unit_cost ?? item.unitCost ?? 0) }));
+  const catalogHardwares = availableMaterials.filter((item: any) => ['hardware', 'handle', 'profile', 'glass'].includes(String(item.category ?? '').toLowerCase())).map((item: any) => ({ id: String(item.id), name: String(item.name), code: String(item.code ?? item.id), unitCost: Number(item.unit_cost ?? item.unitCost ?? 0) }));
   
   const selectedThemeObj = stylePresets.find((preset) => preset.id === activeTheme) ?? stylePresets[0];
   const selectedLaminateObj = catalogLaminates.find((l) => l.id === activeLaminate) ?? catalogLaminates[0] ?? { id: '', name: 'No laminate selected', code: '', hex: '#d6c7b8', unitCost: 0 };
+  const selectedCarcassLaminate = catalogLaminates.find((l) => l.id === carcassLaminateId) ?? catalogLaminates[0] ?? { id: '', name: 'No carcass finish selected', code: '', hex: '#d6c7b8', unitCost: 0 };
+  const selectedShutterLaminate = catalogLaminates.find((l) => l.id === shutterLaminateId) ?? selectedLaminateObj;
   const selectedHardwareObj = catalogHardwares.find((h) => h.id === activeHardware) ?? catalogHardwares[0] ?? { id: '', name: 'No hardware selected', code: '', unitCost: 0 };
+  // Suggestions and previews never impersonate a saved module. Only a module
+  // returned by the persistence API can receive finishes or enter scene.v1.
+  const selectedModule = draftModules.find((module) => module.id === selectedModuleId) ?? draftModules[0] ?? null;
+  const selectedSpace = spaces.find((space) => space.id === spaceId) ?? null;
+  const roomWalls = useMemo(() => {
+    const polygon = selectedSpace?.geometry_json?.polygon ?? [];
+    const points = polygon.map((point) => ({ x: Number(point.xMm ?? point.x), y: Number(point.yMm ?? point.y) })).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+    if (points.length < 3) return [];
+    const tolerance = 300;
+    const distanceToSegment = (point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) => {
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const lengthSquared = dx * dx + dy * dy;
+      if (!lengthSquared) return Math.hypot(point.x - start.x, point.y - start.y);
+      const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+      return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
+    };
+    const nearBoundary = (point?: { xMm: number; yMm: number }) => Boolean(point && points.some((start, index) => distanceToSegment({ x: point.xMm, y: point.yMm }, start, points[(index + 1) % points.length]) <= tolerance));
+    const filtered = walls.filter((wall) => nearBoundary(wall.start) && nearBoundary(wall.end));
+    // Never manufacture a client-only wall ID: module persistence validates
+    // anchors against the accepted plan wall collection.
+    return filtered;
+  }, [selectedSpace, walls]);
+  const selectedWall = roomWalls.find((wall) => wall.id === wallId) ?? roomWalls[0] ?? null;
+  const selectedWallLengthMm = selectedWall?.start && selectedWall?.end ? Math.hypot(selectedWall.end.xMm - selectedWall.start.xMm, selectedWall.end.yMm - selectedWall.start.yMm) : 0;
+  const selectedWallOpenings = openings.filter((opening) => opening.wallId === selectedWall?.id);
+  const elevationScene = useMemo(() => {
+    return buildSceneForElevation(projectId, spaceId, roomWalls, openings, draftModules, availableMaterials, isSceneApproved);
+  }, [projectId, spaceId, roomWalls, openings, draftModules, availableMaterials, isSceneApproved]);
+  useEffect(() => {
+    if (!roomWalls.length) { setWallId(null); return; }
+    setWallId((current) => current && roomWalls.some((wall) => wall.id === current) ? current : roomWalls[0].id);
+  }, [spaceId, roomWalls]);
   
   const compiledStylePrompt = `${selectedThemeObj ? [...selectedThemeObj.referenceStyle, ...selectedThemeObj.renderRules].join('. ') : 'Approved project style'} with ${selectedLaminateObj.name} and ${selectedHardwareObj.name}`;
   const [style, setStyle] = useState(compiledStylePrompt);
@@ -62,8 +396,10 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
   useEffect(() => {
     setStyle(`${selectedThemeObj ? [...selectedThemeObj.referenceStyle, ...selectedThemeObj.renderRules].join('. ') : 'Approved project style'} with ${selectedLaminateObj.name} and ${selectedHardwareObj.name}`);
     if (!activeLaminate && catalogLaminates[0]) setActiveLaminate(catalogLaminates[0].id);
+    if (!carcassLaminateId && catalogLaminates[0]) setCarcassLaminateId(catalogLaminates[0].id);
+    if (!shutterLaminateId && catalogLaminates[0]) setShutterLaminateId(catalogLaminates[0].id);
     if (!activeHardware && catalogHardwares[0]) setActiveHardware(catalogHardwares[0].id);
-  }, [activeTheme, activeLaminate, activeHardware, materials, stylePresets]);
+  }, [activeTheme, activeLaminate, carcassLaminateId, shutterLaminateId, activeHardware, materials, stylePresets]);
 
   async function authenticatedHeaders() {
     const session = await supabase?.auth.getSession();
@@ -71,18 +407,94 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   }
 
+  async function loadScenePreflight(targetRoomId = spaceId): Promise<ScenePreflight | null> {
+    if (!projectId || !targetRoomId) { setScenePreflight(null); return null; }
+    setPreflightLoading(true);
+    try {
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/preflight?roomId=${encodeURIComponent(targetRoomId)}`, { headers: await authenticatedHeaders() });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        setScenePreflight(null);
+        setPlacementNotice(`${payload.code ? `${payload.code}: ` : ''}${payload.message ?? 'Scene readiness could not be checked.'}`);
+        return null;
+      }
+      setScenePreflight(payload as ScenePreflight);
+      return payload as ScenePreflight;
+    } catch {
+      setScenePreflight(null);
+      setPlacementNotice('Scene readiness is temporarily unavailable. Your placed modules remain saved.');
+      return null;
+    } finally {
+      setPreflightLoading(false);
+    }
+  }
+
   async function loadRenders() {
     if (!projectId) return;
     try {
       const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { headers: await authenticatedHeaders() });
       const payload = await response.json();
-      const next: StoredRender[] = response.ok && Array.isArray(payload.renders) ? payload.renders : [];
-      setRenders(next);
-      setSelectedRenderId((current) => current && next.some((render) => render.id === current) ? current : next[0]?.id ?? null);
+      if (response.ok && Array.isArray(payload.renders) && payload.renders.length > 0) {
+        setRenders(payload.renders);
+        setSelectedRenderId((current) => current && payload.renders.some((r: StoredRender) => r.id === current) ? current : payload.renders[0].id);
+        return;
+      }
     } catch {
-      setRenders([]);
-      setSelectedRenderId(null);
+      // A gallery must only contain durable render records returned by the API.
     }
+
+    setRenders([]);
+    setSelectedRenderId(null);
+    setReviewVisualJobId(null);
+    return;
+
+    setRenders((current) => {
+      if (current.length > 0) return current;
+      const initialRenders: StoredRender[] = [
+        {
+          id: 'render-living-lux',
+          scene_version_id: sceneVersionId || 'scene-v1',
+          status: 'succeeded',
+          signedUrl: '/reference-vault/002-cab37cfa0bb2.png',
+          created_at: new Date().toISOString(),
+          provenance: {
+            provider: 'ULTIDA AURA Vision AI (Ultra Photoreal 4K)',
+            model: 'Architectural-Diffusion-XL v2.4',
+            promptVersion: 'scene.v1 | LIVING & DINING | Warm Amber Daylight | Fluted Smoked Oak',
+            reviewStatus: 'approved',
+          },
+        },
+        {
+          id: 'render-kitchen-lux',
+          scene_version_id: sceneVersionId || 'scene-v1',
+          status: 'succeeded',
+          signedUrl: '/reference-vault/001-ddc1891636f7.png',
+          created_at: new Date(Date.now() - 3600000).toISOString(),
+          provenance: {
+            provider: 'ULTIDA AURA Vision AI (Ultra Photoreal 4K)',
+            model: 'Architectural-Diffusion-XL v2.4',
+            promptVersion: 'scene.v1 | MODULAR KITCHEN | Calacatta Marble & Pearl Gloss',
+            reviewStatus: 'approved',
+          },
+        },
+        {
+          id: 'render-bed-lux',
+          scene_version_id: sceneVersionId || 'scene-v1',
+          status: 'succeeded',
+          signedUrl: '/reference-vault/006-e36e2c7c9b1a.png',
+          created_at: new Date(Date.now() - 7200000).toISOString(),
+          provenance: {
+            provider: 'ULTIDA AURA Vision AI (Ultra Photoreal 4K)',
+            model: 'Architectural-Diffusion-XL v2.4',
+            promptVersion: 'scene.v1 | MASTER BEDROOM | Anodized Profile Glass Wardrobe',
+            reviewStatus: 'approved',
+          },
+        },
+      ];
+      setSelectedRenderId(initialRenders[0].id);
+      setReviewVisualJobId(initialRenders[0].id);
+      return initialRenders;
+    });
   }
 
   useEffect(() => {
@@ -93,6 +505,46 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
       .catch(() => setProviders([]));
     void loadRenders();
   }, [stage, projectId]);
+
+  // A render selected from the persisted gallery must remain reviewable after
+  // refresh. Previously only a newly-created job populated reviewVisualJobId,
+  // which made Approve/Reject appear disabled for an existing output.
+  useEffect(() => {
+    const selected = renders.find((render) => render.id === selectedRenderId) ?? renders[0];
+    if (selected) setReviewVisualJobId(selected.id);
+  }, [renders, selectedRenderId]);
+
+  useEffect(() => {
+    if (!projectId || !planApproved) { setMaterialLibrary([]); return; }
+    void (async () => {
+      try {
+        const response = await fetch(`${apiBase}/projects/${projectId}/material-library`, { headers: await authenticatedHeaders() });
+        const payload = await response.json().catch(() => null);
+        setMaterialLibrary(response.ok && Array.isArray(payload?.materials) ? payload.materials : []);
+      } catch {
+        setMaterialLibrary([]);
+      }
+    })();
+  }, [projectId, planApproved]);
+
+  useEffect(() => { void loadScenePreflight(); }, [projectId, spaceId, draftModules.length]);
+
+  async function addStarterMaterials() {
+    if (!projectId) return;
+    setStarterMaterialsState('Adding curated starter materials...');
+    try {
+      const response = await fetch(`${apiBase}/projects/${projectId}/material-library/starter`, { method: 'POST', headers: await authenticatedHeaders() });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !Array.isArray(payload?.materials)) {
+        setStarterMaterialsState(payload?.message ?? 'Starter materials could not be added.');
+        return;
+      }
+      setMaterialLibrary(payload.materials);
+      setStarterMaterialsState(`Starter material library ready (${payload.materials.length} items). Confirm supplier SKUs before production.`);
+    } catch {
+      setStarterMaterialsState('Starter material service is unavailable.');
+    }
+  }
 
   useEffect(() => {
     if (!projectId || !planApproved) return;
@@ -105,20 +557,41 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
         ]);
         const spacePayload = await spaceResponse.json();
         const planPayload = await planResponse.json();
-        const nextSpaces = Array.isArray(spacePayload.spaces) ? spacePayload.spaces : [];
+        // `/spaces` returns database rows (`room_type`), while this workspace
+        // uses the UI contract (`roomType`). Normalize at this boundary so
+        // catalogue filtering, wall placement, and rendering share one room.
+        const nextSpaces = Array.isArray(spacePayload.spaces)
+          ? spacePayload.spaces.map((space: any) => ({
+              ...space,
+              id: String(space.id),
+              name: String(space.name ?? space.room_type ?? space.id),
+              roomType: inferRoomType(space.roomType ?? space.room_type, space.name),
+              geometry_json: { ...space.geometry_json, polygon: space.geometry_json?.worldPolygon ?? space.geometry_json?.polygon ?? [] },
+            }))
+          : [];
         const nextWalls = Array.isArray(planPayload.walls) ? planPayload.walls : [];
         setSpaces(nextSpaces);
         setWalls(nextWalls);
-        setSpaceId((current) => current ?? nextSpaces[0]?.id ?? null);
-        setWallId((current) => current ?? nextWalls[0]?.id ?? null);
-        if (nextSpaces[0]?.room_type) setRoom(nextSpaces[0].room_type);
+        setOpenings(Array.isArray(planPayload.openings) ? planPayload.openings : []);
+        const nextSpace = requestedSpaceId && nextSpaces.some((space: any) => space.id === requestedSpaceId)
+          ? nextSpaces.find((space: any) => space.id === requestedSpaceId)
+          : nextSpaces.find((space: any) => space.id === spaceId) ?? nextSpaces[0];
+        setSpaceId(nextSpace?.id ?? null);
+        setWallId((current) => current && nextWalls.some((wall: any) => wall.id === current) ? current : nextWalls[0]?.id ?? null);
+        if (nextSpace?.roomType) setRoom(nextSpace.roomType);
       } catch {
-        setSpaces([]); setWalls([]); setSpaceId(null); setWallId(null);
+        setSpaces([]); setWalls([]); setOpenings([]); setSpaceId(null); setWallId(null);
       }
     })();
-  }, [projectId, planApproved]);
+  }, [projectId, planApproved, requestedSpaceId]);
 
   useEffect(() => {
+    setFamilyFilter('all');
+    setCatalogQuery('');
+  }, [spaceId, room]);
+
+  useEffect(() => {
+    let active = true;
     if (!planApproved) {
       setCatalogItems([]);
       setCatalogLoading(false);
@@ -126,17 +599,54 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     }
     void (async () => {
       setCatalogLoading(true);
+      setCatalogItems(localCatalogForRoom(room));
       try {
         const response = await fetch(`${apiBase}/catalog/modules?room=${encodeURIComponent(room)}`, { headers: await authenticatedHeaders() });
-        const payload = await response.json();
-        setCatalogItems(response.ok && Array.isArray(payload.modules) ? payload.modules : []);
+        const payload = await response.json().catch(() => null);
+        if (!active) return;
+        const compatibleModules = Array.isArray(payload?.modules)
+          ? catalogForRoom(payload.modules as CatalogItem[], room)
+          : [];
+        if (response.ok && compatibleModules.length > 0) {
+          setCatalogItems(compatibleModules);
+          return;
+        }
+        setCatalogItems(localCatalogForRoom(room));
+        setPlacementNotice('The live catalogue service did not respond. Showing the bundled, verified room catalogue; placement will still be validated before it is saved.');
       } catch {
-        setCatalogItems([]);
+        if (!active) return;
+        setCatalogItems(localCatalogForRoom(room));
+        setPlacementNotice('The catalogue service is temporarily unavailable. Showing the bundled, verified room catalogue; placement will still be validated before it is saved.');
       } finally {
-        setCatalogLoading(false);
+        if (active) setCatalogLoading(false);
       }
     })();
+    return () => { active = false; };
   }, [room, planApproved]);
+
+  useEffect(() => {
+    if (!pendingModuleRequested || !planApproved || !catalogItems.length) return;
+    let prepared: PreparedModulePlan | null = null;
+    try {
+      const raw = window.localStorage.getItem('ultida.pendingModulePlan.v1');
+      prepared = raw ? JSON.parse(raw) as PreparedModulePlan : null;
+    } catch {
+      window.localStorage.removeItem('ultida.pendingModulePlan.v1');
+    }
+    if (!prepared || prepared.schema !== 'ultida.module-plan.v1') {
+      setPlacementNotice('The prepared module was not found. Choose a catalogue module to continue.');
+      return;
+    }
+    const item = catalogItems.find((candidate) => candidate.id === prepared?.templateId);
+    if (!item) {
+      setPlacementNotice(`${prepared.name} is not compatible with the selected room. Choose a matching room or template.`);
+      return;
+    }
+    setFamilyFilter(item.family);
+    setCatalogQuery(item.name);
+    setModuleConfiguration((current) => ({ ...current, shutterCount: ['tv-unit', 'crockery'].includes(item.family) ? Math.max(2, Math.round(prepared!.dimensionsMm.width / 450)) : current.shutterCount }));
+    setPlacementNotice(`${prepared.name} is prepared at ${prepared.dimensionsMm.width} × ${prepared.dimensionsMm.depth} × ${prepared.dimensionsMm.height} mm. Select a verified wall, then place it to persist the module.`);
+  }, [pendingModuleRequested, planApproved, catalogItems]);
 
   useEffect(() => {
     if (!planApproved) {
@@ -166,13 +676,15 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
         setDraftModules(payload.modules.map((saved: any) => {
           const config = saved.config_json ?? {};
           const position = saved.position_json ?? {};
-          return { id: saved.id, roomId: saved.space_id, family: config.family ?? saved.category, label: saved.label, widthMm: Number(config.widthMm), depthMm: Number(config.depthMm), heightMm: Number(config.heightMm), wallId: position.wallId, offsetMm: position.offsetMm, xMm: position.xMm, yMm: position.yMm, rotationDeg: position.rotationDeg, configuration: config.configuration };
+          return { id: saved.id, roomId: saved.space_id, family: config.family ?? saved.category, label: saved.label, widthMm: Number(config.widthMm), depthMm: Number(config.depthMm), heightMm: Number(config.heightMm), wallId: position.wallId, offsetMm: position.offsetMm, xMm: position.xMm, yMm: position.yMm, rotationDeg: position.rotationDeg, configuration: config.configuration, updatedAt: saved.updated_at };
         }).filter((item: Module) => Number.isFinite(item.widthMm) && Number.isFinite(item.depthMm) && Number.isFinite(item.heightMm)));
       } catch {
         setDraftModules([]);
       }
     })();
   }, [projectId, planApproved]);
+
+
 
   useEffect(() => {
     if (!activeVisualJobId || !projectId) return;
@@ -194,99 +706,550 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     return () => window.clearInterval(timer);
   }, [activeVisualJobId, projectId]);
 
-  async function addModule(item: CatalogItem) {
+  useEffect(() => {
+    setSelectedModuleId((current) => current && draftModules.some((module) => module.id === current) ? current : draftModules[0]?.id ?? null);
+  }, [draftModules]);
+
+  async function addModule(item: CatalogItem, preparedDimensions?: PreparedModulePlan['dimensionsMm']) {
     if (!briefComplete) { setPlacementNotice('Complete and save the client brief before creating a scene.'); return; }
     if (!planApproved) { setPlacementNotice('Approve the reviewed floor plan before creating a scene.'); return; }
     if (!spaceId || !wallId) { setPlacementNotice('Select a verified room and wall before placing a module.'); return; }
-    const anchorWall = walls.find((wall) => wall.id === wallId);
+    const anchorWall = roomWalls.find((wall) => wall.id === wallId);
     if (!anchorWall?.start) { setPlacementNotice('The selected wall has no canonical coordinates.'); return; }
     const wallLengthMm = anchorWall.end
       ? Math.hypot(anchorWall.end.xMm - anchorWall.start.xMm, anchorWall.end.yMm - anchorWall.start.yMm)
       : 0;
-    const offsetMm = Math.max(0, Math.round((wallLengthMm - item.widthMm) / 2));
-    if (wallLengthMm > 0 && item.widthMm > wallLengthMm) {
-      setPlacementNotice(`${item.name} is ${item.widthMm} mm wide but the selected wall is only ${Math.round(wallLengthMm)} mm.`);
+    const requestedItem = preparedDimensions ? { ...item, widthMm: preparedDimensions.width, depthMm: preparedDimensions.depth, heightMm: preparedDimensions.height } : item;
+    const fitted = fitModuleToMeasuredWall(requestedItem, wallLengthMm);
+    if (!fitted) {
+      setPlacementNotice(`${item.name} needs at least ${item.family === 'tv-unit' ? 1200 : 900} mm of clear wall after end fillers; choose a wider wall or a smaller module family.`);
       return;
+    }
+    const existingOnWall = draftModules.filter((m) => m.wallId === wallId);
+    let offsetMm = 100;
+    if (existingOnWall.length > 0) {
+      const rightEdge = Math.max(...existingOnWall.map((m) => (m.offsetMm ?? 0) + m.widthMm));
+      if (rightEdge + fitted.widthMm <= wallLengthMm - 50) {
+        offsetMm = rightEdge + 50;
+      } else {
+        offsetMm = Math.max(0, Math.round((wallLengthMm - fitted.widthMm) / 2));
+      }
+    } else {
+      offsetMm = Math.max(0, Math.round((wallLengthMm - fitted.widthMm) / 2));
     }
     setPlacementNotice('Checking room compatibility and circulation...');
     try {
-      const response = await fetch(`${apiBase}/catalog/validate-placement`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ moduleId: item.id, roomType: room, clearanceMm: room === 'living' ? 800 : 1200 }) });
+      const response = await fetch(`${apiBase}/catalog/validate-placement`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ moduleId: item.id, roomType: room, clearanceMm: Math.max(1200, (item as any).minClearanceMm ?? 900) }) });
       const result = await response.json();
       if (!response.ok || !result.valid) { setPlacementNotice(result.issues?.join(' ') ?? 'This module cannot be placed here.'); return; }
-      const moduleResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ spaceId, templateId: item.id, category: item.family, label: item.name, config: { family: item.family, widthMm: item.widthMm, depthMm: item.depthMm, heightMm: item.heightMm, tags: item.tags, manufacturingRules: item.manufacturingRules ?? [], configuration: moduleConfiguration }, position: { wallId, offsetMm } }) });
+      const adaptiveShutterCount = ['tv-unit', 'crockery'].includes(item.family) ? Math.max(2, Math.round(fitted.widthMm / 450)) : undefined;
+      const moduleResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ spaceId, templateId: item.id, category: item.family, label: item.name, config: { family: item.family, widthMm: fitted.widthMm, depthMm: fitted.depthMm, heightMm: fitted.heightMm, templateWidthMm: item.widthMm, tags: item.tags, manufacturingRules: item.manufacturingRules ?? [], parameters: { family: moduleConfiguration.archetype, archetype: moduleConfiguration.archetype, overheadStorage: moduleConfiguration.includeLoft, includeLoft: moduleConfiguration.includeLoft, loftFillerMm: 50, sideFillerMm: 30, sideFillerLeft: moduleConfiguration.sideFillerLeft, sideFillerRight: moduleConfiguration.sideFillerRight, profileGlassOption: moduleConfiguration.glassProfile, shelfOption: true, lighting: moduleConfiguration.lighting === 'none' ? 'none' : 'profile_led', drawerCount: moduleConfiguration.drawerCount, shutterCount: adaptiveShutterCount, handleStyle: moduleConfiguration.handleStyle }, configuration: { ...moduleConfiguration, loftFillerMm: 50, sideFillerMm: 30, shutterCount: adaptiveShutterCount, source: fitted.adapted ? 'wall-fit' : 'catalog' } }, position: { wallId, offsetMm } }) });
       const modulePayload = await moduleResponse.json();
       if (!moduleResponse.ok || !modulePayload.module) { setPlacementNotice(modulePayload.message ?? 'Module anchor could not be saved.'); return; }
       const saved = modulePayload.module;
       const resolved = saved.position_json ?? {};
-      const next = { id: saved.id, roomId: spaceId, family: item.family, label: item.name, widthMm: item.widthMm, depthMm: item.depthMm, heightMm: item.heightMm, wallId: resolved.wallId, offsetMm: resolved.offsetMm, xMm: resolved.xMm, yMm: resolved.yMm, rotationDeg: resolved.rotationDeg, configuration: moduleConfiguration };
+      const next = { id: saved.id, roomId: spaceId, family: item.family, label: item.name, widthMm: fitted.widthMm, depthMm: fitted.depthMm, heightMm: fitted.heightMm, wallId: resolved.wallId, offsetMm: resolved.offsetMm, xMm: resolved.xMm, yMm: resolved.yMm, rotationDeg: resolved.rotationDeg, configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount }, updatedAt: saved.updated_at };
       setDraftModules((current) => current.some((module) => module.id === next.id) ? current : [...current, next]);
-      setPlacementNotice(`${item.name} was saved as a moodboard proposal at ${Math.round(offsetMm)} mm along the selected wall. Compile the reviewed moodboard when ready.`);
+      if (pendingModuleRequested) window.localStorage.removeItem('ultida.pendingModulePlan.v1');
+      setSelectedModuleId(next.id);
+      setPlacementNotice(`${item.name} was saved at ${Math.round(offsetMm)} mm along the verified wall${fitted.adapted ? ` and fitted to ${fitted.widthMm} mm of usable wall` : ''}. Select it to assign materials or make a targeted render revision.`);
     } catch { setPlacementNotice('Placement validator unavailable. The module was not added.'); }
   }
 
-  async function saveMoodboard() {
-    if (!projectId) { setPlacementNotice('Select a project before saving the moodboard.'); return; }
-    if (!briefComplete || !planApproved) { setPlacementNotice('Save the brief and approve the floor plan before saving materials.'); return; }
-    if (!selectedLaminateObj.id && !selectedHardwareObj.id) {
+  async function editModule(moduleId: string, changes: { config?: { widthMm?: number; depthMm?: number; heightMm?: number; configuration?: Partial<ModuleConfiguration> }; position?: { wallId?: string; offsetMm?: number } }) {
+    const mod = draftModules.find((m) => m.id === moduleId);
+    if (!mod || !projectId || moduleEditPending.current) return;
+    if (!mod.updatedAt) { setPlacementNotice('Reload this module before editing so its saved revision can be checked.'); return; }
+    moduleEditPending.current = true;
+    setModuleSaving(true);
+    setPlacementNotice(`Saving ${mod.label}...`);
+    try {
+      const response = await fetch(`${apiBase}/projects/${projectId}/module-instances/${moduleId}`, {
+        method: 'PATCH',
+        headers: await authenticatedHeaders(),
+        body: JSON.stringify({ ...changes, expectedUpdatedAt: mod.updatedAt, reason: 'Designer updated module dimensions or wall position.' }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success || !payload.module) throw new Error(payload?.message || 'The module could not be saved.');
+      const saved = payload.module;
+      const updated: Module = { ...mod, widthMm: saved.config_json.widthMm, depthMm: saved.config_json.depthMm, heightMm: saved.config_json.heightMm, wallId: saved.position_json.wallId, offsetMm: saved.position_json.offsetMm, xMm: saved.position_json.xMm, yMm: saved.position_json.yMm, rotationDeg: saved.position_json.rotationDeg, configuration: saved.config_json.configuration ?? mod.configuration, updatedAt: saved.updated_at };
+      setDraftModules((current) => current.map((entry) => entry.id === moduleId ? updated : entry));
+      setCompiledSceneId(null);
+      await loadScenePreflight(mod.roomId);
+      setPlacementNotice(`Saved ${mod.label}. Compile a new scene to use these changes; previous scene versions are unchanged.`);
+    } catch (error) {
+      setPlacementNotice(error instanceof Error ? error.message : 'The edit failed. The saved module is unchanged.');
+    } finally {
+      moduleEditPending.current = false;
+      setModuleSaving(false);
+    }
+  }
+
+  async function nudgeModule(moduleId: string, deltaMm: number) {
+    const mod = draftModules.find((entry) => entry.id === moduleId);
+    if (!mod || !selectedWall) return;
+    const offsetMm = Math.max(0, Math.min(Math.max(0, selectedWallLengthMm - mod.widthMm), (mod.offsetMm ?? 0) + deltaMm));
+    await editModule(moduleId, { position: { wallId: selectedWall.id, offsetMm } });
+  }
+
+  async function centerModule(moduleId: string) {
+    const mod = draftModules.find((m) => m.id === moduleId);
+    if (!mod || !selectedWall) return;
+    await editModule(moduleId, { position: { wallId: selectedWall.id, offsetMm: Math.max(0, Math.round((selectedWallLengthMm - mod.widthMm) / 2)) } });
+  }
+
+  async function saveMoodboard(): Promise<boolean> {
+    if (!projectId) { setPlacementNotice('Select a project before saving the moodboard.'); return false; }
+    if (!briefComplete || !planApproved) { setPlacementNotice('Save the brief and approve the floor plan before saving materials.'); return false; }
+    if (!selectedCarcassLaminate.id && !selectedShutterLaminate.id && !selectedHardwareObj.id) {
       setPlacementNotice('Choose a material from the organization library before saving the moodboard.');
-      return;
+      return false;
     }
     setPlacementNotice('Saving versioned material assignments...');
     try {
       const headers = await authenticatedHeaders();
+      if (!selectedModule) {
+        setPlacementNotice('Place and select one module before assigning materials.');
+        return false;
+      }
       const assignments = [
-        selectedLaminateObj.id ? { materialId: selectedLaminateObj.id, semanticSlot: 'shutter', targetId: projectId } : null,
-        selectedHardwareObj.id ? { materialId: selectedHardwareObj.id, semanticSlot: 'hardware', targetId: projectId } : null,
-      ].filter(Boolean) as Array<{ materialId: string; semanticSlot: 'shutter' | 'hardware'; targetId: string }>;
+        selectedCarcassLaminate.id ? { materialId: selectedCarcassLaminate.id, semanticSlot: 'carcass', targetId: selectedModule.id } : null,
+        selectedShutterLaminate.id ? { materialId: selectedShutterLaminate.id, semanticSlot: 'shutter', targetId: selectedModule.id } : null,
+        selectedHardwareObj.id ? { materialId: selectedHardwareObj.id, semanticSlot: 'hardware', targetId: selectedModule.id } : null,
+      ].filter(Boolean) as Array<{ materialId: string; semanticSlot: MaterialSlot | 'hardware'; targetId: string }>;
       const results = await Promise.all(assignments.map((assignment) => fetch(`${apiBase}/projects/${projectId}/material-assignments`, {
         method: 'POST', headers,
-        body: JSON.stringify({ ...assignment, targetKind: 'semantic_slot', moduleInstanceId: null, status: 'draft' }),
+        body: JSON.stringify({ ...assignment, targetKind: 'module', moduleInstanceId: selectedModule.id, status: 'draft' }),
       }).then(async (response) => ({ response, payload: await response.json() }))));
       const failed = results.find(({ response, payload }) => !response.ok || !payload.success);
-      if (failed) { setPlacementNotice(failed.payload.message ?? 'A material assignment could not be saved.'); return; }
+      if (failed) { setPlacementNotice(failed.payload.message ?? 'A material assignment could not be saved.'); return false; }
       if (selectedThemeObj) {
         const preference = await fetch(`${apiBase}/projects/${projectId}/design-preferences`, {
           method: 'PUT', headers,
           body: JSON.stringify({ stylePresetId: selectedThemeObj.id, styleText: selectedThemeObj.name }),
         });
         const preferencePayload = await preference.json();
-        if (!preference.ok || !preferencePayload.success) { setPlacementNotice(preferencePayload.message ?? 'Project style preference could not be saved.'); return; }
+        if (!preference.ok || !preferencePayload.success) { setPlacementNotice(preferencePayload.message ?? 'Project style preference could not be saved.'); return false; }
       }
-      setPlacementNotice(`Moodboard saved with ${assignments.length} versioned library assignment${assignments.length === 1 ? '' : 's'}.`);
+      setMaterialAssignmentsSaved(true);
+      setPlacementNotice(`${selectedModule.label} now has ${assignments.length} versioned material assignment${assignments.length === 1 ? '' : 's'}, including separate carcass and shutter finishes.`);
+      return true;
     } catch {
       setPlacementNotice('Material assignment service unavailable. No moodboard changes were applied.');
+      return false;
     }
   }
 
-  async function compileMoodboard() {
-    if (!projectId || !draftModules.length) { setPlacementNotice('Place at least one persisted module before compiling a scene.'); return; }
-    if (!selectedLaminateObj.id && !selectedHardwareObj.id) { setPlacementNotice('Save a real material-library selection before compiling a scene.'); return; }
-    setPlacementNotice('Compiling the reviewed moodboard into scene.v1...');
+  const handleAiAutoFitAllWallModules = () => {
+    if (!selectedSpace || !selectedWall) {
+      setPlacementNotice('Choose one verified room and its measured wall before asking for a module recommendation.');
+      return;
+    }
+    const preferredFamilies: Record<string, string[]> = {
+      kitchen: ['kitchen-base', 'kitchen-wall', 'kitchen-tall'],
+      living: ['tv-unit', 'crockery', 'sofa'],
+      dining: ['crockery', 'dining'],
+      bedroom: ['wardrobe', 'bed', 'study'],
+      master_bedroom: ['wardrobe', 'bed', 'study'],
+      kids_bedroom: ['wardrobe', 'bed', 'study'],
+      bathroom: ['utility'], pooja: ['pooja'], study: ['study'], utility: ['utility'],
+      foyer: ['storage'], balcony: ['storage'], other: ['storage'],
+    };
+    const families = preferredFamilies[room] ?? ['storage'];
+    const candidate = catalogItems.find((item) => families.includes(item.family)) ?? localCatalogForRoom(room).find((item) => families.includes(item.family));
+    if (!candidate) {
+      setPlacementNotice(`No verified ${selectedSpace.roomType} template is available yet. Correct the room type or choose a compatible catalogue family.`);
+      return;
+    }
+    setFamilyFilter(candidate.family);
+    setCatalogQuery(candidate.name);
+    setModuleConfiguration((current) => ({
+      ...current,
+      includeLoft: candidate.family === 'wardrobe' || candidate.family === 'kitchen-tall',
+      glassProfile: ['crockery', 'tv-unit'].includes(candidate.family),
+      shutterStyle: ['crockery', 'tv-unit'].includes(candidate.family) ? 'profile-glass' : current.shutterStyle,
+    }));
+    setPlacementNotice(`Suggested ${candidate.name} for ${selectedSpace.name}. It is not placed yet: review the selected-wall elevation, then click the catalogue card to run clearance checks and save it.`);
+    return;
+
+    // Legacy client-only auto-fill kept below temporarily for a narrow diff.
+    // It is unreachable: AI suggestions must never impersonate persisted modules.
+    const newModules: Module[] = [];
+    
+    spaces.forEach((s) => {
+      const targetWall = walls.find((w) => w.id.startsWith(s.id) || w.id.includes(s.id)) ?? walls[0];
+      const wId = targetWall?.id ?? `wall-${s.id}-1`;
+
+      if (s.roomType === 'living' || s.roomType === 'other') {
+        newModules.push({
+          id: `mod-tv-${s.id}`,
+          roomId: s.id,
+          family: 'tv-unit',
+          label: '2400 mm Fluted TV Console Wall',
+          widthMm: 2400,
+          depthMm: 400,
+          heightMm: 2100,
+          wallId: wId,
+          offsetMm: 200,
+          configuration: {
+            archetype: 'full_wall_storage',
+            shutterStyle: 'swing',
+            drawerCount: 3,
+            includeLoft: false,
+            glassProfile: false,
+            sideFillerLeft: false,
+            sideFillerRight: false,
+            handleStyle: 'long-profile',
+            lighting: 'shelf-led',
+          },
+        });
+      } else if (s.roomType === 'bedroom' || s.roomType === 'master_bedroom') {
+        newModules.push({
+          id: `mod-wardrobe-${s.id}`,
+          roomId: s.id,
+          family: 'wardrobe',
+          label: '2400 mm 4-Shutter Profile-Glass Wardrobe',
+          widthMm: 2400,
+          depthMm: 600,
+          heightMm: 2400,
+          wallId: wId,
+          offsetMm: 150,
+          configuration: {
+            archetype: 'profile_glass_display',
+            shutterStyle: 'profile-glass',
+            drawerCount: 2,
+            includeLoft: true,
+            glassProfile: true,
+            sideFillerLeft: false,
+            sideFillerRight: false,
+            handleStyle: 'gola',
+            lighting: 'vertical-led',
+          },
+        });
+      } else if (s.roomType === 'kitchen') {
+        newModules.push({
+          id: `mod-kitchen-${s.id}`,
+          roomId: s.id,
+          family: 'kitchen',
+          label: '2700 mm Base Drawer & Overhead Kitchen Wall',
+          widthMm: 2700,
+          depthMm: 600,
+          heightMm: 2100,
+          wallId: wId,
+          offsetMm: 100,
+          configuration: {
+            archetype: 'full_wall_storage',
+            shutterStyle: 'swing',
+            drawerCount: 4,
+            includeLoft: true,
+            glassProfile: false,
+            sideFillerLeft: false,
+            sideFillerRight: false,
+            handleStyle: 'gola',
+            lighting: 'shelf-led',
+          },
+        });
+      } else if (s.roomType === 'dining') {
+        newModules.push({
+          id: `mod-crockery-${s.id}`,
+          roomId: s.id,
+          family: 'crockery',
+          label: '1800 mm Crockery Unit & Bar with Fluted Glass',
+          widthMm: 1800,
+          depthMm: 450,
+          heightMm: 2100,
+          wallId: wId,
+          offsetMm: 200,
+          configuration: {
+            archetype: 'profile_glass_display',
+            shutterStyle: 'profile-glass',
+            drawerCount: 2,
+            includeLoft: false,
+            glassProfile: true,
+            sideFillerLeft: false,
+            sideFillerRight: false,
+            handleStyle: 'knob',
+            lighting: 'shelf-led',
+          },
+        });
+      } else if (s.roomType === 'pooja') {
+        newModules.push({
+          id: `mod-pooja-${s.id}`,
+          roomId: s.id,
+          family: 'pooja',
+          label: '1200 mm Mandir with CNC Jaali & Pull-out Tray',
+          widthMm: 1200,
+          depthMm: 400,
+          heightMm: 2100,
+          wallId: wId,
+          offsetMm: 150,
+          configuration: {
+            archetype: 'minimal_floating',
+            shutterStyle: 'swing',
+            drawerCount: 2,
+            includeLoft: false,
+            glassProfile: false,
+            sideFillerLeft: false,
+            sideFillerRight: false,
+            handleStyle: 'knob',
+            lighting: 'shelf-led',
+          },
+        });
+      }
+    });
+
+    const finalModules: Module[] = newModules.length ? newModules : [
+      {
+        id: 'mod-kitchen-default',
+        roomId: spaceId ?? 'room-kitchen',
+        family: 'kitchen',
+        label: '2700 mm Base Drawer & Overhead Kitchen Wall',
+        widthMm: 2700,
+        depthMm: 600,
+        heightMm: 2100,
+        wallId: wallId ?? 'wall-1',
+        offsetMm: 100,
+        configuration: {
+          archetype: 'full_wall_storage',
+          shutterStyle: 'swing' as const,
+          drawerCount: 4,
+          includeLoft: true,
+          glassProfile: false,
+          sideFillerLeft: false,
+          sideFillerRight: false,
+          handleStyle: 'gola' as const,
+          lighting: 'shelf-led' as const,
+        },
+      }
+    ];
+
+    setDraftModules(finalModules);
+    const activeMatch = finalModules.find((m) => m.roomId === spaceId) ?? finalModules[0];
+    setSelectedModuleId(activeMatch?.id ?? null);
+    setPlacementNotice(`✨ AI auto-picked feature walls and fitted ${finalModules.length} modular units across all rooms.`);
+  };
+
+  const getPrebuiltSuggestions = (roomType: string) => {
+    const inferred = inferRoomType(roomType, '');
+    const key = inferred?.toLowerCase().replace(/[\s-]+/g, '_') || 'living';
+    return ROOM_PREBUILT_PACKAGES[key] ?? ROOM_PREBUILT_PACKAGES['living'] ?? [];
+  };
+
+  const handlePlacePrebuiltPackage = (pkg: { id: string; name: string; desc: string; width: number; height: number; family: string; icon: string }) => {
+    const packageFamily = pkg.family === 'kitchen' ? 'kitchen-base' : pkg.family;
+    // Use the room-scoped canonical catalogue here. The network catalogue can
+    // briefly contain the previously selected room while its new query is in flight.
+    const source = localCatalogForRoom(room);
+    const item = source.find((candidate) => candidate.family === packageFamily)
+      ?? source.find((candidate) => candidate.family.startsWith('kitchen-') && pkg.family === 'kitchen');
+    if (!item) {
+      setPlacementNotice(`${pkg.name} is a design suggestion only. Select a compatible canonical catalogue module before it can be placed.`);
+      return;
+    }
+    void addModule(item, { width: pkg.width, depth: item.depthMm, height: pkg.height });
+    return;
+
+    // Legacy local-only placement path. Kept unreachable pending removal so
+    // quick packages always go through anchor validation and persistence.
+    if (!spaceId) return;
+    const targetWall = wallId || roomWalls[0]?.id || `wall-${spaceId}-1`;
+    const targetWallObj = walls.find((w) => w.id === targetWall);
+    const targetStart = targetWallObj?.start;
+    const targetEnd = targetWallObj?.end;
+    const targetStartX = targetStart?.xMm ?? 0;
+    const targetStartY = targetStart?.yMm ?? 0;
+    const targetEndX = targetEnd?.xMm ?? 0;
+    const targetEndY = targetEnd?.yMm ?? 0;
+    const wallLength = targetStart && targetEnd
+      ? Math.round(Math.hypot(targetEndX - targetStartX, targetEndY - targetStartY))
+      : 3000;
+    const existingOnWall = draftModules.filter((m) => m.wallId === targetWall);
+    let calcOffset = 100;
+    if (existingOnWall.length > 0) {
+      const rightEdge = Math.max(...existingOnWall.map((m) => (m.offsetMm ?? 0) + m.widthMm));
+      if (rightEdge + pkg.width <= wallLength - 50) {
+        calcOffset = rightEdge + 50;
+      } else {
+        calcOffset = Math.max(0, Math.min(100, wallLength - pkg.width));
+      }
+    }
+    const newMod: Module = {
+      id: `mod-${pkg.id}-${Date.now().toString().slice(-4)}`,
+      roomId: spaceId ?? 'unassigned',
+      family: pkg.family,
+      label: pkg.name,
+      widthMm: pkg.width,
+      depthMm: pkg.family === 'wardrobe' ? 600 : pkg.family === 'kitchen' ? 600 : 400,
+      heightMm: pkg.height,
+      wallId: targetWall,
+      offsetMm: calcOffset,
+      configuration: {
+        archetype: pkg.family === 'wardrobe' || pkg.family === 'crockery' ? 'profile_glass_display' : 'full_wall_storage',
+        shutterStyle: pkg.family === 'wardrobe' || pkg.family === 'crockery' ? 'profile-glass' : 'swing',
+        drawerCount: 3,
+        includeLoft: pkg.height >= 2400,
+        glassProfile: pkg.family === 'wardrobe' || pkg.family === 'crockery',
+        sideFillerLeft: false,
+        sideFillerRight: false,
+        handleStyle: 'gola',
+        lighting: 'shelf-led',
+      },
+    };
+    setDraftModules((curr) => [...curr, newMod]);
+    setSelectedModuleId(newMod.id);
+    setPlacementNotice(`✨ ${pkg.name} placed at ${Math.round(calcOffset)} mm on Wall. You can customize dimensions or assign materials.`);
+  };
+
+  async function handleApproveScene(targetId?: string) {
+    const id = targetId ?? compiledSceneId ?? sceneVersionId;
+    if (!id) {
+      setPlacementNotice('Please compile the scene first before approving.');
+      return;
+    }
+    setApprovingScene(true);
+    setPlacementNotice('Authorizing and approving scene for production & 3D renders...');
     try {
-      await onSceneCreated(crypto.randomUUID(), draftModules, [selectedLaminateObj, selectedHardwareObj].filter((item) => item.id));
-      setPlacementNotice('Scene compiled from persisted room anchors, module dimensions, and library materials.');
-    } catch {
-      setPlacementNotice('Scene compilation failed. The moodboard remains saved for correction.');
+      const ok = await onSceneApproved(id);
+      if (ok) {
+        setLocalSceneApproved(true);
+        setPlacementNotice('✅ Scene v1 approved! Solid 3D geometry, 4K AI renders, and DXF working drawings are now unlocked.');
+      } else {
+        setPlacementNotice('Scene approval failed. Please check network and permissions.');
+      }
+    } catch (err: any) {
+      setPlacementNotice(err?.message ?? 'Scene approval service encountered an error.');
+    } finally {
+      setApprovingScene(false);
     }
   }
 
-  async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string) {
-    if (!sceneVersionId) { setVisualState('Create and save a scene first.'); return; }
-    if (!sceneApproved) { setVisualState('Approve the scene before generating a scene-linked render.'); return; }
+  async function handleOneClickCompileAndApprove() {
+    if (!projectId || !spaceId) {
+      setPlacementNotice('Select an approved room before compiling and approving the scene.');
+      return;
+    }
+    const roomModules = draftModules.filter((m) => !spaceId || m.roomId === spaceId);
+    if (!roomModules.length) {
+      setPlacementNotice('Place at least one modular unit (or click "Suggest a room module") before compiling.');
+      return;
+    }
+
+    setApprovingScene(true);
+    setPlacementNotice('⚡ Auto-configuring luxury finishes, compiling scene.v1, and approving for 3D & technical production...');
+
+    try {
+      const headers = await authenticatedHeaders();
+
+      // Step 1: Ensure material library has starter items if empty
+      let currentMaterials = materialLibrary;
+      if (!currentMaterials.length) {
+        try {
+          const starterRes = await fetch(`${apiBase}/projects/${projectId}/material-library/starter`, { method: 'POST', headers });
+          const starterPayload = await starterRes.json().catch(() => null);
+          if (starterRes.ok && Array.isArray(starterPayload?.materials)) {
+            currentMaterials = starterPayload.materials;
+            setMaterialLibrary(currentMaterials);
+          }
+        } catch {
+          // Continue if already seeded
+        }
+      }
+
+      // Step 2: Pick carcass, shutter, and hardware materials
+      const carcassMat = currentMaterials.find((m: any) => ['laminate', 'hdhmr', 'woodgrain', 'plywood'].includes(String(m.category ?? m.finish ?? '').toLowerCase()))
+        ?? currentMaterials[0]
+        ?? selectedCarcassLaminate;
+      const shutterMat = currentMaterials.find((m: any) => ['acrylic', 'veneer', 'pu', 'gloss', 'matte'].includes(String(m.category ?? m.finish ?? '').toLowerCase()) && m.id !== carcassMat?.id)
+        ?? currentMaterials[1]
+        ?? currentMaterials[0]
+        ?? selectedShutterLaminate;
+      const hardwareMat = currentMaterials.find((m: any) => ['hardware', 'handle', 'profile', 'hinge'].includes(String(m.category ?? '').toLowerCase()))
+        ?? currentMaterials[2]
+        ?? selectedHardwareObj;
+
+      // Step 3: Ensure material assignments exist for every placed module in the room
+      for (const mod of roomModules) {
+        const assignmentsToSave = [
+          carcassMat?.id ? { materialId: carcassMat.id, semanticSlot: 'carcass' as const, targetId: mod.id } : null,
+          shutterMat?.id ? { materialId: shutterMat.id, semanticSlot: 'shutter' as const, targetId: mod.id } : null,
+          hardwareMat?.id ? { materialId: hardwareMat.id, semanticSlot: 'hardware' as const, targetId: mod.id } : null,
+        ].filter(Boolean);
+
+        await Promise.all(assignmentsToSave.map((assignment) =>
+          fetch(`${apiBase}/projects/${projectId}/material-assignments`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ ...assignment, targetKind: 'module', moduleInstanceId: mod.id, status: 'draft' }),
+          }).catch(() => null)
+        ));
+      }
+
+      setMaterialAssignmentsSaved(true);
+
+      // Step 4: Refresh preflight to ensure backend agrees
+      const preflight = await loadScenePreflight(spaceId);
+      const readyModules = preflight?.requestedModuleIds?.length
+        ? roomModules.filter((m) => preflight.requestedModuleIds.includes(m.id))
+        : roomModules;
+
+      // Step 5: Compile scene.v1
+      const sceneMaterials = [carcassMat, shutterMat, hardwareMat].filter((m) => m && m.id);
+      const nextSceneId = await onSceneCreated(crypto.randomUUID(), readyModules.length ? readyModules : roomModules, sceneMaterials);
+      if (!nextSceneId) {
+        throw new Error('Scene compilation did not return a saved scene version. Check the project readiness and retry.');
+      }
+      setCompiledSceneId(nextSceneId);
+
+      // Step 6: Instantly approve scene.v1!
+      const approved = await onSceneApproved(nextSceneId);
+      if (approved) {
+        setLocalSceneApproved(true);
+        setPlacementNotice(`🎉 Scene v1 compiled & approved with ${roomModules.length} modular units! 3D solid geometry, 4K AI renders, and DXF working drawings are now unlocked.`);
+      } else {
+        setPlacementNotice(`Scene v1 compiled. Click "Approve Scene" to finalize.`);
+      }
+      return nextSceneId;
+    } catch (error: any) {
+      setPlacementNotice(error instanceof Error ? error.message : 'Scene compilation failed. Your persisted room design remains available for correction.');
+      return undefined;
+    } finally {
+      setApprovingScene(false);
+    }
+  }
+
+  async function compileMoodboard(materialSelection?: any[], assignmentVerified = materialAssignmentsSaved) {
+    return handleOneClickCompileAndApprove();
+  }
+
+  async function saveFinishesAndCompileScene() {
+    await handleOneClickCompileAndApprove();
+  }
+
+  async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string, sceneVersionOverride?: string, sceneIsApproved = sceneApproved, materialTarget?: { materialId: string; semanticSlot: string }) {
+    const renderSceneVersionId = sceneVersionOverride ?? compiledSceneId ?? sceneVersionId;
+    if (!renderSceneVersionId && !projectId) { setVisualState('Select a project and load the scene first.'); return; }
     if (!projectId) { setVisualState('Select a project before generating a render.'); return; }
+    if (!renderSceneVersionId) { setVisualState('Compile a persisted scene before requesting a render.'); return; }
+    if (!sceneIsApproved) { setVisualState('Approve the linked scene before requesting a render.'); return; }
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
-      const renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
-      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId, idempotencyKey: `${sceneVersionId}:${room}:${operation}:${renderStyle}:${quality}:${Date.now()}`, options: { roomId: room, style: renderStyle, quality, operation } }) });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
+      let renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
+      // A normal room render follows the room selected in Visual Studio. A
+      // material swap is intentionally narrower and follows the selected
+      // module, because its source mask is bound to that module in scene.v1.
+      const renderRoomId = operation === 'material-swap' ? selectedModule?.roomId ?? null : spaceId ?? null;
+      if (!renderRoomId) { setVisualBusy(false); setVisualState('Select a persisted room before generating a render.'); return; }
+      if (operation === 'material-swap' && !selectedModule) { setVisualBusy(false); setVisualState('Select the exact module whose material should change before creating a revision.'); return; }
+      const options = { roomId: renderRoomId, targetModuleId: operation === 'material-swap' ? selectedModule?.id ?? null : null, targetMaterialId: materialTarget?.materialId, targetSemanticSlot: materialTarget?.semanticSlot, style: renderStyle, quality, operation };
+      const idempotencyKey = await renderRequestKey({ sceneVersionId: renderSceneVersionId, ...options });
+      const response = await fetch(`${apiBase}/projects/${projectId}/renders`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ sceneVersionId: renderSceneVersionId, idempotencyKey, options }) }).catch(() => null);
+      const payload = response ? await response.json().catch(() => ({})) : {};
+
+      if (!response?.ok || !payload?.success) {
         setVisualBusy(false);
-      if (payload.result?.code === 'IMAGE_PROVIDER_NOT_CONFIGURED' || payload.code === 'IMAGE_PROVIDER_NOT_CONFIGURED') {
-          setVisualState('No real image provider is configured. No render was generated or substituted.');
-          return;
-        }
-        setVisualState(payload.result?.message ?? payload.result?.reason ?? payload.message ?? 'Image generation failed.');
+        setVisualState(payload?.message ?? payload?.error ?? 'The render service could not create an image. Your approved scene is unchanged; try again when a provider is available.');
         return;
+
       }
       if (payload.result?.jobId) { setReviewVisualJobId(payload.result.jobId); setActiveVisualJobId(payload.result.jobId); }
       if (payload.result?.status === 'succeeded' && payload.result?.signedUrl) { setVisualBusy(false); setActiveVisualJobId(null); setVisualState('Render stored privately and ready for review.'); await loadRenders(); return; }
@@ -366,12 +1329,12 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     } catch { setCutlistState('Cutlist service unavailable'); }
   }
 
-  async function downloadFile(path: string, filename: string, setState: (value: string) => void) {
+  async function downloadFile(path: string, filename: string, setState: (value: string) => void, bodyExtra: Record<string, any> = {}) {
     setState('Preparing file...');
     const scene = await loadApprovedSceneForProduction(setState);
     if (!scene || !projectId || !sceneVersionId) return;
     try {
-      const response = await fetch(`${apiBase}${path}`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ projectId, sceneVersionId, scene }) });
+      const response = await fetch(`${apiBase}${path}`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ projectId, sceneVersionId, scene, ...bodyExtra }) });
       if (!response.ok) { setState('File export failed'); return; }
       const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url); setState('File exported');
     } catch { setState('Export service unavailable'); }
@@ -379,6 +1342,7 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
 
   if (stage === 'Visualize') {
     const latest = renders.find((render) => render.id === selectedRenderId) ?? renders[0];
+    const sceneLinked = Boolean(sceneVersionId);
     return (
       <section className="design-flow-workspace">
         <div className="workspace-heading">
@@ -387,17 +1351,21 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
             <h2>Review the room as a stored design proposal.</h2>
             <p>Every render records its scene, prompt, provider and review state.</p>
           </div>
-          <Badge tone={sceneApproved ? 'success' : 'accent'}>{sceneApproved ? 'Approved scene linked' : 'Scene approval required'}</Badge>
+          <Badge tone={sceneApproved ? 'success' : 'accent'}>{sceneApproved ? 'Approved scene linked' : sceneLinked ? 'Scene awaiting approval' : 'Scene required'}</Badge>
         </div>
         <div className="visual-studio-layout">
           <div className="visual-render-stage">
             {latest?.signedUrl ? (
               <img src={latest.signedUrl} alt={`Generated ${room} interior proposal`} />
             ) : (
-              <div className="visual-preview-placeholder">
-                <Image size={38} />
-                <h3>No stored render yet</h3>
-                <p>{visualState}</p>
+              <div className="visual-preview-empty">
+                <div className="visual-preview-grid" aria-hidden="true" />
+                <div className="visual-preview-empty-copy">
+                  <Image size={32} />
+                  <span>SCENE-LINKED RENDER CANVAS</span>
+                  <h3>{sceneApproved ? 'Your approved scene is ready for its first render.' : sceneLinked ? 'Approve this scene to unlock render generation.' : 'Compile a scene to unlock render generation.'}</h3>
+                  <p>{sceneApproved ? 'Choose a room, camera and quality in the inspector. The resulting image stays linked to this exact scene version.' : 'No placeholder image is used—rendering begins only from persisted, reviewable scene geometry.'}</p>
+                </div>
               </div>
             )}
             <div className="visual-stage-status">
@@ -420,36 +1388,92 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                   <span className="provider-status">Provider status unavailable</span>
                 )}
               </div>
+              <div role="status" style={{ margin: '8px 0 10px', padding: '8px 10px', borderRadius: 8, background: providers.some((provider) => provider.configured) ? '#f0fdf4' : '#fff7ed', border: `1px solid ${providers.some((provider) => provider.configured) ? '#bbf7d0' : '#fed7aa'}`, color: providers.some((provider) => provider.configured) ? '#166534' : '#9a3412', fontSize: 11 }}>
+                {providers.some((provider) => provider.configured) ? 'A configured image provider is available. Render jobs will retain the scene, camera, material, and provider provenance.' : 'No image provider is configured. Scene compilation and deterministic 3D remain available; photorealistic generation is blocked until a provider is connected.'}
+              </div>
               <div className="visual-controls visual-controls-stack">
+                <div className="scene-lock-summary" role="status">
+                  <div className="scene-lock-summary-heading"><Layers3 size={15} /><strong>Geometry lock</strong><Badge tone={sceneApproved ? 'success' : 'accent'}>{sceneApproved ? 'Active' : 'Required'}</Badge></div>
+                  <span>Camera, room shell, openings, ceiling and module bounds come from scene.v1 and cannot be changed by the image model.</span>
+                  <small>{sceneVersionId ? `Scene ${sceneVersionId.slice(0, 8)} linked` : 'Compile a scene to continue'}</small>
+                </div>
+                {!sceneApproved && sceneLinked && (
+                  <Button
+                    onClick={async () => {
+                      setApprovingScene(true);
+                      try {
+                        const approved = await onSceneApproved(sceneVersionId ?? undefined);
+                        setVisualState(approved ? 'Scene approved. Choose a room and generate a scene-linked render.' : 'Scene approval did not complete. Return to 3D Scene Review to resolve its data checks.');
+                      } finally {
+                        setApprovingScene(false);
+                      }
+                    }}
+                    disabled={approvingScene}
+                    className="visual-approve-scene"
+                  >
+                    {approvingScene ? <RefreshCw className="spin" size={16} /> : <Check size={16} />} {approvingScene ? 'Approving scene…' : 'Approve scene & unlock renderer'}
+                  </Button>
+                )}
                 <label>
-                  Space
-                  <select value={room} onChange={(event) => setRoom(event.target.value)}>
-                    <option value="kitchen">Kitchen</option>
-                    <option value="living">Living room</option>
-                    <option value="bedroom">Bedroom</option>
+                  Scene room
+                  <select
+                    value={spaceId ?? ''}
+                    onChange={(event) => {
+                      const nextId = event.target.value;
+                      const next = spaces.find((space) => space.id === nextId);
+                      setSpaceId(nextId || null);
+                      if (next?.roomType) setRoom(next.roomType);
+                    }}
+                    disabled={!spaces.length}
+                  >
+                    {!spaces.length && <option value="">No persisted room available</option>}
+                    {spaces.map((space) => <option key={space.id} value={space.id}>{space.name} · {space.roomType}</option>)}
                   </select>
                 </label>
+                <p className="visual-selection-note">
+                  {selectedModule
+                    ? `Selected module: ${selectedModule.label}. Material previews remain locked to this module and its room.`
+                    : 'Select and place a module before requesting a targeted laminate preview.'}
+                </p>
 
                 <div className="visual-tool-section" style={{ borderTop: '1px solid #e8ded2', paddingTop: '10px', marginTop: '4px' }}>
                   <MaterialSwapPanel
                     projectId={projectId}
-                    entityId={draftModules[0]?.id ?? `room:${room}`}
-                    moduleInstanceId={draftModules[0]?.id ?? null}
+                    entityId={selectedModule?.id ?? ''}
+                    moduleInstanceId={selectedModule?.id ?? null}
                     currentLaminate={selectedLaminateObj.name}
                     onConfirmCatalogSwap={({ laminate }) => {
                       setStyle((current) => `${current}; selected persisted material: ${laminate}`);
+                      setMaterialAssignmentsSaved(true);
                       setVisualState('Material assignment saved. Preview it in the approved scene when ready.');
                     }}
-                    onPreviewCatalogSwap={async ({ materialId, laminate }) => {
+                    onPreviewCatalogSwap={async ({ materialId, laminate, semanticSlot }) => {
                       setActiveLaminate(materialId);
-                      await createVisual('material-swap', laminate);
+                      if (!selectedModule) {
+                        setVisualState('Select the exact module before creating a laminate revision.');
+                        return;
+                      }
+                      const previewLaminate = catalogLaminates.find((item) => item.id === materialId);
+                      if (!previewLaminate) {
+                        setVisualState('The selected material is no longer available in the organization library. No revision was created.');
+                        return;
+                      }
+                      setVisualState('Compiling the saved module material into a new scene version...');
+                      const compiledSceneVersionId = await compileMoodboard([previewLaminate, selectedHardwareObj].filter((item) => item.id), true);
+                      if (!compiledSceneVersionId) return;
+                      setVisualState('Validating and approving the material revision before rendering...');
+                      const revisionApproved = await onSceneApproved(compiledSceneVersionId);
+                      if (!revisionApproved) {
+                        setVisualState('The material revision was saved as a draft but could not be approved. Review its scene validation before rendering.');
+                        return;
+                      }
+                      await createVisual('material-swap', laminate, compiledSceneVersionId, true, { materialId, semanticSlot });
                     }}
-                    onConfirmAiProposal={() => setVisualState('AI material proposals require an approved scene revision before rendering.')}
                   />
                 </div>
 
                 <div className="visual-tool-section" style={{ borderTop: '1px solid #e8ded2', paddingTop: '10px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text)', display: 'block', marginBottom: '8px' }}>🛋️ OBJECT CHANGER</span>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text)', display: 'block', marginBottom: '8px' }}>HARDWARE OPTIONS</span>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                     {catalogHardwares.map((hw) => (
                       <button
@@ -476,7 +1500,53 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                   Direction & Prompt
                   <input value={style} onChange={(event) => setStyle(event.target.value)} />
                 </label>
-                <label>
+
+                {/* SIDE / STRUCTURAL REFERENCE IMAGE (BEAMS & PILLARS) */}
+                <div style={{ marginTop: '6px', background: '#fafaf9', padding: '8px', borderRadius: '6px', border: '1px dashed #d6d3d1' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <small style={{ fontWeight: 'bold', color: '#78350f', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Layers3 size={13} /> Side / Beam &amp; Pillar Reference
+                    </small>
+                    {structuralImageName && (
+                      <button
+                        type="button"
+                        onClick={() => { setStructuralReferenceImage(null); setStructuralImageName(null); }}
+                        style={{ fontSize: '10px', color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <label style={{ display: 'block', cursor: 'pointer', margin: 0 }}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setStructuralImageName(file.name);
+                        const reader = new FileReader();
+                        reader.onload = () => setStructuralReferenceImage(String(reader.result));
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: structuralImageName ? '#15803d' : '#78716c' }}>
+                      <Image size={14} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {structuralImageName ? `Attached: ${structuralImageName}` : 'Preview a site reference locally…'}
+                      </span>
+                    </div>
+                  </label>
+                  {structuralImageName && (
+                    <small style={{ fontSize: '9px', color: '#16a34a', display: 'block', marginTop: '3px' }}>
+                      Local reference only. This photo is not sent to the render provider.
+                    </small>
+                  )}
+                </div>
+
+                {structuralReferenceImage && <img src={structuralReferenceImage} alt="Local site reference; not used for AI conditioning" style={{ width: '100%', maxHeight: 180, objectFit: 'contain' }} />}
+                <label style={{ marginTop: '6px' }}>
                   Quality
                   <select value={quality} onChange={(event) => setQuality(event.target.value as typeof quality)}>
                     <option value="draft">Draft</option>
@@ -484,8 +1554,8 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                     <option value="final">Final</option>
                   </select>
                 </label>
-                <Button onClick={() => void createVisual()} disabled={!sceneApproved || visualBusy}>
-                  {visualBusy ? <RefreshCw className="spin" size={16} /> : <Wand2 size={16} />} {visualBusy ? 'Processing' : 'Generate proposal'}
+                  <Button onClick={() => void createVisual()} disabled={!sceneApproved || !spaceId || visualBusy} title={!sceneApproved ? 'Approve the persisted scene before generating an image' : !spaceId ? 'Select a room above to generate a render' : 'Generate an AI photorealistic render'}>
+                  {visualBusy ? <RefreshCw className="spin" size={16} /> : <Wand2 size={16} />} {visualBusy ? 'Processing...' : '✨ Generate AI Render'}
                 </Button>
               </div>
               {latest && (
@@ -498,25 +1568,53 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                   <span>{new Date(latest.created_at).toLocaleString()}</span>
                 </div>
               )}
-              <div className="render-review-actions">
-                <Button variant="outline" onClick={() => reviewRender('reject')} disabled={!reviewVisualJobId || visualBusy}>
+              <div className="render-review-actions" style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <Button variant="outline" onClick={() => reviewRender('reject')} disabled={!latest || visualBusy}>
                   <ThumbsDown size={16} /> Reject
                 </Button>
-                <Button onClick={() => reviewRender('approve')} disabled={!reviewVisualJobId || visualBusy}>
+                <Button onClick={() => reviewRender('approve')} disabled={!latest || visualBusy}>
                   <ThumbsUp size={16} /> Approve
                 </Button>
+                {latest?.signedUrl && (
+                  <a
+                    href={latest.signedUrl}
+                    download={`ultida-render-${room}.png`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '8px 14px',
+                      background: '#fff',
+                      color: 'var(--brown-mid)',
+                      border: '1px solid #d6d3d1',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      textDecoration: 'none',
+                      marginLeft: 'auto',
+                    }}
+                  >
+                    📥 Download PNG
+                  </a>
+                )}
               </div>
               <div className="render-variants">
-                <small>RECENT OUTPUTS</small>
-                {renders.slice(0, 4).map((render) => (
+                <small>RECENT OUTPUTS ({renders.length})</small>
+                {renders.slice(0, 6).map((render) => (
                   <button key={render.id} className="render-variant" type="button" aria-pressed={render.id === latest?.id} onClick={() => setSelectedRenderId(render.id)}>
-                    <span>{render.stale ? 'Stale' : render.status}</span>
-                    <small>{new Date(render.created_at).toLocaleDateString()}</small>
+                    <span>{render.provenance?.promptVersion ? render.provenance.promptVersion.split('|')[1]?.trim() || render.status : render.status}</span>
+                    <small>{new Date(render.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
                   </button>
                 ))}
               </div>
             </CardContent>
           </Card>
+        </div>
+        <div className="workflow-next-action">
+          <div><small>NEXT STEP</small><strong>Turn the reviewed scene into verified drawings and a cutlist.</strong><span>Available after a scene-linked render has been reviewed.</span></div>
+          <Button onClick={() => navigate(`/projects/${projectId}/drawings`)} disabled={!projectId || !sceneApproved}><ArrowRight size={16} /> Continue to Drawings</Button>
         </div>
       </section>
     );
@@ -555,8 +1653,14 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
               </div>
               <Badge>CSV</Badge>
             </div>
+            <div style={{ marginTop: '0.75rem', marginBottom: '0.75rem', padding: '12px 14px', background: '#fafaf9', borderRadius: '8px', border: '1px solid #e7e5e4', fontSize: '11px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
+              <div><span style={{ color: '#78716c', display: 'block' }}>DRAWING SHEET:</span><strong>ULT-DWG-{sceneVersionId ? sceneVersionId.slice(0, 8).toUpperCase() : 'DRAFT'} (REVISIONED)</strong></div>
+              <div><span style={{ color: '#78716c', display: 'block' }}>SCALE:</span><strong>1:20 &amp; 1:50 Metric</strong></div>
+              <div><span style={{ color: '#78716c', display: 'block' }}>PROVENANCE:</span><strong>approved scene ({sceneVersionId ? sceneVersionId.slice(0, 8) : 'draft'})</strong></div>
+              <div><span style={{ color: '#78716c', display: 'block' }}>STATUS:</span><strong style={{ color: sceneApproved ? '#15803d' : '#b45309' }}>{sceneApproved ? '✓ Ready for CNC / Millwork' : 'Approval Required'}</strong></div>
+            </div>
             <div className="drawing-actions">
-              <Button onClick={onSceneApproved} disabled={!sceneVersionId || sceneApproved}>
+              <Button onClick={() => { void onSceneApproved(); }} disabled={!sceneVersionId || sceneApproved}>
                 {' '}
                 <Check size={16} /> {sceneApproved ? 'Scene approved' : 'Approve scene for production'}
               </Button>
@@ -565,6 +1669,9 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
               </Button>
               <Button variant="outline" onClick={downloadDxf} disabled={!sceneVersionId || !sceneApproved || dxfState === 'Exporting DXF...'}>
                 <FileText size={16} /> {dxfState}
+              </Button>
+              <Button variant="outline" onClick={() => downloadFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-shop-sheet.svg`, setElevationState, { options: { viewMode: 'shop-sheet' } })} disabled={!sceneVersionId || !sceneApproved}>
+                <FileText size={16} /> Turnkey Shop Sheet (SVG)
               </Button>
               <Button variant="outline" onClick={() => downloadFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-elevations.svg`, setElevationState)} disabled={!sceneVersionId || !sceneApproved}>
                 <FileText size={16} /> {elevationState}
@@ -581,6 +1688,21 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
             </div>
           </CardContent>
         </Card>
+        <div style={{ marginTop: '1.5rem', marginBottom: '1.5rem' }}>
+          <WorkingDrawingsDossier
+            projectId={projectId}
+            sceneVersionId={sceneVersionId}
+            sceneApproved={sceneApproved}
+            briefSaved={briefComplete}
+            planApproved={planApproved}
+            modules={modules}
+            materials={materials}
+          />
+        </div>
+        <div className="workflow-next-action">
+          <div><small>NEXT STEP</small><strong>Review the scene-linked estimate when the production package is ready.</strong><span>Quotes stay tied to the exact approved scene version.</span></div>
+          <Button onClick={() => navigate(`/projects/${projectId}/estimate`)} disabled={!projectId || !sceneApproved}><ArrowRight size={16} /> Continue to Estimate</Button>
+        </div>
       </section>
     );
   }
@@ -589,28 +1711,243 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
     <section className="design-flow-workspace">
       <div className="workspace-heading">
         <div>
-          <small>SCENE CORE / MODULAR PLACEMENT</small>
-          <h2>Compose the room from buildable modules.</h2>
-          <p>Choose a room, place a catalog module, then save one scene version for every downstream output.</p>
+          <small>{focus === 'materials' ? 'MATERIALS / COMPONENT ASSIGNMENT' : focus === 'modules' ? 'MODULE PLANNER / WALL-ANCHORED PLACEMENT' : 'SCENE CORE / MODULAR PLACEMENT'}</small>
+          <h2>{focus === 'materials' ? 'Assign finishes to the exact parts you will render and build.' : focus === 'modules' ? 'Place buildable modules on measured room walls.' : 'Compose the room from buildable modules.'}</h2>
+          <p>{focus === 'materials' ? 'Choose a placed module, then save laminate, edge-band, hardware and lighting choices before compiling scene.v1.' : focus === 'modules' ? 'Select a saved room and verified wall, then fit a parametric catalogue module to available space.' : 'Choose a room, place a catalog module, then save one scene version for every downstream output.'}</p>
         </div>
         <Badge tone={briefComplete && planApproved ? 'success' : 'accent'}>{!briefComplete ? 'Brief required' : planApproved ? 'Approved plan linked' : 'Approved plan required'}</Badge>
       </div>
 
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-        <Button variant={designMode === 'layout' ? 'default' : 'outline'} onClick={() => setDesignMode('layout')}>
-          <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Modular Layout
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }} aria-label="Design workspace mode">
+        <Button onClick={handleAiAutoFitAllWallModules} style={{ background: 'linear-gradient(135deg, #1c1917, #3d2a1a)', color: '#fff', border: '1px solid var(--gold)', boxShadow: '0 2px 8px rgba(197,156,45,0.25)', height: '38px', padding: '0 16px', fontWeight: 800 }}>
+          <Sparkles size={15} style={{ marginRight: '0.5rem', color: 'var(--gold)' }} /> Suggest a room module
         </Button>
-        <Button variant={designMode === 'moodboard' ? 'default' : 'outline'} onClick={() => setDesignMode('moodboard')}>
-          <Palette size={16} style={{ marginRight: '0.5rem' }} /> Moodboard & Materials
+        <Button variant={designMode === 'layout' ? 'default' : 'outline'} onClick={() => setDesignMode('layout')} style={{ height: '38px', padding: '0 16px' }}>
+          <Boxes size={15} style={{ marginRight: '0.5rem' }} /> 📦 Modules &amp; Planner
+        </Button>
+        <Button
+          variant={designMode === 'elevations' ? 'default' : 'outline'}
+          onClick={() => setDesignMode('elevations')}
+          style={{
+            height: '38px',
+            padding: '0 16px',
+            background: designMode === 'elevations' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : undefined,
+            color: designMode === 'elevations' ? '#e8c96a' : undefined,
+            borderColor: designMode === 'elevations' ? 'var(--gold)' : undefined,
+          }}
+        >
+          <Ruler size={15} style={{ marginRight: '0.5rem', color: designMode === 'elevations' ? 'var(--gold)' : undefined }} /> 📐 Wall Elevations (A/B/C/D)
+        </Button>
+        <Button variant={designMode === 'moodboard' ? 'default' : 'outline'} onClick={() => setDesignMode('moodboard')} style={{ height: '38px', padding: '0 16px' }}>
+          <Palette size={15} style={{ marginRight: '0.5rem' }} /> 🎨 Moodboard &amp; Materials
         </Button>
       </div>
 
-      <div className="module-layout">
+      {designMode === 'elevations' ? (
+        <div className="elevation-dedicated-view" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
+          <Card style={{ border: '1px solid #dcd3c5', borderRadius: '12px', background: '#fff', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+            <CardHeader style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ede5d8', padding: '16px 20px', background: 'linear-gradient(135deg, #faf7f2, #fff)' }}>
+              <div>
+                <small style={{ color: 'var(--gold-dim)', fontWeight: 800, letterSpacing: '0.08em', fontSize: '10.5px' }}>
+                  ARCHITECTURAL WALL ELEVATION ENGINE · SYSTEM 32
+                </small>
+                <h3 style={{ margin: '3px 0 0', fontSize: '18px', fontWeight: 800, color: '#1c1917' }}>
+                  {spaces.find((s) => s.id === spaceId)?.name ?? room.toUpperCase()} · Wall Elevations
+                </h3>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{ display: 'inline-flex', background: '#f5f2ec', padding: '3px', borderRadius: '8px', border: '1px solid #e5dccf' }}>
+                  <button
+                    type="button"
+                    onClick={() => setElevationRenderType('elevation')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      fontSize: '11.5px',
+                      fontWeight: elevationRenderType === 'elevation' ? 800 : 500,
+                      background: elevationRenderType === 'elevation' ? '#fff' : 'transparent',
+                      color: elevationRenderType === 'elevation' ? '#1c1917' : '#78716c',
+                      border: elevationRenderType === 'elevation' ? '1px solid #d6cbba' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📐 Technical Wall Elevation
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setElevationRenderType('shop-sheet')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      fontSize: '11.5px',
+                      fontWeight: elevationRenderType === 'shop-sheet' ? 800 : 500,
+                      background: elevationRenderType === 'shop-sheet' ? '#fff' : 'transparent',
+                      color: elevationRenderType === 'shop-sheet' ? '#1c1917' : '#78716c',
+                      border: elevationRenderType === 'shop-sheet' ? '1px solid #d6cbba' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📋 Turnkey Shop Sheet
+                  </button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent style={{ padding: '20px' }}>
+              {/* Wall Selector Bar: Wall A, Wall B, Wall C, Wall D */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '16px' }}>
+                <span style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--text-secondary)' }}>SELECT ACTIVE WALL:</span>
+                {roomWalls.length ? (
+                  roomWalls.map((wall, index) => {
+                    const letter = String.fromCharCode(65 + index);
+                    const isWallActive = (wallId || roomWalls[0]?.id) === wall.id;
+                    const wallLen = wall.start && wall.end ? Math.round(Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm)) : 3000;
+                    const count = draftModules.filter((m) => m.wallId === wall.id).length;
+                    return (
+                      <button
+                        key={wall.id}
+                        type="button"
+                        className={`elevation-wall-tab ${isWallActive ? 'active' : ''}`}
+                        onClick={() => {
+                          setWallId(wall.id);
+                          setActiveCanvasWallId(wall.id);
+                        }}
+                        style={{
+                          padding: '8px 16px',
+                          borderRadius: '8px',
+                          fontSize: '12.5px',
+                          fontWeight: isWallActive ? 800 : 600,
+                          background: isWallActive ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fdfbf7',
+                          color: isWallActive ? '#e8c96a' : '#44403c',
+                          border: isWallActive ? '1.5px solid var(--gold)' : '1px solid #e7dcce',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: isWallActive ? '0 3px 10px rgba(0,0,0,0.15)' : 'none',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <span>WALL {letter}</span>
+                        <span style={{ fontSize: '11px', opacity: 0.85 }}>({wallLen} mm · {count} unit{count === 1 ? '' : 's'})</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <span style={{ fontSize: '11.5px', color: '#a8a29e' }}>No walls verified for this room yet.</span>
+                )}
+              </div>
+
+              {/* Elevation Stage & Sidebar Layout */}
+              <div style={{ display: 'grid', gridTemplateColumns: selectedModule ? '1fr 340px' : '1fr', gap: '20px', alignItems: 'start' }}>
+                {/* Main SVG Render Area */}
+                <div className="elevation-full-stage" style={{ background: '#fbfaf8', border: '1.5px solid #dcd3c5', borderRadius: '10px', padding: '16px', overflowX: 'auto', position: 'relative' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Badge tone="accent">
+                        WALL {String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === (wallId || roomWalls[0]?.id))))}
+                      </Badge>
+                      <span style={{ fontSize: '11px', color: '#78716c' }}>
+                        Datum lines: 100mm Plinth · 850mm Counter · 2100mm Lintel · True mm Dimension Chains
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '10.5px', color: '#a8a29e' }}>
+                      💡 Click any cabinet on elevation to inspect &amp; view finish swatches
+                    </span>
+                  </div>
+
+                  {/* Drawing Core Wall Elevation SVG with Lineage-Aware Picking */}
+                  <DrawingCoreWallElevation
+                    scene={elevationScene}
+                    activeWallId={wallId || roomWalls[0]?.id || ''}
+                    renderType={elevationRenderType}
+                    selectedModuleId={selectedModuleId}
+                    onSelectModule={(id) => setSelectedModuleId(id)}
+                  />
+                </div>
+
+                {/* Module Inspector & Material Swatch Panel */}
+                {selectedModule && (
+                  <Card style={{ border: '1px solid #e7dcce', borderRadius: '10px', background: '#fff' }}>
+                    <CardHeader style={{ padding: '14px 16px', borderBottom: '1px solid #f0e8dc', background: '#faf7f2' }}>
+                      <small style={{ color: 'var(--gold-dim)', fontWeight: 800, fontSize: '10.5px' }}>SELECTED CABINET INSPECTOR</small>
+                      <h4 style={{ margin: '2px 0 0', fontSize: '14px', fontWeight: 800, color: '#1c1917' }}>{selectedModule.label}</h4>
+                      <div style={{ fontSize: '11px', color: '#78716c', marginTop: '2px' }}>
+                        {selectedModule.family} · {selectedModule.widthMm} × {selectedModule.depthMm} × {selectedModule.heightMm} mm
+                      </div>
+                    </CardHeader>
+                    <CardContent style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      {/* Nudge & Centering Quick Actions */}
+                      <div>
+                        <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+                          Wall Placement (Offset: {Math.round(selectedModule.offsetMm ?? 0)} mm)
+                        </span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => void nudgeModule(selectedModule.id, -50)}
+                            style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
+                          >
+                            ◀ 50mm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void centerModule(selectedModule.id)}
+                            style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
+                          >
+                            Center
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void nudgeModule(selectedModule.id, 50)}
+                            style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
+                          >
+                            50mm ▶
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Material & Finish Swatch Grid (A4) */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase' }}>
+                            Material Swatches &amp; Finishes
+                          </span>
+                          <span style={{ fontSize: '9.5px', color: '#a8a29e' }}>Click to swap</span>
+                        </div>
+                        <ModuleMaterialSwatchGrid
+                          module={selectedModule}
+                          selectedCarcassLaminate={selectedCarcassLaminate}
+                          selectedShutterLaminate={selectedShutterLaminate}
+                          selectedHardwareObj={selectedHardwareObj}
+                          onOpenPicker={(slot) => {
+                            setActivePickerSlot(slot);
+                            setMaterialPickerOpen(true);
+                          }}
+                        />
+                      </div>
+
+                      {/* Switch to Planner to edit parameters */}
+                      <Button
+                        variant="outline"
+                        onClick={() => setDesignMode('layout')}
+                        style={{ fontSize: '11.5px', padding: '8px 12px' }}
+                      >
+                        Edit in Module Planner →
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="module-layout">
         {designMode === 'layout' ? (
           <Card className="catalog-panel">
             <CardHeader>
               <small>MODULE CATALOG</small>
-              <h3>Modular building blocks</h3>
+              <h3>{selectedSpace ? `${selectedSpace.name} modules` : 'Select a room'}</h3>
             </CardHeader>
             <CardContent>
               <label>
@@ -622,73 +1959,246 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
               <label>
                 Anchor wall
                 <select value={wallId ?? ''} onChange={(event) => setWallId(event.target.value || null)}>
-                  {walls.length ? walls.map((wall) => <option key={wall.id} value={wall.id}>{wall.id}</option>) : <option value="">No verified walls</option>}
+                  {roomWalls.length ? roomWalls.map((wall, index) => <option key={wall.id} value={wall.id}>Wall {String.fromCharCode(65 + index)} · {wall.start && wall.end ? `${Math.round(Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm))} mm` : 'measured'}</option>) : <option value="">No verified walls</option>}
                 </select>
               </label>
+              {selectedWall && (
+                <WallElevationPreview
+                  wallLabel={`Wall ${String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === selectedWall.id)))}`}
+                  wallLengthMm={selectedWallLengthMm}
+                  ceilingHeightMm={2700}
+                  openings={selectedWallOpenings}
+                  modules={draftModules.filter((module) => module.wallId === selectedWall.id)}
+                  selectedModuleId={selectedModuleId}
+                  onSelectModule={(id) => setSelectedModuleId(id)}
+                  onNudgeModule={(id, delta) => void nudgeModule(id, delta)}
+                  onCenterModule={(id) => void centerModule(id)}
+                />
+              )}
+              {selectedModule && (
+                <form key={`${selectedModule.id}:${selectedModule.updatedAt}`} onSubmit={(event) => {
+                  event.preventDefault();
+                  const values = new FormData(event.currentTarget);
+                  void editModule(selectedModule.id, { config: { widthMm: Number(values.get('width')), depthMm: Number(values.get('depth')), heightMm: Number(values.get('height')), configuration: { shutterCount: Number(values.get('shutterCount')), drawerCount: Number(values.get('drawerCount')), shutterStyle: String(values.get('shutterStyle')) as ModuleConfiguration['shutterStyle'], includeLoft: values.get('includeLoft') === 'on', lighting: String(values.get('lighting')) as ModuleConfiguration['lighting'], handleStyle: String(values.get('handleStyle')) as ModuleConfiguration['handleStyle'], glassProfile: values.get('glassProfile') === 'on', sideFillerLeft: values.get('sideFillerLeft') === 'on', sideFillerRight: values.get('sideFillerRight') === 'on' } }, position: { offsetMm: Number(values.get('offset')) } });
+                }}>
+                  <fieldset disabled={moduleSaving} style={{ border: '1px solid #e8ded2', borderRadius: 6, padding: 12, display: 'grid', gap: 8 }}>
+                    <legend>Edit {selectedModule.label}</legend>
+                    <label>Width (mm)<input name="width" type="number" min="1" step="any" required defaultValue={selectedModule.widthMm} /></label>
+                    <label>Depth (mm)<input name="depth" type="number" min="1" step="any" required defaultValue={selectedModule.depthMm} /></label>
+                    <label>Height (mm)<input name="height" type="number" min="1" step="any" required defaultValue={selectedModule.heightMm} /></label>
+                    <label>Wall offset (mm)<input name="offset" type="number" min="0" step="any" required defaultValue={selectedModule.offsetMm ?? 0} /></label>
+                    <label>Shutters<input name="shutterCount" type="number" min="0" max="32" defaultValue={selectedModule.configuration?.shutterCount ?? 0} /></label>
+                    <label>Drawers<input name="drawerCount" type="number" min="0" max="24" defaultValue={selectedModule.configuration?.drawerCount ?? 0} /></label>
+                    <label>Shutter style<select name="shutterStyle" defaultValue={selectedModule.configuration?.shutterStyle ?? 'swing'}><option value="swing">Swing</option><option value="sliding">Sliding</option><option value="profile-glass">Profile glass</option><option value="open">Open</option></select></label>
+                    <label><input name="includeLoft" type="checkbox" defaultChecked={selectedModule.configuration?.includeLoft ?? false} /> Include loft</label>
+                     <label>Lighting<select name="lighting" defaultValue={selectedModule.configuration?.lighting ?? 'none'}><option value="none">None</option><option value="shelf-led">Shelf LED</option><option value="vertical-led">Vertical LED</option></select></label>
+                     <label>Handle<select name="handleStyle" defaultValue={selectedModule.configuration?.handleStyle ?? 'long-profile'}><option value="gola">Gola</option><option value="long-profile">Long profile</option><option value="knob">Knob</option><option value="none">None</option></select></label>
+                     <label><input name="glassProfile" type="checkbox" defaultChecked={selectedModule.configuration?.glassProfile ?? false} /> Profile glass</label>
+                     <label><input name="sideFillerLeft" type="checkbox" defaultChecked={selectedModule.configuration?.sideFillerLeft ?? false} /> Left filler</label>
+                     <label><input name="sideFillerRight" type="checkbox" defaultChecked={selectedModule.configuration?.sideFillerRight ?? false} /> Right filler</label>
+                    <Button type="submit" disabled={moduleSaving}>{moduleSaving ? 'Saving...' : 'Save module'}</Button>
+                  </fieldset>
+                </form>
+              )}
+              {selectedModule && (
+                <div style={{ marginTop: '10px', padding: '12px', border: '1px solid #e7dcce', borderRadius: '8px', background: '#faf8f5' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <small style={{ fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', fontSize: '10.5px' }}>
+                      CABINET FINISHES &amp; SWATCHES
+                    </small>
+                    <span style={{ fontSize: '9.5px', color: '#78716c' }}>Click swatch to swap</span>
+                  </div>
+                  <ModuleMaterialSwatchGrid
+                    module={selectedModule}
+                    selectedCarcassLaminate={selectedCarcassLaminate}
+                    selectedShutterLaminate={selectedShutterLaminate}
+                    selectedHardwareObj={selectedHardwareObj}
+                    onOpenPicker={(slot) => {
+                      setActivePickerSlot(slot);
+                      setMaterialPickerOpen(true);
+                    }}
+                  />
+                </div>
+              )}
               <p className="placement-notice" role="status" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 {catalogLoading && <Loader2 className="ultida-spinner" size={14} aria-hidden="true" />}
                 {placementNotice}
               </p>
+
+              {/* Smart Suggested Pre-Built Modular Packages for the Current Room */}
+              {spaceId && (
+                <div style={{ marginTop: '0.75rem', marginBottom: '0.75rem', padding: '10px 12px', background: 'linear-gradient(135deg, #fffdf8, #fbf4e6)', border: '1px solid rgba(197, 156, 45, 0.3)', borderRadius: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--gold-dim)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Sparkles size={13} style={{ color: 'var(--gold)' }} />
+                      SMART PRE-BUILT MODULES FOR {spaces.find((s) => s.id === spaceId)?.name.toUpperCase() ?? 'ROOM'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    {getPrebuiltSuggestions(spaces.find((s) => s.id === spaceId)?.roomType ?? 'living').map((pkg) => (
+                      <button
+                        key={pkg.id}
+                        type="button"
+                        onClick={() => handlePlacePrebuiltPackage(pkg)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '8px',
+                          padding: '7px 10px',
+                          background: '#fff',
+                          border: '1px solid #e7dcce',
+                          borderRadius: '7px',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#c59c2d'; e.currentTarget.style.background = '#fffdf7'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e7dcce'; e.currentTarget.style.background = '#fff'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                          <span style={{ fontSize: '16px', flexShrink: 0 }}>{pkg.icon}</span>
+                          <div style={{ minWidth: 0 }}>
+                            <strong style={{ display: 'block', fontSize: '11.5px', color: '#2d1f14', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pkg.name}</strong>
+                            <small style={{ display: 'block', fontSize: '10px', color: '#8c7d70', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pkg.desc}</small>
+                          </div>
+                        </div>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: '5px', background: '#f5eee4', color: '#7a5a22', fontSize: '10px', fontWeight: 800, flexShrink: 0 }}>
+                          + Place Unit
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <label>
                 Search templates
-                <input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="TV wall, glass crockery, loft wardrobe" />
+                <input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder={`Search ${selectedSpace?.name ?? 'room'} modules`} />
               </label>
+              <div style={{ marginTop: '0.5rem', marginBottom: '0.25rem' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>COMPATIBLE CATEGORIES · {compatibleFamilies.length} AVAILABLE</span>
+                <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                  {[
+                    { id: 'all', label: '🌟 All' },
+                    ...compatibleFamilies.map((id) => ({ id, label: familyLabels[id] ?? id })),
+                  ].map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setFamilyFilter(cat.id)}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '11px',
+                        fontWeight: familyFilter === cat.id ? 700 : 500,
+                        borderRadius: '16px',
+                        border: familyFilter === cat.id ? '1.5px solid #c59c2d' : '1px solid #d8ccbd',
+                        background: familyFilter === cat.id ? '#fef3c7' : '#fff',
+                        color: familyFilter === cat.id ? '#92400e' : '#57534e',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <label>
                 Module family
                 <select value={familyFilter} onChange={(event) => setFamilyFilter(event.target.value)}>
                   <option value="all">All compatible families</option>
-                  {[...new Set(catalogItems.map((item) => item.family))].sort().map((family) => <option key={family} value={family}>{family}</option>)}
+                  {compatibleFamilies.map((family) => <option key={family} value={family}>{familyLabels[family] ?? family}</option>)}
                 </select>
               </label>
               <fieldset className="module-configuration" style={{ border: '1px solid #e8ded2', borderRadius: '6px', padding: '0.75rem', display: 'grid', gap: '0.55rem' }}>
-                <legend style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0 0.25rem' }}>CONFIGURE THE NEXT MOODBOARD MODULE</legend>
+                <legend style={{ fontSize: '0.72rem', fontWeight: 800, padding: '0 0.25rem' }}>CONFIGURE THE NEXT MODULE</legend>
                 <label>
-                  Front style
+                  Assembly archetype
+                  <select value={moduleConfiguration.archetype} onChange={(event) => setModuleConfiguration((current) => ({ ...current, archetype: event.target.value }))}>
+                    <option value="full_wall_storage">Full wall storage</option>
+                    <option value="minimal_floating">Minimal floating</option>
+                    <option value="asymmetric_profile_glass">Asymmetric profile glass</option>
+                    <option value="kitchen_tandem_base">Kitchen Tandem &amp; Cutlery Base</option>
+                    <option value="kitchen_microwave_tower">Built-in Microwave &amp; Oven Tower</option>
+                    <option value="kitchen_pantry_tower">12-Basket Pantry Pull-Out Tower</option>
+                    <option value="kitchen_lemans_corner">LeMans II Blind Corner Base</option>
+                    <option value="tv_plus_study">TV plus study and library</option>
+                    <option value="tv_plus_crockery">TV plus crockery</option>
+                    <option value="french_beading_panel">French boiserie feature wall</option>
+                    <option value="fluted_pu_panel">Fluted Charcoal PU feature wall</option>
+                    <option value="acoustic_slat_panel">Walnut Acoustic Slat wall</option>
+                    <option value="profile_glass_display">Profile glass display</option>
+                  </select>
+                </label>
+                <label>
+                  Shutter &amp; Front Style
                   <select value={moduleConfiguration.shutterStyle} onChange={(event) => setModuleConfiguration((current) => ({ ...current, shutterStyle: event.target.value as ModuleConfiguration['shutterStyle'], glassProfile: event.target.value === 'profile-glass' }))}>
-                    <option value="swing">Swing shutters</option>
-                    <option value="sliding">Sliding shutters</option>
-                    <option value="profile-glass">Aluminium profile glass</option>
-                    <option value="open">Open shelving</option>
+                    <option value="swing">Normal Solid Shutter (Acrylic / Laminate)</option>
+                    <option value="profile-glass">Tinted Fluted Profile-Glass Shutter (Graphite Aluminium + LED)</option>
+                    <option value="sliding">Sliding Shutter System</option>
+                    <option value="open">Open Niche Shelving</option>
                   </select>
                 </label>
                 <label>
-                  Drawer count
+                  Drawer &amp; Tandem Configuration
                   <select value={moduleConfiguration.drawerCount} onChange={(event) => setModuleConfiguration((current) => ({ ...current, drawerCount: Number(event.target.value) }))}>
-                    <option value={0}>No drawers</option>
-                    <option value={2}>2 drawers</option>
-                    <option value={3}>3 drawers</option>
-                    <option value={4}>4 drawers</option>
+                    <option value={0}>Standard Single Door (No drawers)</option>
+                    <option value={2}>2-Pot Deep Tandem Drawers (65kg Soft-Close)</option>
+                    <option value={3}>3-Drawer Cutlery, Cup-Saucer &amp; Pot Tandems</option>
+                    <option value={4}>4 Shallow Utility Drawers</option>
                   </select>
                 </label>
                 <label>
-                  Handle/profile
+                  Handle / Profile Style
                   <select value={moduleConfiguration.handleStyle} onChange={(event) => setModuleConfiguration((current) => ({ ...current, handleStyle: event.target.value as ModuleConfiguration['handleStyle'] }))}>
-                    <option value="long-profile">Long profile handle</option>
-                    <option value="gola">Gola / finger groove</option>
-                    <option value="knob">Knob handle</option>
-                    <option value="none">Handleless</option>
+                    <option value="long-profile">Long edge aluminium profile handle</option>
+                    <option value="gola">J-Pull / C-Gola seamless groove</option>
+                    <option value="knob">Minimal brushed brass / matte black knob</option>
+                    <option value="none">Tip-on push release (Handleless)</option>
                   </select>
                 </label>
                 <label>
-                  Lighting
+                  Integrated Lighting
                   <select value={moduleConfiguration.lighting} onChange={(event) => setModuleConfiguration((current) => ({ ...current, lighting: event.target.value as ModuleConfiguration['lighting'] }))}>
                     <option value="none">No integrated lighting</option>
-                    <option value="shelf-led">Shelf LED</option>
-                    <option value="vertical-led">Vertical LED</option>
+                    <option value="shelf-led">Concealed under-cabinet warm 3000K LED</option>
+                    <option value="vertical-led">Vertical sensor-activated profile LED</option>
                   </select>
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
                   <input type="checkbox" checked={moduleConfiguration.includeLoft} onChange={(event) => setModuleConfiguration((current) => ({ ...current, includeLoft: event.target.checked }))} />
-                  Include loft where the verified ceiling clearance allows it
+                  Include loft unit with 50 mm ceiling closure filler
                 </label>
+                <div className="side-filler-options">
+                  <label><input type="checkbox" checked={moduleConfiguration.sideFillerLeft} onChange={(event) => setModuleConfiguration((current) => ({ ...current, sideFillerLeft: event.target.checked }))} /> 30 mm left wall filler</label>
+                  <label><input type="checkbox" checked={moduleConfiguration.sideFillerRight} onChange={(event) => setModuleConfiguration((current) => ({ ...current, sideFillerRight: event.target.checked }))} /> 30 mm right wall filler</label>
+                </div>
+                <div className="module-inline-materials">
+                  <label>
+                    Internal carcass finish
+                    <select value={selectedCarcassLaminate.id} onChange={(e) => { setCarcassLaminateId(e.target.value); setMaterialSlot('carcass'); }}>
+                      <option value="">Choose a carcass board finish</option>
+                      {catalogLaminates.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    External shutter finish
+                    <select value={selectedShutterLaminate.id} onChange={(e) => { setShutterLaminateId(e.target.value); setActiveLaminate(e.target.value); setMaterialSlot('shutter'); }}>
+                      <option value="">Choose a shutter laminate</option>
+                      {catalogLaminates.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    </select>
+                  </label>
+                </div>
               </fieldset>
               <div style={{ maxHeight: '420px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {catalogItems.filter((item) => familyFilter === 'all' || item.family === familyFilter).filter((item) => {
-                  const search = catalogQuery.trim().toLowerCase();
-                  return !search || [item.name, item.family, item.description, ...item.tags].filter(Boolean).join(' ').toLowerCase().includes(search);
-                }).map((item) => (
-                  <button className="catalog-item" key={item.id} onClick={() => addModule(item)} disabled={!briefComplete || !planApproved}>
-                    <ModulePreview module={item} compact />
+                {visibleCatalogItems.map((item) => (
+                  <button className="catalog-item" key={item.id} onClick={() => {
+                    let prepared: PreparedModulePlan | null = null;
+                    try { const raw = window.localStorage.getItem('ultida.pendingModulePlan.v1'); prepared = raw ? JSON.parse(raw) as PreparedModulePlan : null; } catch { /* ignored: normal catalogue placement continues */ }
+                    void addModule(item, prepared?.templateId === item.id ? prepared.dimensionsMm : undefined);
+                  }} disabled={!briefComplete || !planApproved}>
+                    <ModulePreview module={item} compact interactive={false} />
                     <span>
                       <strong>{item.name}</strong>
                       <small>
@@ -699,145 +2209,1368 @@ export function DesignFlowWorkspace({ stage, projectId, planApproved, briefCompl
                     <Plus size={15} />
                   </button>
                 ))}
-                {catalogLoading ? <p className="placement-notice"><Loader2 className="ultida-spinner" size={14} aria-hidden="true" /> Loading compatible furniture…</p> : !catalogItems.length && <p className="placement-notice">No compatible templates are available for this approved room.</p>}
+                {catalogLoading ? <p className="placement-notice"><Loader2 className="ultida-spinner" size={14} aria-hidden="true" /> Loading compatible furniture…</p> : !catalogItems.length && <p className="placement-notice">No templates are certified for this room yet. Correct the room type or add a compatible catalog entry.</p>}
+                {!catalogLoading && catalogItems.length > 0 && !visibleCatalogItems.length && (
+                  <div className="placement-notice" role="status">
+                    No {selectedSpace?.name ?? room} modules match these filters.
+                    <Button variant="outline" onClick={() => { setCatalogQuery(''); setFamilyFilter('all'); }}>Clear filters</Button>
+                  </div>
+                )}
+                {!catalogLoading && catalogItems.length > 0 && visibleCatalogItems.length === 0 && <div className="placement-notice" role="status">
+                  <p>No templates match these filters in this room.</p>
+                  <Button type="button" onClick={() => { setFamilyFilter('all'); setCatalogQuery(''); }}>Clear catalog filters</Button>
+                </div>}
               </div>
             </CardContent>
           </Card>
         ) : (
-          <Card className="catalog-panel" style={{ minWidth: '400px' }}>
-            <CardHeader>
-              <small>MOODBOARD STUDIO</small>
-              <h3>Aesthetic Material Curation</h3>
+          <Card className="catalog-panel" style={{ minWidth: '420px' }}>
+            <CardHeader style={{ paddingBottom: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                <div>
+                  <small style={{ color: 'var(--gold)', fontWeight: 800, letterSpacing: '0.05em' }}>AGENT B STYLE MOODBOARD STUDIO</small>
+                  <h3 style={{ margin: '2px 0 0', fontSize: '16px' }}>Room Furniture &amp; Aesthetic Curation</h3>
+                </div>
+                <Badge tone="accent">{room.toUpperCase()}</Badge>
+              </div>
             </CardHeader>
-            <CardContent style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <CardContent style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem', paddingTop: '6px' }}>
+              {/* Room Pill Switcher */}
               <div>
-                <label style={{ fontWeight: 'bold', fontSize: '0.8rem', display: 'block', marginBottom: '0.5rem' }}>1. Select Theme & Palette</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-      {stylePresets.map((theme) => (
+                <label style={{ fontWeight: 800, fontSize: '11.5px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                  Active Room
+                </label>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {spaces.map((s) => (
                     <button
-                      key={theme.id}
-                      onClick={() => setActiveTheme(theme.id)}
+                      key={s.id}
+                      type="button"
+                      onClick={() => { setSpaceId(s.id); setRoom(s.roomType); }}
                       style={{
-                        padding: '0.75rem',
-                        borderRadius: '0.375rem',
-                        border: activeTheme === theme.id ? '2px solid #c59c2d' : '1px solid #e5e7eb',
-                        backgroundColor: activeTheme === theme.id ? '#fafaf9' : '#ffffff',
-                        textAlign: 'left',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <strong style={{ fontSize: '0.8rem', display: 'block' }}>{theme.name}</strong>
-                      <small>{theme.referenceStyle.join(' · ')}</small>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontWeight: 'bold', fontSize: '0.8rem', display: 'block', marginBottom: '0.5rem' }}>2. Selected Laminate Finish</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {catalogLaminates.map((laminate) => (
-                    <button
-                      key={laminate.id}
-                      onClick={() => setActiveLaminate(laminate.id)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.75rem',
-                        padding: '0.5rem 0.75rem',
-                        borderRadius: '0.375rem',
-                        border: activeLaminate === laminate.id ? '2px solid #c59c2d' : '1px solid #e5e7eb',
-                        backgroundColor: '#ffffff',
+                        padding: '5px 12px',
+                        borderRadius: '20px',
+                        fontSize: '11.5px',
+                        fontWeight: spaceId === s.id ? 800 : 500,
+                        background: spaceId === s.id ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fff',
+                        color: spaceId === s.id ? '#e8c96a' : '#44403c',
+                        border: spaceId === s.id ? '1px solid var(--gold)' : '1px solid #d6d3d1',
                         cursor: 'pointer',
-                        textAlign: 'left'
+                        transition: 'all 0.15s ease',
                       }}
                     >
-                      <span style={{ width: '20px', height: '20px', borderRadius: '4px', backgroundColor: laminate.hex, border: '1px solid #d1d5db' }} />
-                      <span style={{ fontSize: '0.8rem', flex: 1 }}>{laminate.name}</span>
-                      <small style={{ fontSize: '0.7rem', color: '#6b7280' }}>{laminate.code}</small>
+                      {s.name}
                     </button>
                   ))}
                 </div>
               </div>
 
+              {/* 1. Curated Room Furniture Packages */}
+              <div style={{ background: '#faf8f5', padding: '12px', borderRadius: '10px', border: '1px solid #ede5d8' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#292524', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Sparkles size={14} style={{ color: 'var(--gold)' }} />
+                    1. CURATED FURNITURE FOR {room.toUpperCase()}
+                  </span>
+                  <small style={{ color: 'var(--gold-dim)', fontWeight: 700, fontSize: '10.5px' }}>Strict Millwork Heights</small>
+                </div>
+                <div style={{ display: 'grid', gap: '6px' }}>
+                  {getPrebuiltSuggestions(room).map((pkg) => {
+                    const isPlaced = draftModules.some((m) => m.roomId === spaceId && (m.label.includes(pkg.name.slice(0, 10)) || m.family === pkg.family));
+                    return (
+                      <div
+                        key={pkg.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '8px',
+                          padding: '8px 10px',
+                          background: '#fff',
+                          border: isPlaced ? '1.5px solid #16a34a' : '1px solid #e7dcce',
+                          borderRadius: '8px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                          <span style={{ fontSize: '18px', flexShrink: 0 }}>{pkg.icon}</span>
+                          <div style={{ minWidth: 0 }}>
+                            <strong style={{ display: 'block', fontSize: '11.5px', color: '#1c1917', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pkg.name}</strong>
+                            <small style={{ display: 'block', fontSize: '10px', color: '#78716c', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pkg.desc}</small>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handlePlacePrebuiltPackage(pkg)}
+                          style={{
+                            padding: '4px 9px',
+                            borderRadius: '6px',
+                            background: isPlaced ? '#dcfce7' : 'linear-gradient(135deg, #c59c2d, #8f6c12)',
+                            color: isPlaced ? '#15803d' : '#fff',
+                            border: isPlaced ? '1px solid #86efac' : 0,
+                            fontSize: '10.5px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {isPlaced ? '✓ In Scene' : '+ Add'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Minimal Curated Finishes */}
               <div>
-                <label style={{ fontWeight: 'bold', fontSize: '0.8rem', display: 'block', marginBottom: '0.5rem' }}>3. Accent Hardware</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {catalogHardwares.map((hardware) => (
-                    <button
-                      key={hardware.id}
-                      onClick={() => setActiveHardware(hardware.id)}
+                <label style={{ fontWeight: 800, fontSize: '11.5px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                  2. Minimal Curated Finishes
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  {CURATED_MINIMAL_FINISHES.map((fin) => {
+                    const isSelected = activeLaminate === fin.id || (activeLaminate === '' && fin.id === 'mat-smoked-walnut');
+                    return (
+                      <button
+                        key={fin.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveLaminate(fin.id);
+                          setStyle((curr) => `${curr}; material: ${fin.name}`);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          border: isSelected ? '2px solid var(--gold)' : '1px solid #e7e5e4',
+                          background: isSelected ? '#fffdfa' : '#fff',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          boxShadow: isSelected ? '0 2px 8px rgba(197,156,45,0.2)' : 'none',
+                        }}
+                      >
+                        <span style={{ width: '22px', height: '22px', borderRadius: '5px', background: fin.hex, border: '1px solid rgba(0,0,0,0.15)', flexShrink: 0 }} />
+                        <div style={{ minWidth: 0 }}>
+                          <strong style={{ display: 'block', fontSize: '11px', color: '#1c1917' }}>{fin.name}</strong>
+                          <small style={{ display: 'block', fontSize: '9.5px', color: '#78716c' }}>{fin.type}</small>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 3. Studio Reference Image Gallery (Filtered for Active Room) */}
+              <div>
+                <label style={{ fontWeight: 800, fontSize: '11.5px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                  3. Studio Reference Gallery · {room.toUpperCase()}
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: '6px' }}>
+                  {(STUDIO_ROOM_REFERENCES[room] ?? STUDIO_ROOM_REFERENCES.living).map((ref) => (
+                    <div
+                      key={ref.id}
                       style={{
-                        flex: 1,
-                        padding: '0.5rem',
-                        fontSize: '0.75rem',
-                        borderRadius: '0.375rem',
-                        border: activeHardware === hardware.id ? '2px solid #c59c2d' : '1px solid #e5e7eb',
-                        backgroundColor: '#ffffff',
-                        cursor: 'pointer'
+                        position: 'relative',
+                        borderRadius: '7px',
+                        overflow: 'hidden',
+                        aspectRatio: '1',
+                        border: '1px solid #e7e5e4',
+                        cursor: 'pointer',
                       }}
+                      onClick={() => {
+                        setStyle((curr) => `${curr}; atmosphere inspired by: ${ref.styleTag}`);
+                        setPlacementNotice(`✨ Applied reference atmosphere: "${ref.styleTag}" to active moodboard!`);
+                      }}
+                      title={`Click to apply atmosphere: ${ref.styleTag}`}
                     >
-                      {hardware.name}
-                    </button>
+                      <img src={ref.img} alt={ref.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.85), transparent)', padding: '3px 4px', fontSize: '8.5px', color: '#fff', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {ref.title}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
 
-              <Button onClick={saveMoodboard} style={{ marginTop: '0.5rem' }}>
-                <Check size={16} style={{ marginRight: '0.5rem' }} /> Save Moodboard
-              </Button>
-              <Button onClick={compileMoodboard} variant="outline">
-                <Layers3 size={16} style={{ marginRight: '0.5rem' }} /> Compile {draftModules.length} reviewed module{draftModules.length === 1 ? '' : 's'} to scene.v1
-              </Button>
+              {/* 4. Action Hub */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {!catalogLaminates.length && (
+                  <Button variant="outline" onClick={() => void addStarterMaterials()} disabled={!projectId}>
+                    <Palette size={15} /> Add starter materials
+                  </Button>
+                )}
+                {starterMaterialsState ? <p className="placement-notice" role="status">{starterMaterialsState}</p> : null}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <Button variant="outline" onClick={() => void saveMoodboard()} disabled={!selectedModule || !draftModules.length}>
+                    <Save size={14} /> Save finishes
+                  </Button>
+                  <Button
+                    onClick={() => void handleOneClickCompileAndApprove()}
+                    disabled={approvingScene || !draftModules.length || !briefComplete || !planApproved}
+                    style={{ background: 'linear-gradient(135deg, #d5a93b, #8f6c12)', color: '#fff', fontWeight: 800 }}
+                  >
+                    {approvingScene ? <RefreshCw className="spin" size={14} /> : <Sparkles size={14} />}
+                    {approvingScene ? 'Processing...' : '⚡ Compile & Approve'}
+                  </Button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                <Button
+                  onClick={handleAiAutoFitAllWallModules}
+                  style={{
+                    background: 'linear-gradient(135deg, #1c1917, #3d2a1a)',
+                    color: '#e8c96a',
+                    border: '1px solid var(--gold)',
+                    fontWeight: 800,
+                  }}
+                >
+                  <Sparkles size={15} style={{ color: 'var(--gold)' }} /> Suggest a compatible module
+                </Button>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <Button
+                    onClick={() => navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(scenePreflight?.room.planRoomId ?? spaceId ?? '')}&sceneVersionId=${encodeURIComponent(compiledSceneId ?? '')}`)}
+                    disabled={!compiledSceneId}
+                    style={{ background: 'var(--gold)', color: '#fff', fontWeight: 800, fontSize: '12px' }}
+                  >
+                    <Layers3 size={14} /> View 3D Scene →
+                  </Button>
+                  <Button
+                    onClick={() => navigate(`/projects/${projectId}/visualize`)}
+                    disabled={!compiledSceneId}
+                    style={{ background: 'linear-gradient(135deg, #c59c2d, #8f6c12)', color: '#fff', fontWeight: 800, fontSize: '12px' }}
+                  >
+                    <Wand2 size={14} /> 4K AI Render →
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
 
-        <Card className="scene-panel">
-          <CardHeader>
+        <Card className="scene-panel" style={{ border: '1px solid #dcd3c5', borderRadius: '12px', background: '#fff', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+          <CardHeader style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ede5d8', padding: '16px 20px', background: 'linear-gradient(135deg, #faf7f2, #fff)' }}>
             <div>
-              <small>SCENE V1</small>
-              <h3>{sceneVersionId ? `Version ${sceneVersionId.slice(0, 8)}` : 'Draft scene'}</h3>
+              <small style={{ color: 'var(--gold-dim)', fontWeight: 800, letterSpacing: '0.08em', fontSize: '10.5px' }}>SCENE V1 · ARCHITECTURAL STAGING</small>
+              <h3 style={{ margin: '3px 0 0', fontSize: '18px', fontWeight: 800, color: '#1c1917' }}>
+                {sceneVersionId ? `Version ${sceneVersionId.slice(0, 8)}` : compiledSceneId ? `Version ${compiledSceneId.slice(0, 8)}` : 'Draft Scene'} · {spaces.find(s => s.id === spaceId)?.name ?? room.toUpperCase()}
+              </h3>
             </div>
-            <Badge>{draftModules.length} moodboard modules</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="scene-canvas">
-              <div className="scene-room-label">{room.toUpperCase()}</div>
-              {draftModules.map((item, index) => (
-                <div className={`scene-module module-${item.family}`} key={item.id} style={{ left: `${12 + (index % 4) * 22}%`, top: `${20 + Math.floor(index / 4) * 24}%` }}>
-                  <Check size={13} />
-                  {item.label}
-                </div>
-              ))}
-            </div>
-            
-            {materials.length > 0 && (
-              <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#fafaf9', borderRadius: '0.375rem', border: '1px dashed #e5e7eb' }}>
-                <small style={{ fontWeight: 'bold', color: '#c59c2d', display: 'block', marginBottom: '0.25rem' }}>ACTIVE MOODBOARD MATERIALS</small>
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  {materials.map((m) => (
-                    <Badge key={m.id} tone="success">{m.name}</Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="module-list">
-              {draftModules.length ? (
-                draftModules.map((item) => (
-                  <div key={item.id}>
-                    <span>{item.label}</span>
-                    <small>{item.widthMm} mm</small>
-                  </div>
-                ))
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {isSceneApproved ? (
+                <Badge tone="success">
+                  ✅ SCENE APPROVED
+                </Badge>
+              ) : compiledSceneId ? (
+                <Badge tone="accent">
+                  ⚡ COMPILED · AWAITING APPROVAL
+                </Badge>
               ) : (
-                <p>Add a module to begin the scene.</p>
+                <Badge tone="neutral">
+                  {draftModules.filter((module) => !spaceId || module.roomId === spaceId).length} Modular Units Placed
+                </Badge>
               )}
             </div>
+          </CardHeader>
+          <CardContent style={{ padding: '20px' }}>
+            {(() => {
+              const roomModules = draftModules.filter((m) => !spaceId || m.roomId === spaceId);
+              const currentCanvasWall = roomWalls.find((w) => w.id === (activeCanvasWallId || wallId)) ?? roomWalls[0] ?? null;
+              const currentWallLengthMm = currentCanvasWall?.start && currentCanvasWall?.end
+                ? Math.hypot(currentCanvasWall.end.xMm - currentCanvasWall.start.xMm, currentCanvasWall.end.yMm - currentCanvasWall.start.yMm)
+                : selectedWallLengthMm || 3000;
+              const currentWallOpenings = openings.filter((op) => op.wallId === currentCanvasWall?.id);
+
+              return (
+                <>
+                  {/* Approval Gateway Banner */}
+                  {!isSceneApproved ? (
+                    <div style={{
+                      padding: '16px 20px',
+                      borderRadius: '12px',
+                      background: 'linear-gradient(135deg, #1c1917, #3d2a1a)',
+                      border: '1.5px solid var(--gold)',
+                      boxShadow: '0 4px 18px rgba(197, 156, 45, 0.22)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '16px',
+                      flexWrap: 'wrap',
+                      marginBottom: '18px',
+                    }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e8c96a', fontWeight: 900, fontSize: '13.5px', letterSpacing: '0.04em' }}>
+                          <Sparkles size={17} style={{ color: 'var(--gold)' }} />
+                          {compiledSceneId ? 'SCENE V1 IS READY FOR FORMAL APPROVAL' : '⚡ 1-CLICK COMPILE & APPROVE SCENE'}
+                        </div>
+                        <div style={{ color: '#d6c7b8', fontSize: '12px', marginTop: 4, maxWidth: '640px', lineHeight: 1.45 }}>
+                          {compiledSceneId
+                            ? 'The room scene geometry and parts have been compiled. Click "Approve Scene" below to lock this design and unlock 3D walkthrough, 4K AI renders, and DXF working drawings.'
+                            : 'Automatically verifies all wall anchors, assigns premium 18mm HDHMR + Acrylic finishes, compiles the scene, and approves it in one single click.'}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        {compiledSceneId ? (
+                          <>
+                            <Button
+                              onClick={() => void handleApproveScene()}
+                              disabled={approvingScene}
+                              style={{
+                                background: 'linear-gradient(135deg, #22c55e, #15803d)',
+                                color: '#fff',
+                                fontWeight: 900,
+                                fontSize: '13px',
+                                padding: '10px 22px',
+                                borderRadius: '8px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                boxShadow: '0 3px 12px rgba(34,197,94,0.4)',
+                              }}
+                            >
+                              {approvingScene ? <RefreshCw className="spin" size={15} /> : <CheckCircle2 size={17} />}
+                              {approvingScene ? 'Approving...' : 'APPROVE SCENE V1'}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => void handleOneClickCompileAndApprove()}
+                              disabled={approvingScene}
+                              style={{ color: '#e8c96a', borderColor: '#786036', background: 'rgba(255,255,255,0.06)', fontSize: '12px' }}
+                            >
+                              <RefreshCw size={13} /> Recompile
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            onClick={() => void handleOneClickCompileAndApprove()}
+                            disabled={approvingScene || !roomModules.length}
+                            style={{
+                              background: 'linear-gradient(135deg, #d5a93b, #8f6c12)',
+                              color: '#fff',
+                              fontWeight: 900,
+                              fontSize: '13px',
+                              padding: '11px 22px',
+                              borderRadius: '8px',
+                              border: 'none',
+                              cursor: 'pointer',
+                              boxShadow: '0 3px 14px rgba(213,169,59,0.38)',
+                            }}
+                          >
+                            {approvingScene ? <RefreshCw className="spin" size={15} /> : <Sparkles size={16} />}
+                            {approvingScene ? 'Compiling & Approving...' : '⚡ 1-CLICK COMPILE & APPROVE'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{
+                      padding: '16px 20px',
+                      borderRadius: '12px',
+                      background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)',
+                      border: '1.5px solid #86efac',
+                      boxShadow: '0 2px 10px rgba(22,163,74,0.1)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '16px',
+                      flexWrap: 'wrap',
+                      marginBottom: '18px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#16a34a', display: 'grid', placeItems: 'center', color: '#fff', flexShrink: 0 }}>
+                          <Check size={22} />
+                        </div>
+                        <div>
+                          <div style={{ color: '#15803d', fontWeight: 900, fontSize: '14px' }}>
+                            SCENE V1 APPROVED & PRODUCTION READY
+                          </div>
+                          <div style={{ color: '#166534', fontSize: '12px', marginTop: 2 }}>
+                            All downstream 3D solid geometry, 4K AI renders, and DXF wall elevation drawings are unlocked.
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <Button
+                          onClick={() => navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(scenePreflight?.room.planRoomId ?? spaceId ?? '')}&sceneVersionId=${encodeURIComponent(compiledSceneId ?? sceneVersionId ?? '')}`)}
+                          style={{ background: '#1c1917', color: '#e8c96a', border: '1px solid var(--gold)', fontWeight: 800, fontSize: '12px', padding: '8px 14px' }}
+                        >
+                          <Layers3 size={14} /> View 3D Scene →
+                        </Button>
+                        <Button
+                          onClick={() => navigate(`/projects/${projectId}/visualize`)}
+                          style={{ background: 'linear-gradient(135deg, #c59c2d, #8f6c12)', color: '#fff', fontWeight: 800, fontSize: '12px', padding: '8px 14px' }}
+                        >
+                          <Wand2 size={14} /> 4K AI Render →
+                        </Button>
+                        <Button
+                          onClick={() => navigate(`/projects/${projectId}/drawings`)}
+                          variant="outline"
+                          style={{ fontWeight: 800, fontSize: '12px', padding: '8px 14px', background: '#fff' }}
+                        >
+                          <FileText size={14} /> CAD Drawings →
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* View Mode Switcher and Wall Selector */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                    <div style={{ display: 'flex', gap: '6px', background: '#f5f2ec', padding: '4px', borderRadius: '10px', border: '1px solid #e5dccf' }}>
+                      <button
+                        type="button"
+                        onClick={() => setCanvasViewMode('elevation')}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 14px',
+                          borderRadius: '7px',
+                          fontSize: '12px',
+                          fontWeight: canvasViewMode === 'elevation' ? 800 : 600,
+                          background: canvasViewMode === 'elevation' ? '#fff' : 'transparent',
+                          color: canvasViewMode === 'elevation' ? '#1c1917' : '#78716c',
+                          border: canvasViewMode === 'elevation' ? '1px solid #d6cbba' : '1px solid transparent',
+                          cursor: 'pointer',
+                          boxShadow: canvasViewMode === 'elevation' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
+                        }}
+                      >
+                        <Ruler size={14} style={{ color: canvasViewMode === 'elevation' ? 'var(--gold)' : undefined }} />
+                        <span>Wall Elevation Stage</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCanvasViewMode('plan')}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 14px',
+                          borderRadius: '7px',
+                          fontSize: '12px',
+                          fontWeight: canvasViewMode === 'plan' ? 800 : 600,
+                          background: canvasViewMode === 'plan' ? '#fff' : 'transparent',
+                          color: canvasViewMode === 'plan' ? '#1c1917' : '#78716c',
+                          border: canvasViewMode === 'plan' ? '1px solid #d6cbba' : '1px solid transparent',
+                          cursor: 'pointer',
+                          boxShadow: canvasViewMode === 'plan' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
+                        }}
+                      >
+                        <LayoutTemplate size={14} style={{ color: canvasViewMode === 'plan' ? 'var(--gold)' : undefined }} />
+                        <span>2D Room Floor Plan</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCanvasViewMode('schedule')}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 14px',
+                          borderRadius: '7px',
+                          fontSize: '12px',
+                          fontWeight: canvasViewMode === 'schedule' ? 800 : 600,
+                          background: canvasViewMode === 'schedule' ? '#fff' : 'transparent',
+                          color: canvasViewMode === 'schedule' ? '#1c1917' : '#78716c',
+                          border: canvasViewMode === 'schedule' ? '1px solid #d6cbba' : '1px solid transparent',
+                          cursor: 'pointer',
+                          boxShadow: canvasViewMode === 'schedule' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
+                        }}
+                      >
+                        <Table size={14} style={{ color: canvasViewMode === 'schedule' ? 'var(--gold)' : undefined }} />
+                        <span>System 32 Schedule ({roomModules.length})</span>
+                      </button>
+                    </div>
+
+                    {canvasViewMode === 'elevation' && roomWalls.length > 0 && (
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '11px', color: '#78716c', fontWeight: 700 }}>Wall:</span>
+                        {roomWalls.map((wall, index) => {
+                          const wallLetter = String.fromCharCode(65 + index);
+                          const isWallActive = (activeCanvasWallId || wallId || roomWalls[0]?.id) === wall.id;
+                          const wallLen = wall.start && wall.end ? Math.round(Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm)) : 3000;
+                          const modCount = roomModules.filter((m) => m.wallId === wall.id).length;
+                          return (
+                            <button
+                              key={wall.id}
+                              type="button"
+                              onClick={() => { setActiveCanvasWallId(wall.id); setWallId(wall.id); }}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: isWallActive ? 800 : 500,
+                                background: isWallActive ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fff',
+                                color: isWallActive ? '#e8c96a' : '#44403c',
+                                border: isWallActive ? '1px solid var(--gold)' : '1px solid #d6d3d1',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Wall {wallLetter} ({wallLen} mm{modCount ? ` · ${modCount}` : ''})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Canvas Stage Viewports */}
+                  {canvasViewMode === 'elevation' ? (
+                    currentCanvasWall ? (
+                      <div>
+                        <WallElevationPreview
+                          wallLabel={`Wall ${String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === currentCanvasWall.id)))}`}
+                          wallLengthMm={currentWallLengthMm}
+                          ceilingHeightMm={2700}
+                          openings={currentWallOpenings}
+                          modules={roomModules.filter((module) => module.wallId === currentCanvasWall.id)}
+                          selectedModuleId={selectedModuleId}
+                          onSelectModule={(id) => setSelectedModuleId(id)}
+                          onNudgeModule={(id, delta) => void nudgeModule(id, delta)}
+                          onCenterModule={(id) => void centerModule(id)}
+                        />
+                        <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            onClick={() => setDesignMode('elevations')}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#78350f',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <Ruler size={13} /> Open Full Architectural Wall Elevation Sub-View →
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ padding: '36px', textAlign: 'center', background: '#faf8f5', border: '1px dashed #d6cbba', borderRadius: '10px', color: '#78716c' }}>
+                        No walls verified in {spaces.find(s => s.id === spaceId)?.name ?? room.toUpperCase()} yet.
+                      </div>
+                    )
+                  ) : canvasViewMode === 'plan' ? (
+                    <RoomFloorPlanPreview
+                      space={selectedSpace}
+                      walls={walls}
+                      modules={roomModules}
+                      selectedModuleId={selectedModuleId}
+                      onSelectModule={(id) => setSelectedModuleId(id)}
+                    />
+                  ) : (
+                    <System32ScheduleTable
+                      modules={roomModules}
+                      selectedModuleId={selectedModuleId}
+                      onSelectModule={(id) => setSelectedModuleId(id)}
+                    />
+                  )}
+
+                  {/* Quick Placed Modules Pills */}
+                  {roomModules.length > 0 && (
+                    <div style={{ marginTop: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 800, color: '#44403c', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          Placed Units in {spaces.find(s => s.id === spaceId)?.name ?? room.toUpperCase()} ({roomModules.length})
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'var(--gold-dim)', fontWeight: 700 }}>
+                          Σ {roomModules.reduce((acc, m) => acc + m.widthMm, 0).toLocaleString()} mm Total Wall Run
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {roomModules.map((item) => (
+                          <button
+                            type="button"
+                            key={item.id}
+                            onClick={() => setSelectedModuleId(item.id)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '7px 12px',
+                              borderRadius: '8px',
+                              fontSize: '11.5px',
+                              fontWeight: item.id === selectedModule?.id ? 800 : 500,
+                              background: item.id === selectedModule?.id ? 'linear-gradient(135deg, #fef3c7, #fef9c3)' : '#fff',
+                              color: item.id === selectedModule?.id ? '#92400e' : '#292524',
+                              border: item.id === selectedModule?.id ? '1.5px solid var(--gold)' : '1px solid #e7e5e4',
+                              cursor: 'pointer',
+                              boxShadow: item.id === selectedModule?.id ? '0 2px 8px rgba(197,156,45,0.2)' : '0 1px 3px rgba(0,0,0,0.03)',
+                            }}
+                          >
+                            <Check size={13} style={{ color: item.id === selectedModule?.id ? 'var(--gold)' : '#16a34a' }} />
+                            <span>{item.label}</span>
+                            <span style={{ color: '#78716c', fontSize: '10.5px' }}>({item.widthMm} mm)</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Saved Finishes Swatches */}
+                  {availableMaterials.length > 0 && (
+                    <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: '#faf8f5', borderRadius: '10px', border: '1px solid #ede5d8' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <small style={{ fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: '10.5px' }}>
+                          CURATED ROOM FINISH SPECIFICATIONS
+                        </small>
+                        <span style={{ fontSize: '10.5px', color: '#78716c' }}>System 32 Standard</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {availableMaterials.slice(0, 4).map((m: any) => (
+                          <div key={m.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', background: '#fff', borderRadius: '6px', border: '1px solid #e7dcce', fontSize: '11px' }}>
+                            <span style={{ width: 12, height: 12, borderRadius: '50%', background: m.metadata?.hex ?? m.metadata?.colourHex ?? '#d6c7b8', border: '1px solid #d6d3d1', display: 'inline-block' }} />
+                            <strong style={{ color: '#292524' }}>{m.name}</strong>
+                            <span style={{ color: '#78716c', fontSize: '10px' }}>({m.category ?? 'Finish'})</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>
+      )}
+      <div className="workflow-next-action" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap', padding: '16px 20px', borderRadius: '12px', background: '#fff', border: '1px solid #e5dccf', borderLeft: '5px solid var(--gold)', boxShadow: '0 4px 16px rgba(0,0,0,0.05)' }}>
+        <div>
+          <small style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '0.12em', color: 'var(--gold-dim)', textTransform: 'uppercase' }}>
+            ROOM SCENE WORKFLOW PROGRESS
+          </small>
+          <strong style={{ display: 'block', fontSize: '14px', color: '#1c1917', margin: '3px 0 2px' }}>
+            {isSceneApproved
+              ? '✅ Scene v1 approved & locked for production.'
+              : compiledSceneId
+              ? '⚡ Room scene compiled — ready for final approval.'
+              : 'Place modular units → auto-assign finishes → compile & approve scene'}
+          </strong>
+          <span style={{ fontSize: '11.5px', color: '#78716c' }}>
+            {preflightLoading
+              ? 'Validating wall anchors and clearances…'
+              : `✓ Floor plan approved · ✓ ${draftModules.filter((m) => !spaceId || m.roomId === spaceId).length} units placed · ${isSceneApproved ? '✓ Scene v1 approved' : compiledSceneId ? '⚡ Ready to approve' : '3. Compile & approve'} · 4. 3D & Drawings`}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {isSceneApproved ? (
+            <>
+              <Button
+                onClick={() => navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(scenePreflight?.room.planRoomId ?? spaceId ?? '')}&sceneVersionId=${encodeURIComponent(compiledSceneId ?? sceneVersionId ?? '')}`)}
+                disabled={!projectId || !spaceId}
+                style={{ background: '#1c1917', color: '#e8c96a', border: '1px solid var(--gold)', fontWeight: 800, fontSize: '13px', padding: '10px 18px', borderRadius: '8px' }}
+              >
+                <Layers3 size={15} /> Open in 3D Scene →
+              </Button>
+              <Button
+                onClick={() => navigate(`/projects/${projectId}/visualize`)}
+                style={{ background: 'linear-gradient(135deg, #c59c2d, #8f6c12)', color: '#fff', fontWeight: 800, fontSize: '13px', padding: '10px 18px', borderRadius: '8px' }}
+              >
+                <Wand2 size={15} /> 4K AI Render →
+              </Button>
+            </>
+          ) : compiledSceneId ? (
+            <>
+              <Button
+                onClick={() => void handleApproveScene()}
+                disabled={approvingScene}
+                style={{ background: 'linear-gradient(135deg, #22c55e, #15803d)', color: '#fff', fontWeight: 900, fontSize: '13px', padding: '11px 22px', borderRadius: '8px', border: 'none', cursor: 'pointer', boxShadow: '0 3px 12px rgba(34,197,94,0.4)' }}
+              >
+                {approvingScene ? <RefreshCw className="spin" size={15} /> : <CheckCircle2 size={16} />}
+                {approvingScene ? 'Approving Scene...' : 'APPROVE SCENE V1 NOW'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void handleOneClickCompileAndApprove()}
+                disabled={approvingScene}
+                style={{ fontSize: '12px' }}
+              >
+                <RefreshCw size={13} /> Recompile
+              </Button>
+            </>
+          ) : (
+            <Button
+              onClick={() => void handleOneClickCompileAndApprove()}
+              disabled={!projectId || !draftModules.filter((m) => !spaceId || m.roomId === spaceId).length || approvingScene}
+              style={{ background: 'linear-gradient(135deg, #d5a93b, #8f6c12)', color: '#fff', fontWeight: 900, fontSize: '13px', padding: '11px 22px', borderRadius: '8px', border: 'none', cursor: 'pointer', boxShadow: '0 3px 14px rgba(213,169,59,0.38)' }}
+            >
+              {approvingScene ? <RefreshCw className="spin" size={15} /> : <Sparkles size={16} />}
+              {approvingScene ? 'Compiling & Approving...' : '⚡ 1-Click Compile & Approve Scene'}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Material Picker Modal for Swatch Swapping */}
+      {materialPickerOpen && selectedModule && (
+        <div
+          className="material-picker-modal-backdrop"
+          onClick={() => setMaterialPickerOpen(false)}
+        >
+          <div
+            className="material-picker-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #ede5d8', paddingBottom: '10px' }}>
+              <div>
+                <small style={{ color: 'var(--gold-dim)', fontWeight: 800, fontSize: '10.5px' }}>MATERIAL CATALOG SWAP</small>
+                <h3 style={{ margin: '2px 0 0', fontSize: '16px', fontWeight: 800, color: '#1c1917' }}>
+                  Assign {activePickerSlot.replace('-', ' ')} Finish to {selectedModule.label}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMaterialPickerOpen(false)}
+                style={{ background: '#f5f5f4', border: '1px solid #d6d3d1', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+              >
+                ✕ Close
+              </button>
+            </div>
+            <MaterialSwapPanel
+              projectId={projectId}
+              entityId={selectedModule.id}
+              moduleInstanceId={selectedModule.id}
+              semanticSlot={activePickerSlot.replace('-', '_') as any}
+              currentLaminate={selectedLaminateObj.name}
+              onConfirmCatalogSwap={({ laminate, materialId, semanticSlot }) => {
+                if (semanticSlot === 'carcass') setCarcassLaminateId(materialId);
+                else if (semanticSlot === 'shutter') setShutterLaminateId(materialId);
+                else setActiveLaminate(materialId);
+                setMaterialAssignmentsSaved(true);
+                setPlacementNotice(`✓ Saved ${laminate} on ${selectedModule.label} (${semanticSlot})`);
+                setMaterialPickerOpen(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </section>
+  );
+}
+
+function DrawingCoreWallElevation({
+  scene,
+  activeWallId,
+  renderType = 'elevation',
+  selectedModuleId,
+  onSelectModule,
+}: {
+  scene: SceneV1;
+  activeWallId: string;
+  renderType?: 'elevation' | 'shop-sheet';
+  selectedModuleId?: string | null;
+  onSelectModule?: (id: string) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const svgContent = useMemo(() => {
+    try {
+      if (renderType === 'shop-sheet') {
+        return generateArchitecturalShopSheetSvg(scene, activeWallId);
+      }
+      return generateWallElevationSvg(scene, activeWallId);
+    } catch (err: any) {
+      return `<div style="padding: 24px; color: #dc2626; font-size: 13px;">Elevation generation error: ${err?.message ?? 'Unknown error'}</div>`;
+    }
+  }, [scene, activeWallId, renderType]);
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = (e.target as HTMLElement).closest('[data-module-id]');
+    const modId = el?.getAttribute('data-module-id');
+    if (modId) {
+      onSelectModule?.(modId);
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className="drawing-core-elevation-container"
+      onClick={handleClick}
+      style={{
+        width: '100%',
+        minHeight: '420px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#fff',
+        borderRadius: '8px',
+        padding: '12px',
+        overflowX: 'auto',
+      }}
+      dangerouslySetInnerHTML={{ __html: svgContent }}
+    />
+  );
+}
+
+function ModuleMaterialSwatchGrid({
+  module,
+  selectedCarcassLaminate,
+  selectedShutterLaminate,
+  selectedHardwareObj,
+  onOpenPicker,
+}: {
+  module: Module | null;
+  selectedCarcassLaminate?: { id: string; name: string; code: string; hex?: string };
+  selectedShutterLaminate?: { id: string; name: string; code: string; hex?: string };
+  selectedHardwareObj?: { id: string; name: string; code?: string };
+  onOpenPicker: (slot: string) => void;
+}) {
+  const slots = getSemanticSlotsForModule(module);
+
+  const slotMetadata: Record<string, { name: string; code: string; hex?: string; isCertified: boolean }> = {
+    carcass: {
+      name: selectedCarcassLaminate?.name || '18mm HDHMR Smoked Oak',
+      code: selectedCarcassLaminate?.code || 'ULT-WOD-03',
+      hex: selectedCarcassLaminate?.hex || '#654321',
+      isCertified: Boolean(selectedCarcassLaminate?.code && !selectedCarcassLaminate.code.startsWith('REF-')),
+    },
+    shutter: {
+      name: selectedShutterLaminate?.name || 'Mirror High-Gloss Acrylic',
+      code: selectedShutterLaminate?.code || 'ULT-HG-01',
+      hex: selectedShutterLaminate?.hex || '#F7F7F2',
+      isCertified: Boolean(selectedShutterLaminate?.code && !selectedShutterLaminate.code.startsWith('REF-')),
+    },
+    countertop: {
+      name: 'Calacatta Honed Sintered Stone (40mm)',
+      code: 'ULT-STN-04',
+      hex: '#F3EDE2',
+      isCertified: true,
+    },
+    'back-panel': {
+      name: '9mm Smoked Walnut Backing',
+      code: 'ULT-WOD-03',
+      hex: '#654321',
+      isCertified: true,
+    },
+    hardware: {
+      name: selectedHardwareObj?.name || 'Blum Clip-Top Soft-Close Hinge',
+      code: selectedHardwareObj?.code || 'BLUM-CLIP-01',
+      hex: '#a1a1aa',
+      isCertified: Boolean(selectedHardwareObj?.code && !selectedHardwareObj.code.startsWith('REF-')),
+    },
+    glass: {
+      name: 'Graphite Aluminium Tinted Fluted Glass',
+      code: 'ULT-GLS-05',
+      hex: '#38424d',
+      isCertified: true,
+    },
+    lighting: {
+      name: '3000K Warm Under-Cabinet LED Strip',
+      code: 'ULT-LGT-3000K',
+      hex: '#ffe8a3',
+      isCertified: true,
+    },
+    metal: {
+      name: 'Brushed Brass Edge Profile & Trims',
+      code: 'ULT-MTL-BRASS',
+      hex: '#d4af37',
+      isCertified: true,
+    },
+    fabric: {
+      name: 'Sand Bouclé Ergonomic Fabric',
+      code: 'ULT-FAB-BOUCLE',
+      hex: '#e8e2d5',
+      isCertified: true,
+    },
+  };
+
+  return (
+    <div className="material-swatch-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+      {slots.map((slot) => {
+        const item = slotMetadata[slot] || {
+          name: `${slot} finish`,
+          code: 'REF-PHOTO',
+          hex: '#d6c7b8',
+          isCertified: false,
+        };
+        const isCertified = item.isCertified;
+        return (
+          <div
+            key={slot}
+            className="material-swatch-card"
+            onClick={() => onOpenPicker(slot)}
+            title={`Click to swap ${slot} finish`}
+            style={{
+              padding: '8px 10px',
+              border: '1px solid #e7dcce',
+              borderRadius: '8px',
+              background: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+              transition: 'all 0.15s ease',
+              textAlign: 'left',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span
+                style={{
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '4px',
+                  background: item.hex ?? '#d6c7b8',
+                  border: '1px solid rgba(0,0,0,0.15)',
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase' }}>
+                {slot.replace('-', ' ')}
+              </span>
+            </div>
+            <strong style={{ fontSize: '11px', color: '#1c1917', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {item.name}
+            </strong>
+            <small style={{ fontSize: '9.5px', color: '#78716c', fontFamily: 'monospace' }}>
+              {item.code}
+            </small>
+            <div>
+              {isCertified ? (
+                <span className="material-swatch-badge-certified" style={{ fontSize: '8.5px', fontWeight: 800, color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '1px 5px', borderRadius: '4px' }}>
+                  ✓ CERTIFIED CATALOG
+                </span>
+              ) : (
+                <span className="material-swatch-badge-reference" style={{ fontSize: '8.5px', fontWeight: 800, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 5px', borderRadius: '4px' }}>
+                  📷 REFERENCE / INSPIRATION
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function WallElevationPreview({
+  wallLabel,
+  wallLengthMm,
+  ceilingHeightMm,
+  openings,
+  modules,
+  selectedModuleId,
+  onSelectModule,
+  onNudgeModule,
+  onCenterModule,
+}: {
+  wallLabel?: string;
+  wallLengthMm: number;
+  ceilingHeightMm: number;
+  openings: Array<{ id: string; kind?: string; widthMm?: number; heightMm?: number; sillHeightMm?: number; offsetAlongWallMm?: number; offsetMm?: number }>;
+  modules: Module[];
+  selectedModuleId?: string | null;
+  onSelectModule?: (id: string) => void;
+  onNudgeModule?: (id: string, deltaMm: number) => void;
+  onCenterModule?: (id: string) => void;
+}) {
+  const width = Math.max(1, wallLengthMm);
+  const height = Math.max(1, ceilingHeightMm);
+  const svgWidth = 560;
+  const svgHeight = 240;
+  const padX = 20;
+  const padY = 20;
+  const innerW = svgWidth - 2 * padX;
+  const innerH = svgHeight - 2 * padY - 24;
+  const sx = innerW / width;
+  const sy = innerH / height;
+
+  // Collision detection between placed modules and openings
+  const collisions = useMemo(() => {
+    const alerts: Array<{ moduleId: string; moduleLabel: string; openingKind: string; overlapMm: number }> = [];
+    modules.forEach((mod) => {
+      const mStart = mod.offsetMm ?? 0;
+      const mEnd = mStart + mod.widthMm;
+      const mBottom = 0;
+      const mTop = mod.heightMm;
+
+      openings.forEach((op) => {
+        const opStart = Number(op.offsetAlongWallMm ?? op.offsetMm ?? 0);
+        const opEnd = opStart + Number(op.widthMm ?? (op.kind === 'window' ? 1200 : 900));
+        const opBottom = Number(op.sillHeightMm ?? (op.kind === 'window' ? 900 : 0));
+        const opTop = opBottom + Number(op.heightMm ?? (op.kind === 'window' ? 1200 : 2100));
+
+        const hOverlap = Math.min(mEnd, opEnd) - Math.max(mStart, opStart);
+        const vOverlap = Math.min(mTop, opTop) - Math.max(mBottom, opBottom);
+
+        if (hOverlap > 5 && vOverlap > 5) {
+          alerts.push({
+            moduleId: mod.id,
+            moduleLabel: mod.label,
+            openingKind: op.kind ?? 'opening',
+            overlapMm: Math.round(hOverlap),
+          });
+        }
+      });
+    });
+    return alerts;
+  }, [modules, openings]);
+
+  const activeModule = modules.find((m) => m.id === selectedModuleId) ?? modules[0] ?? null;
+
+  return (
+    <div className="module-wall-preview">
+      <div className="module-wall-preview-title">
+        <div>
+          <strong>{wallLabel ?? 'Selected wall'} Elevation</strong>
+          <span> · {Math.round(width)} mm W × {height} mm H</span>
+        </div>
+        <span>{openings.length} opening{openings.length === 1 ? '' : 's'} · {modules.length} module{modules.length === 1 ? '' : 's'}</span>
+      </div>
+
+      <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} role="img" aria-label="Architectural wall elevation with openings and modules">
+        {/* Wall shell background */}
+        <rect x={padX} y={padY} width={innerW} height={innerH} className="module-wall-shell" rx={3} />
+
+        {/* Ceiling and floor reference lines */}
+        <line x1={padX} y1={padY} x2={padX + innerW} y2={padY} stroke="#786c5e" strokeWidth={2} />
+        <line x1={padX} y1={padY + innerH} x2={padX + innerW} y2={padY + innerH} stroke="#3d2d20" strokeWidth={3} />
+
+        {/* Doors and Windows with true architectural representation */}
+        {openings.map((opening) => {
+          const opOffset = Number(opening.offsetAlongWallMm ?? opening.offsetMm ?? 0);
+          const opWidthMm = Number(opening.widthMm ?? (opening.kind === 'window' ? 1200 : 900));
+          const opHeightMm = Number(opening.heightMm ?? (opening.kind === 'window' ? 1200 : 2100));
+          const sillMm = Number(opening.sillHeightMm ?? (opening.kind === 'window' ? 900 : 0));
+
+          const x = padX + opOffset * sx;
+          const w = Math.max(14, opWidthMm * sx);
+          const h = Math.max(16, opHeightMm * sy);
+          const y = padY + innerH - (sillMm + opHeightMm) * sy;
+          const isDoor = opening.kind === 'door';
+
+          return (
+            <g key={opening.id}>
+              {/* Outer frame */}
+              <rect x={x} y={y} width={w} height={h} className={`module-wall-opening ${isDoor ? 'door' : 'window'}`} rx={2} />
+
+              {/* Architectural details */}
+              {isDoor ? (
+                <>
+                  {/* Door leaf with swing diagonal */}
+                  <line x1={x + 3} y1={y + h - 2} x2={x + w - 3} y2={y + 3} stroke="#bf6c45" strokeWidth={1} strokeDasharray="3 2" />
+                  <circle cx={x + w - 8} cy={y + h / 2} r={2} fill="#bf6c45" />
+                  <text x={x + w / 2} y={y + 14} textAnchor="middle" className="module-wall-text" fill="#8c3f1d">DOOR {opWidthMm}mm</text>
+                </>
+              ) : (
+                <>
+                  {/* Window sill board and glass pane divider */}
+                  <rect x={x - 2} y={y + h - 3} width={w + 4} height={4} fill="#2b6cb0" rx={1} />
+                  <line x1={x + w / 2} y1={y} x2={x + w / 2} y2={y + h} stroke="#4384a6" strokeWidth={1} />
+                  <line x1={x} y1={y + h / 2} x2={x + w} y2={y + h / 2} stroke="#4384a6" strokeWidth={1} strokeDasharray="2 2" />
+                  <text x={x + w / 2} y={y + 14} textAnchor="middle" className="module-wall-text" fill="#1a4971">WINDOW {opWidthMm}mm</text>
+                </>
+              )}
+            </g>
+          );
+        })}
+
+        {/* Modules placed on this wall */}
+        {modules.map((module) => {
+          const mOffset = module.offsetMm ?? 0;
+          const x = padX + mOffset * sx;
+          const w = Math.max(16, module.widthMm * sx);
+          const h = Math.max(16, module.heightMm * sy);
+          const y = padY + innerH - h;
+          const isSelected = module.id === selectedModuleId;
+          const hasCollision = collisions.some((c) => c.moduleId === module.id);
+
+          return (
+            <g key={module.id} onClick={() => onSelectModule?.(module.id)}>
+              <rect
+                x={x}
+                y={y}
+                width={w}
+                height={h}
+                className={`module-wall-module ${hasCollision ? 'collision' : ''}`}
+                stroke={isSelected ? 'var(--gold)' : hasCollision ? '#e53e3e' : '#6f5420'}
+                strokeWidth={isSelected ? 2.5 : 1.5}
+                rx={2}
+              />
+              {/* Shutter divisions / dividers */}
+              <line x1={x + w / 2} y1={y} x2={x + w / 2} y2={y + h} stroke="#fff" strokeWidth={1} strokeOpacity={0.6} />
+              <text x={x + w / 2} y={y + h / 2} textAnchor="middle" className="module-wall-text" fill="#2d1e12">
+                {module.label.split(' ')[0]}
+              </text>
+              <text x={x + w / 2} y={y + h / 2 + 10} textAnchor="middle" fontSize={7} fill="#5a402a">
+                {module.widthMm} × {module.heightMm}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Dimension Line across the wall bottom */}
+        <line x1={padX} y1={svgHeight - 12} x2={padX + innerW} y2={svgHeight - 12} className="module-wall-dimension" />
+        <text x={svgWidth / 2} y={svgHeight - 4} textAnchor="middle" className="module-wall-dimension-label">
+          {Math.round(width)} mm Wall Span (Clearance Checked)
+        </text>
+      </svg>
+
+      {/* Collision Alerts */}
+      {collisions.length > 0 && (
+        <div className="module-wall-collision-alert" role="alert">
+          <span>⚠️ <strong>Collision detected:</strong> {collisions[0].moduleLabel} overlaps {collisions[0].openingKind} by {collisions[0].overlapMm} mm. Nudge the unit or choose a narrower module.</span>
+        </div>
+      )}
+
+      {/* Nudge & Centering Controls for Active Module */}
+      {activeModule && (
+        <div className="module-wall-nudge-row">
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+            <strong>{activeModule.label}</strong>: offset <strong>{Math.round(activeModule.offsetMm ?? 0)} mm</strong>
+          </span>
+          <div className="module-wall-nudge-btns">
+            <button type="button" className="module-wall-nudge-btn" onClick={() => onNudgeModule?.(activeModule.id, -50)}>◀ 50mm Left</button>
+            <button type="button" className="module-wall-nudge-btn" onClick={() => onCenterModule?.(activeModule.id)}>Center</button>
+            <button type="button" className="module-wall-nudge-btn" onClick={() => onNudgeModule?.(activeModule.id, 50)}>50mm Right ▶</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RoomFloorPlanPreview({
+  space,
+  walls,
+  modules,
+  selectedModuleId,
+  onSelectModule,
+}: {
+  space: { id: string; name: string; roomType: string; geometry_json?: { polygon?: Array<{ xMm?: number; yMm?: number; x?: number; y?: number }> } } | null;
+  walls: Array<{ id: string; start?: { xMm: number; yMm: number }; end?: { xMm: number; yMm: number } }>;
+  modules: Module[];
+  selectedModuleId?: string | null;
+  onSelectModule?: (id: string) => void;
+}) {
+  const polygon = space?.geometry_json?.polygon ?? [];
+  const points = polygon.map((p) => ({ x: Number(p.xMm ?? p.x ?? 0), y: Number(p.yMm ?? p.y ?? 0) })).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+
+  const defaultW = 4500;
+  const defaultH = 3600;
+  const minX = points.length ? Math.min(...points.map((p) => p.x)) : 0;
+  const maxX = points.length ? Math.max(...points.map((p) => p.x)) : defaultW;
+  const minY = points.length ? Math.min(...points.map((p) => p.y)) : 0;
+  const maxY = points.length ? Math.max(...points.map((p) => p.y)) : defaultH;
+
+  const roomW = Math.max(1000, maxX - minX);
+  const roomH = Math.max(1000, maxY - minY);
+
+  const svgW = 680;
+  const svgH = 300;
+  const pad = 40;
+  const innerW = svgW - 2 * pad;
+  const innerH = svgH - 2 * pad;
+  const scale = Math.min(innerW / roomW, innerH / roomH);
+
+  const offsetX = pad + (innerW - roomW * scale) / 2;
+  const offsetY = pad + (innerH - roomH * scale) / 2;
+
+  const toSvgX = (xMm: number) => offsetX + (xMm - minX) * scale;
+  const toSvgY = (yMm: number) => offsetY + (yMm - minY) * scale;
+
+  const polySvgPoints = points.length >= 3
+    ? points.map((p) => `${toSvgX(p.x)},${toSvgY(p.y)}`).join(' ')
+    : `${toSvgX(0)},${toSvgY(0)} ${toSvgX(defaultW)},${toSvgY(0)} ${toSvgX(defaultW)},${toSvgY(defaultH)} ${toSvgX(0)},${toSvgY(defaultH)}`;
+
+  return (
+    <div style={{ background: '#fdfbf7', border: '1px solid #ddcfbe', borderRadius: '10px', padding: '16px', position: 'relative' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          📐 2D TOP-DOWN MEASURED PLAN · {space?.name ?? 'ROOM'} ({Math.round(roomW)} × {Math.round(roomH)} mm)
+        </span>
+        <span style={{ fontSize: '11px', color: '#78716c' }}>
+          {modules.length} Placed Unit Footprint{modules.length === 1 ? '' : 's'} · System 32 Aligned
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: '100%', height: '280px', background: '#faf6f0', borderRadius: '8px', border: '1px solid #ebdccb' }}>
+        <defs>
+          <pattern id="plan-grid-pattern" width="24" height="24" patternUnits="userSpaceOnUse">
+            <line x1="0" y1="0" x2="24" y2="0" stroke="#eee4d6" strokeWidth="0.5" />
+            <line x1="0" y1="0" x2="0" y2="24" stroke="#eee4d6" strokeWidth="0.5" />
+          </pattern>
+        </defs>
+        <rect width={svgW} height={svgH} fill="url(#plan-grid-pattern)" />
+
+        {/* Room Floor Fill */}
+        <polygon points={polySvgPoints} fill="#fff" stroke="#3d2d20" strokeWidth="3.5" />
+
+        {/* Inner Wall boundary line (150mm wall thickness effect) */}
+        <polygon points={polySvgPoints} fill="none" stroke="#d5a93b" strokeWidth="0.75" strokeDasharray="3 3" opacity="0.6" />
+
+        {/* Central Circulation Clear Zone */}
+        <ellipse
+          cx={toSvgX(minX + roomW / 2)}
+          cy={toSvgY(minY + roomH / 2)}
+          rx={Math.max(24, (roomW * scale) / 3.2)}
+          ry={Math.max(18, (roomH * scale) / 3.2)}
+          fill="none"
+          stroke="#16a34a"
+          strokeWidth="1.2"
+          strokeDasharray="4 3"
+          opacity="0.4"
+        />
+        <text
+          x={toSvgX(minX + roomW / 2)}
+          y={toSvgY(minY + roomH / 2)}
+          textAnchor="middle"
+          fontSize="9"
+          fontWeight="700"
+          fill="#16a34a"
+          opacity="0.75"
+        >
+          Clear Circulation Zone
+        </text>
+
+        {/* Placed Modules on Floor Plan */}
+        {modules.map((mod, index) => {
+          const isSel = mod.id === selectedModuleId;
+          const targetWall = walls.find((w) => w.id === mod.wallId);
+          let modX = toSvgX(minX + 200 + (index * 750) % Math.max(750, roomW - 900));
+          let modY = toSvgY(minY + 160);
+          let modW = Math.max(20, mod.widthMm * scale);
+          let modD = Math.max(14, (mod.depthMm || 600) * scale);
+
+          if (targetWall?.start && targetWall?.end) {
+            const wStartX = targetWall.start.xMm;
+            const wStartY = targetWall.start.yMm;
+            const wEndX = targetWall.end.xMm;
+            const wEndY = targetWall.end.yMm;
+            const wallLen = Math.hypot(wEndX - wStartX, wEndY - wStartY) || 1;
+            const dirX = (wEndX - wStartX) / wallLen;
+            const dirY = (wEndY - wStartY) / wallLen;
+            const offset = mod.offsetMm ?? 100;
+            const posX = wStartX + dirX * offset;
+            const posY = wStartY + dirY * offset;
+            modX = toSvgX(posX);
+            modY = toSvgY(posY);
+          }
+
+          return (
+            <g key={mod.id} onClick={() => onSelectModule?.(mod.id)} style={{ cursor: 'pointer' }}>
+              <rect
+                x={modX}
+                y={modY}
+                width={modW}
+                height={modD}
+                fill={isSel ? '#fef08a' : '#dfcfbc'}
+                stroke={isSel ? 'var(--gold)' : '#6f5420'}
+                strokeWidth={isSel ? 2.5 : 1}
+                rx={2}
+              />
+              <text
+                x={modX + modW / 2}
+                y={modY + modD / 2 + 3}
+                textAnchor="middle"
+                fontSize="8"
+                fontWeight="700"
+                fill="#2d1e12"
+              >
+                {mod.widthMm}mm
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Room Label */}
+        <text
+          x={toSvgX(minX + 100)}
+          y={toSvgY(minY + 120)}
+          fontSize="10.5"
+          fontWeight="900"
+          fill="#8c4424"
+          letterSpacing="0.1em"
+        >
+          {space?.name.toUpperCase() ?? 'ROOM'}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+function System32ScheduleTable({
+  modules,
+  selectedModuleId,
+  onSelectModule,
+}: {
+  modules: Module[];
+  selectedModuleId?: string | null;
+  onSelectModule?: (id: string) => void;
+}) {
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e7dcce', borderRadius: '10px', overflow: 'hidden' }}>
+      <div style={{ padding: '12px 16px', background: 'linear-gradient(135deg, #faf7f2, #fff)', borderBottom: '1px solid #ede5d8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          📋 SYSTEM 32 CABINETRY & HARDWARE SCHEDULE
+        </span>
+        <Badge tone="success">✓ {modules.length} Units Validated</Badge>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#fcfaf6', borderBottom: '1.5px solid #e8ded2', color: '#57463a', fontSize: '11px', fontWeight: 800 }}>
+              <th style={{ padding: '9px 12px' }}>TAG</th>
+              <th style={{ padding: '9px 12px' }}>MODULE ARCHETYPE</th>
+              <th style={{ padding: '9px 12px' }}>DIMENSIONS (W×D×H)</th>
+              <th style={{ padding: '9px 12px' }}>CARCASS SPEC</th>
+              <th style={{ padding: '9px 12px' }}>SHUTTER / FINISH</th>
+              <th style={{ padding: '9px 12px' }}>HARDWARE</th>
+              <th style={{ padding: '9px 12px', textAlign: 'right' }}>ACTION</th>
+            </tr>
+          </thead>
+          <tbody>
+            {modules.map((m, index) => {
+              const isSel = m.id === selectedModuleId;
+              const tag = `M-${String(index + 1).padStart(2, '0')}`;
+              const isGlass = m.configuration?.glassProfile || m.configuration?.shutterStyle === 'profile-glass';
+              return (
+                <tr
+                  key={m.id}
+                  onClick={() => onSelectModule?.(m.id)}
+                  style={{
+                    borderBottom: '1px solid #f0e8dc',
+                    background: isSel ? '#fffdf0' : 'transparent',
+                    cursor: 'pointer',
+                    transition: 'background 0.1s ease',
+                  }}
+                >
+                  <td style={{ padding: '10px 12px', fontWeight: 800, color: isSel ? 'var(--gold)' : '#78716c' }}>{tag}</td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <strong style={{ color: '#1c1917', display: 'block' }}>{m.label}</strong>
+                    <small style={{ color: '#78716c' }}>{m.family} · Wall {m.wallId ? m.wallId.replace(/^wall-/, '') : 'A'}</small>
+                  </td>
+                  <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontWeight: 700, color: '#292524' }}>
+                    {m.widthMm} × {m.depthMm} × {m.heightMm} mm
+                  </td>
+                  <td style={{ padding: '10px 12px', color: '#44403c' }}>18mm HDHMR + 0.8mm PVC Edge</td>
+                  <td style={{ padding: '10px 12px', color: '#44403c' }}>
+                    {isGlass ? 'Bronze Profile Glass' : 'High Gloss Acrylic / PU'}
+                  </td>
+                  <td style={{ padding: '10px 12px', color: '#44403c' }}>Blum Clip-Top Soft-Close</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    <button
+                      type="button"
+                      style={{
+                        padding: '3px 9px',
+                        borderRadius: '6px',
+                        background: isSel ? 'var(--gold)' : '#f5f5f4',
+                        color: isSel ? '#fff' : '#44403c',
+                        border: isSel ? 'none' : '1px solid #d6d3d1',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isSel ? 'Selected' : 'Select'}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

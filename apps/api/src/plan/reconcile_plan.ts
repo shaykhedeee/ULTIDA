@@ -207,6 +207,15 @@ export function reconcilePlan(
   cv: CvTraceResult,
   vision: VisionSemanticResult,
 ): ReconciledPlanCandidate {
+  // Provider and debug fixtures may omit an optional evidence class. Reconcile
+  // whatever evidence is available; an absent class must never crash a job or
+  // lead to fabricated geometry.
+  const semantic: VisionSemanticResult = {
+    walls: Array.isArray(vision?.walls) ? vision.walls : [],
+    rooms: Array.isArray(vision?.rooms) ? vision.rooms : [],
+    openings: Array.isArray(vision?.openings) ? vision.openings : [],
+    dimensionTextFindings: Array.isArray(vision?.dimensionTextFindings) ? vision.dimensionTextFindings : [],
+  };
   const reviewFlags: string[] = [];
   const tolerancePx = sourceTolerancePx(cv.sourceImageSize);
 
@@ -215,13 +224,13 @@ export function reconcilePlan(
   // even though the CV pass sees it as two separate short wall segments
   // (exactly like the tracer output around a door gap).
   const walls: ReconciledWall[] = cv.walls.map(w => {
-    const nearOpening = vision.openings.some(o => {
+    const nearOpening = semantic.openings.some(o => {
       const d = distancePointToSegment(
         o.approxCenterPx.x, o.approxCenterPx.y, w.x1, w.y1, w.x2, w.y2,
       );
       return d <= tolerancePx;
     });
-    const matchedVisionWall = vision.walls.some((candidate) =>
+    const matchedVisionWall = semantic.walls.some((candidate) =>
       candidate.confidence >= 0.7 && visionWallMatchesCv(w, candidate, tolerancePx),
     );
     return {
@@ -239,14 +248,14 @@ export function reconcilePlan(
   if (walls.some(w => w.thicknessPx === null)) {
     reviewFlags.push('Some walls could not have thickness measured (no parallel line pair found) — confirm thickness manually, do not assume a default.');
   }
-  if (vision.walls.length > 0 && !walls.some(w => w.confirmedByBothPasses)) {
+  if (semantic.walls.length > 0 && !walls.some(w => w.confirmedByBothPasses)) {
     reviewFlags.push('Vision wall candidates did not geometrically align with CV wall traces — inspect source alignment before approving walls.');
   }
 
   // 2. Keep vision room polygons as editable proposals, then cross-check each
   // edge against independent CV traces. This uses a structured-polygon
   // confidence signal without treating AI geometry as measurement or approval.
-  const rooms: ReconciledRoom[] = vision.rooms.map((r) => {
+  const rooms: ReconciledRoom[] = semantic.rooms.map((r) => {
     const evidence = polygonEdgeEvidence(r.approxPolygonPx, cv.walls, tolerancePx);
     const status = evidence.coverage >= 0.75 ? 'candidate' : evidence.coverage > 0 ? 'partial' : 'unconfirmed';
     return {
@@ -269,7 +278,7 @@ export function reconcilePlan(
   // an enclosed region in the CV wall graph? This is a coarse sanity check,
   // not a full polygon-closure algorithm -- flag for review rather than
   // silently accept or silently reject.
-  if (vision.rooms.length > 0 && walls.length === 0) {
+  if (semantic.rooms.length > 0 && walls.length === 0) {
     reviewFlags.push('Vision model found rooms but CV pass found zero walls — geometry extraction likely failed on this image; do not trust room boundaries.');
   }
 
@@ -278,8 +287,8 @@ export function reconcilePlan(
     sourceImageSize: cv.sourceImageSize,
     walls,
     rooms,
-    openings: vision.openings,
-    dimensionHints: vision.dimensionTextFindings,
+    openings: semantic.openings,
+    dimensionHints: semantic.dimensionTextFindings,
     reviewFlags,
     requiresDesignerReview: true,
   };

@@ -274,6 +274,7 @@ export async function executeRenderJob(input: RenderJobInput): Promise<{ record:
     windowCount: 0,
     moduleCount: input.moduleDimensions.length,
     cabinetDivisions: 0,
+    skirtingCount: input.scene ? artifacts.skirtingMasks.length : 0,
     camera: { positionMm: camera.positionMm, targetMm: camera.targetMm, fovDeg: 50 },
     expectedObjectIds: input.moduleDimensions.map((m) => m.id),
     materialRegionIds: input.materialReferences.map((m) => m.id),

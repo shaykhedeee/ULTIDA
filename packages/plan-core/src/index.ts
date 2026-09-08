@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { CanonicalPlanModelSchema, type PlanValidationIssue } from './plan-schema.js';
-export { CanonicalPlanModelSchema, type CanonicalPlanModel } from './plan-schema.js';
+export {
+  CanonicalPlanModelSchema,
+  type CanonicalPlanModel,
+  formatDualDimension,
+  parseFeetInchesToMm,
+} from './plan-schema.js';
 
 // Fixtures are source evidence (for example a visible toilet, sink, stove or
 // refrigerator), not production furniture. They inform Spaces without

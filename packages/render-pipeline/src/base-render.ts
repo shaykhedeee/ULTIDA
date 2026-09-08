@@ -35,6 +35,10 @@ export interface BaseRenderArtifacts {
   rgb: { url: string; bytes: number };
   edgeMap: { url: string; bytes: number };
   objectMasks: Array<{ id: string; url: string; bytes: number }>;
+  /** Projected opening regions used by the image QA measurement pass. */
+  openingMasks: Array<{ id: string; kind: 'door' | 'window' | 'passage'; url: string; bytes: number }>;
+  /** Projected skirting bands derived from approved flooring contracts. */
+  skirtingMasks: Array<{ id: string; url: string; bytes: number }>;
   materialRegions: Array<{ materialId: string; url: string; bytes: number }>;
   depth: { url: string; bytes: number };
   baseHash: string;
@@ -44,7 +48,7 @@ type Vec3 = { x: number; y: number; z: number };
 type ProjectedPoint = { x: number; y: number; depth: number };
 type ScenePrimitive = {
   id: string;
-  kind: 'floor' | 'wall' | 'module';
+  kind: 'floor' | 'wall' | 'module' | 'skirting';
   materialId?: string;
   faces: Vec3[][];
   color: [number, number, number, number];
@@ -87,6 +91,12 @@ export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width
   const depthPng = encodePng(width, height, depth);
   const modules = rendered.filter((item) => item.primitive.kind === 'module');
   const objectMasks = modules.map((item) => ({ id: item.primitive.id, ...renderMask(width, height, item.projected) }));
+  const openingMasks = scene.openings.map((opening) => ({
+    id: opening.id,
+    kind: opening.kind,
+    ...renderMask(width, height, openingProjectedFaces(scene, opening, projection)),
+  }));
+  const skirtingMasks = rendered.filter((item) => item.primitive.kind === 'skirting').map((item) => ({ id: item.primitive.id, ...renderMask(width, height, item.projected) }));
   const materialGroups = new Map<string, ProjectedPoint[][]>();
   for (const item of modules) {
     if (!item.primitive.materialId) continue;
@@ -101,9 +111,47 @@ export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width
     edgeMap: { url: dataUri(edgePng), bytes: edgePng.length },
     depth: { url: dataUri(depthPng), bytes: depthPng.length },
     objectMasks,
+    openingMasks,
+    skirtingMasks,
     materialRegions,
     baseHash: createHash('sha256').update(rgbPng).digest('hex'),
   };
+}
+
+/**
+ * Project an opening's clear rectangle onto the same camera plane as the base
+ * render.  The rectangle is intentionally independent of the wall solids: it
+ * is the measurable keep-out region that an image-QA pass inspects for the
+ * expected sill, jamb and head evidence.
+ */
+function openingProjectedFaces(scene: SceneV1, opening: SceneV1['openings'][number], projection: ReturnType<typeof createProjector>): ProjectedPoint[][] {
+  const wall = scene.walls.find((candidate) => candidate.id === opening.wallId);
+  if (!wall) return [];
+  const dx = wall.end.xMm - wall.start.xMm;
+  const dz = wall.end.yMm - wall.start.yMm;
+  const length = Math.hypot(dx, dz);
+  if (!length) return [];
+  const ux = dx / length;
+  const uz = dz / length;
+  // Render on the wall centre plane.  The one millimetre offset prevents the
+  // projected face becoming numerically coplanar with the wall shell.
+  const nx = -uz;
+  const nz = ux;
+  const point = (offsetMm: number, elevationMm: number): Vec3 => ({
+    x: wall.start.xMm + ux * offsetMm + nx,
+    y: wall.baseElevationMm + elevationMm,
+    z: wall.start.yMm + uz * offsetMm + nz,
+  });
+  const start = Math.max(0, opening.offsetMm);
+  const end = Math.min(length, opening.offsetMm + opening.widthMm);
+  if (end - start <= 1 || opening.heightMm <= 1) return [];
+  const face = projectFace([
+    point(start, opening.sillHeightMm),
+    point(end, opening.sillHeightMm),
+    point(end, opening.sillHeightMm + opening.heightMm),
+    point(start, opening.sillHeightMm + opening.heightMm),
+  ], projection);
+  return face.length >= 3 ? [face] : [];
 }
 
 function createBackground(width: number, height: number, color: [number, number, number, number]) {
@@ -120,6 +168,51 @@ function scenePrimitives(scene: SceneV1): ScenePrimitive[] {
   for (const room of scene.rooms) {
     const boundary = room.boundary.slice(0, -1).map((point) => ({ x: point.xMm, y: 0, z: point.yMm }));
     if (boundary.length >= 3) primitives.push({ id: `floor:${room.id}`, kind: 'floor', faces: [boundary], color: [213, 205, 193, 255] });
+  }
+  for (const floor of scene.floors) {
+    for (const surface of floor.surfaces ?? []) {
+      if (!surface.skirting) continue;
+      const polygon = surface.regionPolygon.length > 1 && surface.regionPolygon[0]!.xMm === surface.regionPolygon[surface.regionPolygon.length - 1]!.xMm && surface.regionPolygon[0]!.yMm === surface.regionPolygon[surface.regionPolygon.length - 1]!.yMm
+        ? surface.regionPolygon.slice(0, -1)
+        : surface.regionPolygon;
+      if (polygon.length < 3) continue;
+      const exclusions = surface.skirting.doorwayExclusions;
+      let perimeterOffsetMm = 0;
+      for (let index = 0; index < polygon.length; index += 1) {
+        const start = polygon[index]!;
+        const end = polygon[(index + 1) % polygon.length]!;
+        const length = Math.hypot(end.xMm - start.xMm, end.yMm - start.yMm);
+        if (length <= 1) continue;
+        const segmentStartMm = perimeterOffsetMm;
+        const segmentEndMm = perimeterOffsetMm + length;
+        const blocked = exclusions.map((range) => ({ startMm: Math.max(segmentStartMm, range.startMm), endMm: Math.min(segmentEndMm, range.endMm) })).filter((range) => range.endMm > range.startMm).sort((a, b) => a.startMm - b.startMm);
+        let cursorMm = segmentStartMm;
+        const addBand = (fromMm: number, toMm: number) => {
+          if (toMm - fromMm <= 1) return;
+          const ratioStart = (fromMm - segmentStartMm) / length;
+          const ratioEnd = (toMm - segmentStartMm) / length;
+          const x1 = start.xMm + (end.xMm - start.xMm) * ratioStart;
+          const z1 = start.yMm + (end.yMm - start.yMm) * ratioStart;
+          const x2 = start.xMm + (end.xMm - start.xMm) * ratioEnd;
+          const z2 = start.yMm + (end.yMm - start.yMm) * ratioEnd;
+          const dx = x2 - x1; const dz = z2 - z1; const bandLength = Math.hypot(dx, dz);
+          const nx = -dz / bandLength * 8; const nz = dx / bandLength * 8;
+          const elevation = surface.elevationMm;
+          const height = surface.skirting!.heightMm;
+          primitives.push({
+            id: `skirting:${surface.id}:${index}:${Math.round(fromMm)}`,
+            kind: 'skirting', materialId: surface.materialVersionId, color: [165, 151, 132, 255],
+            faces: boxFaces(
+              { x: x1 - nx, y: elevation, z: z1 - nz }, { x: x2 - nx, y: elevation, z: z2 - nz }, { x: x2 + nx, y: elevation, z: z2 + nz }, { x: x1 + nx, y: elevation, z: z1 + nz },
+              { x: x1 - nx, y: elevation + height, z: z1 - nz }, { x: x2 - nx, y: elevation + height, z: z2 - nz }, { x: x2 + nx, y: elevation + height, z: z2 + nz }, { x: x1 + nx, y: elevation + height, z: z1 + nz },
+            ),
+          });
+        };
+        for (const range of blocked) { addBand(cursorMm, range.startMm); cursorMm = Math.max(cursorMm, range.endMm); }
+        addBand(cursorMm, segmentEndMm);
+        perimeterOffsetMm = segmentEndMm;
+      }
+    }
   }
   for (const wall of scene.walls) {
     const dx = wall.end.xMm - wall.start.xMm;
@@ -159,11 +252,11 @@ function scenePrimitives(scene: SceneV1): ScenePrimitive[] {
   const exactParts = scene.moduleParts ?? [];
   const modulesWithParts = new Set(exactParts.map((part) => part.moduleId));
   const renderableModules = scene.modules.filter((module) => !modulesWithParts.has(module.id));
-  const renderBox = (entity: { id: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number }; rotationDeg: number; materialId?: string; family: string }) => {
+  const renderBox = (entity: { id: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number; zMm?: number }; rotationDeg: number; materialId?: string; family: string }) => {
     const theta = -entity.rotationDeg * Math.PI / 180;
     const local = (x: number, z: number, y: number): Vec3 => ({
       x: entity.position.xMm + x * Math.cos(theta) - z * Math.sin(theta),
-      y,
+      y: (entity.position.zMm ?? 0) + y,
       z: entity.position.yMm + x * Math.sin(theta) + z * Math.cos(theta),
     });
     primitives.push({
@@ -182,7 +275,7 @@ function scenePrimitives(scene: SceneV1): ScenePrimitive[] {
       widthMm: part.widthMm,
       depthMm: part.depthMm,
       heightMm: part.heightMm,
-      position: { xMm: part.position.xMm, yMm: part.position.yMm },
+      position: part.position,
       rotationDeg: part.rotationDeg,
       materialId: part.materialId,
     });
@@ -263,14 +356,16 @@ function encodePng(width: number, height: number, rgba: Buffer): Buffer {
     rgba.copy(raw, y * (stride + 1) + 1, y * stride, y * stride + stride);
   }
 
-  const idat = zlibDeflateRaw(raw);
+  // PNG IDAT carries a zlib stream (RFC 1950), not a bare DEFLATE stream.
+  // A raw stream passes signature/hash checks but strict decoders reject it.
+  const idat = zlibDeflate(raw);
   return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]);
 }
 
 // Tiny raw-DEFLATE using Node's zlib (deflateRawSync) — still no extra deps.
-import { deflateRawSync } from 'node:zlib';
-function zlibDeflateRaw(buf: Buffer): Buffer {
-  return deflateRawSync(buf, { level: 6 });
+import { deflateSync } from 'node:zlib';
+function zlibDeflate(buf: Buffer): Buffer {
+  return deflateSync(buf, { level: 6 });
 }
 
 function chunk(type: string, data: Buffer): Buffer {
@@ -394,6 +489,8 @@ export function renderBaseArtifacts(input: BaseRenderInput): BaseRenderArtifacts
     rgb: { url: dataUri(rgbPng), bytes: rgbPng.length },
     edgeMap: { url: dataUri(edgePng), bytes: edgePng.length },
     objectMasks,
+    openingMasks: [],
+    skirtingMasks: [],
     materialRegions,
     depth: { url: dataUri(depthPng), bytes: depthPng.length },
     baseHash,

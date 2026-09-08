@@ -58,6 +58,13 @@ test('approved canonical plan passes deterministic validation', () => {
   assert.ok(!status.issues.some((issue: { code: string }) => issue.code === 'PLAN_NOT_APPROVED'));
 });
 
+test('canonical plan retains the selected geometry approval mode', () => {
+  const initialDesign = fixture('approved-plan.json');
+  initialDesign.geometryMode = 'initial_design';
+  const status = validateCanonicalPlan(initialDesign);
+  assert.strictEqual(status.valid, true);
+});
+
 test('upstream approved plan change preserves latest validation result', () => {
   const updated = fixture('approved-plan.json');
   updated.state = 'designer_review';

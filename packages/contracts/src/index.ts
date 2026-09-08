@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export * from './flooring.js';
 
 export const VisualOperationSchema = z.enum(['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance']);
 export const VisualProposalRequestSchema = z.object({
@@ -6,6 +7,13 @@ export const VisualProposalRequestSchema = z.object({
   sceneVersionId: z.string().uuid(),
   idempotencyKey: z.string().min(8).max(160).optional(),
   roomId: z.string().min(1),
+  // A material revision is never a freeform whole-room redraw. These identifiers
+  // bind the request to a scene module and its named component group so the
+  // renderer can select the exact deterministic mask generated from scene.v1.
+  targetModuleId: z.string().min(1).optional(),
+  targetComponentId: z.string().min(1).optional(),
+  targetMaterialId: z.string().min(1).optional(),
+  targetSemanticSlot: z.enum(['carcass', 'shutter', 'back_panel', 'countertop', 'profile', 'glass', 'hardware', 'flooring', 'wall', 'ceiling', 'lighting']).optional(),
   sourceAssets: z.array(z.string()).min(1),
   referenceAssets: z.array(z.string()).default([]),
   masks: z.array(z.string()).default([]),
@@ -137,6 +145,42 @@ export const MaterialAssignmentV1Schema = z.object({
   status: z.enum(['draft', 'approved']).default('draft'),
 });
 export type MaterialAssignmentV1 = z.infer<typeof MaterialAssignmentV1Schema>;
+
+// A bay schedule is the measured composition contract shared by the scene
+// compiler, library fit checks, elevations and production exports.  `confirmed`
+// is deliberately required: an unreviewed schedule must never become a
+// fabrication source through a default value.
+export const BayV1Schema = z.object({
+  id: z.string().min(1),
+  offsetMm: z.number().finite().nonnegative(),
+  widthMm: z.number().finite().positive(),
+  moduleId: z.string().min(1).optional(),
+  keepOut: z.boolean(),
+  fillerMm: z.number().finite().nonnegative().optional(),
+});
+export type BayV1 = z.infer<typeof BayV1Schema>;
+
+export const CompositionScheduleV1Schema = z.object({
+  wallId: z.string().min(1),
+  approvedUsableWidthMm: z.number().finite().positive(),
+  leftClearanceMm: z.number().finite().nonnegative(),
+  rightClearanceMm: z.number().finite().nonnegative(),
+  bays: z.array(BayV1Schema).min(1),
+  confirmed: z.boolean(),
+  confirmedBy: z.string().min(1).optional(),
+  confirmedAt: z.string().min(1).optional(),
+});
+export type CompositionScheduleV1 = z.infer<typeof CompositionScheduleV1Schema>;
+
+export const FloorPointV1Schema = z.object({ xMm: z.number().finite(), yMm: z.number().finite() });
+export type FloorPointV1 = z.infer<typeof FloorPointV1Schema>;
+export const FloorSurfaceV1Schema = z.object({
+  id: z.string().min(1), roomId: z.string().min(1), materialVersionId: z.string().min(1),
+  regionPolygon: z.array(FloorPointV1Schema).min(3), elevationMm: z.number().finite(), buildUpThicknessMm: z.number().nonnegative(), substrate: z.string().min(1),
+  tile: z.object({ widthMm: z.number().positive(), lengthMm: z.number().positive(), groutWidthMm: z.number().nonnegative(), groutColor: z.string().min(1), originX: z.number().finite(), originY: z.number().finite(), angleDeg: z.number().finite(), pattern: z.enum(['grid', 'brick']) }).optional(),
+  skirting: z.object({ heightMm: z.number().positive(), profile: z.string().min(1), doorwayExclusions: z.array(z.object({ startMm: z.number().nonnegative(), endMm: z.number().nonnegative() })).default([]) }).optional(),
+});
+export type FloorSurfaceV1 = z.infer<typeof FloorSurfaceV1Schema>;
 
 export const MaterialLibraryItemV1Schema = z.object({
   id: z.string().uuid().optional(),

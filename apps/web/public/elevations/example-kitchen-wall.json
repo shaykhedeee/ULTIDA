@@ -1,0 +1,95 @@
+﻿{
+  "title": "SHOW KITCHEN MAIN COOKING RUN (WALL A)",
+  "room": "5BHK LUXURY VILLA - GROUND FLOOR KITCHEN SUITE",
+  "date": "2026-09-08",
+  "wall_width_mm": 6669,
+  "wall_height_mm": 3230,
+  "skirting_height_mm": 100,
+  "controlled_chain_width_mm": 6669,
+  "chain_tolerance_mm": 1,
+  "dim_offset_mm": 220,
+  "openings": [
+    {
+      "label": "GARDEN WINDOW (1523x1200, +950 SILL)",
+      "x_mm": 3491,
+      "y_mm": 950,
+      "width_mm": 1523,
+      "height_mm": 1200
+    },
+    {
+      "label": "ARCHWAY PASSAGE TO DINING",
+      "x_mm": 295,
+      "y_mm": 0,
+      "width_mm": 1894,
+      "height_mm": 2400
+    }
+  ],
+  "modules": [
+    {
+      "label": "MASONRY PIER",
+      "kind": "carcass",
+      "status": "verified",
+      "chain": true,
+      "dimension": true,
+      "x_mm": 0,
+      "y_mm": 0,
+      "width_mm": 295,
+      "height_mm": 3230
+    },
+    {
+      "label": "DINING PASSAGEWAY",
+      "kind": "carcass",
+      "status": "verified",
+      "chain": true,
+      "dimension": true,
+      "x_mm": 295,
+      "y_mm": 0,
+      "width_mm": 1894,
+      "height_mm": 2400
+    },
+    {
+      "label": "INTERMEDIATE PIER",
+      "kind": "carcass",
+      "status": "verified",
+      "chain": true,
+      "dimension": true,
+      "x_mm": 2189,
+      "y_mm": 0,
+      "width_mm": 1302,
+      "height_mm": 3230
+    },
+    {
+      "label": "SINK & RO BASE COUNTER",
+      "kind": "carcass",
+      "status": "verified",
+      "chain": true,
+      "dimension": true,
+      "x_mm": 3491,
+      "y_mm": 0,
+      "width_mm": 1523,
+      "height_mm": 850
+    },
+    {
+      "label": "HOB & DRAWERS COOKING RUN",
+      "kind": "carcass",
+      "status": "verified",
+      "chain": true,
+      "dimension": true,
+      "x_mm": 5014,
+      "y_mm": 0,
+      "width_mm": 1655,
+      "height_mm": 850
+    },
+    {
+      "label": "CHIMNEY HOOD & DUCT (900mm)",
+      "kind": "hardware",
+      "status": "reference",
+      "chain": false,
+      "dimension": false,
+      "x_mm": 5391,
+      "y_mm": 1500,
+      "width_mm": 900,
+      "height_mm": 600
+    }
+  ]
+}

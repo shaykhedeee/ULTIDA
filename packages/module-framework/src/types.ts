@@ -1,15 +1,39 @@
 import { z } from 'zod';
 
+export const ModuleElementKindSchema = z.enum([
+  'carcass',
+  'shutter',
+  'drawer',
+  'shelf',
+  'loft',
+  'dummy_filler',
+  'profile_glass',
+  'back_panel',
+  'countertop',
+  'plinth_skirting',
+  'lighting_anchor',
+  'service_void',
+  'hardware',
+  'cnc_panel',
+  'appliance_void',
+]);
+export type ModuleElementKind = z.infer<typeof ModuleElementKindSchema>;
+
+export const LightingFixtureTypeSchema = z.enum(['led-strip', 'downlight', 'spot', 'pendant']);
+export type LightingFixtureType = z.infer<typeof LightingFixtureTypeSchema>;
+
 export type SemanticType =
   | 'carcass'
   | 'shutter'
   | 'drawer'
+  | 'loft'
   | 'shelf'
   | 'filler'
   | 'back_panel'
   | 'profile'
   | 'glass'
   | 'lighting_channel'
+  | 'lighting_anchor'
   | 'hardware'
   | 'countertop'
   | 'panel';
@@ -22,7 +46,8 @@ export type CategoryType =
   | 'pooja_unit'
   | 'kitchen'
   | 'bed'
-  | 'utility';
+  | 'utility'
+  | 'freestanding_lighting';
 
 export type TvUnitFamily =
   | 'minimal_floating'
@@ -44,7 +69,16 @@ export interface Transform { xMm: number; yMm: number; zMm: number; rotationDeg:
 export interface MaterialSlot { id: string; code: string; name: string; }
 export interface PartDrawing { layer: string; sortOrder: number; }
 export interface PartBom { sku: string; qty: number; unit: string; lengthMm?: number; widthMm?: number; heightMm?: number; thicknessMm?: number; }
-export interface PartMeta { semanticType: SemanticType; parentId: string | null; materialSlot: MaterialSlot; drawing: PartDrawing; bom: PartBom; }
+export interface PartMeta {
+  semanticType: SemanticType;
+  parentId: string | null;
+  materialSlot: MaterialSlot;
+  drawing: PartDrawing;
+  bom: PartBom;
+  fixtureType?: LightingFixtureType;
+  colorTemperatureK?: number;
+  lengthMm?: number;
+}
 
 export interface Part {
   id: string;
@@ -55,6 +89,12 @@ export interface Part {
   size: Size2D;
   anchor: { wallId?: string; face: AnchorFace; offsetMm?: number };
   meta: PartMeta;
+  kind?: ModuleElementKind | string;
+  positionMm?: { xMm: number; yMm: number; zMm: number };
+  fixtureType?: LightingFixtureType;
+  colorTemperatureK?: number;
+  lengthMm?: number;
+  bom?: PartBom;
 }
 
 export interface HardRule { code: string; severity: 'blocking' | 'warning'; description: string; }
@@ -107,6 +147,9 @@ export interface TvUnitParameters {
   fingerGrooveGapMm?: number;
   shutterCount?: number;
   loftFillerMm?: number;
+  sideFillerMm?: number;
+  sideFillerLeft?: boolean;
+  sideFillerRight?: boolean;
 }
 
 export interface TemplateCompileInput {
@@ -114,6 +157,10 @@ export interface TemplateCompileInput {
   parameters: TvUnitParameters | Record<string, unknown>;
   wall: { widthMm: number; heightMm: number; depthMm: number; id?: string };
   instanceId?: string;
+  category?: CategoryType | string;
+  family?: string;
+  materialSlots?: string[];
+  tags?: string[];
 }
 
 export interface TemplateCompileResult {
@@ -123,6 +170,7 @@ export interface TemplateCompileResult {
   blockingViolations: string[];
   warningViolations: string[];
   parts: Part[];
+  elements?: Part[];
 }
 
 export interface ModuleTemplateRecord { id: string; name: string; category: CategoryType; versions: ModuleTemplateVersion[]; }

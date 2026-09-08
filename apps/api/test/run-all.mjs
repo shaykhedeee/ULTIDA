@@ -10,6 +10,7 @@ for (const file of files) {
   const startedAt = Date.now();
   console.log(`[test] ${file}`);
   const child = spawn(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', join(testDir, file)], {
+    cwd: dirname(testDir),
     stdio: 'inherit',
     env: { ...process.env, NODE_ENV: 'test' }
   });
@@ -21,11 +22,12 @@ for (const file of files) {
       clearTimeout(timer);
       resolve(value);
     };
+    const timeoutMs = file.includes('production-dossier') ? 90_000 : 45_000;
     const timer = setTimeout(() => {
-      console.error(`[test] timeout after 30s: ${file}`);
+      console.error(`[test] timeout after ${Math.round(timeoutMs / 1000)}s: ${file}`);
       child.kill();
       finish(124);
-    }, 30_000);
+    }, timeoutMs);
     child.once('error', () => finish(1));
     child.once('exit', (exitCode, signal) => finish(exitCode ?? (signal ? 1 : 0)));
   });

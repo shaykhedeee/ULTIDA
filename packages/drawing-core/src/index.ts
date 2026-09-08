@@ -1,5 +1,11 @@
-import type { SceneV1 } from '@ultida/scene-core';
-import PDFDocument from 'pdfkit';
+import { PdfWriter } from './pdf-writer.js';
+import type { Writable } from 'node:stream';
+import type { SceneV1, SceneWallV1, SceneOpeningV1, SceneModuleV1, SceneModulePartV1, SceneRoomV1 } from './scene-types.js';
+export * from './scene-types.js';
+export * from './elevation-sheet.js';
+export * from './pdf-writer.js';
+export * from './production-dossier-pdf.js';
+import { generateArchitecturalShopSheetSvg, type ShopDrawingOptions } from './shop-drawing-renderer.js';
 
 export const ULTIDA_DRAWING_STANDARD_V1 = {
   schema: 'drawing.standard.v1' as const,
@@ -145,8 +151,8 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
       warnings.push(`Module ${module.id} has invalid dimensions and was skipped.`);
       continue;
     }
-    const nearest = (scene.walls ?? []).map((wall) => ({ wall, ...moduleWallPosition(module, wall) })).sort((a, b) => a.distance - b.distance)[0];
-    const projected: ProjectedModule = { id: module.id, family: module.family, roomId: module.roomId, xMm: module.position.xMm, yMm: module.position.yMm, widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm, rotationDeg: module.rotationDeg, wallId: nearest?.wall.id, offsetAlongWallMm: nearest?.offset };
+    const nearest = (scene.walls ?? []).map((wall: SceneWallV1) => ({ wall, ...moduleWallPosition(module, wall) })).sort((a: { distance: number }, b: { distance: number }) => a.distance - b.distance)[0];
+    const projected: ProjectedModule = { id: module.id, family: module.family, roomId: module.roomId ?? '', xMm: module.position.xMm, yMm: module.position.yMm, widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm, rotationDeg: module.rotationDeg ?? 0, wallId: nearest?.wall.id, offsetAlongWallMm: nearest?.offset };
     modules.push(projected);
     const corners = rotatedRectangle(projected.xMm, projected.yMm, projected.widthMm, projected.depthMm, projected.rotationDeg);
     corners.forEach((corner, index) => {
@@ -154,18 +160,18 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
       lines.push({ id: `${module.id}-${index + 1}`, layer: 'modules', x1: corner.x, y1: corner.y, x2: next.x, y2: next.y });
     });
   }
-  const openings: ProjectedOpening[] = (scene.openings ?? []).map((opening) => ({ id: opening.id, kind: opening.kind, wallId: opening.wallId, offsetMm: opening.offsetMm, widthMm: opening.widthMm, heightMm: opening.heightMm }));
+  const openings: ProjectedOpening[] = (scene.openings ?? []).map((opening: SceneOpeningV1) => ({ id: opening.id, kind: opening.kind, wallId: opening.wallId, offsetMm: opening.offsetMm, widthMm: opening.widthMm, heightMm: opening.heightMm }));
   for (const opening of openings) {
     const line = openingLine(opening, scene.walls ?? []);
     if (line) lines.push(line);
     else warnings.push(`Opening ${opening.id} could not be projected onto its wall and was skipped.`);
   }
-  const elevations = (scene.walls ?? []).filter((wall) => finitePositive(wallLength(wall))).map((wall) => ({
+  const elevations = (scene.walls ?? []).filter((wall: SceneWallV1) => finitePositive(wallLength(wall))).map((wall: SceneWallV1) => ({
     wallId: wall.id,
     lengthMm: wallLength(wall),
-    heightMm: wall.heightMm,
-    openings: openings.filter((opening) => opening.wallId === wall.id),
-    modules: modules.filter((module) => module.wallId === wall.id).sort((a, b) => (a.offsetAlongWallMm ?? 0) - (b.offsetAlongWallMm ?? 0))
+    heightMm: wall.heightMm ?? 2700,
+    openings: openings.filter((opening: ProjectedOpening) => opening.wallId === wall.id),
+    modules: modules.filter((module: ProjectedModule) => module.wallId === wall.id).sort((a: ProjectedModule, b: ProjectedModule) => (a.offsetAlongWallMm ?? 0) - (b.offsetAlongWallMm ?? 0))
   }));
   return { schema: 'drawing.projection.v1', units: 'mm', projectId: scene.projectId, floorPlanVersionId: scene.floorPlanVersionId, sceneStatus: scene.metadata?.status ?? 'draft', lines, openings, modules, elevations, warnings };
 }
@@ -428,13 +434,35 @@ export function exportWallElevationToDxf(scene: SceneV1, wallId: string, options
     ].join('\r\n');
   }
 
-  // Wall perimeter
+  // ── System 32 datums (Indian modular standard) ────────────────────────────
+  const PLINTH_H = 100;
+  const COUNTER_H = 850;
+  const LINTEL_H = 2100;
+  const LOFT_H = wall.heightMm - 600;
+
+  // Wall perimeter (A-WALL)
   entities.push(...dxfLine(0, 0, wall.lengthMm, 0, 'A-WALL'));
   entities.push(...dxfLine(wall.lengthMm, 0, wall.lengthMm, wall.heightMm, 'A-WALL'));
   entities.push(...dxfLine(wall.lengthMm, wall.heightMm, 0, wall.heightMm, 'A-WALL'));
   entities.push(...dxfLine(0, wall.heightMm, 0, 0, 'A-WALL'));
 
-  // Openings
+  // Ceiling hatch lines (diagonal, A-DATUM layer, lightweight)
+  for (let d = 0; d <= wall.lengthMm + 600; d += 200) {
+    const x1 = Math.max(0, d - 600);
+    const y1 = Math.min(wall.heightMm, wall.heightMm - (d - 600 > 0 ? 0 : 600 - d));
+    const x2 = Math.min(wall.lengthMm, d);
+    const y2 = Math.max(LOFT_H, wall.heightMm - (d > 0 ? Math.min(600, d) : 0));
+    if (x1 < x2) entities.push(...dxfLine(x1, y1, x2, y2, 'A-DATUM'));
+  }
+
+  // System 32 datum reference lines (A-DATUM)
+  [PLINTH_H, COUNTER_H, LINTEL_H, LOFT_H].forEach((h, i) => {
+    const labels = ['PLINTH 100mm', 'COUNTER 850mm', 'LINTEL 2100mm', `LOFT ${LOFT_H}mm`];
+    entities.push(...dxfLine(-200, h, wall.lengthMm + 50, h, 'A-DATUM'));
+    entities.push(...dxfText(labels[i], wall.lengthMm + 60, h + 15, 40, 'A-ANNO'));
+  });
+
+  // Openings (A-OPENING)
   for (const opening of wall.openings) {
     const x1 = opening.offsetMm;
     const x2 = opening.offsetMm + opening.widthMm;
@@ -445,56 +473,124 @@ export function exportWallElevationToDxf(scene: SceneV1, wallId: string, options
     entities.push(...dxfLine(x2, y2, x1, y2, 'A-OPENING'));
     entities.push(...dxfLine(x1, y2, x1, y1, 'A-OPENING'));
     if (options?.dimensionStyle?.showOpeningLabels !== false) {
-      entities.push(...dxfText(`${opening.kind} (${Math.round(opening.widthMm)}mm)`, x1 + 10, y2 + 20, 40, 'A-ANNO'));
+      entities.push(...dxfText(`${opening.kind.toUpperCase()} (${Math.round(opening.widthMm)}mm)`, x1 + 10, y2 + 50, 45, 'A-ANNO'));
+      // Opening width dim line
+      const dimY = -100;
+      entities.push(...dxfLine(x1, dimY, x2, dimY, 'A-DIM'));
+      entities.push(...dxfLine(x1, dimY - 25, x1, dimY + 25, 'A-DIM'));
+      entities.push(...dxfLine(x2, dimY - 25, x2, dimY + 25, 'A-DIM'));
+      entities.push(...dxfText(`${Math.round(opening.widthMm)}`, (x1 + x2) / 2 - 50, dimY + 35, 40, 'A-DIM'));
     }
   }
 
-  // Modules
+  // Modules with zone sub-elements (A-MOD, A-SKIRTING, A-ZONE)
+  let prevEndMm = 0;
   for (const module of wall.modules) {
     const x1 = module.offsetAlongWallMm ?? 0;
     const x2 = x1 + module.widthMm;
-    const y1 = 0; // Elevation from floor
+    const y1 = 0;
     const y2 = module.heightMm;
+    const isTall = module.heightMm > 1800;
+    const isBase = module.heightMm <= 900;
+
+    // Main module outline (A-MOD)
     entities.push(...dxfLine(x1, y1, x2, y1, 'A-MOD'));
     entities.push(...dxfLine(x2, y1, x2, y2, 'A-MOD'));
     entities.push(...dxfLine(x2, y2, x1, y2, 'A-MOD'));
     entities.push(...dxfLine(x1, y2, x1, y1, 'A-MOD'));
-    if (options?.dimensionStyle?.showModuleLabels !== false) {
-      entities.push(...dxfText(`${module.family} ${Math.round(module.widthMm)}x${module.heightMm}`, x1 + 10, y1 + 30, 40, 'A-ANNO'));
+
+    // Skirting/Plinth zone (100mm)
+    entities.push(...dxfLine(x1, PLINTH_H, x2, PLINTH_H, 'A-SKIRTING'));
+    entities.push(...dxfText('SKIRTING', x1 + 10, PLINTH_H / 2 - 15, 30, 'A-SKIRTING'));
+
+    // Drawer zone (base units: 220mm above plinth)
+    if (isBase) {
+      const drawerTop = PLINTH_H + 220;
+      entities.push(...dxfLine(x1, drawerTop, x2, drawerTop, 'A-ZONE'));
+      entities.push(...dxfText('DRAWER', x1 + 10, (PLINTH_H + drawerTop) / 2 - 15, 35, 'A-ZONE'));
     }
+
+    // Loft zone (tall units: top 600mm)
+    if (isTall) {
+      entities.push(...dxfLine(x1, LOFT_H, x2, LOFT_H, 'A-ZONE'));
+      entities.push(...dxfText('LOFT', x1 + 10, (LOFT_H + module.heightMm) / 2 - 15, 35, 'A-ZONE'));
+    }
+
+    if (options?.dimensionStyle?.showModuleLabels !== false) {
+      entities.push(...dxfText(`${module.family.toUpperCase()} ${Math.round(module.widthMm)}x${Math.round(module.depthMm ?? 600)}x${Math.round(module.heightMm)}mm`, x1 + 10, y2 / 2 + 20, 45, 'A-ANNO'));
+    }
+
+    // Segment horizontal dim above module
+    if (x1 > prevEndMm + 5) {
+      // Gap (filler) dim
+      const gapDimY = -200;
+      entities.push(...dxfLine(prevEndMm, gapDimY, x1, gapDimY, 'A-DIM'));
+      entities.push(...dxfLine(prevEndMm, gapDimY - 25, prevEndMm, gapDimY + 25, 'A-DIM'));
+      entities.push(...dxfLine(x1, gapDimY - 25, x1, gapDimY + 25, 'A-DIM'));
+      entities.push(...dxfText(`${Math.round(x1 - prevEndMm)}`, (prevEndMm + x1) / 2 - 40, gapDimY + 35, 40, 'A-DIM'));
+    }
+    const modDimY = -200;
+    entities.push(...dxfLine(x1, modDimY, x2, modDimY, 'A-DIM'));
+    entities.push(...dxfLine(x1, modDimY - 25, x1, modDimY + 25, 'A-DIM'));
+    entities.push(...dxfLine(x2, modDimY - 25, x2, modDimY + 25, 'A-DIM'));
+    entities.push(...dxfText(`${Math.round(module.widthMm)}`, (x1 + x2) / 2 - 50, modDimY + 35, 45, 'A-DIM'));
+    prevEndMm = x2;
   }
 
-  // Dimension Line
+  // ── Overall dimension chain ────────────────────────────────────────────────
   if (options?.dimensionStyle?.showDimensions !== false) {
-    const dimY = -150;
+    // Bottom horizontal overall
+    const dimY = -350;
     entities.push(...dxfLine(0, dimY, wall.lengthMm, dimY, 'A-DIM'));
-    entities.push(...dxfLine(0, dimY - 30, 0, dimY + 30, 'A-DIM'));
-    entities.push(...dxfLine(wall.lengthMm, dimY - 30, wall.lengthMm, dimY + 30, 'A-DIM'));
-    entities.push(...dxfText(`${Math.round(wall.lengthMm)} MM`, wall.lengthMm / 2 - 100, dimY + 40, 50, 'A-DIM'));
+    entities.push(...dxfLine(0, dimY - 40, 0, dimY + 40, 'A-DIM'));
+    entities.push(...dxfLine(wall.lengthMm, dimY - 40, wall.lengthMm, dimY + 40, 'A-DIM'));
+    entities.push(...dxfText(`${Math.round(wall.lengthMm)} MM`, wall.lengthMm / 2 - 120, dimY + 50, 60, 'A-DIM'));
+
+    // Right-side vertical dimensions (A-DIM-VERT)
+    const vX = wall.lengthMm + 250;
+    // Plinth
+    entities.push(...dxfLine(vX, 0, vX, PLINTH_H, 'A-DIM'));
+    entities.push(...dxfLine(vX - 25, 0, vX + 25, 0, 'A-DIM'));
+    entities.push(...dxfLine(vX - 25, PLINTH_H, vX + 25, PLINTH_H, 'A-DIM'));
+    entities.push(...dxfText(`${PLINTH_H}`, vX + 35, PLINTH_H / 2, 35, 'A-DIM'));
+    // Shutter zone
+    entities.push(...dxfLine(vX + 100, PLINTH_H, vX + 100, LINTEL_H, 'A-DIM'));
+    entities.push(...dxfLine(vX + 75, PLINTH_H, vX + 125, PLINTH_H, 'A-DIM'));
+    entities.push(...dxfLine(vX + 75, LINTEL_H, vX + 125, LINTEL_H, 'A-DIM'));
+    entities.push(...dxfText(`${LINTEL_H - PLINTH_H}`, vX + 135, (PLINTH_H + LINTEL_H) / 2, 40, 'A-DIM'));
+    // Overall height
+    entities.push(...dxfLine(vX + 200, 0, vX + 200, wall.heightMm, 'A-DIM'));
+    entities.push(...dxfLine(vX + 175, 0, vX + 225, 0, 'A-DIM'));
+    entities.push(...dxfLine(vX + 175, wall.heightMm, vX + 225, wall.heightMm, 'A-DIM'));
+    entities.push(...dxfText(`${wall.heightMm}`, vX + 235, wall.heightMm / 2, 55, 'A-DIM'));
   }
 
   // Header & Title Block
   const title = options?.titleBlock?.drawingTitle ?? `WALL ${wallId} ELEVATION`;
   const company = options?.titleBlock?.companyName ?? 'ULTIDA / Altera';
-  entities.push(...dxfText(`${company} | ${title}`, 0, wall.heightMm + 200, 80, 'A-ANNO'));
-  entities.push(...dxfText(`WALL LENGTH: ${Math.round(wall.lengthMm)} MM | HEIGHT: ${wall.heightMm} MM`, 0, wall.heightMm + 80, 50, 'A-ANNO'));
+  entities.push(...dxfText(`${company} | ${title}`, 0, wall.heightMm + 250, 90, 'A-ANNO'));
+  entities.push(...dxfText(`WALL LENGTH: ${Math.round(wall.lengthMm)} MM | HEIGHT: ${wall.heightMm} MM | IS 710 BWP MARINE | SYSTEM 32`, 0, wall.heightMm + 120, 50, 'A-ANNO'));
+  entities.push(...dxfText('UNITS: MILLIMETRES | SCALE 1:20 | LAYERS: A-WALL A-MOD A-OPENING A-DIM A-SKIRTING A-ZONE A-DATUM', 0, wall.heightMm + 60, 40, 'A-ANNO'));
 
   return [
     '0', 'SECTION',
     '2', 'HEADER',
     '9', '$INSUNITS', '70', '4', // Millimeters
-    '9', '$EXTMIN', '10', '0', '20', '-300', '30', '0',
-    '9', '$EXTMAX', '10', String(wall.lengthMm), '20', String(wall.heightMm + 400), '30', '0',
+    '9', '$EXTMIN', '10', '-300', '20', '-500', '30', '0',
+    '9', '$EXTMAX', '10', String(wall.lengthMm + 600), '20', String(wall.heightMm + 400), '30', '0',
     '0', 'ENDSEC',
     '0', 'SECTION',
     '2', 'TABLES',
-    '0', 'TABLE', '2', 'LAYER', '70', '6',
+    '0', 'TABLE', '2', 'LAYER', '70', '10',
     ...dxfLayer('0', 7),
     ...dxfLayer('A-WALL', 7),
     ...dxfLayer('A-OPENING', 1),
     ...dxfLayer('A-MOD', 30),
     ...dxfLayer('A-ANNO', 8),
-    ...dxfLayer('A-DIM', 5),
+    ...dxfLayer('A-DIM', 1),
+    ...dxfLayer('A-DATUM', 8),
+    ...dxfLayer('A-SKIRTING', 3),
+    ...dxfLayer('A-ZONE', 6),
     '0', 'ENDTAB',
     '0', 'ENDSEC',
     '0', 'SECTION',
@@ -523,12 +619,12 @@ export function generateDrawingPackageSvg(scene: SceneV1): string {
   return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="-100 -150 ${maxWallLength * 2 + 700} ${Math.max(elevationHeight, maxWallLength) + 300}"><title>ULTIDA drawing package ${projection.floorPlanVersionId}</title><desc>Generated from drawing.projection.v1 for ${projection.projectId}</desc><style>.walls,.wall-face{stroke:#38291f;stroke-width:8;fill:none}.modules,.module{stroke:#38291f;stroke-width:5;fill:#c59c2d;fill-opacity:.25}.opening{stroke:#7a4b2d;stroke-width:5;fill:#fff}text{font:42px sans-serif;fill:#38291f}</style><g id="wall-elevations">${elevations}</g><g id="floor-plan" transform="translate(${floorOffset} 0)"><text x="0" y="-35">Floor plan / millimetres</text>${floorLines}</g></svg>`;
 }
 
-export function generateWallElevationsPdf(scene: SceneV1, outStream: any, options?: DrawingTemplateSettings) {
+export function generateWallElevationsPdf(scene: SceneV1, outStream: Writable, options?: DrawingTemplateSettings) {
   return generateProjectionPdf(buildDrawingProjection(scene), outStream);
 }
 
-export function generateProjectionPdf(projection: DrawingPackageProjection, outStream: NodeJS.WritableStream) {
-  const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 24, info: { Title: `ULTIDA Production Drawings - ${projection.floorPlanVersionId}`, Author: 'ULTIDA', Subject: 'Approved scene production drawing package' } });
+export function generateProjectionPdf(projection: DrawingPackageProjection, outStream: Writable, production?: ProductionSnapshotV1) {
+  const doc = new PdfWriter({ size: 'A4', layout: 'landscape', margin: 24, info: { Title: `ULTIDA Production Drawings - ${projection.floorPlanVersionId}`, Author: 'ULTIDA', Subject: 'Approved scene production drawing package' } });
   doc.pipe(outStream);
   const pageWidth = 842; const pageHeight = 595;
   const drawFrame = (sheetTitle: string, sheetNumber: number, totalSheets: number, subtitle: string) => {
@@ -543,7 +639,8 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
   };
   // Only walls carrying furniture/modules receive an elevation sheet.
   const furnitureWalls = projection.elevations.filter((wall) => wall.modules.length > 0);
-  const totalSheets = Math.max(1, furnitureWalls.length + 1);
+  const productionSheetCount = production ? 1 + Math.max(1, Math.ceil(production.parts.length / 25)) : 0;
+  const totalSheets = Math.max(1, furnitureWalls.length + 1 + productionSheetCount);
   drawFrame('DRAWING INDEX AND FLOOR PLAN', 1, totalSheets, 'Generated from immutable drawing.projection.v1. Verify all review warnings before release.');
   doc.font('Helvetica-Bold').fontSize(24).fillColor('#38291f').text('Production Drawing Package', 48, 50);
   doc.font('Helvetica').fontSize(10).fillColor('#53463d').text('Floor plan overview and wall elevation register', 48, 82);
@@ -575,23 +672,134 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
   if (projection.warnings.length) doc.font('Helvetica-Bold').fontSize(7).fillColor('#9b2c2c').text(`REVIEW REQUIRED: ${projection.warnings.join(' ')}`, 42, 465, { width: 740 });
   furnitureWalls.forEach((wall, index) => {
     doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
-    drawFrame(`WALL ELEVATION - ${wall.wallId}`, index + 2, totalSheets, 'Module faces and opening positions are projected from the approved scene.');
-    doc.font('Helvetica-Bold').fontSize(19).fillColor('#38291f').text(`Wall ${wall.wallId}`, 48, 52);
-    doc.font('Helvetica').fontSize(10).fillColor('#53463d').text(`${Math.round(wall.lengthMm)} mm long x ${wall.heightMm} mm high`, 48, 78);
-    const originX = 48; const originY = 110; const availableWidth = 730; const availableHeight = 385;
+    drawFrame(`WALL ELEVATION - ${wall.wallId}`, index + 2, totalSheets, 'System 32 parametric module faces, datum lines and opening clearances projected from the approved scene.');
+    doc.font('Helvetica-Bold').fontSize(19).fillColor('#38291f').text(`Wall ${wall.wallId}`, 48, 50);
+    doc.font('Helvetica').fontSize(9.5).fillColor('#53463d').text(`${Math.round(wall.lengthMm)} mm length × ${wall.heightMm} mm ceiling height  |  Scale: 1:25 (Fit to Sheet)  |  Layer: A-ELEV-OUTL`, 48, 74);
+    const originX = 48; const originY = 100; const availableWidth = 730; const availableHeight = 370;
     const scale = Math.min(availableWidth / wall.lengthMm, availableHeight / wall.heightMm);
-    doc.rect(originX, originY, wall.lengthMm * scale, wall.heightMm * scale).lineWidth(1.5).stroke('#38291f');
+
+    // Outer Wall Outline (A-WALL-INTR / A-WALL-EXTR)
+    doc.rect(originX, originY, wall.lengthMm * scale, wall.heightMm * scale).lineWidth(1.75).stroke('#2d211b');
+
+    // Horizontal Datum Reference Lines (Plinth 100mm, Counter 850mm, Wall Unit 1450mm, Loft Top 2170mm)
+    const plinthY = originY + (wall.heightMm - 100) * scale;
+    const counterY = originY + (wall.heightMm - 850) * scale;
+    const wallUnitY = originY + (wall.heightMm - 1450) * scale;
+    const loftY = originY + (wall.heightMm - 2170) * scale;
+
+    doc.save().dash(2, { space: 3 }).strokeColor('#bdaea0').lineWidth(0.5);
+    doc.moveTo(originX, plinthY).lineTo(originX + wall.lengthMm * scale, plinthY).stroke();
+    doc.moveTo(originX, counterY).lineTo(originX + wall.lengthMm * scale, counterY).stroke();
+    doc.moveTo(originX, wallUnitY).lineTo(originX + wall.lengthMm * scale, wallUnitY).stroke();
+    doc.moveTo(originX, loftY).lineTo(originX + wall.lengthMm * scale, loftY).stroke();
+    doc.undash().restore();
+
+    // Datum Labels
+    doc.font('Helvetica').fontSize(6).fillColor('#8c7b6f');
+    doc.text('PLINTH (100mm)', originX + wall.lengthMm * scale - 75, plinthY - 7);
+    doc.text('COUNTER (850mm)', originX + wall.lengthMm * scale - 82, counterY - 7);
+    doc.text('DADO CLEAR (1450mm)', originX + wall.lengthMm * scale - 98, wallUnitY - 7);
+    doc.text('WALL UNIT (2170mm)', originX + wall.lengthMm * scale - 90, loftY - 7);
+
+    // Openings (A-DOOR / A-GLAZ)
     for (const opening of wall.openings) {
       doc.rect(originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.heightMm) * scale, opening.widthMm * scale, opening.heightMm * scale).lineWidth(1.2).stroke('#9b2c2c');
-      doc.font('Helvetica').fontSize(7).fillColor('#9b2c2c').text(`${opening.kind} ${Math.round(opening.widthMm)}`, originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.heightMm) * scale - 12);
+      doc.font('Helvetica-Bold').fontSize(7).fillColor('#9b2c2c').text(`${opening.kind.toUpperCase()} ${Math.round(opening.widthMm)}mm`, originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.heightMm) * scale - 11);
     }
+
+    // Modular Units (A-FURN-BASE / A-FURN-OVER / A-FURN-SHUT)
     for (const module of wall.modules) {
-      doc.rect(originX + (module.offsetAlongWallMm ?? 0) * scale, originY + (wall.heightMm - module.heightMm) * scale, module.widthMm * scale, module.heightMm * scale).fillOpacity(0.18).fillAndStroke('#c59c2d', '#38291f').fillOpacity(1);
-      doc.font('Helvetica').fontSize(7).fillColor('#38291f').text(`${module.family} ${Math.round(module.widthMm)}`, originX + (module.offsetAlongWallMm ?? 0) * scale + 4, originY + (wall.heightMm - module.heightMm) * scale + 6, { width: Math.max(35, module.widthMm * scale - 8) });
+      const isBase = module.family.includes('base') || module.family.includes('kitchen-base') || module.heightMm <= 850;
+      const isTall = module.heightMm > 1800 || module.family.includes('tall') || module.family.includes('wardrobe');
+      const isFeature = module.family.includes('feature') || module.family.includes('wall-');
+      const layerTag = isTall ? 'A-FURN-TALL' : isBase ? 'A-FURN-BASE' : isFeature ? 'A-WALL-FEAT' : 'A-FURN-OVER';
+      const modFill = isTall ? '#3b2f27' : isBase ? '#c59c2d' : isFeature ? '#4a5568' : '#e6c66e';
+
+      doc.rect(originX + (module.offsetAlongWallMm ?? 0) * scale, originY + (wall.heightMm - module.heightMm) * scale, module.widthMm * scale, module.heightMm * scale)
+        .fillOpacity(0.22)
+        .fillAndStroke(modFill, '#2d211b')
+        .fillOpacity(1);
+
+      doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#2d211b').text(`${module.family}`, originX + (module.offsetAlongWallMm ?? 0) * scale + 3, originY + (wall.heightMm - module.heightMm) * scale + 4, { width: Math.max(35, module.widthMm * scale - 6) });
+      doc.font('Helvetica').fontSize(5.5).fillColor('#574b41').text(`${Math.round(module.widthMm)}×${Math.round(module.depthMm ?? 600)}×${Math.round(module.heightMm)}mm\n[${layerTag}]`, originX + (module.offsetAlongWallMm ?? 0) * scale + 3, originY + (wall.heightMm - module.heightMm) * scale + 13, { width: Math.max(35, module.widthMm * scale - 6) });
     }
-    doc.save().dash(3, { space: 2 }).strokeColor('#75665c').lineWidth(.5).moveTo(originX, originY + wall.heightMm * scale + 18).lineTo(originX + wall.lengthMm * scale, originY + wall.heightMm * scale + 18).stroke().undash().restore();
-    doc.font('Helvetica').fontSize(8).fillColor('#53463d').text(`${Math.round(wall.lengthMm)} mm`, originX, originY + wall.heightMm * scale + 24, { width: wall.lengthMm * scale, align: 'center' });
+
+    // Linear Bottom Dimension Line (A-DIMS)
+    const dimY = originY + wall.heightMm * scale + 16;
+    doc.save().strokeColor('#4a3b32').lineWidth(0.75).moveTo(originX, dimY).lineTo(originX + wall.lengthMm * scale, dimY).stroke();
+    // Dimension Ticks
+    doc.moveTo(originX, dimY - 4).lineTo(originX, dimY + 4).stroke();
+    doc.moveTo(originX + wall.lengthMm * scale, dimY - 4).lineTo(originX + wall.lengthMm * scale, dimY + 4).stroke();
+    doc.restore();
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#2d211b').text(`${Math.round(wall.lengthMm)} mm [A-DIMS]`, originX, dimY + 6, { width: wall.lengthMm * scale, align: 'center' });
   });
+  if (production) {
+    const firstProductionSheet = furnitureWalls.length + 2;
+    doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
+    drawFrame('PRODUCTION SUMMARY', firstProductionSheet, totalSheets, `Source scene ${production.sceneVersion}. Fabrication rules ${production.fabricationRules.version}.`);
+    doc.font('Helvetica-Bold').fontSize(20).fillColor('#38291f').text('Manufacturing Package Summary', 48, 52);
+    const materialGroups = new Map<string, { count: number; areaSqm: number }>();
+    for (const part of production.parts) {
+      const current = materialGroups.get(part.materialCode) ?? { count: 0, areaSqm: 0 };
+      current.count += 1;
+      current.areaSqm += (part.lengthMm * part.widthMm) / 1_000_000;
+      materialGroups.set(part.materialCode, current);
+    }
+    const metrics = [
+      ['Physical panels', String(production.parts.length)],
+      ['Hardware lines', String(production.hardware.length)],
+      ['Material groups', String(materialGroups.size)],
+      ['Release status', production.status.replaceAll('_', ' ').toUpperCase()],
+    ];
+    metrics.forEach(([label, value], index) => {
+      const x = 48 + index * 188;
+      doc.roundedRect(x, 102, 166, 62, 5).fillAndStroke('#f6f0e8', '#d7c8b7');
+      doc.font('Helvetica').fontSize(7).fillColor('#75665c').text(label.toUpperCase(), x + 12, 115);
+      doc.font('Helvetica-Bold').fontSize(15).fillColor('#38291f').text(value, x + 12, 133, { width: 142 });
+    });
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#38291f').text('MATERIAL / BOARD SUMMARY', 48, 194);
+    let summaryY = 216;
+    for (const [materialCode, group] of [...materialGroups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      doc.rect(48, summaryY, 470, 24).lineWidth(.35).stroke('#d7c8b7');
+      doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#38291f').text(materialCode, 58, summaryY + 8, { width: 250 });
+      doc.font('Helvetica').text(`${group.count} panels`, 320, summaryY + 8, { width: 80 });
+      doc.text(`${group.areaSqm.toFixed(3)} m²`, 410, summaryY + 8, { width: 90, align: 'right' });
+      summaryY += 25;
+    }
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#38291f').text('FABRICATION RULES', 548, 194);
+    const rules = production.fabricationRules;
+    doc.font('Helvetica').fontSize(8).fillColor('#53463d').text([
+      `Board: ${rules.carcassThicknessMm} mm carcass / ${rules.shutterThicknessMm} mm shutter`,
+      `Back: ${rules.backPanelThicknessMm} mm`,
+      `Edging: ${rules.visibleEdgeBandMm} mm visible / ${rules.internalEdgeBandMm} mm internal`,
+      `Stock: ${rules.sheetWidthMm} × ${rules.sheetHeightMm} mm`,
+      `Kerf: ${rules.kerfMm} mm | trim: ${rules.trimMm} mm`,
+    ].join('\n'), 548, 218, { width: 240, lineGap: 7 });
+    if (production.warnings.length) {
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#9b2c2c').text('REVIEW WARNINGS', 548, 350);
+      doc.font('Helvetica').fontSize(7).text(production.warnings.map((warning) => `• ${warning}`).join('\n'), 548, 370, { width: 240, height: 120 });
+    }
+
+    doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
+    drawFrame('PANEL CUTLIST', firstProductionSheet + 1, totalSheets, 'Every row is one traceable physical panel from the approved scene. Dimensions are finished millimetres.');
+    doc.font('Helvetica-Bold').fontSize(18).fillColor('#38291f').text('Scene-linked Panel Cutlist', 48, 48);
+    const columns = [48, 190, 300, 390, 455, 520, 580, 662, 745];
+    const headers = ['PART', 'MODULE', 'MATERIAL', 'L', 'W', 'T', 'GRAIN', 'EDGE', 'STATUS'];
+    headers.forEach((header, index) => doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#38291f').text(header, columns[index], 86, { width: index === 0 ? 138 : 82 }));
+    let rowY = 104;
+    const rowsPerPage = 25;
+    production.parts.forEach((part, index) => {
+      if (index > 0 && index % rowsPerPage === 0) {
+        doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
+        drawFrame('PANEL CUTLIST - CONTINUED', firstProductionSheet + 1 + Math.floor(index / rowsPerPage), totalSheets, 'Continuation sheet. Physical panel IDs remain linked to scene component IDs.');
+        rowY = 52;
+      }
+      if (index % 2 === 0) doc.rect(43, rowY - 4, 755, 16).fill('#faf7f2');
+      const values = [part.partName, part.moduleId, part.materialCode, part.lengthMm, part.widthMm, part.thicknessMm, part.grainDirection ?? 'none', part.edgeSchedule?.tapeType ?? 'none', part.status];
+      values.forEach((value, valueIndex) => doc.font(valueIndex === 0 ? 'Helvetica-Bold' : 'Helvetica').fontSize(5.8).fillColor('#38291f').text(String(value), columns[valueIndex], rowY, { width: valueIndex === 0 ? 138 : valueIndex === 1 ? 105 : 78 }));
+      rowY += 17;
+    });
+  }
   doc.end();
 }
 
@@ -605,7 +813,10 @@ export type EdgeSchedule = {
 
 export type CutlistPart = {
   id: string;
+  /** Unique physical panel identity. Quantity rows are expanded before nesting. */
+  partInstanceId?: string;
   moduleId: string;
+  roomId?: string;
   family: string;
   partName: string;
   lengthMm: number;
@@ -617,9 +828,105 @@ export type CutlistPart = {
   materialCode: string;
   quantity: number;
   status: string;
+  sourceSceneVersion?: string;
+  semanticType?: string;
+  sourcePartId?: string;
   sheetId?: string;
   placedPos?: { xMm: number; yMm: number; rotated: boolean };
 };
+
+export type FabricationRulesV1 = {
+  schema: 'fabrication.rules.v1';
+  version: string;
+  carcassThicknessMm: 16 | 18;
+  shutterThicknessMm: 16 | 18;
+  backPanelThicknessMm: number;
+  visibleEdgeBandMm: number;
+  internalEdgeBandMm: number;
+  sheetWidthMm: number;
+  sheetHeightMm: number;
+  kerfMm: number;
+  trimMm: number;
+};
+
+export const DEFAULT_FABRICATION_RULES_V1: FabricationRulesV1 = {
+  schema: 'fabrication.rules.v1', version: 'india-modular-v1',
+  carcassThicknessMm: 18, shutterThicknessMm: 18, backPanelThicknessMm: 6,
+  visibleEdgeBandMm: 2, internalEdgeBandMm: 0.8,
+  sheetWidthMm: 2440, sheetHeightMm: 1220, kerfMm: 3, trimMm: 10,
+};
+
+export type ProductionPartInstanceV1 = CutlistPart & {
+  partInstanceId: string;
+  quantity: 1;
+  sourcePartId: string;
+  roomId: string;
+  semanticType: string;
+};
+
+export type ProductionSnapshotV1 = {
+  schema: 'production.snapshot.v1';
+  projectId: string;
+  sceneVersion: string;
+  fabricationRules: FabricationRulesV1;
+  status: 'review_required' | 'approved';
+  parts: ProductionPartInstanceV1[];
+  hardware: HardwareItem[];
+  warnings: string[];
+};
+
+const SHEET_SEMANTICS = new Set(['carcass', 'shutter', 'shelf', 'filler', 'back', 'back_panel', 'panel', 'glass']);
+
+function productionDimensions(part: SceneModulePartV1) {
+  const dimensions = [part.widthMm, part.depthMm, part.heightMm].sort((a, b) => a - b);
+  return { thicknessMm: dimensions[0], widthMm: dimensions[1], lengthMm: dimensions[2] };
+}
+
+function edgePolicy(semanticType: string, lengthMm: number, widthMm: number, rules: FabricationRulesV1): Pick<CutlistPart, 'edging' | 'edgeSchedule'> {
+  if (semanticType === 'back' || semanticType === 'back_panel' || semanticType === 'glass') return { edging: 'none' };
+  if (semanticType === 'shutter' || semanticType === 'panel' || semanticType === 'filler') {
+    return { edging: 'all_sides', edgeSchedule: { l1Mm: lengthMm, l2Mm: lengthMm, w1Mm: widthMm, w2Mm: widthMm, tapeType: `${rules.visibleEdgeBandMm}mm PVC` } };
+  }
+  return { edging: 'front_only', edgeSchedule: { l1Mm: lengthMm, l2Mm: 0, w1Mm: 0, w2Mm: 0, tapeType: `${rules.internalEdgeBandMm}mm PVC` } };
+}
+
+/** Build the sole manufacturing snapshot from exact scene.v1 component geometry. */
+export function buildProductionSnapshot(scene: SceneV1, rules: FabricationRulesV1 = DEFAULT_FABRICATION_RULES_V1): ProductionSnapshotV1 {
+  if (!['approved', 'locked'].includes(scene.metadata.status)) throw new Error('SCENE_NOT_PRODUCTION_READY');
+  if (!scene.moduleParts?.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
+  const moduleFamily = new Map<string, string>((scene.modules ?? []).map((module: SceneModuleV1) => [module.id, module.family]));
+  const warnings: string[] = [];
+  const hardware: HardwareItem[] = [];
+  const parts: ProductionPartInstanceV1[] = [];
+  for (const part of scene.moduleParts) {
+    const semanticType = String(part.semanticType || 'component');
+    if (semanticType === 'hardware') {
+      hardware.push({ name: part.name, category: /hinge/i.test(part.name) ? 'hinge' : /slide|runner/i.test(part.name) ? 'slide' : /handle/i.test(part.name) ? 'handle' : 'accessory', quantity: 1, unit: 'each' });
+      continue;
+    }
+    if (!SHEET_SEMANTICS.has(semanticType)) {
+      warnings.push(`${part.name} (${semanticType}) is a non-sheet component and requires a separate purchasing or operation schedule.`);
+      continue;
+    }
+    const dimensions = productionDimensions(part);
+    if (dimensions.thicknessMm > 50) {
+      warnings.push(`${part.name} is not panel-like (${dimensions.thicknessMm} mm minimum dimension) and was withheld from sheet nesting.`);
+      continue;
+    }
+    const materialCode = part.materialId ?? 'material-unassigned';
+    const edge = edgePolicy(semanticType, dimensions.lengthMm, dimensions.widthMm, rules);
+    parts.push({
+      id: part.id, partInstanceId: part.id, sourcePartId: part.id,
+      moduleId: part.moduleId, roomId: part.roomId ?? '',
+      family: moduleFamily.get(part.moduleId) ?? 'module-part', semanticType,
+      partName: part.name, ...dimensions, ...edge,
+      grainDirection: semanticType === 'shutter' || semanticType === 'back_panel' || semanticType === 'panel' ? 'vertical' : semanticType === 'glass' ? 'none' : 'horizontal',
+      materialCode, quantity: 1, status: 'review_required', sourceSceneVersion: scene.metadata.designVersion,
+    });
+  }
+  if (!parts.length) throw new Error('NO_SHEET_PARTS_AVAILABLE');
+  return { schema: 'production.snapshot.v1', projectId: scene.projectId, sceneVersion: scene.metadata.designVersion, fabricationRules: rules, status: 'review_required', parts, hardware, warnings };
+}
 
 export type HardwareItem = {
   name: string;
@@ -630,6 +937,7 @@ export type HardwareItem = {
 
 export type PlacedPanel = {
   partId: string;
+  partInstanceId: string;
   partName: string;
   moduleId: string;
   xMm: number;
@@ -671,7 +979,8 @@ export function nestPanels2D(
   parts: CutlistPart[],
   sheetWidthMm = 2440,
   sheetHeightMm = 1220,
-  kerfMm = 3
+  kerfMm = 3,
+  trimMm = 10,
 ): { sheets: NestingSheet[]; updatedParts: CutlistPart[] } {
   const updatedParts = parts.map((p) => ({ ...p }));
   const sheets: NestingSheet[] = [];
@@ -679,16 +988,18 @@ export function nestPanels2D(
   // Group parts by material code & thickness
   const groups = new Map<string, CutlistPart[]>();
   for (const part of updatedParts) {
-    const key = `${part.materialCode || '18mm-plywood'}_${part.thicknessMm}`;
+    const key = `${part.materialCode || '18mm-plywood'}::${part.thicknessMm}`;
     if (!groups.has(key)) groups.set(key, []);
     const list = groups.get(key)!;
     for (let q = 0; q < part.quantity; q++) {
-      list.push(part);
+      list.push({ ...part, partInstanceId: part.quantity > 1 ? `${part.id}#${q + 1}` : (part.partInstanceId ?? part.id), quantity: 1 });
     }
   }
 
   for (const [key, groupParts] of groups.entries()) {
-    const [materialCode, thickStr] = key.split('_');
+    const separator = key.lastIndexOf('::');
+    const materialCode = key.slice(0, separator);
+    const thickStr = key.slice(separator + 2);
     const thicknessMm = Number(thickStr) || 18;
 
     // Sort parts descending by area for efficient packing
@@ -698,7 +1009,7 @@ export function nestPanels2D(
     while (unplaced.length > 0) {
       sheetCount++;
       const sheetId = `sheet-${materialCode}-${thicknessMm}mm-#${sheetCount}`;
-      const freeRects = [{ x: 0, y: 0, w: sheetWidthMm, h: sheetHeightMm }];
+      const freeRects = [{ x: trimMm, y: trimMm, w: sheetWidthMm - trimMm * 2, h: sheetHeightMm - trimMm * 2 }];
       const placedPanels: PlacedPanel[] = [];
       let usedAreaSqMm = 0;
 
@@ -747,6 +1058,7 @@ export function nestPanels2D(
 
           const placement: PlacedPanel = {
             partId: part.id,
+            partInstanceId: part.partInstanceId ?? part.id,
             partName: part.partName,
             moduleId: part.moduleId,
             xMm: target.x,
@@ -788,6 +1100,10 @@ export function nestPanels2D(
         usedAreaSqm: Math.round((usedAreaSqMm / 1_000_000) * 100) / 100,
         utilizationPercentage: utilization,
       });
+      if (!placedPanels.length) {
+        const blocked = unplaced[0];
+        throw new Error(`PANEL_EXCEEDS_USABLE_SHEET:${blocked.partInstanceId ?? blocked.id}:${blocked.lengthMm}x${blocked.widthMm}`);
+      }
     }
   }
 
@@ -816,7 +1132,8 @@ export function calculateEdgeBandingSummary(parts: CutlistPart[]): EdgeBandingSu
 
     const totalMm = (l1 + l2 + w1 + w2) * count;
     const tapeType = part.edgeSchedule?.tapeType || (part.edging === 'all_sides' ? '2.0mm PVC' : '0.8mm PVC');
-    const thick = tapeType.includes('2.0mm') ? 2 : 0.8;
+    const parsedThickness = Number.parseFloat(tapeType);
+    const thick = Number.isFinite(parsedThickness) ? parsedThickness : 0.8;
 
     if (!summaryMap.has(tapeType)) {
       summaryMap.set(tapeType, { thicknessMm: thick, totalMm: 0 });
@@ -829,6 +1146,44 @@ export function calculateEdgeBandingSummary(parts: CutlistPart[]): EdgeBandingSu
     thicknessMm: data.thicknessMm,
     totalMeters: Math.round((data.totalMm / 1000) * 10) / 10,
   }));
+}
+
+function escapeProductionXml(value: unknown) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** Printable, scene-linked panel labels. The instance ID is the stable QR/barcode payload. */
+export function generateProductionLabelsSvg(snapshot: ProductionSnapshotV1) {
+  const labelWidth = 360;
+  const labelHeight = 190;
+  const columns = 3;
+  const rows = Math.max(1, Math.ceil(snapshot.parts.length / columns));
+  const width = labelWidth * columns;
+  const height = labelHeight * rows;
+  const labels = snapshot.parts.map((part, index) => {
+    const x = (index % columns) * labelWidth;
+    const y = Math.floor(index / columns) * labelHeight;
+    const edge = part.edgeSchedule?.tapeType ?? 'none';
+    return `<g transform="translate(${x} ${y})"><rect x="8" y="8" width="344" height="174" rx="8" fill="#fff" stroke="#171717"/><text x="22" y="35" font-size="14" font-weight="700">${escapeProductionXml(part.partName)}</text><text x="22" y="58" font-size="11">${escapeProductionXml(part.partInstanceId)}</text><text x="22" y="82" font-size="13" font-weight="600">${part.lengthMm} x ${part.widthMm} x ${part.thicknessMm} mm</text><text x="22" y="105" font-size="11">Material: ${escapeProductionXml(part.materialCode)}</text><text x="22" y="126" font-size="11">Edge: ${escapeProductionXml(edge)} | Grain: ${escapeProductionXml(part.grainDirection)}</text><text x="22" y="147" font-size="11">Module: ${escapeProductionXml(part.moduleId)} | Room: ${escapeProductionXml(part.roomId ?? '-')}</text><text x="22" y="168" font-size="9">Scene ${escapeProductionXml(snapshot.sceneVersion)} | scan ID: ${escapeProductionXml(part.partInstanceId)}</text></g>`;
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#f4f1ea"/><g font-family="Arial, sans-serif" fill="#171717">${labels}</g></svg>`;
+}
+
+/** Reproducible cut diagrams using the same deterministic nesting result as the cutlist. */
+export function generateProductionNestingSvg(snapshot: ProductionSnapshotV1) {
+  const { sheets } = nestPanels2D(snapshot.parts, snapshot.fabricationRules.sheetWidthMm, snapshot.fabricationRules.sheetHeightMm, snapshot.fabricationRules.kerfMm, snapshot.fabricationRules.trimMm);
+  const pageWidth = 1000;
+  const sheetDrawWidth = 920;
+  const scale = sheetDrawWidth / snapshot.fabricationRules.sheetWidthMm;
+  const sheetDrawHeight = snapshot.fabricationRules.sheetHeightMm * scale;
+  const sectionHeight = sheetDrawHeight + 100;
+  const pageHeight = Math.max(180, sheets.length * sectionHeight + 40);
+  const sections = sheets.map((sheet, index) => {
+    const y = 30 + index * sectionHeight;
+    const panels = sheet.placedPanels.map((panel) => `<g><rect x="${40 + panel.xMm * scale}" y="${y + 42 + panel.yMm * scale}" width="${panel.widthMm * scale}" height="${panel.lengthMm * scale}" fill="#d8c3a5" stroke="#34271f"/><text x="${44 + panel.xMm * scale}" y="${y + 58 + panel.yMm * scale}" font-size="9">${escapeProductionXml(panel.partInstanceId)}</text><text x="${44 + panel.xMm * scale}" y="${y + 70 + panel.yMm * scale}" font-size="8">${panel.widthMm}x${panel.lengthMm}${panel.rotated ? ' R' : ''}</text></g>`).join('');
+    return `<g><text x="40" y="${y + 18}" font-size="15" font-weight="700">${escapeProductionXml(sheet.sheetId)}</text><text x="760" y="${y + 18}" font-size="12">${escapeProductionXml(sheet.materialCode)} ${sheet.thicknessMm} mm | ${sheet.utilizationPercentage}% used</text><rect x="40" y="${y + 42}" width="${sheetDrawWidth}" height="${sheetDrawHeight}" fill="#fff" stroke="#111" stroke-width="2"/>${panels}</g>`;
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${pageWidth}" height="${pageHeight}" viewBox="0 0 ${pageWidth} ${pageHeight}"><rect width="100%" height="100%" fill="#f4f1ea"/><g font-family="Arial, sans-serif" fill="#171717">${sections || '<text x="40" y="80">No nestable sheet parts were found.</text>'}</g></svg>`;
 }
 
 export function generateFullProductionCutlist(scene: SceneV1) {
@@ -914,25 +1269,31 @@ export function generateFullProductionCutlist(scene: SceneV1) {
     totalPanelArea18mm += innerWidth * d * 2;
 
     // Back Panel (8mm MDF)
-    parts.push({
-      id: `${module.id}-back`,
-      moduleId: module.id,
-      family: module.family,
-      partName: 'back-panel',
-      lengthMm: h,
-      widthMm: w,
-      thicknessMm: 8,
-      edging: 'none',
-      grainDirection: 'none',
-      materialCode: '8mm-mdf',
-      quantity: 1,
-      status: 'review_required'
-    });
+    const maxBackWidth = 1180;
+    const backBays = w > maxBackWidth ? Math.ceil(w / maxBackWidth) : 1;
+    const bayBackWidth = Math.floor(w / backBays);
+    for (let b = 0; b < backBays; b++) {
+      const actualWidth = b === backBays - 1 ? w - bayBackWidth * (backBays - 1) : bayBackWidth;
+      parts.push({
+        id: backBays > 1 ? `${module.id}-back-${b + 1}` : `${module.id}-back`,
+        moduleId: module.id,
+        family: module.family,
+        partName: backBays > 1 ? `back-panel-${b + 1}` : 'back-panel',
+        lengthMm: h,
+        widthMm: actualWidth,
+        thicknessMm: 8,
+        edging: 'none',
+        grainDirection: 'none',
+        materialCode: '8mm-mdf',
+        quantity: 1,
+        status: 'review_required'
+      });
+    }
     totalPanelArea8mm += h * w;
 
     // Door/Shutter Panels
     if (['wardrobe', 'kitchen', 'cabinet', 'tv-unit'].includes(module.family)) {
-      const doorCount = w >= 900 ? 2 : 1;
+      const doorCount = w > 1200 ? Math.max(2, Math.ceil(w / 600)) : (w >= 900 ? 2 : 1);
       const doorWidth = Math.round(w / doorCount) - 4;
       const doorHeight = h - 6;
       const doorEdge: EdgeSchedule = { l1Mm: doorHeight, l2Mm: doorHeight, w1Mm: doorWidth, w2Mm: doorWidth, tapeType: '2.0mm PVC' };
@@ -1143,84 +1504,322 @@ export function generateProjectBOQ(scene: SceneV1, customRates?: Record<string, 
   };
 }
 
-export function generateWallElevationSvg(scene: SceneV1, wallId: string): string {
-  const wall = (scene.walls ?? []).find((w) => w.id === wallId) || scene.walls?.[0];
-  const wallLength = wall ? Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm) : 5200;
-  const wallHeight = wall?.heightMm || 2700;
+export function generateWallElevationSvg(scene: SceneV1, wallId: string, options?: import('./shop-drawing-renderer.js').ShopDrawingOptions): string {
+  if (options?.viewMode === 'shop-sheet' || options?.viewMode === 'internal' || options?.unitTitle) {
+    return generateArchitecturalShopSheetSvg(scene, wallId, options);
+  }
+  const wall = (scene.walls ?? []).find((w: SceneV1['walls'][number]) => w.id === wallId) || scene.walls?.[0];
+  const wallLengthMm = wall ? Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm) : 5200;
+  const wallHeightMm = wall?.heightMm || 2700;
 
-  const svgW = 1000;
-  const svgH = 650;
-  const margin = 80;
-  const drawW = svgW - margin * 2;
-  const drawH = svgH - margin * 2;
+  // ── Canvas layout ──────────────────────────────────────────────────────────
+  const leftCalloutW = 180; // space for leader annotations
+  const rightDimW = 80;     // right-side vertical dimension chain
+  const dimLineH = 80;      // bottom horizontal dimension chain
+  const topMargin = 60;     // title block
+  const drawW = 780;
+  const drawH = 480;
 
-  const scaleX = drawW / Math.max(1000, wallLength);
-  const scaleY = drawH / Math.max(1000, wallHeight);
+  const svgW = leftCalloutW + drawW + rightDimW + 20;
+  const svgH = topMargin + drawH + dimLineH;
+
+  const originX = leftCalloutW;                  // wall left edge in SVG
+  const originY = topMargin + drawH;            // floor level in SVG (y increases downward)
+
+  // Scale to fit drawW x drawH
+  const scaleX = drawW / Math.max(1000, wallLengthMm);
+  const scaleY = drawH / Math.max(1000, wallHeightMm);
   const scale = Math.min(scaleX, scaleY);
 
-  const originX = margin;
-  const originY = svgH - margin;
+  // px helpers (positive y = up in architecture, so inverted for SVG)
+  const tx = (mmX: number) => originX + mmX * scale;
+  const ty = (mmY: number) => originY - mmY * scale;  // floor = originY, ceiling = originY - wallHeightMm*scale
 
-  // Keep an elevation wall-scoped. Rendering every scene module here caused
-  // unrelated furniture to appear on each wall in multi-wall projects. The
-  // canonical projection already assigns each module to its nearest wall.
-  const modulesOnWall = buildDrawingProjection(scene).modules.filter((module) => module.wallId === wall?.id);
+  const wallRectW = wallLengthMm * scale;
+  const wallRectH = wallHeightMm * scale;
 
-  let moduleSvgElements = '';
-  for (const mod of modulesOnWall) {
-    const mx = originX + (mod.offsetAlongWallMm ?? 0) * scale;
-    const my = originY - mod.heightMm * scale;
-    const mw = Math.max(20, mod.widthMm * scale);
-    const mh = Math.max(20, mod.heightMm * scale);
+  // ── Modules projected onto this wall ───────────────────────────────────────
+  const modulesOnWall = buildDrawingProjection(scene).modules.filter((m) => m.wallId === wall?.id);
 
-    moduleSvgElements += `
-      <g class="elevation-module" data-module-id="${mod.id}">
-        <rect x="${mx}" y="${my}" width="${mw}" height="${mh}" fill="#f1f5f9" stroke="#1e293b" stroke-width="2" />
-        ${mw > 40 ? `<line x1="${mx + mw / 2}" y1="${my}" x2="${mx + mw / 2}" y2="${my + mh}" stroke="#475569" stroke-width="1.5" stroke-dasharray="4 2" />` : ''}
-        <text x="${mx + mw / 2}" y="${my + mh / 2}" font-family="sans-serif" font-size="11" fill="#0f172a" text-anchor="middle" dominant-baseline="middle">${mod.family}</text>
-        <text x="${mx + mw / 2}" y="${my + mh / 2 + 14}" font-family="sans-serif" font-size="9" fill="#64748b" text-anchor="middle">${mod.widthMm} x ${mod.heightMm} mm</text>
-      </g>
-    `;
+  // ── System 32 datum heights (Indian modular standard) ─────────────────────
+  const PLINTH_H = 100;      // Skirting / plinth
+  const COUNTER_H = 850;     // Kitchen counter / base unit top
+  const LINTEL_H = 2100;     // Tall unit / wardrobe top shutter
+  const LOFT_H = wallHeightMm - 600; // Loft shelf bottom (~2100mm for 2700 ceiling)
+  const CEILING_H = wallHeightMm;
+
+  const DIM_RED = '#e63232';
+  const LINE_DARK = '#1c1c2e';
+  const WALL_FILL = '#f5f5f0';
+  const MOD_FILL = '#dde8f7';
+  const MOD_STROKE = '#153e75';
+  const HATCH_COL = '#b0aaa0';
+  const DATUM_COL = '#c0bab0';
+  const CALLOUT_COL = '#e63232';
+
+  // ── Helper: horizontal dim string ─────────────────────────────────────────
+  function hDim(x1: number, x2: number, y: number, label: string, above = true, tickH = 10): string {
+    const midX = (x1 + x2) / 2;
+    const textY = above ? y - 6 : y + 14;
+    return `<g class="dim">
+      <line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="${DIM_RED}" stroke-width="1.2"/>
+      <line x1="${x1}" y1="${y - tickH / 2}" x2="${x1}" y2="${y + tickH / 2}" stroke="${DIM_RED}" stroke-width="1.2"/>
+      <line x1="${x2}" y1="${y - tickH / 2}" x2="${x2}" y2="${y + tickH / 2}" stroke="${DIM_RED}" stroke-width="1.2"/>
+      <text x="${midX}" y="${textY}" text-anchor="middle" fill="${DIM_RED}" font-size="11" font-weight="bold" font-family="Arial,sans-serif">${label}</text>
+    </g>`;
   }
 
-  const wallRectW = wallLength * scale;
-  const wallRectH = wallHeight * scale;
+  // ── Helper: vertical dim string (right side) ──────────────────────────────
+  function vDim(x: number, y1: number, y2: number, label: string, rightOffset = 18): string {
+    const midY = (y1 + y2) / 2;
+    const lx = x + rightOffset;
+    return `<g class="dim">
+      <line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="${DIM_RED}" stroke-width="1.2"/>
+      <line x1="${x - 5}" y1="${y1}" x2="${x + 5}" y2="${y1}" stroke="${DIM_RED}" stroke-width="1.2"/>
+      <line x1="${x - 5}" y1="${y2}" x2="${x + 5}" y2="${y2}" stroke="${DIM_RED}" stroke-width="1.2"/>
+      <text x="${lx}" y="${midY + 4}" fill="${DIM_RED}" font-size="10" font-weight="bold" font-family="Arial,sans-serif">${label}</text>
+    </g>`;
+  }
 
+  // ── Helper: left leader callout ────────────────────────────────────────────
+  function leader(svgY: number, label: string): string {
+    const endX = originX - 6;
+    const textX = 4;
+    const textY = svgY + 4;
+    return `<g>
+      <line x1="${textX + label.length * 6 + 2}" y1="${svgY}" x2="${endX}" y2="${svgY}" stroke="${CALLOUT_COL}" stroke-width="0.9" stroke-dasharray="3 2"/>
+      <text x="${textX}" y="${textY}" fill="${CALLOUT_COL}" font-size="9.5" font-family="Arial,sans-serif" font-weight="bold">${label}</text>
+    </g>`;
+  }
+
+  // ── Helper: hatch pattern for ceiling/rafter zone ─────────────────────────
+  function hatchRect(x: number, y: number, w: number, h: number, spacing = 14): string {
+    let lines = '';
+    for (let d = 0; d < w + h; d += spacing) {
+      const x1 = x + Math.max(0, d - h);
+      const y1 = y + Math.min(h, d);
+      const x2 = x + Math.min(w, d);
+      const y2 = y + Math.max(0, d - w);
+      if (x1 < x + w && y2 < y + h) {
+        lines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${HATCH_COL}" stroke-width="0.8"/>`;
+      }
+    }
+    return `<g opacity="0.5">${lines}</g>`;
+  }
+
+  // ── Ceiling / rafter hatch zone (top 600mm = loft space) ──────────────────
+  const ceilingZoneH = (CEILING_H - LOFT_H) * scale;  // ~600mm * scale
+  const ceilingRectY = ty(CEILING_H);
+  const ceilingHatch = hatchRect(originX, ceilingRectY, wallRectW, Math.max(2, ceilingZoneH));
+
+  // ── Datum dash lines ───────────────────────────────────────────────────────
+  function datumLine(heightMm: number, label: string): string {
+    const y = ty(heightMm);
+    return `<g>
+      <line x1="${originX}" y1="${y}" x2="${originX + wallRectW}" y2="${y}" stroke="${DATUM_COL}" stroke-width="0.6" stroke-dasharray="4 3"/>
+      <text x="${originX + wallRectW + 6}" y="${y + 4}" fill="${DATUM_COL}" font-size="8.5" font-family="Arial,sans-serif">${label}</text>
+    </g>`;
+  }
+
+  // ── Module SVG elements ────────────────────────────────────────────────────
+  let moduleSvgElements = '';
+  const moduleAnnotations: string[] = [];
+  const hDimLines: string[] = [];
+
+  // Bottom dimension chain: collect segment starts
+  const hSegments: Array<{ xMm: number; wMm: number; label: string }> = [];
+  let prevEndMm = 0;
+
+  for (const mod of modulesOnWall) {
+    const offMm = mod.offsetAlongWallMm ?? 0;
+    const mx = tx(offMm);
+    const my = ty(mod.heightMm);
+    const mw = Math.max(6, mod.widthMm * scale);
+    const mh = Math.max(6, mod.heightMm * scale);
+
+    // Gap before module (filler)
+    if (offMm > prevEndMm + 5) {
+      hSegments.push({ xMm: prevEndMm, wMm: offMm - prevEndMm, label: `${Math.round(offMm - prevEndMm)}` });
+    }
+    hSegments.push({ xMm: offMm, wMm: mod.widthMm, label: `${Math.round(mod.widthMm)}` });
+    prevEndMm = offMm + mod.widthMm;
+
+    const isTall = mod.heightMm > 1800;
+    const isBase = mod.heightMm <= 900;
+    const fillColor = isTall ? '#d6e4f7' : isBase ? '#fdf0d0' : '#ddeeff';
+    const strokeColor = isTall ? MOD_STROKE : isBase ? '#7c5c12' : MOD_STROKE;
+
+    // Outer module group for lineage-aware picking
+    moduleSvgElements += `<g data-module-id="${mod.id}" class="elevation-module-group" style="cursor: pointer;">`;
+
+    // Outer module rectangle
+    moduleSvgElements += `<rect x="${mx}" y="${my}" width="${mw}" height="${mh}"
+      fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.8" fill-opacity="0.7"
+      data-module-id="${mod.id}" class="elevation-module-rect"/>`;
+
+    // Skirting band (100mm plinth)
+    const plinthPx = PLINTH_H * scale;
+    if (mh > plinthPx + 10) {
+      moduleSvgElements += `<rect x="${mx}" y="${originY - plinthPx}" width="${mw}" height="${plinthPx}"
+        fill="#d4c8a0" stroke="${strokeColor}" stroke-width="1" fill-opacity="0.6"/>`;
+      if (mw > 60) {
+        moduleSvgElements += `<text x="${mx + mw / 2}" y="${originY - plinthPx / 2 + 4}" text-anchor="middle"
+          fill="#6b5a2e" font-size="8" font-family="Arial,sans-serif">SKIRTING</text>`;
+      }
+    }
+
+    // Drawer zone (base units) — bottom 200mm above plinth
+    if (isBase && mh > 80) {
+      const drawerH = 220 * scale;
+      const drawerY = originY - PLINTH_H * scale - drawerH;
+      moduleSvgElements += `<rect x="${mx + 4}" y="${drawerY}" width="${mw - 8}" height="${drawerH}"
+        fill="#c8dff5" stroke="${MOD_STROKE}" stroke-width="1" fill-opacity="0.8"/>`;
+      if (mw > 80) {
+        moduleSvgElements += `<text x="${mx + mw / 2}" y="${drawerY + drawerH / 2 + 4}" text-anchor="middle"
+          fill="${MOD_STROKE}" font-size="9" font-family="Arial,sans-serif" font-weight="bold">DRAWER</text>`;
+      }
+    }
+
+    // Loft shelf (tall units) — top 600mm
+    if (isTall && mh > 120) {
+      const loftH = 600 * scale;
+      moduleSvgElements += `<rect x="${mx}" y="${my}" width="${mw}" height="${loftH}"
+        fill="#c8d8ef" stroke="${MOD_STROKE}" stroke-width="1" fill-opacity="0.5"/>`;
+      if (mw > 60) {
+        moduleSvgElements += `<text x="${mx + mw / 2}" y="${my + loftH / 2 + 4}" text-anchor="middle"
+          fill="${MOD_STROKE}" font-size="8.5" font-family="Arial,sans-serif">LOFT</text>`;
+      }
+    }
+
+    // Module label and dimensions
+    if (mw > 50 && mh > 50) {
+      moduleSvgElements += `<text x="${mx + mw / 2}" y="${my + mh / 2}" text-anchor="middle"
+        fill="${LINE_DARK}" font-size="10" font-weight="bold" font-family="Arial,sans-serif">${mod.family}</text>`;
+      moduleSvgElements += `<text x="${mx + mw / 2}" y="${my + mh / 2 + 14}" text-anchor="middle"
+        fill="#4b5563" font-size="8.5" font-family="Arial,sans-serif">${Math.round(mod.widthMm)} x ${Math.round(mod.heightMm)} mm</text>`;
+    }
+
+    moduleSvgElements += `</g>`;
+
+    // Leader annotations on left side
+    moduleAnnotations.push(leader(my + mh * 0.15, mod.family.toUpperCase().replace(/-/g, ' ')));
+    if (isBase) moduleAnnotations.push(leader(ty(PLINTH_H + 220 / 2), 'DRAWER'));
+    if (isTall) moduleAnnotations.push(leader(ty(LINTEL_H + (LOFT_H - LINTEL_H) / 2), 'LOFT'));
+  }
+
+  // Gap at end
+  if (prevEndMm < wallLengthMm - 5) {
+    hSegments.push({ xMm: prevEndMm, wMm: wallLengthMm - prevEndMm, label: `${Math.round(wallLengthMm - prevEndMm)}` });
+  }
+
+  // ── Horizontal dimension chain (below wall) ────────────────────────────────
+  const hChainY = originY + 28;
+  for (const seg of hSegments) {
+    if (seg.wMm < 20) continue;
+    hDimLines.push(hDim(tx(seg.xMm), tx(seg.xMm + seg.wMm), hChainY, seg.label));
+  }
+  // Overall dimension
+  const overallDimY = originY + 54;
+  hDimLines.push(hDim(tx(0), tx(wallLengthMm), overallDimY, `${Math.round(wallLengthMm)}`, true, 8));
+
+  // ── Right-side vertical dimension chain ────────────────────────────────────
+  const vDimX = originX + wallRectW + 16;
+  const vDims: string[] = [];
+  // Plinth zone
+  vDims.push(vDim(vDimX, ty(0), ty(PLINTH_H), `${PLINTH_H}`));
+  // Shutter zone (plinth to lintel)
+  vDims.push(vDim(vDimX + 22, ty(PLINTH_H), ty(LINTEL_H), `${LINTEL_H - PLINTH_H}`));
+  // Loft zone (lintel to loft top)
+  vDims.push(vDim(vDimX + 44, ty(LINTEL_H), ty(LOFT_H), `${Math.round(LOFT_H - LINTEL_H)}`));
+  // Overall height
+  vDims.push(vDim(vDimX + 62, ty(0), ty(CEILING_H), `${CEILING_H}`));
+
+  // ── Opening symbols ────────────────────────────────────────────────────────
+  const openingsOnWall = (scene.openings ?? []).filter((o: SceneOpeningV1) => o.wallId === wall?.id);
+  let openingsSvg = '';
+  for (const op of openingsOnWall) {
+    const ox = tx(op.offsetMm);
+    const oy = ty(op.heightMm);
+    const ow = op.widthMm * scale;
+    const oh = op.heightMm * scale;
+    openingsSvg += `<rect x="${ox}" y="${oy}" width="${ow}" height="${oh}"
+      fill="white" stroke="#9b2c2c" stroke-width="1.8" fill-opacity="0.9"/>`;
+    // Door swing arc hint
+    if (op.kind === 'door') {
+      openingsSvg += `<path d="M${ox} ${originY} Q${ox + ow} ${originY} ${ox + ow} ${originY - oh}"
+        fill="none" stroke="#9b2c2c" stroke-width="0.8" stroke-dasharray="3 2" opacity="0.6"/>`;
+    }
+    openingsSvg += `<text x="${ox + ow / 2}" y="${oy - 8}" text-anchor="middle"
+      fill="#9b2c2c" font-size="9.5" font-weight="bold" font-family="Arial,sans-serif">
+      ${op.kind.toUpperCase()} ${Math.round(op.widthMm)}mm</text>`;
+    // Dim line for opening
+    hDimLines.push(hDim(ox, ox + ow, originY + 14, `${Math.round(op.widthMm)}`, false, 7));
+  }
+
+  // ── Fixed annotations ──────────────────────────────────────────────────────
+  const fixedAnnotations = [
+    leader(ty(CEILING_H) + 10, 'RAFTERS / RAFTER ZONE'),
+    leader(ty(LOFT_H), 'LOFT SHELF 600mm'),
+    leader(ty(LINTEL_H), 'LINTEL 2100mm'),
+    leader(ty(COUNTER_H), 'COUNTER / DADO 850mm'),
+    leader(ty(PLINTH_H), 'PLINTH 100mm'),
+    leader(ty(0), 'FINISHED FLOOR LEVEL'),
+  ];
+
+  // ── Assemble SVG ───────────────────────────────────────────────────────────
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg">
-  <style>
-    .wall-outline { fill: #ffffff; stroke: #0f172a; stroke-width: 3; }
-    .grid-line { stroke: #cbd5e1; stroke-width: 0.5; stroke-dasharray: 2 2; }
-    .dim-line { stroke: #2563eb; stroke-width: 1.5; }
-    .dim-text { font-family: monospace; font-size: 11px; fill: #1e40af; font-weight: bold; }
-    .title-text { font-family: sans-serif; font-size: 14px; font-weight: bold; fill: #0f172a; }
-  </style>
+  <defs>
+    <pattern id="ceilHatch" patternUnits="userSpaceOnUse" width="12" height="12" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="12" stroke="${HATCH_COL}" stroke-width="1"/>
+    </pattern>
+  </defs>
 
-  <rect width="100%" height="100%" fill="#f8fafc" />
+  <!-- White background -->
+  <rect width="${svgW}" height="${svgH}" fill="white"/>
 
-  <!-- Wall Background Boundary -->
-  <rect x="${originX}" y="${originY - wallRectH}" width="${wallRectW}" height="${wallRectH}" class="wall-outline" />
+  <!-- Title block -->
+  <text x="${originX}" y="22" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="${LINE_DARK}">WALL ELEVATION — ${(wallId || 'MAIN').toUpperCase()}</text>
+  <text x="${originX}" y="38" font-family="Arial,sans-serif" font-size="9.5" fill="#64748b">
+    ${Math.round(wallLengthMm)} mm × ${wallHeightMm} mm  |  Scale 1:${Math.round(1 / scale * 10) / 10}  |  ULTIDA Architectural Drawing Engine  |  IS 710 / System 32 Standard
+  </text>
 
-  <!-- Dado line at 600mm -->
-  <line x1="${originX}" y1="${originY - 600 * scale}" x2="${originX + wallRectW}" y2="${originY - 600 * scale}" class="grid-line" />
-  <text x="${originX + wallRectW + 10}" y="${originY - 600 * scale + 4}" font-family="sans-serif" font-size="10" fill="#64748b">Dado 600mm</text>
+  <!-- Wall background -->
+  <rect x="${originX}" y="${ty(wallHeightMm)}" width="${wallRectW}" height="${wallRectH}" fill="${WALL_FILL}" stroke="${LINE_DARK}" stroke-width="2.5"/>
 
-  <!-- Modules -->
+  <!-- Ceiling hatch zone -->
+  <rect x="${originX}" y="${ty(CEILING_H)}" width="${wallRectW}" height="${ceilingZoneH}" fill="url(#ceilHatch)" opacity="0.45"/>
+  ${ceilingHatch}
+
+  <!-- Floor line -->
+  <line x1="${originX - 10}" y1="${ty(0)}" x2="${originX + wallRectW + 10}" y2="${ty(0)}" stroke="${LINE_DARK}" stroke-width="3"/>
+
+  <!-- System 32 datum lines -->
+  ${datumLine(PLINTH_H, `PLINTH ${PLINTH_H}mm`)}
+  ${datumLine(COUNTER_H, `COUNTER ${COUNTER_H}mm`)}
+  ${datumLine(LINTEL_H, `LINTEL ${LINTEL_H}mm`)}
+  ${datumLine(LOFT_H, `LOFT ${Math.round(LOFT_H)}mm`)}
+
+  <!-- Openings (doors/windows) -->
+  ${openingsSvg}
+
+  <!-- Modular units -->
   ${moduleSvgElements}
 
-  <!-- Dimensions -->
-  <!-- Overall Width -->
-  <line x1="${originX}" y1="${originY + 25}" x2="${originX + wallRectW}" y2="${originY + 25}" class="dim-line" />
-  <text x="${originX + wallRectW / 2}" y="${originY + 45}" class="dim-text" text-anchor="middle">${Math.round(wallLength)} mm</text>
+  <!-- Left-side leader annotations -->
+  ${fixedAnnotations.join('\n  ')}
+  ${moduleAnnotations.join('\n  ')}
 
-  <!-- Overall Height -->
-  <line x1="${originX - 25}" y1="${originY}" x2="${originX - 25}" y2="${originY - wallRectH}" class="dim-line" />
-  <text x="${originX - 45}" y="${originY - wallRectH / 2}" class="dim-text" text-anchor="middle" transform="rotate(-90 ${originX - 45} ${originY - wallRectH / 2})">${Math.round(wallHeight)} mm</text>
+  <!-- Horizontal dimension chain -->
+  ${hDimLines.join('\n  ')}
 
-  <!-- Title Block -->
-  <text x="${originX}" y="40" class="title-text">WALL ELEVATION — ${wallId || 'MAIN WALL'}</text>
-  <text x="${originX}" y="56" font-family="sans-serif" font-size="11" fill="#64748b">Scale 1:${Math.round(1 / scale)} | Units: mm | ULTIDA CAD Spec Engine</text>
+  <!-- Right-side vertical dimensions -->
+  ${vDims.join('\n  ')}
+
+  <!-- Border frame -->
+  <rect x="1" y="1" width="${svgW - 2}" height="${svgH - 2}" fill="none" stroke="#2c2c2c" stroke-width="1.2"/>
 </svg>`;
 }
 
 export { generateSketchUpRubyScript } from './sketchup-exporter.js';
+export { generateArchitecturalShopSheetSvg, type ShopDrawingOptions } from './shop-drawing-renderer.js';

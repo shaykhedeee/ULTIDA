@@ -167,6 +167,10 @@ export const AnnotationSchema = z.object({
 
 export const CanonicalPlanModelSchema = z.object({
   schemaVersion: z.literal('plan.v1'),
+  // The approval mode is part of the canonical version, not a browser-only
+  // display preference.  Initial Design keeps calibrated assumptions visible;
+  // Final Production is the stricter verified hand-off.
+  geometryMode: z.enum(['initial_design', 'final_production']).default('initial_design'),
   source: PlanSourceSchema,
   state: PlanStateSchema.default('designer_review'),
   scale: ScaleObservationSchema.optional(),
@@ -262,4 +266,3 @@ export function formatDualDimension(mm: number): { mm: number; ftIn: string } {
 
   return { mm: safeMm, ftIn };
 }
-

@@ -6,9 +6,15 @@ import { join } from 'node:path';
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+const email = process.env.ULTIDA_TEST_EMAIL;
+const password = process.env.ULTIDA_TEST_PASSWORD;
+if (!url || !key || !email || !password) {
+  console.error('Set SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, ULTIDA_TEST_EMAIL and ULTIDA_TEST_PASSWORD in a local untracked environment file before running this diagnostic.');
+  process.exit(1);
+}
 const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-const { data, error } = await supabase.auth.signInWithPassword({ email: 'zebbroka@gmail.com', password: '12345678' });
+const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 if (error) { console.error('AUTH_FAIL', error.message); process.exit(1); }
 const token = data.session.access_token;
 console.log('signed in as', data.user.email);

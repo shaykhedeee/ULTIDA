@@ -3,12 +3,28 @@ import { PROMPT_VERSIONS } from '@ultida/agent-core';
 import { PlanProposalSchema, parsePlanIntake, type PlanProposal, type PlanIntakeResult } from '@ultida/plan-core';
 
 type Environment = Record<string, string | undefined>;
-type Input = { dataUrl: string; fileName: string; mimeType: string; brief?: Record<string, unknown> };
+export type AnalysisGuideRegion = { id?: string; label?: string; x: number; y: number; width: number; height: number };
+type Input = { dataUrl: string; fileName: string; mimeType: string; brief?: Record<string, unknown>; analysisGuides?: AnalysisGuideRegion[] };
 type ProviderRun = { provider: 'openai' | 'gemini' | 'cloudflare' | 'intake-parser'; model: string; status: 'succeeded' | 'failed'; latencyMs: number; error?: string };
 
 function providerTimeoutMs(environment: Environment) {
-  const parsed = Number(environment.PLAN_ANALYZER_TIMEOUT_MS ?? 60_000);
-  return Number.isFinite(parsed) ? Math.max(5_000, Math.min(parsed, 120_000)) : 60_000;
+  // A failed provider must not hold the durable job for a full minute before
+  // the next real provider can try. Dense plans normally complete in seconds;
+  // callers may opt into a longer ceiling for unusual source files.
+  // Keep the interactive review flow moving. CV and OCR run in parallel, so a
+  // semantic provider that has not produced structured evidence in 18 seconds
+  // should yield to guided tracing instead of holding the job indefinitely.
+  const parsed = Number(environment.PLAN_ANALYZER_TIMEOUT_MS ?? 18_000);
+  return Number.isFinite(parsed) ? Math.max(5_000, Math.min(parsed, 30_000)) : 18_000;
+}
+
+function providerOutputTokenBudget(environment: Environment) {
+  // Floor-plan review needs concise structured evidence, not an essay. A
+  // smaller default makes Llama's response materially faster while retaining
+  // room, wall, opening and dimension proposals; a studio can raise it for
+  // exceptionally dense sheets without a code change.
+  const parsed = Number(environment.PLAN_ANALYZER_MAX_TOKENS ?? 3_200);
+  return Number.isFinite(parsed) ? Math.max(1_024, Math.min(parsed, 8_192)) : 3_200;
 }
 
 function fetchWithProviderTimeout(environment: Environment, input: RequestInfo | URL, init: RequestInit) {
@@ -57,10 +73,15 @@ export function compileBriefContext(brief?: Record<string, unknown>): string {
   return `\n\nPROJECT BRIEF\nOnly use the following as bias, not as source geometry:\n- ${clauses.join('\n- ')}`;
 }
 
-export function buildPlanPrompt(brief?: Record<string, unknown>) {
+export function buildPlanPrompt(brief?: Record<string, unknown>, analysisGuides: AnalysisGuideRegion[] = []) {
   const base = `You are the extraction stage of a professional interior floor-plan review system. Read the supplied source without redesigning it.
 
 Extract only visible evidence: walls, room zones, doors/windows/passages, room labels, written dimensions, and existing plan symbols. A fixture proposal may represent a fixed fixture (toilet, sink, bathtub, shower, stove, refrigerator) or a clearly drawn existing furniture symbol (bed, sofa, dining table, wardrobe, desk). Label it exactly as visible evidence, for example "Existing bed symbol". These are review-only context; never turn them into modular furniture, manufacturing geometry, or inferred dimensions. Never invent a dimension, wall, opening or fixture. Preserve uncertainty.
+
+OPENING DETECTION (CRITICAL):
+- Doors: Every doorway, swing arc, sliding track, pocket frame, or entry opening must be extracted as an opening with kind=0.
+- Windows: Every window, double/triple parallel line on exterior/interior walls, or sill glazing marker must be extracted as an opening with kind=1.
+- Openings must sit directly on or interrupt their parent wall.
 
 COORDINATES
 - Return every coordinate on a source-relative 0..1000 grid: x=0 left, x=1000 right, y=0 top, y=1000 bottom.
@@ -73,17 +94,21 @@ SELF CHECK
 1. All coordinates are finite and within 0..1000.
 2. Walls have non-zero length.
 3. Rooms have positive width and height.
-4. Notes state the visible evidence or uncertainty.
-5. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
-6. Do not split a straight wall into redundant collinear fragments and never repeat the same wall candidate. Prefer fewer, well-evidenced candidates over guessed completeness.
-7. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
-8. Return at most 36 proposals. First cover all room boundary walls and room zones, then openings, legible dimensions and only clearly drawn existing symbols. Do not sacrifice a whole room merely to describe a minor fixture or furniture symbol.
-9. A wall must contain exactly numeric x1,y1,x2,y2. A room must contain exactly numeric x,y,width,height. Do not use numbered keys, arrays, prose, units, or nested objects inside geometry.
-10. Output one JSON object only, with no markdown and no explanatory text:
-{"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"}]}`;
+4. Doors (kind=0) and windows (kind=1) are captured with their true location and width.
+5. Notes state the visible evidence or uncertainty.
+6. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
+7. Do not split a straight wall into redundant collinear fragments and never repeat the same wall candidate. Prefer fewer, well-evidenced candidates over guessed completeness.
+8. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
+9. Start with every clearly enclosed room zone and its enclosing walls. Then add internal partitions, doors/windows, legible dimensions and only clearly drawn existing symbols. Do not sacrifice a whole room merely to describe a minor fixture or furniture symbol. For a multi-room plan, returning one wall or one room is incomplete evidence, not a valid result. Return at most 48 proposals.
+10. A wall must contain exactly numeric x1,y1,x2,y2. A room must contain exactly numeric x,y,width,height. Do not use numbered keys, arrays, prose, units, or nested objects inside geometry.
+11. Output one JSON object only, with no markdown and no explanatory text:
+{"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"},{"kind":"opening","confidence":0.88,"geometry":{"x":340,"y":180,"width":40,"kind":0},"note":"Door with swing arc"}]}`;
 
   const briefContext = compileBriefContext(brief);
-  return `${base}${briefContext}`;
+  const guideContext = analysisGuides.length
+    ? `\n\nDESIGNER GUIDE REGIONS\nThese source-grid rectangles are a coverage checklist, not geometry authority. Inspect every guide for its enclosing walls, openings, visible dimensions and room label. Correct or reject a guide if the drawing disagrees; never copy a guide as a measured room.\n${analysisGuides.slice(0, 24).map((guide, index) => `- Guide ${index + 1}${guide.label ? ` (${guide.label})` : ''}: x=${Math.round(guide.x)}, y=${Math.round(guide.y)}, width=${Math.round(guide.width)}, height=${Math.round(guide.height)}.`).join('\n')}`
+    : '';
+  return `${base}${briefContext}${guideContext}`;
 }
 
 const prompt = buildPlanPrompt();
@@ -100,7 +125,7 @@ const CLOUDFLARE_PLAN_RESPONSE_FORMAT = {
     properties: {
       proposals: {
         type: 'array',
-        maxItems: 36,
+            maxItems: 48,
         items: {
           type: 'object',
           additionalProperties: false,
@@ -127,10 +152,13 @@ const GEOMETRY_KEYS: Record<PlanProposal['kind'], readonly string[]> = {
   fixture: ['x', 'y', 'width', 'depth'],
 };
 
+const PLAN_ENTITY_KINDS = new Set<PlanProposal['kind']>(['wall', 'room', 'opening', 'dimension', 'fixture']);
+
 function normalizeGeometry(kind: PlanProposal['kind'], geometry: Record<string, unknown>) {
   const normalized: Record<string, number> = {};
+  const allowedKeys = GEOMETRY_KEYS[kind] ?? [];
   for (const [key, raw] of Object.entries(geometry)) {
-    if (!GEOMETRY_KEYS[kind].includes(key)) continue;
+    if (!allowedKeys.includes(key)) continue;
     const value = Number(raw);
     if (!Number.isFinite(value)) continue;
     normalized[key] = key === 'valueMm' ? Math.max(0, value) : key === 'kind' ? Math.max(0, Math.min(1, Math.round(value))) : clampCoordinate(value);
@@ -175,6 +203,30 @@ function validatePlanEvidence(proposals: PlanProposal[]) {
   return deduplicated;
 }
 
+/** A syntactically-valid one-wall response is not a usable floor-plan result.
+ * Reject it and try the next configured real vision provider. Deterministic
+ * CV reconciliation and designer review still govern final geometry. */
+function assertFloorPlanCoverage(proposals: PlanProposal[]) {
+  const rooms = proposals.filter((proposal) => proposal.kind === 'room').length;
+  const walls = proposals.filter((proposal) => proposal.kind === 'wall').length;
+  const openings = proposals.filter((proposal) => proposal.kind === 'opening').length;
+  const dimensions = proposals.filter((proposal) => proposal.kind === 'dimension').length;
+  if (rooms === 0 && walls < 4) {
+    throw new Error(`Vision response is too sparse for a floor plan (${rooms} rooms, ${walls} walls).`);
+  }
+  // A small set of wall strokes without a room, opening, or measurement is
+  // commonly a title block, furniture outline, or one exterior edge—not a
+  // reviewable floor-plan model. Let the next configured provider inspect the
+  // source instead of accepting it and later manufacturing a generic room.
+  if (rooms === 0 && (openings + dimensions < 2 || walls < 8)) {
+    throw new Error(`Vision response is missing room-level coverage (${rooms} rooms, ${walls} walls, ${openings} openings, ${dimensions} dimensions).`);
+  }
+  if (rooms + walls + openings + dimensions < 4) {
+    throw new Error(`Vision response has insufficient structural coverage (${rooms} rooms, ${walls} walls, ${openings} openings, ${dimensions} dimensions).`);
+  }
+  return proposals;
+}
+
 function extractJsonObject(raw: string): unknown {
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
   try { return JSON.parse(cleaned); } catch { /* Some vision providers add a short lead-in. */ }
@@ -204,9 +256,16 @@ function extractJsonObject(raw: string): unknown {
 
 export function parseProposals(raw: string, source: 'ocr' | 'detector'): PlanProposal[] {
   const parsed = extractJsonObject(raw) as { proposals?: unknown[] };
-  const proposals = (parsed.proposals ?? []).map((item, index) => {
-    const value = item as { kind?: PlanProposal['kind']; confidence?: unknown; geometry?: Record<string, unknown>; note?: unknown };
-    return { id: crypto.randomUUID(), kind: value.kind, confidence: Math.max(0, Math.min(1, Number(value.confidence ?? 0))), source, status: 'needs_review' as const, geometry: normalizeGeometry(value.kind ?? 'wall', value.geometry ?? {}), note: typeof value.note === 'string' ? value.note : `Provider proposal ${index + 1} requires review.` };
+  const proposals = (Array.isArray(parsed.proposals) ? parsed.proposals : []).flatMap((item, index) => {
+    if (!item || typeof item !== 'object') return [];
+    const value = item as { kind?: unknown; confidence?: unknown; geometry?: unknown; note?: unknown };
+    // Providers occasionally emit a prose label or a new experimental entity
+    // kind. Never index geometry rules with untrusted provider data.
+    if (typeof value.kind !== 'string' || !PLAN_ENTITY_KINDS.has(value.kind as PlanProposal['kind'])) return [];
+    const geometry = value.geometry && typeof value.geometry === 'object' && !Array.isArray(value.geometry)
+      ? value.geometry as Record<string, unknown>
+      : {};
+    return [{ id: crypto.randomUUID(), kind: value.kind as PlanProposal['kind'], confidence: Math.max(0, Math.min(1, Number(value.confidence ?? 0))), source, status: 'needs_review' as const, geometry: normalizeGeometry(value.kind as PlanProposal['kind'], geometry), note: typeof value.note === 'string' ? value.note : `Provider proposal ${index + 1} requires review.` }];
   });
   const result = PlanProposalSchema.array().safeParse(proposals);
   if (!result.success) throw new Error('Plan analyzer returned an invalid proposal shape.');
@@ -229,60 +288,128 @@ function topologyIssues(proposals: PlanProposal[]) {
 async function analyzeOpenAi(environment: Environment, input: Input) {
   if (input.mimeType === 'application/pdf') throw new Error('OpenAI PDF rasterization is not configured; Gemini handles PDF analysis in this deployment.');
   const model = environment.OPENAI_VISION_MODEL || 'gpt-4o-mini';
-  const prompt = buildPlanPrompt(input.brief);
+  const prompt = buildPlanPrompt(input.brief, input.analysisGuides);
   const response = await fetchWithProviderTimeout(environment, 'https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${environment.OPENAI_API_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_schema', json_schema: { name: 'floor_plan_analysis_v1', strict: true, schema: { type: 'object', additionalProperties: false, required: ['proposals'], properties: { proposals: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'object', additionalProperties: false, required: ['kind', 'confidence', 'geometry', 'note'], properties: { kind: { type: 'string', enum: ['wall', 'opening', 'room', 'dimension', 'fixture'] }, confidence: { type: 'number', minimum: 0, maximum: 1 }, geometry: { type: 'object', additionalProperties: { type: 'number' } }, note: { type: 'string', maxLength: 160 } } } } } } } }, messages: [{ role: 'system', content: prompt }, { role: 'user', content: [{ type: 'text', text: `Source file ${input.fileName}. Extract visible plan evidence and run the self-check.` }, { type: 'image_url', image_url: { url: input.dataUrl, detail: 'high' } }] }] }) });
   if (!response.ok) throw new Error(`OpenAI plan analyzer failed (${response.status}).`);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;
   if (!content) throw new Error('OpenAI plan analyzer returned no proposal content.');
-  return { model, proposals: parseProposals(content, 'detector') };
+  return { model, proposals: assertFloorPlanCoverage(parseProposals(content, 'detector')) };
 }
 
 async function analyzeGemini(environment: Environment, input: Input) {
-  const model = environment.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
+  const model = environment.GEMINI_VISION_MODEL || 'gemini-3.6-flash';
   const apiKey = geminiVisionKey(environment);
-  const prompt = buildPlanPrompt(input.brief);
-  const response = await fetchWithProviderTimeout(environment, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }, contents: [{ parts: [{ text: `${prompt}\nSource file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: input.dataUrl.split(',')[1] } }] }] }) });
-  if (!response.ok) throw new Error(`Gemini plan analyzer failed (${response.status}).`);
-  const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  const content = payload.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text;
-  if (!content) throw new Error('Gemini plan analyzer returned no proposal content.');
-  return { model, proposals: parseProposals(content, 'ocr') };
+  const prompt = buildPlanPrompt(input.brief, input.analysisGuides);
+  const base64 = input.dataUrl.split(',', 2)[1];
+  if (!base64) throw new Error('The normalized plan image is missing its base64 payload.');
+  // Dense measured drawings need enough output space for rooms, walls,
+  // openings and dimensions. Keep the entity cap deliberate: a complete,
+  // parseable review set is safer than a 72-item JSON document truncated in
+  // the middle of an entity. OCR/CV add independent evidence afterwards.
+  // A dense drawing can still hit a model's output limit. Retry once with a
+  // deliberately smaller structural pass instead of forwarding incomplete
+  // JSON to the next provider and leaving the designer with no review model.
+  const attempts = [
+    // `thinkingConfig` is not accepted by every Gemini vision model and was
+    // causing valid uploads to fail before the model could inspect the plan.
+    // Keep the first request structured, then retry with the portable Gemini
+    // request shape when an account is pinned to an older compatible model.
+    { entityCap: 48, generationConfig: { temperature: 0, maxOutputTokens: 8192, responseMimeType: 'application/json' } },
+    { entityCap: 24, generationConfig: { temperature: 0, maxOutputTokens: 4096 } },
+  ];
+  let lastError: Error | null = null;
+  for (const { entityCap, generationConfig } of attempts) {
+    try {
+      const response = await fetchWithProviderTimeout(environment, `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generationConfig, contents: [{ parts: [{ text: `${prompt}\nReturn no more than ${entityCap} highest-confidence structural entities. Prioritize enclosed rooms, their enclosing walls, doors/windows, and legible dimensions. Source file: ${input.fileName}` }, { inlineData: { mimeType: input.mimeType, data: base64 } }] }] }) });
+      const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; error?: { message?: string } };
+      if (!response.ok) throw new Error(payload.error?.message || `Gemini plan analyzer failed (${response.status}).`);
+      const content = payload.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text;
+      if (!content) throw new Error('Gemini plan analyzer returned no proposal content.');
+      return { model, proposals: assertFloorPlanCoverage(parseProposals(content, 'ocr')) };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Gemini plan analyzer failed.');
+    }
+  }
+  throw lastError ?? new Error('Gemini plan analyzer failed.');
 }
 
 async function analyzeCloudflare(environment: Environment, input: Input) {
   const accountId = environment.CLOUDFLARE_ACCOUNT_ID;
   const token = environment.CLOUDFLARE_AI_TOKEN;
   if (!accountId || !token) throw new Error('Cloudflare Workers AI credentials are not configured.');
-  const prompt = buildPlanPrompt(input.brief);
+  const prompt = buildPlanPrompt(input.brief, input.analysisGuides);
+  const maxTokens = providerOutputTokenBudget(environment);
   const candidateModels = Array.from(new Set([
     // Llama Vision follows the compact JSON evidence contract more reliably
     // than Moondream for dense technical drawings. An explicitly configured
     // plan model still takes priority; Moondream remains a genuine fallback.
     environment.CLOUDFLARE_PLAN_MODEL,
+    '@cf/meta/llama-4-scout-17b-16e-instruct',
     '@cf/meta/llama-3.2-11b-vision-instruct',
     environment.CLOUDFLARE_VISION_MODEL,
     '@cf/moondream/moondream3.1-9B-A2B',
   ].filter(Boolean) as string[]));
   let lastError: Error | null = null;
-  for (const model of candidateModels) {
+  // Multiple unavailable Cloudflare models used to be tried serially, turning
+  // one missing model into minutes of "Analysing…". Keep one configured or
+  // current primary plus one independently capable fallback. A failed pair is
+  // reported truthfully and the deterministic guided-review route remains
+  // available immediately.
+  for (const model of candidateModels.slice(0, 2)) {
     if (model.includes('8b-instruct') && !model.includes('vision')) continue;
     try {
       const isMoondream = model.includes('moondream');
+      const isLlama4 = model.includes('llama-4-');
       const requestBody = isMoondream
-        ? { task: 'query', image: input.dataUrl, question: `${prompt}\nSource file: ${input.fileName}. Return the required JSON only.`, reasoning: false, stream: false, temperature: 0, max_tokens: 4096 }
+        ? { task: 'query', image: input.dataUrl, question: `${prompt}\nSource file: ${input.fileName}. Return the required JSON only.`, reasoning: false, stream: false, temperature: 0, max_tokens: maxTokens }
+        : isLlama4
+          ? {
+              model,
+              messages: [{
+                role: 'user',
+                // Llama 4 receives vision input only through OpenAI-compatible
+                // content parts. The legacy /ai/run `image` field is silently
+                // treated as text-only by this model.
+                content: [
+                  { type: 'text', text: `${prompt}\nSource file: ${input.fileName}. Return the required JSON only.` },
+                  { type: 'image_url', image_url: { url: input.dataUrl } },
+                ],
+              }],
+              response_format: { type: 'json_object' },
+              temperature: 0,
+              max_tokens: maxTokens,
+            }
         : {
             messages: [{ role: 'system', content: prompt }, { role: 'user', content: `Extract the visible floor-plan evidence from ${input.fileName}. Return the required JSON only.` }],
             image: input.dataUrl,
             response_format: CLOUDFLARE_PLAN_RESPONSE_FORMAT,
             temperature: 0,
-        max_tokens: 6144,
+            max_tokens: maxTokens,
           };
-      const response = await fetchWithProviderTimeout(environment, `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
-      const payload = await response.json() as { success?: boolean; result?: { response?: string; text?: string; answer?: string; result?: { answer?: string; response?: string; text?: string } }; errors?: Array<{ message?: string }> };
-      const content = payload.result?.response || payload.result?.text || payload.result?.answer || payload.result?.result?.answer || payload.result?.result?.response || payload.result?.result?.text;
-      if (response.ok && payload.success && content) {
-        return { model, proposals: parseProposals(content, 'detector') };
+      const endpoint = isLlama4
+        ? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`
+        : `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
+      const response = await fetchWithProviderTimeout(environment, endpoint, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
+      const payload = await response.json() as {
+        success?: boolean;
+        result?: {
+          response?: string;
+          text?: string;
+          answer?: string;
+          choices?: Array<{ message?: { content?: string } }>;
+          result?: { answer?: string; response?: string; text?: string };
+        };
+        choices?: Array<{ message?: { content?: string } }>;
+        errors?: Array<{ message?: string }>;
+      };
+      const content = payload.result?.response || payload.result?.text || payload.result?.answer || payload.result?.choices?.[0]?.message?.content || payload.result?.result?.answer || payload.result?.result?.response || payload.result?.result?.text || payload.choices?.[0]?.message?.content;
+      // The OpenAI-compatible Cloudflare endpoint returns `choices` without
+      // the legacy `{ success: true }` envelope. Treat an explicitly false
+      // value as failure, but never discard a valid vision response solely
+      // because that legacy field is absent.
+      if (response.ok && payload.success !== false && content) {
+        return { model, proposals: assertFloorPlanCoverage(parseProposals(content, 'detector')) };
       }
       lastError = new Error(payload.errors?.map((e) => e.message).join(', ') || `Cloudflare ${model} returned HTTP ${response.status}`);
     } catch (err) {
@@ -301,7 +428,11 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     textContent: input.dataUrl.startsWith('data:text') ? Buffer.from(input.dataUrl.split(',')[1], 'base64').toString('utf-8') : undefined
   });
 
-  const configured = [environment.OPENAI_API_KEY ? 'openai' : null, geminiVisionKey(environment) ? 'gemini' : null, environment.CLOUDFLARE_ACCOUNT_ID && environment.CLOUDFLARE_AI_TOKEN && (environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL) ? 'cloudflare' : null].filter(Boolean) as Array<'openai' | 'gemini' | 'cloudflare'>;
+  // Credentials are sufficient to enable the Cloudflare route: the adapter
+  // has a tested vision-model default and can fall through its model list.
+  // Requiring a model variable here incorrectly disabled the provider and
+  // prevented Gemini/OpenAI fallback from being selected predictably.
+  const configured = [environment.OPENAI_API_KEY ? 'openai' : null, geminiVisionKey(environment) ? 'gemini' : null, environment.CLOUDFLARE_ACCOUNT_ID && environment.CLOUDFLARE_AI_TOKEN ? 'cloudflare' : null].filter(Boolean) as Array<'openai' | 'gemini' | 'cloudflare'>;
 
   if (!configured.length) {
     const error = new Error('A real AI vision provider is required for floor-plan analysis.');
@@ -319,12 +450,15 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
       runs.push({ provider, model: result.model, status: 'succeeded', latencyMs: Date.now() - started });
       return { provider, ...result };
     } catch (error) {
-      runs.push({ provider, model: provider === 'openai' ? environment.OPENAI_VISION_MODEL || 'gpt-4o-mini' : provider === 'gemini' ? environment.GEMINI_VISION_MODEL || 'gemini-2.5-flash' : environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL || '@cf/meta/llama-3.2-11b-vision-instruct', status: 'failed', latencyMs: Date.now() - started, error: error instanceof Error ? error.message : 'Provider failed.' });
+      runs.push({ provider, model: provider === 'openai' ? environment.OPENAI_VISION_MODEL || 'gpt-4o-mini' : provider === 'gemini' ? environment.GEMINI_VISION_MODEL || 'gemini-3.6-flash' : environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL || '@cf/meta/llama-4-scout-17b-16e-instruct', status: 'failed', latencyMs: Date.now() - started, error: error instanceof Error ? error.message : 'Provider failed.' });
       return null;
     }
   };
   const requestedPrimary = environment.PLAN_ANALYZER_PRIMARY;
-  const defaultOrder: Array<'openai' | 'cloudflare' | 'gemini'> = ['openai', 'cloudflare', 'gemini'];
+  // Cloudflare is the only automatic hosted path. Gemini runs only when an
+  // administrator deliberately selects it as primary; OpenAI is never an
+  // automatic fallback, so quota failures cannot lengthen every analysis.
+  const defaultOrder: Array<'openai' | 'gemini' | 'cloudflare'> = ['cloudflare'];
   const order = [
     ...(requestedPrimary && configured.includes(requestedPrimary as 'openai' | 'gemini' | 'cloudflare')
       ? [requestedPrimary as 'openai' | 'gemini' | 'cloudflare']

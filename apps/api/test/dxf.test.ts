@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import test from 'node:test';
 import type { AddressInfo } from 'node:net';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,7 +52,32 @@ test('canonical writer emits a valid CRLF ASCII DXF structure', () => {
   assert.equal([...Buffer.from(dxf)].every((byte) => byte < 128), true);
 });
 
-test('python ezdxf validator approves canonical dxf output', () => {
+function isPythonAvailable(): boolean {
+  try {
+    const res = spawnSync('python', ['--version'], { encoding: 'utf8' });
+    return !res.error && res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+test('DXF validation fails when the independent validator is unavailable', (t) => {
+  if (!isPythonAvailable()) {
+    t.skip('python runtime is not available on this host');
+    return;
+  }
+  const validatorPath = join(fileURLToPath(new URL('../../../scripts', import.meta.url)), 'validate_dxf.py');
+  const result = spawnSync('python', ['-I', '-S', validatorPath, 'unused.dxf'], { encoding: 'utf8' });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /ezdxf/);
+});
+
+test('python ezdxf validator approves canonical dxf output', (t) => {
+  if (!isPythonAvailable()) {
+    t.skip('python runtime is not available on this host');
+    return;
+  }
   const dxf = exportSceneToDxf(approvedScene as any);
   const tempPath = join(fileURLToPath(new URL('.', import.meta.url)), 'temp_test.dxf');
   writeFileSync(tempPath, dxf);
@@ -134,7 +159,9 @@ test('cutlist route creates review-required rectangular panel parts from an appr
     assert.equal(payload.cutlist.partCount, 7);
     assert.equal(payload.cutlist.parts[0].status, 'review_required');
     assert.equal(payload.cutlist.parts[0].lengthMm, 2400);
-    assert.equal(payload.cutlist.parts[0].edgeBandMm, 0);
+    assert.equal(payload.cutlist.parts[0].thicknessMm, 18);
+    assert.equal(payload.cutlist.parts[0].partInstanceId, 'module-1-part-1');
+    assert.equal(payload.cutlist.fabricationRules.backPanelThicknessMm, 6);
   });
 });
 

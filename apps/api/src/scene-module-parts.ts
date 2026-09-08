@@ -1,4 +1,4 @@
-import { COMPILER_REGISTRY, type CategoryType } from '@ultida/module-framework';
+import { COMPILER_REGISTRY, type CategoryType, type Part } from '@ultida/module-framework';
 import type { CompiledModulePart } from '@ultida/scene-compiler';
 
 type StoredModule = {
@@ -27,6 +27,7 @@ function compilerCategory(family: string): CategoryType | null {
   if (normalized.includes('kitchen')) return 'kitchen';
   if (normalized.includes('bed')) return 'bed';
   if (normalized.includes('utility')) return 'utility';
+  if (normalized.includes('light')) return 'freestanding_lighting';
   return null;
 }
 
@@ -35,7 +36,7 @@ function wallLengthMm(wall: CanonicalWall) {
 }
 
 function scenePosition(
-  modulePosition: { xMm: number; yMm: number; rotationDeg: number },
+  modulePosition: { xMm: number; yMm: number; zMm: number; rotationDeg: number },
   local: { xMm: number; yMm: number; zMm: number },
 ) {
   // Keep the part transform convention aligned with the existing scene.v1
@@ -45,7 +46,7 @@ function scenePosition(
   return {
     xMm: modulePosition.xMm + local.xMm * Math.cos(radians) - local.yMm * Math.sin(radians),
     yMm: modulePosition.yMm + local.xMm * Math.sin(radians) + local.yMm * Math.cos(radians),
-    zMm: local.zMm,
+    zMm: modulePosition.zMm + local.zMm,
   };
 }
 
@@ -78,7 +79,18 @@ export function compileStoredModuleForScene(
   if (!wall) return { ok: false, code: 'MODULE_WALL_NOT_FOUND', message: `Module ${module.id} references a wall outside the active plan.` };
   const compiler = COMPILER_REGISTRY[category];
   const configuration = typeof config.configuration === 'object' && config.configuration ? config.configuration as Record<string, unknown> : {};
+  const parameters = typeof config.parameters === 'object' && config.parameters ? config.parameters as Record<string, unknown> : {};
+  // Module family remains a placement/category concept. The saved archetype is
+  // the construction choice that must reach the compiler unchanged.
+  const archetype = typeof parameters.archetype === 'string'
+    ? parameters.archetype
+    : typeof parameters.family === 'string'
+      ? parameters.family
+      : typeof configuration.archetype === 'string'
+        ? configuration.archetype
+        : undefined;
   const drawerCount = typeof configuration.drawerCount === 'number' ? configuration.drawerCount : undefined;
+  const shutterCount = typeof configuration.shutterCount === 'number' ? configuration.shutterCount : undefined;
   const lighting = configuration.lighting === 'shelf-led' || configuration.lighting === 'vertical-led' ? 'profile_led' : 'none';
   const shutterStyle = typeof configuration.shutterStyle === 'string' ? configuration.shutterStyle : undefined;
   const handleStyle = typeof configuration.handleStyle === 'string' ? configuration.handleStyle : undefined;
@@ -88,27 +100,31 @@ export function compileStoredModuleForScene(
     templateVersionId: module.template_id ?? `catalog-${family}`,
     instanceId: module.id,
     parameters: {
+      ...parameters,
       ...config,
+      ...(archetype ? { archetype } : {}),
       totalWidthMm: widthMm,
       totalDepthMm: depthMm,
       totalHeightMm: heightMm,
       drawerCount,
+      shutterCount,
       lighting,
       shutterStyle,
       handleStyle,
       includeLoft,
       glassProfile,
+      profileGlassOption: glassProfile,
     },
     wall: { id: wall.id, widthMm: wallLengthMm(wall), heightMm: Number(wall.heightMm ?? 0), depthMm },
   });
   if (!compiled.valid) {
     return { ok: false, code: 'MODULE_COMPILATION_BLOCKED', message: compiled.blockingViolations.join(' ') || `Module ${module.id} did not satisfy its construction rules.` };
   }
-  const modulePosition = { xMm, yMm, rotationDeg };
+  const modulePosition = { xMm, yMm, zMm: moduleEnvelope.zMm ?? 0, rotationDeg };
   return {
     ok: true,
     module: moduleEnvelope,
-    parts: compiled.parts.map((part) => ({
+    parts: compiled.parts.map((part: Part) => ({
       id: part.id,
       moduleId: module.id,
       roomId: module.space_id,
@@ -121,6 +137,10 @@ export function compileStoredModuleForScene(
       ...scenePosition(modulePosition, part.transform),
       rotationDeg,
       materialId: part.meta.materialSlot.id,
+      kind: part.kind ?? (part.meta.semanticType === 'lighting_anchor' ? 'lighting_anchor' : undefined),
+      fixtureType: part.fixtureType ?? part.meta.fixtureType,
+      colorTemperatureK: part.colorTemperatureK ?? part.meta.colorTemperatureK,
+      lengthMm: part.lengthMm ?? part.meta.lengthMm,
     })),
   };
 }

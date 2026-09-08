@@ -1,0 +1,134 @@
+{
+  "schema": "PlanAnalysisResultV1.wallCandidates",
+  "sourceImageSize": {
+    "widthPx": 900,
+    "heightPx": 600
+  },
+  "corners": [
+    {
+      "x": 47.0,
+      "y": 547.0,
+      "refs": 2,
+      "id": "corner_0"
+    },
+    {
+      "x": 853.5,
+      "y": 547.0,
+      "refs": 2,
+      "id": "corner_1"
+    },
+    {
+      "x": 47.0,
+      "y": 53.5,
+      "refs": 2,
+      "id": "corner_2"
+    },
+    {
+      "x": 853.5,
+      "y": 53.5,
+      "refs": 2,
+      "id": "corner_3"
+    },
+    {
+      "x": 451.0,
+      "y": 56,
+      "refs": 1,
+      "id": "corner_4"
+    },
+    {
+      "x": 451.0,
+      "y": 279,
+      "refs": 1,
+      "id": "corner_5"
+    },
+    {
+      "x": 451.0,
+      "y": 340,
+      "refs": 1,
+      "id": "corner_6"
+    },
+    {
+      "x": 451.0,
+      "y": 544,
+      "refs": 1,
+      "id": "corner_7"
+    }
+  ],
+  "walls": [
+    {
+      "id": "wall_0",
+      "startCornerId": "corner_0",
+      "endCornerId": "corner_1",
+      "x1": 47.0,
+      "y1": 547.0,
+      "x2": 853.5,
+      "y2": 547.0,
+      "thicknessPx": 8,
+      "lengthPx": 810.0,
+      "confidence": 0.9
+    },
+    {
+      "id": "wall_1",
+      "startCornerId": "corner_2",
+      "endCornerId": "corner_3",
+      "x1": 47.0,
+      "y1": 53.5,
+      "x2": 853.5,
+      "y2": 53.5,
+      "thicknessPx": 8,
+      "lengthPx": 810.0,
+      "confidence": 0.9
+    },
+    {
+      "id": "wall_2",
+      "startCornerId": "corner_2",
+      "endCornerId": "corner_0",
+      "x1": 47.0,
+      "y1": 53.5,
+      "x2": 47.0,
+      "y2": 547.0,
+      "thicknessPx": null,
+      "lengthPx": 488.0,
+      "confidence": 0.55
+    },
+    {
+      "id": "wall_3",
+      "startCornerId": "corner_3",
+      "endCornerId": "corner_1",
+      "x1": 853.5,
+      "y1": 53.5,
+      "x2": 853.5,
+      "y2": 547.0,
+      "thicknessPx": null,
+      "lengthPx": 488.0,
+      "confidence": 0.55
+    },
+    {
+      "id": "wall_4",
+      "startCornerId": "corner_4",
+      "endCornerId": "corner_5",
+      "x1": 451.0,
+      "y1": 56,
+      "x2": 451.0,
+      "y2": 279,
+      "thicknessPx": 8,
+      "lengthPx": 223.0,
+      "confidence": 0.9
+    },
+    {
+      "id": "wall_5",
+      "startCornerId": "corner_6",
+      "endCornerId": "corner_7",
+      "x1": 451.0,
+      "y1": 340,
+      "x2": 451.0,
+      "y2": 544,
+      "thicknessPx": 8,
+      "lengthPx": 204.0,
+      "confidence": 0.9
+    }
+  ],
+  "wallCount": 6,
+  "method": "deterministic-cv-hough-thickness-pairing",
+  "notes": "Candidate geometry only. Not authoritative until reconciled with vision-model semantics and confirmed by a human reviewer, per ARCHITECTURE.md invariant #4."
+}

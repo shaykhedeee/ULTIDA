@@ -38,8 +38,7 @@ test('requireProjectUser attaches ultidaUser with userId, projectId, and organiz
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ brief: { clientName: 'Test Client' } })
     });
-    // In missing token or missing Supabase env, status is 401 or 503
-    assert.ok([401, 503].includes(resNoAuth.status));
+    assert.equal(resNoAuth.status, 401);
   });
 });
 
@@ -50,28 +49,27 @@ test('signed floor-plan upload contract is protected and the legacy base64 route
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ fileName: 'plan.png', mimeType: 'image/png', sizeBytes: 1024 })
     });
-    assert.ok([401, 503].includes(initiate.status));
+    assert.equal(initiate.status, 401);
 
     const complete = await fetch(`${baseUrl}/api/projects/proj-123/floor-plans/complete`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ storagePath: 'org/project/floor-plans/plan.png', fileName: 'plan.png', mimeType: 'image/png', sizeBytes: 1024 })
     });
-    assert.ok([401, 503].includes(complete.status));
+    assert.equal(complete.status, 401);
 
     const legacy = await fetch(`${baseUrl}/api/projects/proj-123/floor-plans`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ fileName: 'plan.png', dataUrl: 'data:image/png;base64,ZmFrZQ==' })
     });
-    assert.ok([401, 503].includes(legacy.status));
+    assert.equal(legacy.status, 401);
   });
 });
 
 test('Project status API returns DB-backed stage statuses and lock reasons', async () => {
   await withServer(async (baseUrl) => {
     const res = await fetch(`${baseUrl}/api/projects/proj-123/status`);
-    // Require auth -> 401 or 503
-    assert.ok([401, 503].includes(res.status));
+    assert.equal(res.status, 401);
   });
 });

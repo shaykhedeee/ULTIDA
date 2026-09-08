@@ -1,0 +1,41 @@
+name: Online Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_url:
+        description: Exact Vercel deployment URL to verify
+        required: true
+        type: string
+      environment:
+        description: Expected Vercel environment
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+      commit_sha:
+        description: Expected Git commit SHA or prefix
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify exact online deployment
+        env:
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+          EXPECTED_ENVIRONMENT: ${{ inputs.environment }}
+          EXPECTED_COMMIT_SHA: ${{ inputs.commit_sha }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node scripts/verify-online-deployment.mjs "$DEPLOYMENT_URL" "$EXPECTED_ENVIRONMENT" "$EXPECTED_COMMIT_SHA"

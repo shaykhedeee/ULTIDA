@@ -2,6 +2,7 @@
 export const FINGER_GROOVE_GAP_MM = 30;
 export const GROOVE_CUT_DEG = 45;
 export const LOFT_FILLER_MM = 50;
+export const WALL_SIDE_FILLER_MM = 30;
 export const FLOATING_TV_BASE_CLEARANCE_MM = 200;
 export const TARGET_SHUTTER_WIDTH_MM = 500;
 export const PROFILE_GLASS_LIGHTING = true;
