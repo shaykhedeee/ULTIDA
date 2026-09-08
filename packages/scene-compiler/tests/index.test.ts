@@ -174,3 +174,70 @@ test('floor surface material changes stay isolated to their authored room', () =
   const changed = surfaces.map((item: any) => item.roomId === plan.spaces[0].id ? { ...item, materialVersionId: 'mat-stone-v2' } : item);
   assert.equal(changed.find((item: any) => item.roomId === secondRoomId)?.materialVersionId, 'mat-wood-v1');
 });
+
+test('compileSceneV1 registers module lighting anchors into scene.lighting', () => {
+  const scene = compileSceneV1({
+    projectId: 'project-1',
+    floorPlanVersionId: 'plan-1',
+    designVersion: 'design-1',
+    plan,
+    moduleParts: [
+      {
+        id: 'tv-underglow-1',
+        moduleId: 'module-tv',
+        roomId: plan.spaces[0].id,
+        family: 'tv-unit',
+        semanticType: 'lighting_anchor',
+        kind: 'lighting_anchor',
+        name: 'Floating Console Underglow LED',
+        widthMm: 1800,
+        depthMm: 14,
+        heightMm: 14,
+        xMm: 100,
+        yMm: 200,
+        zMm: 220,
+        rotationDeg: 0,
+        fixtureType: 'led-strip',
+        colorTemperatureK: 3000,
+        lengthMm: 1800,
+      },
+      {
+        id: 'dining-pendant-1',
+        moduleId: 'module-dining',
+        roomId: plan.spaces[0].id,
+        family: 'dining',
+        semanticType: 'lighting_anchor',
+        kind: 'lighting_anchor',
+        name: 'Brass Dining Pendant',
+        widthMm: 300,
+        depthMm: 300,
+        heightMm: 400,
+        xMm: 1500,
+        yMm: 1500,
+        zMm: 1800,
+        rotationDeg: 0,
+        fixtureType: 'pendant',
+        colorTemperatureK: 2700,
+        lengthMm: 300,
+      },
+    ],
+  });
+
+  const moduleLights = scene.lighting.filter((l) => l.id.startsWith('light-mod-'));
+  assert.equal(moduleLights.length, 2);
+
+  const underglow = moduleLights.find((l) => l.id === 'light-mod-tv-underglow-1');
+  assert.ok(underglow);
+  assert.equal(underglow.fixture, 'cove');
+  assert.equal(underglow.kind, 'accent');
+  assert.equal(underglow.colorTemperatureK, 3000);
+  assert.equal(underglow.heightMm, 220);
+
+  const pendant = moduleLights.find((l) => l.id === 'light-mod-dining-pendant-1');
+  assert.ok(pendant);
+  assert.equal(pendant.fixture, 'pendant');
+  assert.equal(pendant.kind, 'accent');
+  assert.equal(pendant.colorTemperatureK, 2700);
+  assert.equal(pendant.heightMm, 1800);
+});
+

@@ -363,6 +363,68 @@ function compileRoomLighting(rooms: Array<{ id: string; type: string; boundary: 
   });
 }
 
+function compileModuleLighting(moduleParts: SceneV1['moduleParts']): SceneV1['lighting'] {
+  return moduleParts.flatMap((part) => {
+    const isLighting =
+      part.semanticType === 'lighting_anchor' ||
+      part.kind === 'lighting_anchor' ||
+      part.semanticType === 'lighting_channel';
+    if (!isLighting) return [];
+
+    let fixture: 'ceiling-spot' | 'floor-lamp' | 'table-lamp' | 'pendant' | 'cove' = 'cove';
+    const ft = (part.fixtureType ?? '').toLowerCase();
+    const name = (part.name ?? '').toLowerCase();
+    if (ft === 'pendant' || name.includes('pendant')) fixture = 'pendant';
+    else if (ft.includes('floor') || name.includes('floor')) fixture = 'floor-lamp';
+    else if (ft.includes('table') || name.includes('table') || name.includes('desk')) fixture = 'table-lamp';
+    else if (ft.includes('spot') || ft.includes('downlight') || ft.includes('ceiling') || name.includes('spot')) fixture = 'ceiling-spot';
+    else if (ft.includes('strip') || ft.includes('channel') || ft.includes('led') || ft.includes('cove') || name.includes('led') || name.includes('strip')) fixture = 'cove';
+
+    const kind: 'accent' | 'task' | 'ambient' =
+      fixture === 'ceiling-spot'
+        ? 'ambient'
+        : fixture === 'table-lamp' || fixture === 'floor-lamp'
+          ? 'task'
+          : 'accent';
+
+    const rawCct = Number(part.colorTemperatureK);
+    const colorTemperatureK = Number.isFinite(rawCct) && rawCct >= 1800 && rawCct <= 6500
+      ? Math.round(rawCct)
+      : 3000;
+
+    const xMm = Number(part.position?.xMm ?? 0);
+    const yMm = Number(part.position?.yMm ?? 0);
+    const zMm = Number(part.position?.zMm ?? 0);
+    const heightMm = Math.max(50, Math.round(zMm > 0 ? zMm : (part.heightMm && part.heightMm > 0 ? part.heightMm : 100)));
+    const shadeDiameterMm =
+      fixture === 'ceiling-spot'
+        ? 90
+        : fixture === 'pendant'
+          ? 300
+          : fixture === 'floor-lamp'
+            ? 380
+            : fixture === 'table-lamp'
+              ? 260
+              : undefined;
+
+    const lumens = Math.max(100, Math.round(part.lengthMm ? part.lengthMm * 0.8 : 650));
+
+    return [{
+      id: `light-mod-${part.id}`,
+      spaceId: part.roomId,
+      kind,
+      fixture,
+      position: { xMm, yMm },
+      heightMm,
+      shadeDiameterMm,
+      colorTemperatureK,
+      lumens,
+      materialId: part.materialId,
+      confidence: 1,
+    }];
+  });
+}
+
 export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
   const validation = validateCanonicalPlan(input.plan);
   if (!validation.valid) {
@@ -466,23 +528,34 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     return { ...surface, regionPolygon: surface.regionPolygon.map((point) => ({ ...point })), tile: surface.tile ? { ...surface.tile } : undefined, skirting: surface.skirting ? { ...surface.skirting, doorwayExclusions: surface.skirting.doorwayExclusions.map((range) => ({ ...range })) } : undefined };
   });
 
-  return SceneV1Schema.parse({
-    schema: 'scene.v1',
-    units: 'mm',
-    coordinateSystem: 'right-handed-z-up',
-    projectId: input.projectId,
-    floorPlanVersionId: input.floorPlanVersionId,
-    floors: [{ id: defaultFloorId, name: 'Ground Floor', elevationMm: 0, heightMm: input.plan.ceilingHeightMm, surfaces: floorSurfaces }],
-    spaces: spaces.map((space) => ({ id: space.id, floorId: defaultFloorId, name: space.roomName ?? space.roomType, type: space.roomType })),
-    rooms,
-    walls,
-    openings,
-    fixedFixtures: [],
-    modules,
-    moduleParts,
-    compositions,
-    materials: input.materials ?? [],
-    lighting: compileRoomLighting(rooms, input.plan.ceilingHeightMm),
+    const roomLighting = compileRoomLighting(rooms, input.plan.ceilingHeightMm);
+    const moduleLighting = compileModuleLighting(moduleParts);
+    const seenLightingIds = new Set<string>();
+    const combinedLighting: SceneV1['lighting'] = [];
+    for (const item of [...roomLighting, ...moduleLighting]) {
+      if (!seenLightingIds.has(item.id)) {
+        seenLightingIds.add(item.id);
+        combinedLighting.push(item);
+      }
+    }
+
+    return SceneV1Schema.parse({
+      schema: 'scene.v1',
+      units: 'mm',
+      coordinateSystem: 'right-handed-z-up',
+      projectId: input.projectId,
+      floorPlanVersionId: input.floorPlanVersionId,
+      floors: [{ id: defaultFloorId, name: 'Ground Floor', elevationMm: 0, heightMm: input.plan.ceilingHeightMm, surfaces: floorSurfaces }],
+      spaces: spaces.map((space) => ({ id: space.id, floorId: defaultFloorId, name: space.roomName ?? space.roomType, type: space.roomType })),
+      rooms,
+      walls,
+      openings,
+      fixedFixtures: [],
+      modules,
+      moduleParts,
+      compositions,
+      materials: input.materials ?? [],
+      lighting: combinedLighting,
     cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: cameraCenter.xMm, yMm: cameraCenter.yMm - 1800, zMm: 1500 }, target: { xMm: cameraCenter.xMm, yMm: cameraCenter.yMm, zMm: 1200 }, lensMm: 35 }],
     constraints: [],
     unresolvedDetections: [],
