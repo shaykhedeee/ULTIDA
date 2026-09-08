@@ -31,7 +31,7 @@ import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { AURA_TOOLS, listAuraTools, planAuraMessage, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
-import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateProductionDossierPdf, generateSketchUpRubyScript, nestPanels2D, PdfWriter, type ProductionDossierSpecV1 } from '@ultida/drawing-core';
+import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProductionWorkbookXlsx, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateProductionDossierPdf, generateSketchUpRubyScript, nestPanels2D, PdfWriter, type ProductionDossierSpecV1 } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
 import { compileSceneV1, reconcileBays, reconcileSceneBays, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
@@ -870,6 +870,20 @@ app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/nesting.svg'
     return response.send(generateProductionNestingSvg(snapshot));
   } catch (err: any) {
     return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_NESTING_FAILED', message: err?.message });
+  }
+});
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/cutlist.xlsx', requireProjectUser, async (request, response) => {
+  try {
+    const snapshot = await readApprovedProductionScene(request);
+    const workbook = generateProductionWorkbookXlsx(snapshot, {
+      provenance: `Project ${request.params.projectId} · approved scene ${request.params.sceneVersionId}`,
+    });
+    response.setHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    response.setHeader('content-disposition', `attachment; filename="ultida-${request.params.sceneVersionId}-production-cutlist.xlsx"`);
+    return response.send(workbook);
+  } catch (err: any) {
+    return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_WORKBOOK_FAILED', message: err?.message });
   }
 });
 

@@ -5,6 +5,7 @@ export * from './scene-types.js';
 export * from './elevation-sheet.js';
 export * from './pdf-writer.js';
 export * from './production-dossier-pdf.js';
+export * from './production-workbook.js';
 import { generateArchitecturalShopSheetSvg, type ShopDrawingOptions } from './shop-drawing-renderer.js';
 
 export const ULTIDA_DRAWING_STANDARD_V1 = {
