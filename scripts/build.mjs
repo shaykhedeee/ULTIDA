@@ -1,4 +1,4 @@
-﻿import { spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -33,17 +33,29 @@ const packageKeys = Object.keys(WORKSPACES).filter(
   (k) => !['@ultida/api', '@ultida/cloudflare-ai-worker', '@ultida/web', '@ultida/worker'].includes(k)
 );
 const appKeys = ['@ultida/api', '@ultida/cloudflare-ai-worker', '@ultida/web', '@ultida/worker'];
+const binDir = resolve(rootDir, 'node_modules/.bin');
+const pathEnv = `${binDir};${process.env.PATH || process.env.Path || ''}`;
+
+let isPnpm = false;
+try {
+  const v = (await import('node:child_process')).execSync(`${npm} --version`, { encoding: 'utf8', shell: process.platform === 'win32' }).trim();
+  isPnpm = Boolean(process.env.npm_config_user_agent?.includes('pnpm') || v.startsWith('12.') || v.includes('pnpm'));
+} catch {}
 
 function runWorkspace(name, script = 'build', timeoutMs = 180_000) {
-  const dir = WORKSPACES[name];
-  const cwd = resolve(rootDir, dir);
   return new Promise((resolvePromise, reject) => {
     process.stdout.write(`\n[build] ${name} ${script} started\n`);
-    const child = spawn(npm, ['run', script], {
+    const args = isPnpm ? ['--filter', name, 'run', script] : ['run', script, '--workspace', name];
+    const child = spawn(npm, args, {
       stdio: 'inherit',
       shell: process.platform === 'win32',
-      cwd,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        PATH: pathEnv,
+        Path: pathEnv,
+        ELECTRON_RUN_AS_NODE: '1',
+      },
     });
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
