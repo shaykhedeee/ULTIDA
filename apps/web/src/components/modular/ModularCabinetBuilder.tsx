@@ -539,8 +539,31 @@ export default function ModularCabinetBuilder({
               <span style={{ fontFamily: 'monospace', color: '#fff' }}>{pricingBreakdown.currencySymbol}{pricingBreakdown.totalHardware.toLocaleString(currency === 'INR' ? 'en-IN' : 'en-US')}</span>
             </div>
             <div style={{ borderTop: '1px solid #332d29', paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 14, fontWeight: 700, color: '#fff' }}>
-              <span>Estimated Total ({pricingBreakdown.taxLabel}):</span>
-              <span style={{ fontFamily: 'monospace', color: '#34d399', fontSize: 18 }}>{pricingBreakdown.currencySymbol}{pricingBreakdown.grandTotal.toLocaleString(currency === 'INR' ? 'en-IN' : 'en-US')}</span>
+              <div>
+                <div>Estimated Total ({pricingBreakdown.taxLabel}):</div>
+                {currency === 'INR' && pricingBreakdown.grandTotal >= 100000 && (
+                  <small style={{ fontSize: 10, color: '#34d399', fontWeight: 600 }}>
+                    ₹{(pricingBreakdown.grandTotal / 100000).toFixed(2)} Lakhs
+                  </small>
+                )}
+                {currency === 'INR' && pricingBreakdown.grandTotal < 100000 && pricingBreakdown.grandTotal >= 1000 && (
+                  <small style={{ fontSize: 10, color: '#34d399', fontWeight: 600 }}>
+                    ₹{(pricingBreakdown.grandTotal / 1000).toFixed(1)} K
+                  </small>
+                )}
+                {currency === 'USD' && (
+                  <small style={{ fontSize: 10, color: '#38bdf8', fontWeight: 600 }}>
+                    Standard USD Export
+                  </small>
+                )}
+              </div>
+              <span style={{ fontFamily: 'monospace', color: '#34d399', fontSize: 18 }}>
+                {pricingBreakdown.currencySymbol}
+                {pricingBreakdown.grandTotal.toLocaleString(currency === 'INR' ? 'en-IN' : 'en-US', {
+                  maximumFractionDigits: currency === 'USD' ? 2 : 0,
+                  minimumFractionDigits: currency === 'USD' ? 2 : 0,
+                })}
+              </span>
             </div>
           </div>
 

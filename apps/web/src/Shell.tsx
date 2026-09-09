@@ -2,7 +2,7 @@ import {
   LayoutDashboard, FolderKanban, Library, BookOpen,
   Palette, Settings, Users, Ruler, ChevronRight, Box, Home, Wand2, CalendarDays, Receipt, Compass,
   PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut, Sparkles, Layers,
-  CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2
+  CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2, ArrowLeft, ArrowRight
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -60,13 +60,14 @@ const TOOL_NAV = [
 
 // ─── Default workflow stages ──────────────────────────────────────
 export const DEFAULT_WORKFLOW_STAGES: WorkflowStageConfig[] = [
-  { id: 'brief',        label: 'Project Brief', path: 'brief',        icon: BookOpen, status: 'not_started' },
-  { id: 'plan',         label: 'Measured Plan', path: 'plan',         icon: Compass, status: 'locked', lockReason: 'Complete project brief first' },
-  { id: 'spaces',       label: 'Rooms & Modules', path: 'spaces',     icon: Home, status: 'locked', lockReason: 'Approve measured plan first' },
-  { id: '3d',           label: 'Scene Studio',  path: '3d',           icon: Wand2, status: 'locked', lockReason: 'Save a room design first' },
-  { id: 'drawings',     label: 'Production Docs', path: 'drawings',   icon: Ruler, status: 'locked', lockReason: 'Compile a scene first' },
-  { id: 'estimate',     label: 'Costing',       path: 'estimate',     icon: Receipt, status: 'locked', lockReason: 'Approve production documents first' },
-  { id: 'presentation', label: 'Presentation',  path: 'presentation', icon: Palette, status: 'locked', lockReason: 'Complete costing first' },
+  { id: 'brief',        label: 'Project Brief',   path: 'brief',        icon: BookOpen, status: 'not_started' },
+  { id: 'plan',         label: 'Measured Plan',   path: 'plan',         icon: Compass,  status: 'locked', lockReason: 'Complete project brief first' },
+  { id: 'spaces',       label: 'Rooms & Modules', path: 'spaces',       icon: Home,     status: 'locked', lockReason: 'Approve measured plan first' },
+  { id: '3d',           label: 'Scene Studio',    path: '3d',           icon: Wand2,    status: 'locked', lockReason: 'Save a room design first' },
+  { id: 'drawings',     label: 'Production Docs', path: 'drawings',     icon: Ruler,    status: 'locked', lockReason: 'Compile a scene first' },
+  { id: 'estimate',     label: 'Costing & BOQ',   path: 'estimate',     icon: Receipt,  status: 'locked', lockReason: 'Approve production documents first' },
+  { id: 'presentation', label: 'Presentation',    path: 'presentation', icon: Palette,  status: 'locked', lockReason: 'Complete costing first' },
+  { id: 'production',   label: 'CAM Production',  path: 'production',   icon: Box,      status: 'locked', lockReason: 'Complete presentation & client approval first' },
 ];
 
 // ─── Stage status icon ─────────────────────────────────────────────
@@ -106,6 +107,10 @@ export function Shell({
   const doneStagesCount = workflowStages.filter((stage) => stage.status === 'done').length;
   const totalStagesCount = workflowStages.length;
   const workflowProgressPct = totalStagesCount > 0 ? Math.round((doneStagesCount / totalStagesCount) * 100) : 0;
+  const activeStageIdx = workflowStages.findIndex((stage) => location.pathname.includes(`/${stage.path}`));
+  const activeStage = activeStageIdx >= 0 ? workflowStages[activeStageIdx] : null;
+  const prevStage = activeStageIdx > 0 ? workflowStages[activeStageIdx - 1] : null;
+  const nextStage = activeStageIdx >= 0 && activeStageIdx < workflowStages.length - 1 ? workflowStages[activeStageIdx + 1] : null;
 
   useEffect(() => {
     window.localStorage.setItem('ultida-sidebar-collapsed', String(collapsed));
@@ -317,6 +322,101 @@ export function Shell({
             )}
           </div>
         </div>
+
+        {/* Stage Forward/Back Continuity Bar */}
+        {inProject && activeStage && (
+          <div
+            className="workflow-continuity-strip"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 24px',
+              background: '#181614',
+              borderBottom: '1px solid #2d2925',
+              fontSize: '12px',
+              color: '#a8a29e',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ color: '#78716c', fontWeight: 600 }}>Stage {activeStageIdx + 1} of {workflowStages.length}:</span>
+              <span style={{ color: '#fff', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <StageIcon status={activeStage.status} />
+                {activeStage.label}
+              </span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  padding: '2px 8px',
+                  borderRadius: 12,
+                  background: activeStage.status === 'done' ? 'rgba(52, 211, 153, 0.15)' : 'rgba(255, 255, 255, 0.08)',
+                  color: activeStage.status === 'done' ? '#34d399' : '#d6d3d1',
+                  textTransform: 'uppercase',
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                }}
+              >
+                {stageStatusLabel(activeStage.status)}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {prevStage ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/projects/${projectId}/${prevStage.path}`)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 14px',
+                    background: '#24211e',
+                    border: '1px solid #3d3731',
+                    borderRadius: 7,
+                    color: '#e7e5e4',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                  title={`Return to previous stage: ${prevStage.label}`}
+                >
+                  <ArrowLeft size={13} /> {prevStage.label}
+                </button>
+              ) : null}
+
+              {nextStage ? (
+                <button
+                  type="button"
+                  disabled={nextStage.status === 'locked'}
+                  onClick={() => {
+                    if (nextStage.status !== 'locked') {
+                      navigate(`/projects/${projectId}/${nextStage.path}`);
+                    }
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 16px',
+                    background: nextStage.status === 'locked' ? '#24211e' : 'linear-gradient(135deg, #10b981, #059669)',
+                    border: nextStage.status === 'locked' ? '1px solid #3d3731' : '0',
+                    borderRadius: 7,
+                    color: nextStage.status === 'locked' ? '#78716c' : '#000',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: nextStage.status === 'locked' ? 'not-allowed' : 'pointer',
+                    boxShadow: nextStage.status === 'locked' ? 'none' : '0 2px 8px rgba(16, 185, 129, 0.25)',
+                  }}
+                  title={nextStage.status === 'locked' ? (nextStage.lockReason ?? 'Stage locked') : `Proceed to next stage: ${nextStage.label}`}
+                >
+                  Next: {nextStage.label} <ArrowRight size={13} />
+                </button>
+              ) : null}
+            </div>
+          </div>
+        )}
 
         {/* Page content */}
         <div className="shell-content">

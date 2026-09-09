@@ -847,8 +847,11 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     let lockReason: string | undefined;
     if (s.id === 'plan' && !(useServerStages ? serverStageMap['brief'] : briefSaved)) { status = 'locked'; lockReason = 'Complete brief first'; }
     if (s.id === 'spaces' && !(useServerStages ? serverStageMap['plan'] : planApproved)) { status = 'locked'; lockReason = 'Approve floor plan first'; }
-    if (s.id === 'layouts' && !(useServerStages ? serverStageMap['spaces'] : planApproved)) { status = 'locked'; lockReason = 'Configure and approve spaces first'; }
-    if (s.id === 'modules' && !(useServerStages ? serverStageMap['layouts'] : layoutApproved)) { status = 'locked'; lockReason = 'Approve a layout first'; }
+    if (s.id === '3d' && !(useServerStages ? serverStageMap['spaces'] : planApproved)) { status = 'locked'; lockReason = 'Configure spaces first'; }
+    if (s.id === 'drawings' && !(useServerStages ? serverStageMap['3d'] : Boolean(sceneVersionId))) { status = 'locked'; lockReason = 'Compile measured scene first'; }
+    if (s.id === 'estimate' && !(useServerStages ? serverStageMap['drawings'] : Boolean(sceneVersionId))) { status = 'locked'; lockReason = 'Review production documents first'; }
+    if (s.id === 'presentation' && !(useServerStages ? serverStageMap['estimate'] : Boolean(sceneVersionId))) { status = 'locked'; lockReason = 'Complete costing first'; }
+    if (s.id === 'production' && !(useServerStages ? serverStageMap['presentation'] : sceneApproved)) { status = 'locked'; lockReason = 'Complete presentation & client approval first'; }
     return { ...s, status, lockReason };
   });
 
