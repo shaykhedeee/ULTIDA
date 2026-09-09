@@ -289,15 +289,73 @@ function resolveRoomOverlaps(roomElements: PlanElement[]): PlanElement[] {
   return [...others, ...adjusted];
 }
 
-function autoSynthesizePartitionWallsAndOpenings(existingElements: PlanElement[], ceilingH = 2700, mmPerPixel?: number): PlanElement[] {
+function cleanAndRectifyPlanGeometry(existingElements: PlanElement[], ceilingH = 2700, mmPerPixel?: number): PlanElement[] {
   const rooms = existingElements.filter((e) => e.kind === 'room' && e.status !== 'rejected');
-  if (!rooms.length) return existingElements;
-
-  const existingWalls = existingElements.filter((e) => e.kind === 'wall' && e.status !== 'rejected');
   const otherElements = existingElements.filter((e) => e.kind !== 'wall' && e.kind !== 'room');
+  let walls = existingElements.filter((e) => e.kind === 'wall' && e.status !== 'rejected');
 
-  const hasWallSegment = (p1: Point, p2: Point, tolerance = 30) => {
-    return existingWalls.some((w) => {
+  // Step 1: Orthogonal snapping (snap walls within ±5° to strict horizontal or vertical)
+  walls = walls.map((w) => {
+    const { x1, y1, x2, y2 } = w.geometry;
+    if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) return w;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    if (len < 5) return w;
+    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    let nx1 = x1;
+    let ny1 = y1;
+    let nx2 = x2;
+    let ny2 = y2;
+    if (Math.abs(angle) < 5 || Math.abs(angle) > 175) {
+      const avgY = Math.round((y1 + y2) / 2);
+      ny1 = avgY;
+      ny2 = avgY;
+    } else if (Math.abs(Math.abs(angle) - 90) < 5) {
+      const avgX = Math.round((x1 + x2) / 2);
+      nx1 = avgX;
+      nx2 = avgX;
+    }
+    const isExterior = nx1 < 140 || nx2 < 140 || ny1 < 160 || ny2 < 160 || nx1 > 860 || nx2 > 860 || ny1 > 720 || ny2 > 720;
+    const standardThickness = isExterior ? 230 : (w.thicknessMm && w.thicknessMm >= 200 ? 230 : 115);
+    const dimMm = mmPerPixel && mmPerPixel > 0 ? Math.round(Math.hypot(nx2 - nx1, ny2 - ny1) * mmPerPixel) : w.dimensionMm;
+    return {
+      ...w,
+      geometry: { ...w.geometry, x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
+      thicknessMm: standardThickness,
+      dimensionMm: dimMm,
+      heightMm: w.heightMm || ceilingH,
+      status: 'accepted' as const,
+    };
+  });
+
+  // Step 2: Corner snapping / gap closure (<16px distance)
+  for (let i = 0; i < walls.length; i++) {
+    for (let j = i + 1; j < walls.length; j++) {
+      const w1 = walls[i].geometry;
+      const w2 = walls[j].geometry;
+      if (w1.x1 === undefined || w2.x1 === undefined) continue;
+      const pairs = [
+        { p1: { x: w1.x1, y: w1.y1! }, p2: { x: w2.x1, y: w2.y1! }, set1: (p: Point) => { w1.x1 = p.x; w1.y1 = p.y; }, set2: (p: Point) => { w2.x1 = p.x; w2.y1 = p.y; } },
+        { p1: { x: w1.x1, y: w1.y1! }, p2: { x: w2.x2!, y: w2.y2! }, set1: (p: Point) => { w1.x1 = p.x; w1.y1 = p.y; }, set2: (p: Point) => { w2.x2 = p.x; w2.y2 = p.y; } },
+        { p1: { x: w1.x2!, y: w1.y2! }, p2: { x: w2.x1, y: w2.y1! }, set1: (p: Point) => { w1.x2 = p.x; w1.y2 = p.y; }, set2: (p: Point) => { w2.x1 = p.x; w2.y1 = p.y; } },
+        { p1: { x: w1.x2!, y: w1.y2! }, p2: { x: w2.x2!, y: w2.y2! }, set1: (p: Point) => { w1.x2 = p.x; w1.y2 = p.y; }, set2: (p: Point) => { w2.x2 = p.x; w2.y2 = p.y; } },
+      ];
+      for (const pair of pairs) {
+        const dist = Math.hypot(pair.p1.x - pair.p2.x, pair.p1.y - pair.p2.y);
+        if (dist > 0.1 && dist <= 16) {
+          const midX = Math.round((pair.p1.x + pair.p2.x) / 2);
+          const midY = Math.round((pair.p1.y + pair.p2.y) / 2);
+          pair.set1({ x: midX, y: midY });
+          pair.set2({ x: midX, y: midY });
+        }
+      }
+    }
+  }
+
+  // Step 3: Add enclosing walls only for missing room boundaries
+  const hasWallNear = (p1: Point, p2: Point, tolerance = 24) => {
+    return walls.some((w) => {
       const { x1, y1, x2, y2 } = w.geometry;
       if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) return false;
       const d1 = Math.hypot(x1 - p1.x, y1 - p1.y) + Math.hypot(x2 - p2.x, y2 - p2.y);
@@ -306,17 +364,7 @@ function autoSynthesizePartitionWallsAndOpenings(existingElements: PlanElement[]
     });
   };
 
-  const newWalls: PlanElement[] = [...existingWalls];
-  const newOpenings: PlanElement[] = [...existingElements.filter(e => e.kind === 'door' || e.kind === 'window')];
-
-  const hasOpeningNear = (x: number, y: number, tolerance = 40) => {
-    return newOpenings.some((op) => {
-      const gx = op.geometry.x ?? 0;
-      const gy = op.geometry.y ?? 0;
-      return Math.hypot(gx - x, gy - y) < tolerance;
-    });
-  };
-
+  const synthesizedWalls: PlanElement[] = [];
   rooms.forEach((room) => {
     const poly = room.geometry.polygon ?? (
       room.geometry.x !== undefined && room.geometry.y !== undefined && room.geometry.width && room.geometry.height
@@ -328,98 +376,33 @@ function autoSynthesizePartitionWallsAndOpenings(existingElements: PlanElement[]
           ]
         : []
     );
-
     if (poly.length < 3) return;
-
     for (let i = 0; i < poly.length; i++) {
       const p1 = poly[i];
       const p2 = poly[(i + 1) % poly.length];
       const lengthPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-      if (lengthPx < 10) continue;
-
-      if (!hasWallSegment(p1, p2, 25)) {
-        const wallId = `wall-syn-${room.id}-${i + 1}-${Math.round(p1.x + p2.x)}`;
+      if (lengthPx < 12) continue;
+      if (!hasWallNear(p1, p2, 24)) {
         const isExternal = p1.x < 140 || p2.x < 140 || p1.y < 160 || p2.y < 160 || p1.x > 860 || p2.x > 860 || p1.y > 720 || p2.y > 720;
-        const newWall: PlanElement = {
-          id: wallId,
+        synthesizedWalls.push({
+          id: `wall-syn-${room.id}-${i + 1}-${Math.round(p1.x + p2.x)}`,
           kind: 'wall',
           label: `${room.label} ${isExternal ? 'Exterior' : 'Partition'} Wall`,
-          confidence: 0.98,
+          confidence: 0.96,
           status: 'accepted',
           color: isExternal ? '#1d4ed8' : '#2563eb',
           geometry: { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y },
           dimensionMm: mmPerPixel && mmPerPixel > 0 ? Math.round(lengthPx * mmPerPixel) : undefined,
-          thicknessMm: isExternal ? 230 : 150,
+          thicknessMm: isExternal ? 230 : 115,
           heightMm: ceilingH,
-        };
-        newWalls.push(newWall);
-
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
-
-        if (!isExternal && lengthPx > 35 && !hasOpeningNear(midX, midY, 35)) {
-          newOpenings.push({
-            id: `door-syn-${room.id}-${i + 1}`,
-            kind: 'door',
-            label: `${room.label} Door Entry`,
-            wallId: wallId,
-            confidence: 0.95,
-            status: 'accepted',
-            color: '#059669',
-            geometry: { x: midX, y: midY, width: 24 },
-            widthMm: 900,
-            heightMm: 2100,
-          });
-        } else if (isExternal && lengthPx > 45 && !hasOpeningNear(midX, midY, 40)) {
-          newOpenings.push({
-            id: `win-syn-${room.id}-${i + 1}`,
-            kind: 'window',
-            label: `${room.label} Window`,
-            wallId: wallId,
-            confidence: 0.94,
-            status: 'accepted',
-            color: '#0284c7',
-            geometry: { x: midX, y: midY, width: 36 },
-            widthMm: 1500,
-            sillMm: 900,
-            headMm: 2100,
-          });
-        }
+        });
       }
     }
   });
 
-  const enhancedRooms = rooms.map((r) => {
-    let floorType = 'French Light Oak Herringbone';
-    let floorColor = '#c9a87c';
-    const name = (r.label || r.roomType || '').toLowerCase();
-
-    if (name.includes('bath') || name.includes('toilet') || name.includes('wash')) {
-      floorType = 'Anti-Skid Vitrified Ceramic Tiles';
-      floorColor = '#b8c5c7';
-    } else if (name.includes('kitchen')) {
-      floorType = 'Roman Travertine Stone Slab';
-      floorColor = '#cfbc9f';
-    } else if (name.includes('bed')) {
-      floorType = 'Smoked Walnut Hardwood Plank';
-      floorColor = '#8c6239';
-    } else if (name.includes('balcony') || name.includes('parking') || name.includes('terrace')) {
-      floorType = 'Flamed Granite Paving';
-      floorColor = '#71717a';
-    }
-
-    return {
-      ...r,
-      status: 'accepted' as const,
-      floorFinish: floorType,
-      floorColor,
-    };
-  });
-
-  const uniqueWalls = Array.from(new Map(newWalls.map(w => [w.id, w])).values());
-  const uniqueOpenings = Array.from(new Map(newOpenings.map(o => [o.id, o])).values());
-
-  return [...otherElements.filter(e => e.kind !== 'door' && e.kind !== 'window'), ...enhancedRooms, ...uniqueWalls, ...uniqueOpenings];
+  const allWalls = [...walls, ...synthesizedWalls];
+  const uniqueWalls = Array.from(new Map(allWalls.map((w) => [w.id, w])).values());
+  return [...otherElements, ...rooms, ...uniqueWalls];
 }
 
 // ─── Main Component ───────────────────────────────────────────────
@@ -467,6 +450,7 @@ export function PlanReviewWorkspace({
   const [scale, setScale] = useState<ScaleCalibration | null>(() => createFreshPlanCalibrationState().scale);
   const [ceilingHeightMm, setCeilingHeightMm] = useState<number | null>(2700);
   const [geometryMode, setGeometryMode] = useState<GeometryMode>('initial_design');
+  const [planWorkspaceMode, setPlanWorkspaceMode] = useState<'extract' | 'clean' | 'propose'>('clean');
   const [toolStart, setToolStart] = useState<Point | null>(null);
   const [pointerPoint, setPointerPoint] = useState<Point | null>(null);
   const [sketchStrokes, setSketchStrokes] = useState<Array<Point[]>>([]);
@@ -681,9 +665,9 @@ export function PlanReviewWorkspace({
       setActiveTool('calibrate');
       return;
     }
-    const enhanced = autoSynthesizePartitionWallsAndOpenings(elements, ceilingHeightMm ?? 2700, scale?.mmPerPixel);
-    commitElements(enhanced);
-    setContinuationHint('✨ AI Auto-Enhanced Plan: Generated all interior partition walls, doors, windows, and custom room flooring!');
+    const rectified = cleanAndRectifyPlanGeometry(elements, ceilingHeightMm ?? 2700, scale?.mmPerPixel);
+    commitElements(rectified);
+    setContinuationHint('⚡ Architectural Plan Rectified: Walls snapped to 0°/90° orthogonal angles, corners healed, and standard structural thicknesses (115/230mm) applied.');
   };
   const undo = () => {
     setUndoStack((stack) => {
@@ -1262,13 +1246,14 @@ export function PlanReviewWorkspace({
     const mmPerPixel = effectiveScale.mmPerPixel;
     const effectiveSourceAssetId = sourceAssetId || `source-plan-${Date.now()}`;
 
-    // Auto-synthesize all missing partition walls, doors, and windows for all rooms
-    let activeElements = autoSynthesizePartitionWallsAndOpenings(
+    // Clean and rectify plan geometry with orthogonal snapping and standard wall thicknesses
+    const activeElements = cleanAndRectifyPlanGeometry(
       approvalElements.length ? approvalElements : elements.filter((e) => e.status !== 'rejected'),
-      ceilingHeightMm ?? 2700
+      ceilingHeightMm ?? 2700,
+      mmPerPixel
     );
 
-    const selectedWalls = activeElements.filter((element) => element.kind === 'wall');
+    const selectedWalls = activeElements.filter((element: PlanElement) => element.kind === 'wall');
     const durableIds = new Map<string, string>();
     const durableId = (value: string) => {
       const existing = durableIds.get(value);
@@ -1283,7 +1268,7 @@ export function PlanReviewWorkspace({
       if (!value || value === 'other') return 'other' as const;
       return value as any;
     };
-    const wallModels = selectedWalls.flatMap((wall) => {
+    const wallModels = selectedWalls.flatMap((wall: PlanElement) => {
       const { x1, y1, x2, y2 } = wall.geometry;
       if ([x1, y1, x2, y2].some((value) => value === undefined)) return [];
       const worldStart = { xMm: Math.round(x1! * mmPerPixel), yMm: Math.round(y1! * mmPerPixel) };
@@ -1301,19 +1286,19 @@ export function PlanReviewWorkspace({
       const ratio = Math.max(0, Math.min(1, ((point.x - x1!) * dx + (point.y - y1!) * dy) / lengthSquared));
       return Math.hypot(point.x - (x1! + ratio * dx), point.y - (y1! + ratio * dy));
     };
-    const spaces = activeElements.filter((element) => element.kind === 'room').flatMap((room) => {
+    const spaces = activeElements.filter((element: PlanElement) => element.kind === 'room').flatMap((room: PlanElement) => {
       const polygon = room.geometry.polygon ?? [];
       if (polygon.length < 3) return [];
-      const sourcePolygon = polygon.map((point) => ({ x: point.x, y: point.y }));
-      const worldPolygon = sourcePolygon.map((point) => ({ xMm: Math.round(point.x * mmPerPixel), yMm: Math.round(point.y * mmPerPixel) }));
+      const sourcePolygon = polygon.map((point: Point) => ({ x: point.x, y: point.y }));
+      const worldPolygon = sourcePolygon.map((point: Point) => ({ xMm: Math.round(point.x * mmPerPixel), yMm: Math.round(point.y * mmPerPixel) }));
       if (worldPolygon[0].xMm !== worldPolygon.at(-1)?.xMm || worldPolygon[0].yMm !== worldPolygon.at(-1)?.yMm) worldPolygon.push({ ...worldPolygon[0] });
-      const areaMm2 = Math.abs(worldPolygon.slice(0, -1).reduce((sum, point, index) => { const next = worldPolygon[index + 1]; return sum + point.xMm * next.yMm - next.xMm * point.yMm; }, 0) / 2);
+      const areaMm2 = Math.abs(worldPolygon.slice(0, -1).reduce((sum: number, point: { xMm: number; yMm: number }, index: number) => { const next = worldPolygon[index + 1]; return sum + point.xMm * next.yMm - next.xMm * point.yMm; }, 0) / 2);
       const wallRefs = selectedWalls
-        .filter((wall) => sourcePolygon.some((point) => pointToSegmentDistance(point, wall) <= 35))
-        .map((wall) => durableId(wall.id));
+        .filter((wall: PlanElement) => sourcePolygon.some((point: Point) => pointToSegmentDistance(point, wall) <= 35))
+        .map((wall: PlanElement) => durableId(wall.id));
       const openingRefs = activeElements
-        .filter((element) => (element.kind === 'door' || element.kind === 'window') && element.wallId && wallRefs.includes(durableId(element.wallId)))
-        .map((element) => durableId(element.id));
+        .filter((element: PlanElement) => (element.kind === 'door' || element.kind === 'window') && element.wallId && wallRefs.includes(durableId(element.wallId)))
+        .map((element: PlanElement) => durableId(element.id));
       return [{ id: durableId(room.id), sourcePolygon, worldPolygon, roomType: canonicalRoomType(room.roomType), roomName: room.label, areaMm2, areaSqm: areaMm2 / 1_000_000, ceilingHeightMm: ceilingHeightMm ?? 2700, wallRefs, openingRefs, confidence: room.confidence, verification: isInitialDesign ? 'assumed' : 'verified' }];
     });
 
@@ -1382,97 +1367,192 @@ export function PlanReviewWorkspace({
                 title="Measured and fully reviewed geometry for production outputs"
               >Final production</button>
             </div>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid var(--line)', borderRadius: 7, background: 'var(--surface)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-              <Upload size={14} /> Upload Plan File
-              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/avif,image/heic,image/heif,image/svg+xml,application/pdf,.tif,.tiff,.heic,.heif" onChange={onFile} style={{ display: 'none' }} />
-            </label>
-            <button
-              type="button"
-              onClick={handleAiAutoExtractAll}
-              disabled={!fileName || analysisInFlight}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 7,
-                padding: '7px 18px',
-                background: 'linear-gradient(135deg, #1c1917, #3d2a1a)',
-                color: '#fff',
-                border: '1px solid var(--gold)',
-                borderRadius: 7,
-                fontSize: 13,
-                fontWeight: 800,
-                cursor: (!fileName || analysisInFlight) ? 'not-allowed' : 'pointer',
-                boxShadow: '0 2px 8px rgba(197,156,45,0.25)',
-                opacity: (!fileName || analysisInFlight) ? 0.6 : 1,
-              }}
-            >
-              {analysisInFlight ? <Loader2 size={14} className="ultida-spinner" /> : <Sparkles size={14} style={{ color: 'var(--gold)' }} />}
-              {analysisInFlight ? 'AI Analysing Floor Plan...' : 'AI Vision Extract & Analyse Plan'}
-            </button>
-            {onStartManualReview && !analysed && (
+
+            {/* 3-Mode Architectural Workflow Switcher */}
+            <div className="plan-mode-switcher" style={{ display: 'inline-flex', background: 'var(--surface-sunken, #171d24)', padding: 3, borderRadius: 8, border: '1px solid var(--line, #282f37)', gap: 3 }}>
               <button
                 type="button"
-                onClick={onStartManualReview}
-                disabled={!fileName || analysisInFlight}
-                title="Store this plan and continue with calibrated manual tracing. This does not claim AI-verified geometry."
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#fff', color: 'var(--brown-mid)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                onClick={() => setPlanWorkspaceMode('extract')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: planWorkspaceMode === 'extract' ? '#252f3d' : 'transparent',
+                  color: planWorkspaceMode === 'extract' ? 'var(--gold, #d4af37)' : '#9ba8b7',
+                  fontWeight: 700,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5
+                }}
               >
-                <PenTool size={14} /> Guided trace instead
+                <Eye size={12} /> 1. Extract
               </button>
-            )}
-            {onRetryAnalysis && analysisRetryAvailable && (
               <button
                 type="button"
-                onClick={onRetryAnalysis}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#fff', color: 'var(--brown-mid)', border: '1px solid var(--brown-mid)', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                onClick={() => setPlanWorkspaceMode('clean')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: planWorkspaceMode === 'clean' ? '#252f3d' : 'transparent',
+                  color: planWorkspaceMode === 'clean' ? 'var(--gold, #d4af37)' : '#9ba8b7',
+                  fontWeight: 700,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5
+                }}
               >
-                <RefreshCw size={14} /> Retry analysis
+                <CheckCircle2 size={12} /> 2. Clean &amp; Rectify
               </button>
-            )}
-            {elements.filter((e) => e.kind === 'room').length > 1 && (
               <button
                 type="button"
-                onClick={handleAutoFixRoomOverlaps}
+                onClick={() => setPlanWorkspaceMode('propose')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: planWorkspaceMode === 'propose' ? '#252f3d' : 'transparent',
+                  color: planWorkspaceMode === 'propose' ? 'var(--gold, #d4af37)' : '#9ba8b7',
+                  fontWeight: 700,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5
+                }}
+              >
+                <Sparkles size={12} /> 3. Propose
+              </button>
+            </div>
+
+            {/* Mode-specific Primary Actions */}
+            {planWorkspaceMode === 'extract' && (
+              <>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid var(--line)', borderRadius: 7, background: 'var(--surface)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  <Upload size={14} /> Upload Plan File
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/avif,image/heic,image/heif,image/svg+xml,application/pdf,.tif,.tiff,.heic,.heif" onChange={onFile} style={{ display: 'none' }} />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAiAutoExtractAll}
+                  disabled={!fileName || analysisInFlight}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 7,
+                    padding: '7px 18px',
+                    background: 'linear-gradient(135deg, #1c1917, #3d2a1a)',
+                    color: '#fff',
+                    border: '1px solid var(--gold)',
+                    borderRadius: 7,
+                    fontSize: 13,
+                    fontWeight: 800,
+                    cursor: (!fileName || analysisInFlight) ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 2px 8px rgba(197,156,45,0.25)',
+                    opacity: (!fileName || analysisInFlight) ? 0.6 : 1,
+                  }}
+                >
+                  {analysisInFlight ? <Loader2 size={14} className="ultida-spinner" /> : <Sparkles size={14} style={{ color: 'var(--gold)' }} />}
+                  {analysisInFlight ? 'AI Analysing Floor Plan...' : 'AI Vision Extract & Analyse Plan'}
+                </button>
+                {onStartManualReview && !analysed && (
+                  <button
+                    type="button"
+                    onClick={onStartManualReview}
+                    disabled={!fileName || analysisInFlight}
+                    title="Store this plan and continue with calibrated manual tracing. This does not claim AI-verified geometry."
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#fff', color: 'var(--brown-mid)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    <PenTool size={14} /> Guided trace instead
+                  </button>
+                )}
+                {onRetryAnalysis && analysisRetryAvailable && (
+                  <button
+                    type="button"
+                    onClick={onRetryAnalysis}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#fff', color: 'var(--brown-mid)', border: '1px solid var(--brown-mid)', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    <RefreshCw size={14} /> Retry analysis
+                  </button>
+                )}
+              </>
+            )}
+
+            {planWorkspaceMode === 'clean' && (
+              <>
+                {elements.filter((e) => e.kind === 'room').length > 1 && (
+                  <button
+                    type="button"
+                    onClick={handleAutoFixRoomOverlaps}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '7px 14px',
+                      background: '#fff',
+                      color: 'var(--brown-mid)',
+                      border: '1px solid var(--gold)',
+                      borderRadius: 7,
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      boxShadow: '0 1px 4px rgba(197,156,45,0.15)',
+                    }}
+                    title="Auto-adjust room boundaries to eliminate overlapping zones"
+                  >
+                    <Sparkles size={14} style={{ color: 'var(--gold)' }} /> Fix Overlaps
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAutoEnhanceFullPlan}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '7px 16px',
+                    background: 'linear-gradient(135deg, #c59c2d, #8f6c12)',
+                    color: '#fff',
+                    border: 0,
+                    borderRadius: 7,
+                    fontSize: 13,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 8px rgba(197,156,45,0.35)',
+                  }}
+                  title="Snap all walls to 0°/90° orthogonal angles, heal corner gaps, and standardize thicknesses"
+                >
+                  <Sparkles size={14} /> ⚡ Rectify 0°/90° &amp; Standardize Walls (115/230mm)
+                </button>
+              </>
+            )}
+
+            {planWorkspaceMode === 'propose' && (
+              <button
+                type="button"
+                onClick={deriveWallsFromRoomBoundaries}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 6,
-                  padding: '7px 14px',
-                  background: '#fff',
-                  color: 'var(--brown-mid)',
-                  border: '1px solid var(--gold)',
+                  padding: '7px 16px',
+                  background: '#1e293b',
+                  color: 'var(--gold, #d4af37)',
+                  border: '1px solid var(--gold, #d4af37)',
                   borderRadius: 7,
                   fontSize: 12.5,
                   fontWeight: 700,
                   cursor: 'pointer',
-                  boxShadow: '0 1px 4px rgba(197,156,45,0.15)',
                 }}
-                title="Auto-adjust room boundaries to eliminate overlapping zones"
+                title="Derive perimeter layout proposals from verified rooms"
               >
-                <Sparkles size={14} style={{ color: 'var(--gold)' }} /> Fix Overlaps
+                <LayoutGrid size={14} /> Derive Proposals from Room Boundaries
               </button>
             )}
-            <button
-              type="button"
-              onClick={handleAutoEnhanceFullPlan}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '7px 16px',
-                background: 'linear-gradient(135deg, #c59c2d, #8f6c12)',
-                color: '#fff',
-                border: 0,
-                borderRadius: 7,
-                fontSize: 13,
-                fontWeight: 800,
-                cursor: 'pointer',
-                boxShadow: '0 2px 8px rgba(197,156,45,0.35)',
-              }}
-              title="Auto-generate all interior dividing partition walls, doors, windows, and custom room flooring"
-            >
-              <Sparkles size={14} /> AI Auto-Enhance Entire Plan
-            </button>
             <button
               type="button"
               onClick={loadDemoFloorPlan}

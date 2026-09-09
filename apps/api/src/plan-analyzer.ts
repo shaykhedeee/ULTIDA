@@ -298,7 +298,7 @@ async function analyzeOpenAi(environment: Environment, input: Input) {
 }
 
 async function analyzeGemini(environment: Environment, input: Input) {
-  const model = environment.GEMINI_VISION_MODEL || 'gemini-3.6-flash';
+  const model = environment.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
   const apiKey = geminiVisionKey(environment);
   const prompt = buildPlanPrompt(input.brief, input.analysisGuides);
   const base64 = input.dataUrl.split(',', 2)[1];
@@ -455,10 +455,9 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     }
   };
   const requestedPrimary = environment.PLAN_ANALYZER_PRIMARY;
-  // Cloudflare is the only automatic hosted path. Gemini runs only when an
-  // administrator deliberately selects it as primary; OpenAI is never an
-  // automatic fallback, so quota failures cannot lengthen every analysis.
-  const defaultOrder: Array<'openai' | 'gemini' | 'cloudflare'> = ['cloudflare'];
+  // Prefer high-accuracy vision models (Gemini / OpenAI) whenever keys are configured,
+  // falling back to Cloudflare Workers AI for zero-config hosted deployments.
+  const defaultOrder: Array<'openai' | 'gemini' | 'cloudflare'> = ['gemini', 'openai', 'cloudflare'];
   const order = [
     ...(requestedPrimary && configured.includes(requestedPrimary as 'openai' | 'gemini' | 'cloudflare')
       ? [requestedPrimary as 'openai' | 'gemini' | 'cloudflare']
