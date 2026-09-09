@@ -23,6 +23,7 @@ test('Cloudflare FLUX receives deterministic base, depth, edge, and material ref
       sourceAssets: [PNG], referenceAssets: [], masks: [], operation: 'generate', style: 'Warm contemporary',
       structuredPrompt: 'Use image 0 as the approved scene and preserve it.', negativePrompt: 'Do not alter geometry.',
       quality: 'review', providerPreference: ['cloudflare'],
+      conditioningIntent: 'reference',
       conditioningMaps: { depthMapUrl: PNG, cannyEdgeMapUrl: PNG, materialKeyMapUrl: PNG },
     });
     assert.equal(result.status, 'succeeded', JSON.stringify(result));

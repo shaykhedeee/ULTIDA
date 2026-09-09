@@ -650,19 +650,39 @@ export function createProviderGateway(environment: Environment) {
     },
 
     async createVisualProposal(request: VisualProposalRequest): Promise<ProviderResult> {
+      // Reject unsupported precision controls before any provider discovery,
+      // funding probe, asset download or generation call can incur a cost.
+      const controls = Object.entries(request.conditioningMaps ?? {}).filter(([, value]) => Boolean(value));
+      const unsupported = request.masks.length || request.operation === 'material-swap' || request.operation === 'remove-object'
+        ? 'precise region-mask editing'
+        : controls.length && request.conditioningIntent !== 'reference'
+          ? `typed conditioning controls (${controls.map(([key]) => key).join(', ')})`
+          : request.conditioningMaps?.objectMaskUrl || request.conditioningMaps?.normalMapUrl
+            ? 'object-mask or normal-map references'
+            : null;
+      if (unsupported) return {
+        status: 'failed', code: 'UNSUPPORTED_PROVIDER_CONDITIONING',
+        message: `No verified provider adapter supports ${unsupported}. Use a reviewed RGB reference render, or configure and certify an adapter for the requested control.`,
+        retryable: false, sourceSceneVersionId: request.sceneVersionId, attemptedProviders: [],
+      };
       const explicitProviderSelection = request.providerPreference.length > 0;
       const explicitProviderIds = new Set(request.providerPreference.map((id) => id === 'openai' ? (environment.OPENAI_IMAGE_MODEL === 'gpt-image-1' ? 'openai-gpt-image-1' : 'openai-dall-e-3') : id));
       const defaultResolution = explicitProviderSelection ? null : await resolveDefaultProviderPreference();
       const requested = (explicitProviderSelection ? request.providerPreference : defaultResolution!.preference)
         .map((id) => id === 'openai' ? (environment.OPENAI_IMAGE_MODEL === 'gpt-image-1' ? 'openai-gpt-image-1' : 'openai-dall-e-3') : id);
       const activeProviders = getProviders();
-      const hasDeterministicImageInput = request.sourceAssets.some((asset) => asset.startsWith('data:image/'));
+      const hasDeterministicImageInput = request.sourceAssets.some((asset) => /^(data:image\/|https?:\/\/)/i.test(asset));
+      const cloudflareModel = request.quality === 'final'
+        ? environment.CLOUDFLARE_FINAL_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-9b'
+        : environment.CLOUDFLARE_IMAGE_MODEL ?? '@cf/black-forest-labs/flux-2-klein-4b';
+      const cloudflareAcceptsReferences = ['@cf/black-forest-labs/flux-2-klein-4b', '@cf/black-forest-labs/flux-2-klein-9b'].includes(cloudflareModel);
       const configuredProviders = activeProviders
         .filter((provider) => provider.configured && provider.operations.includes(request.operation))
         // Paid providers are only eligible when explicitly named in this
         // request. Credentials and a failed fallback never promote them.
         .filter((provider) => provider.eligible || (!explicitProviderSelection && defaultResolution!.eligibleIds.has(provider.id)) || (explicitProviderSelection && explicitProviderIds.has(provider.id)))
-        .filter((provider) => !hasDeterministicImageInput || provider.id === 'cloudflare' || (provider.id === 'comfyui' && Boolean(readComfyWorkflow(environment) && comfyTemplateNeeds(readComfyWorkflow(environment)!, 'sourceImage'))))
+        .filter((provider) => !hasDeterministicImageInput || (provider.id === 'cloudflare' && cloudflareAcceptsReferences) || (provider.id === 'comfyui' && Boolean(readComfyWorkflow(environment) && comfyTemplateNeeds(readComfyWorkflow(environment)!, 'sourceImage'))))
+        .filter((provider) => !controls.length || (provider.id === 'cloudflare' && cloudflareAcceptsReferences))
         .map((provider) => provider.id);
       
       if (!configuredProviders.length) {

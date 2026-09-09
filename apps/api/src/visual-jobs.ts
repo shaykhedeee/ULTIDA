@@ -547,16 +547,16 @@ export async function createVisualJob(environment: Record<string, string | undef
       sourceAssets: [baseArtifacts.rgb.url],
       masks: request.operation === 'material-swap'
         ? [baseArtifacts.edgeMap.url, selectedObjectMask!.url]
-        : [baseArtifacts.edgeMap.url, ...baseArtifacts.objectMasks.map((mask) => mask.url), ...baseArtifacts.materialRegions.map((mask) => mask.url)],
+        : [],
+      conditioningIntent: request.operation === 'material-swap' ? 'control' : 'reference',
       conditioningMaps: {
         depthMapUrl: baseArtifacts.depth.url,
         cannyEdgeMapUrl: baseArtifacts.edgeMap.url,
         materialKeyMapUrl: baseArtifacts.materialRegions[0]?.url,
-        objectMaskUrl: selectedObjectMask?.url ?? baseArtifacts.objectMasks[0]?.url,
+        objectMaskUrl: selectedObjectMask?.url,
       },
-      // Cloudflare FLUX.2 is the only automatic hosted path for both draft
-      // generation and geometry-locked material revisions. A studio-local
-      // provider must be deliberately selected by a future explicit control.
+      // FLUX.2 receives ordinary image references, not typed depth/mask controls.
+      // Precision edits fail closed at the gateway until a verified adapter exists.
       providerPreference: ['cloudflare'],
     };
     await client.from('jobs').update({

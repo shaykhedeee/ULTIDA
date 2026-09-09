@@ -204,6 +204,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const [reviewVisualJobId, setReviewVisualJobId] = useState<string | null>(null);
   const [visualBusy, setVisualBusy] = useState(false);
   const [compiledSceneId, setCompiledSceneId] = useState<string | null>(sceneVersionId);
+  const [sceneActionBusy, setSceneActionBusy] = useState(false);
   const [structuralReferenceImage, setStructuralReferenceImage] = useState<string | null>(null);
   const [structuralImageName, setStructuralImageName] = useState<string | null>(null);
   const [materialLibrary, setMaterialLibrary] = useState<any[]>([]);
@@ -1014,10 +1015,15 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   }
 
   async function saveFinishesAndCompileScene() {
-    const saved = await saveMoodboard();
-    if (!saved) return;
-    const nextSceneId = await compileMoodboard(undefined, true);
-    if (nextSceneId && projectId && spaceId) navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(scenePreflight?.room.planRoomId ?? spaceId)}&sceneVersionId=${encodeURIComponent(nextSceneId)}`);
+    if (sceneActionBusy) return;
+    setSceneActionBusy(true);
+    try {
+      const saved = await saveMoodboard();
+      if (!saved) return;
+      await compileMoodboard(undefined, true);
+    } catch (error) {
+      setPlacementNotice(error instanceof Error ? error.message : 'Could not build the scene. Your room design is still saved.');
+    } finally { setSceneActionBusy(false); }
   }
 
   async function createVisual(operation: 'generate' | 'material-swap' = 'generate', materialName?: string, sceneVersionOverride?: string, sceneIsApproved = sceneApproved, materialTarget?: { materialId: string; semanticSlot: string }) {
@@ -2012,8 +2018,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         <Card className="scene-panel">
           <CardHeader>
             <div>
-              <small>SCENE V1</small>
-              <h3>{sceneVersionId ? `Version ${sceneVersionId.slice(0, 8)}` : 'Draft scene'}</h3>
+              <small>ROOM DESIGN</small>
+              <h3>{selectedSpace?.name ?? 'Select a room'} · placed furniture</h3>
             </div>
             <Badge>{scenePreflight?.requestedModuleIds.length ?? 0} scene-ready / {draftModules.filter((module) => !spaceId || module.roomId === spaceId).length} placed</Badge>
           </CardHeader>
@@ -2022,13 +2028,14 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               const roomModules = draftModules.filter((m) => !spaceId || m.roomId === spaceId);
               return (
                 <>
-                  <div className="scene-canvas">
-                    <div className="scene-room-label">{room.toUpperCase()}</div>
+                  <div className="room-furniture-cards">
                     {roomModules.length ? (
                       roomModules.map((item, index) => (
-                        <button type="button" aria-pressed={item.id === selectedModule?.id} onClick={() => setSelectedModuleId(item.id)} className={`scene-module module-${item.family}${item.id === selectedModule?.id ? ' scene-module-selected' : ''}`} key={item.id} style={{ left: `${12 + (index % 4) * 22}%`, top: `${20 + Math.floor(index / 4) * 24}%` }}>
-                          <Check size={13} />
-                          {item.label}
+                        <button type="button" aria-pressed={item.id === selectedModule?.id} onClick={() => setSelectedModuleId(item.id)} className="room-furniture-card" key={item.id}>
+                          <Layers3 size={20} />
+                          <strong>{item.label}</strong>
+                          <span>{item.widthMm} × {item.depthMm} × {item.heightMm} mm</span>
+                          <small>{item.id === selectedModule?.id ? 'Selected · edit dimensions and finishes' : 'Select to edit'}</small>
                         </button>
                       ))
                     ) : (
@@ -2072,9 +2079,18 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         {compiledSceneId ? (
           <Button onClick={() => navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(scenePreflight?.room.planRoomId ?? spaceId ?? '')}&sceneVersionId=${encodeURIComponent(compiledSceneId)}`)} disabled={!projectId || !spaceId}><ArrowRight size={16} /> Open room in 3D</Button>
         ) : (
-          <Button onClick={() => void saveFinishesAndCompileScene()} disabled={!projectId || !selectedModule || preflightLoading}><Layers3 size={16} /> Save finishes & compile scene</Button>
+          <Button onClick={() => void saveFinishesAndCompileScene()} disabled={!projectId || !selectedModule || preflightLoading || sceneActionBusy}><Layers3 size={16} /> {sceneActionBusy ? 'Building scene…' : 'Build 3D scene'}</Button>
         )}
+        {compiledSceneId && <Button disabled={sceneActionBusy || sceneApproved} onClick={async () => {
+          setSceneActionBusy(true);
+          try {
+            const approved = await onSceneApproved(compiledSceneId);
+            setPlacementNotice(approved ? 'Scene approved. You can now generate a render from this version.' : 'Approval did not complete. Review the scene checks in 3D and retry.');
+          } catch (error) { setPlacementNotice(error instanceof Error ? error.message : 'Scene approval failed. Please retry.'); }
+          finally { setSceneActionBusy(false); }
+        }}>{sceneApproved ? 'Scene approved' : sceneActionBusy ? 'Saving…' : 'Approve scene'}</Button>}
       </div>
+      <p role="status" aria-live="polite">{placementNotice}</p>
     </section>
   );
 }

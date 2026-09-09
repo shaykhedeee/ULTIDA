@@ -31,6 +31,8 @@ export const VisualProposalRequestSchema = z.object({
     objectMaskUrl: z.string().optional(),
     normalMapUrl: z.string().optional(),
   }).optional(),
+  // References guide appearance only. Omission retains strict control semantics.
+  conditioningIntent: z.enum(['control', 'reference']).optional(),
   providerPreference: z.array(z.string()).default([])
 });
 

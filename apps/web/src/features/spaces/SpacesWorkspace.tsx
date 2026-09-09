@@ -459,18 +459,20 @@ export function SpacesWorkspace() {
   const sourceDimensionsMm = useMemo(() => {
     const rawWidth = sourceMeta?.widthPx ?? (sourceMeta as any)?.sourceWidth ?? 1000;
     const rawHeight = sourceMeta?.heightPx ?? (sourceMeta as any)?.sourceHeight ?? 850;
-    const mmPerPx = sourceMeta?.mmPerPixel ?? (scaleVerified ? 15 : 15);
+    // Never invent a pixel calibration. Until the plan is explicitly calibrated,
+    // the measured vector geometry remains the only trusted coordinate source.
+    const mmPerPx = sourceMeta?.mmPerPixel ?? (scaleVerified ? undefined : undefined);
 
     const allPts = [
       ...rooms.flatMap(r => r.polygon),
       ...walls.flatMap(w => [w.start, w.end]),
     ];
     if (!allPts.length) {
-      return { minX: 0, minY: 0, widthMm: rawWidth * mmPerPx, heightMm: rawHeight * mmPerPx };
+      return { minX: 0, minY: 0, widthMm: mmPerPx ? rawWidth * mmPerPx : 1000, heightMm: mmPerPx ? rawHeight * mmPerPx : 850 };
     }
     const b = bbox(allPts);
-    const widthMm = Math.max(rawWidth * mmPerPx, b.maxX);
-    const heightMm = Math.max(rawHeight * mmPerPx, b.maxY);
+    const widthMm = mmPerPx ? Math.max(rawWidth * mmPerPx, b.maxX) : b.maxX - b.minX;
+    const heightMm = mmPerPx ? Math.max(rawHeight * mmPerPx, b.maxY) : b.maxY - b.minY;
     return {
       minX: Math.min(0, b.minX),
       minY: Math.min(0, b.minY),
@@ -1545,6 +1547,14 @@ export function SpacesWorkspace() {
                 <button key={t} className={`tool-btn ${(tool === t || (t === 'column' && tool === 'add_column') || (t === 'service' && tool === 'add_service') || (t === 'wall' && tool === 'draw_wall') || (t === 'beam' && tool === 'draw_beam') || (t === 'door' && tool === 'add_door') || (t === 'window' && tool === 'add_window')) ? 'active' : ''}`} onClick={() => activateCanvasTool(t)}>{label}</button>
               ))}</div></div>)}
               {tool !== 'select' && <button type="button" className="tool-cancel" onClick={() => activateCanvasTool('cancel_tool')}>Cancel active tool</button>}
+            </div>
+            <div className="plan-trust-strip" role="status">
+              <span className={scaleVerified ? 'trust-ok' : 'trust-review'}>{scaleVerified ? '✓ Scale confirmed' : 'Scale not confirmed'}</span>
+              <span>{rooms.length} rooms</span>
+              <span>{walls.length} measured walls</span>
+              <span>{openings.filter((opening) => opening.kind === 'door').length} doors</span>
+              <span>{openings.filter((opening) => opening.kind === 'window').length} windows</span>
+              {!scaleVerified && <span className="trust-hint">Calibrate the plan before dimension chains or production exports.</span>}
             </div>
 
             {annotationDialogOpen && (

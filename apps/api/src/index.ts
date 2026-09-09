@@ -651,7 +651,7 @@ async function readApprovedProductionScene(request: express.Request) {
   return (await readApprovedProductionContext(request)).snapshot;
 }
 
-export async function buildDossierSpecFromContext(request: express.Request, scene: SceneV1, snapshot: any): Promise<ProductionDossierSpecV1> {
+export async function buildDossierSpecFromContext(request: express.Request, scene: SceneV1, snapshot: ReturnType<typeof buildProductionSnapshot>): Promise<ProductionDossierSpecV1> {
   const projectId = String(request.params.projectId);
   const client = getRequestSupabaseClient(request);
   let projectName = 'PROJECT NAME TO BE CONFIRMED';
@@ -680,6 +680,10 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
   } catch {}
 
   const edgeSummary = calculateEdgeBandingSummary(snapshot.parts);
+  const rules = snapshot.fabricationRules;
+  const nesting = nestPanels2D(snapshot.parts, rules.sheetWidthMm, rules.sheetHeightMm, rules.kerfMm, rules.trimMm);
+  const stockAreaSqm = nesting.sheets.reduce((total, sheet) => total + sheet.sheetWidthMm * sheet.sheetHeightMm / 1_000_000, 0);
+  const usedAreaSqm = nesting.sheets.reduce((total, sheet) => total + sheet.usedAreaSqm, 0);
   const roomNames = new Map(scene.rooms.map((room) => [room.id, room.name]));
   const flooring = buildFlooringQuantities(scene.floors.flatMap((floor) => floor.surfaces ?? [])).map((quantity) => ({
     ...quantity,
@@ -721,13 +725,13 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
     },
     bom: {
       boardNesting: {
-        sheets18mm: nestPanels2D(snapshot.parts.filter((part: any) => part.thicknessMm >= 16), snapshot.fabricationRules).sheets.length,
-        sheets8mm: nestPanels2D(snapshot.parts.filter((part: any) => part.thicknessMm < 16), snapshot.fabricationRules).sheets.length,
+        sheets18mm: nesting.sheets.filter((sheet) => sheet.thicknessMm === 18).length,
+        sheets8mm: nesting.sheets.filter((sheet) => sheet.thicknessMm === 8).length,
         sheetsLaminate: 0,
         totalAreaSqm: snapshot.parts.reduce((total: number, part: any) => total + (part.lengthMm * part.widthMm * part.quantity) / 1_000_000, 0),
         totalAreaSqFt: snapshot.parts.reduce((total: number, part: any) => total + (part.lengthMm * part.widthMm * part.quantity) / 1_000_000, 0) * 10.7639,
-        nestingYieldPct: 0,
-        stockSheetSizeMm: '2440 × 1220 mm',
+        nestingYieldPct: stockAreaSqm ? Math.round(usedAreaSqm / stockAreaSqm * 1000) / 10 : 0,
+        stockSheetSizeMm: `${rules.sheetWidthMm} × ${rules.sheetHeightMm} mm`,
       },
       edgeBandingSummary: edgeSummary,
       hardwareTotals: snapshot.hardware,
@@ -2062,7 +2066,9 @@ app.post('/api/projects/:projectId/material-library/starter', requireProjectUser
     grain_direction: item.family === 'woodgrain' ? 'follow_part' : 'none',
     thickness_mm: item.thicknessMm,
     availability: 'available',
-    metadata: { family: item.family, suitableFor: item.suitableFor, edgeBand: item.edgeBand, colourHex: item.colourHex, source: 'ultida-curated-starter', requiresSupplierConfirmation: true },
+    metadata: { family: item.family, suitableFor: item.suitableFor, edgeBand: item.edgeBand, colourHex: item.colourHex, source: 'ultida-curated-starter', requiresSupplierConfirmation: true,
+      ...('swatchUrl' in item ? { swatchUrl: item.swatchUrl, materialVersionId: item.id, supplierCode: item.supplierCode, sourceUrl: item.sourceUrl, allowedSlots: item.allowedSlots, pbr: item.pbr } : {}),
+    },
     created_by: authReq.ultidaUser!.id,
   }));
   const inserted = await client.from('material_library_items').upsert(rows, { onConflict: 'organization_id,code', ignoreDuplicates: true }).select('*');
