@@ -29,7 +29,7 @@ import TopViewFloorplanEnhancer, {
   type VastuFinding,
 } from '../../components/spaces/TopViewFloorplanEnhancer';
 import WallBayEditor from '../../components/spaces/WallBayEditor';
-import FlooringStudio from '../../components/spaces/FlooringStudio';
+import FlooringStudio, { TILE_PRESETS } from '../../components/spaces/FlooringStudio';
 import { type CompositionScheduleV1, type FloorSurfaceV1 } from '@ultida/contracts';
 import { getApiBase } from '../../lib/api-base';
 import './spaces.css';
@@ -256,7 +256,14 @@ const CEILING_PRESETS = [
   { id: 'exposed_industrial', name: 'Exposed Concrete Loft Ceiling', desc: 'Modern industrial aesthetic' },
 ];
 
-function getFloorPatternId(finish?: string) {
+function getFloorPatternId(finish?: string, surface?: FloorSurfaceV1) {
+  if (surface?.materialVersionId) {
+    const matId = surface.materialVersionId.toLowerCase();
+    if (matId.includes('statuario') || matId.includes('marble')) return 'floor-statuario';
+    if (matId.includes('oak') || matId.includes('walnut') || matId.includes('wood')) return 'floor-wood';
+    if (matId.includes('terrazzo')) return 'floor-terrazzo';
+    if (matId.includes('tile') || matId.includes('slate') || matId.includes('ash')) return 'floor-tile';
+  }
   if (!finish) return 'floor-default';
   const f = finish.toLowerCase();
   if (f.includes('marble') || f.includes('botticino')) return 'floor-marble';
@@ -264,6 +271,7 @@ function getFloorPatternId(finish?: string) {
   if (f.includes('parquet') || f.includes('chevron') || f.includes('walnut')) return 'floor-parquet';
   if (f.includes('terrazzo')) return 'floor-terrazzo';
   if (f.includes('statuario') || f.includes('white')) return 'floor-statuario';
+  if (f.includes('slate') || f.includes('ash') || f.includes('tile')) return 'floor-tile';
   return 'floor-default';
 }
 
@@ -419,6 +427,24 @@ export function SpacesWorkspace() {
       setRoomDraftSummary(null);
     }
   }, [roomDraftRequested]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    try {
+      const savedSurfaces = window.localStorage.getItem(`ultida.floorSurfaces.${projectId}`);
+      if (savedSurfaces) {
+        const parsed = JSON.parse(savedSurfaces);
+        if (parsed && typeof parsed === 'object') setFloorSurfaces(parsed);
+      }
+      const savedSchedules = window.localStorage.getItem(`ultida.compositionSchedules.${projectId}`);
+      if (savedSchedules) {
+        const parsed = JSON.parse(savedSchedules);
+        if (parsed && typeof parsed === 'object') setCompositionSchedules(parsed);
+      }
+    } catch {
+      // ignore
+    }
+  }, [projectId]);
 
   // ── Load approved plan geometry & source backdrop ──
   useEffect(() => {
@@ -1886,7 +1912,7 @@ export function SpacesWorkspace() {
                 const isSel = selectedRoom === r.id;
                 const b = bbox(r.polygon);
                 const center = toPx({ xMm: (b.minX + b.maxX) / 2, yMm: (b.minY + b.maxY) / 2 });
-                const patternId = getFloorPatternId(r.floorFinish);
+                const patternId = getFloorPatternId(r.floorFinish, floorSurfaces[r.id]);
                 const badgeWidth = Math.max(80, r.name.length * 7 + 20);
 
                 return (
@@ -2514,16 +2540,22 @@ export function SpacesWorkspace() {
                           rightClearanceMm={50}
                           initialSchedule={compositionSchedules[activeWall.id] || null}
                           onScheduleChange={(newSchedule) => {
-                            setCompositionSchedules((prev) => ({
-                              ...prev,
-                              [activeWall.id]: newSchedule,
-                            }));
+                            setCompositionSchedules((prev) => {
+                              const next = { ...prev, [activeWall.id]: newSchedule };
+                              if (projectId) {
+                                try { window.localStorage.setItem(`ultida.compositionSchedules.${projectId}`, JSON.stringify(next)); } catch {}
+                              }
+                              return next;
+                            });
                           }}
                           onConfirmSchedule={(confirmedSchedule) => {
-                            setCompositionSchedules((prev) => ({
-                              ...prev,
-                              [activeWall.id]: confirmedSchedule,
-                            }));
+                            setCompositionSchedules((prev) => {
+                              const next = { ...prev, [activeWall.id]: confirmedSchedule };
+                              if (projectId) {
+                                try { window.localStorage.setItem(`ultida.compositionSchedules.${projectId}`, JSON.stringify(next)); } catch {}
+                              }
+                              return next;
+                            });
                             setSaveState(`Wall ${activeWallLabel} bay schedule confirmed for production!`);
                           }}
                         />
@@ -2551,29 +2583,53 @@ export function SpacesWorkspace() {
                   );
                 })()}
 
-                {spacePanel === 'flooring' && (
-                  <FlooringStudio
-                    roomId={sel.room.id}
-                    roomName={sel.room.name}
-                    roomAreaSqm={sel.effectiveAreaSqm ?? sel.room.areaSqm}
-                    roomPolygon={sel.room.polygon}
-                    doorOpenings={openings
-                      .filter((o) => o.kind === 'door' || o.kind === 'passage')
-                      .map((o) => ({
-                        id: o.id,
-                        offsetAlongWallMm: o.offsetAlongWallMm,
-                        widthMm: o.widthMm
-                      }))}
-                    initialSurface={floorSurfaces[sel.room.id] || null}
-                    onSurfaceChange={(surface) => {
-                      setFloorSurfaces((prev) => ({ ...prev, [sel.room.id]: surface }));
-                    }}
-                    onSave={(surface) => {
-                      setFloorSurfaces((prev) => ({ ...prev, [sel.room.id]: surface }));
-                      setSaveState(`Flooring specification for ${sel.room.name} saved!`);
-                    }}
-                  />
-                )}
+                {spacePanel === 'flooring' && (() => {
+                  const bWalls = roomBoundaryWalls(sel.room);
+                  const bWallIds = new Set(bWalls.map((w) => w.id));
+                  const relevantDoorOpenings = openings
+                    .filter((o) => (o.kind === 'door' || o.kind === 'passage') && (bWallIds.has(o.wallId) || !o.wallId))
+                    .map((o) => ({
+                      id: o.id,
+                      offsetAlongWallMm: o.offsetAlongWallMm,
+                      widthMm: o.widthMm
+                    }));
+
+                  return (
+                    <FlooringStudio
+                      roomId={sel.room.id}
+                      roomName={sel.room.name}
+                      roomAreaSqm={sel.effectiveAreaSqm ?? sel.room.areaSqm}
+                      roomPolygon={sel.room.polygon}
+                      doorOpenings={relevantDoorOpenings}
+                      initialSurface={floorSurfaces[sel.room.id] || null}
+                      onSurfaceChange={(surface) => {
+                        setFloorSurfaces((prev) => {
+                          const next = { ...prev, [sel.room.id]: surface };
+                          if (projectId) {
+                            try { window.localStorage.setItem(`ultida.floorSurfaces.${projectId}`, JSON.stringify(next)); } catch {}
+                          }
+                          return next;
+                        });
+                      }}
+                      onSave={(surface, quantity) => {
+                        setFloorSurfaces((prev) => {
+                          const next = { ...prev, [sel.room.id]: surface };
+                          if (projectId) {
+                            try { window.localStorage.setItem(`ultida.floorSurfaces.${projectId}`, JSON.stringify(next)); } catch {}
+                          }
+                          return next;
+                        });
+                        const matchedPreset = TILE_PRESETS.find((p) => p.id === surface.materialVersionId);
+                        const finishName = matchedPreset ? matchedPreset.name : surface.materialVersionId;
+                        patchRoom(sel.room.id, { floorFinish: finishName });
+                        const summary = quantity
+                          ? ` · ${quantity.netAreaSqm} m², ${quantity.totalTileCount} tiles, ${quantity.skirtingLinearM}m skirting`
+                          : '';
+                        setSaveState(`✓ Flooring for ${sel.room.name} saved: ${finishName}${summary}`);
+                      }}
+                    />
+                  );
+                })()}
 
                 {spacePanel === 'brief' && <>
                   <div className="ai-brief-trigger">
@@ -3108,6 +3164,10 @@ export function SpacesWorkspace() {
                     <rect width="40" height="40" fill="#605e5a" />
                     <rect x="1" y="1" width="38" height="38" fill="#6d6a66" />
                   </pattern>
+                  <pattern id="modal-floor-statuario" width="60" height="60" patternUnits="userSpaceOnUse">
+                    <rect width="60" height="60" fill="#f8fafc" />
+                    <path d="M 0 30 Q 30 15 60 45 M 15 0 Q 45 30 30 60" fill="none" stroke="#cbd5e1" strokeWidth="1" />
+                  </pattern>
                   <pattern id="modal-floor-default" width="30" height="30" patternUnits="userSpaceOnUse">
                     <rect width="30" height="30" fill="#faf6ef" />
                   </pattern>
@@ -3118,7 +3178,7 @@ export function SpacesWorkspace() {
                   const pts = r.polygon.map(p => { const q = toPx(p); return `${q.x},${q.y}`; }).join(' ');
                   const b = bbox(r.polygon);
                   const center = toPx({ xMm: (b.minX + b.maxX) / 2, yMm: (b.minY + b.maxY) / 2 });
-                  const pId = getFloorPatternId(r.floorFinish);
+                  const pId = getFloorPatternId(r.floorFinish, floorSurfaces[r.id]);
                   return (
                     <g key={r.id}>
                       <polygon points={pts} fill={`url(#modal-${pId})`} stroke="#4a3728" strokeWidth={1.5} />

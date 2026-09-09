@@ -12,7 +12,10 @@ import {
   Check,
   Package,
   Scissors,
-  Maximize2
+  Maximize2,
+  Download,
+  Copy,
+  FileText
 } from 'lucide-react';
 import {
   type FloorSurfaceV1,
@@ -34,7 +37,7 @@ export interface FlooringStudioProps {
   }>;
   initialSurface?: FloorSurfaceV1 | null;
   onSurfaceChange?: (surface: FloorSurfaceV1, quantities: FlooringQuantityV1) => void;
-  onSave?: (surface: FloorSurfaceV1) => void;
+  onSave?: (surface: FloorSurfaceV1, quantities?: FlooringQuantityV1) => void;
 }
 
 export interface TilePreset {
@@ -50,7 +53,7 @@ export interface TilePreset {
   previewColor: string;
 }
 
-const TILE_PRESETS: TilePreset[] = [
+export const TILE_PRESETS: TilePreset[] = [
   {
     id: 'mat-statuario-1200x600',
     name: 'Statuario Marble Vitrified Slab',
@@ -158,6 +161,7 @@ export const FlooringStudio: React.FC<FlooringStudioProps> = ({
   }, [roomPolygon]);
 
   // Initial State Setup
+  const [copiedNotice, setCopiedNotice] = useState(false);
   const [selectedPresetId, setSelectedPresetId] = useState<string>(
     initialSurface?.materialVersionId || TILE_PRESETS[0].id
   );
@@ -332,16 +336,40 @@ export const FlooringStudio: React.FC<FlooringStudioProps> = ({
             Planar surface generation, cut-tile boundary optimization, and doorway-deducted skirting specification.
           </p>
         </div>
-        {onSave && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             type="button"
-            className="btn-primary btn-sm"
-            onClick={() => onSave(currentSurface)}
+            className="btn-secondary btn-sm"
+            onClick={() => {
+              const text = `FLOORING SPECIFICATION — ${roomName.toUpperCase()}\n` +
+                `Material: ${activePreset?.name ?? selectedPresetId}\n` +
+                `Tile Size: ${tileWidthMm} × ${tileLengthMm} mm (${pattern} bond, ${angleDeg}°)\n` +
+                `Net Area: ${quantity.netAreaSqm} m² (${(quantity.netAreaSqm * 10.7639).toFixed(1)} sq.ft)\n` +
+                `Tile Count: ${quantity.totalTileCount} (${quantity.fullTileCount} full, ${quantity.cutTileCount} cut)\n` +
+                `Wastage: ${quantity.wastagePct}%\n` +
+                `Order Recommendation: ${packsRecommended} boxes\n` +
+                `Skirting: ${quantity.skirtingLinearM} running meters (${skirtingHeightMm}mm ${skirtingProfile})\n` +
+                `Substrate: ${substrate} (Build-up: ${buildUpThicknessMm}mm, FFL: ${elevationMm > 0 ? `+${elevationMm}` : elevationMm}mm)`;
+              void navigator.clipboard?.writeText(text);
+              setCopiedNotice(true);
+              setTimeout(() => setCopiedNotice(false), 2500);
+            }}
+            title="Copy architectural bill of quantities to clipboard"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
           >
-            <Check size={13} /> Commit Flooring
+            <Download size={13} /> {copiedNotice ? '✓ Copied BOM' : 'Copy BOM'}
           </button>
-        )}
+          {onSave && (
+            <button
+              type="button"
+              className="btn-primary btn-sm"
+              onClick={() => onSave(currentSurface, quantity)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            >
+              <Check size={13} /> Commit Flooring
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Real-time Analytics & Bill of Quantities Grid */}
@@ -452,10 +480,10 @@ export const FlooringStudio: React.FC<FlooringStudioProps> = ({
                   width={tileWidthMm}
                   height={tileLengthMm}
                   transform={`rotate(${angleDeg}, ${tile.originMm.xMm}, ${tile.originMm.yMm})`}
-                  fill={isCut ? 'rgba(245, 158, 11, 0.12)' : 'rgba(56, 189, 248, 0.08)'}
-                  stroke={isCut ? '#f59e0b' : '#38bdf8'}
+                  fill={isCut ? 'rgba(245, 158, 11, 0.2)' : activePreset ? `${activePreset.previewColor}35` : 'rgba(56, 189, 248, 0.08)'}
+                  stroke={isCut ? '#f59e0b' : activePreset?.category === 'wood' ? '#a06e42' : '#38bdf8'}
                   strokeWidth={groutWidthMm > 0 ? 1 : 0.5}
-                  strokeOpacity={isCut ? 0.8 : 0.4}
+                  strokeOpacity={isCut ? 0.85 : 0.45}
                 />
               );
             })}
