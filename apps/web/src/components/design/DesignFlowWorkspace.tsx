@@ -22,7 +22,7 @@ import {
 } from '@ultida/drawing-core';
 
 type Stage = 'Design' | 'Visualize' | 'Document';
-type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration; updatedAt?: string };
+type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration; updatedAt?: string; materialId?: string; finishes?: Record<string, string> };
 type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; roomTypes: string[]; description?: string; manufacturingRules?: string[] };
 type PreparedModulePlan = { schema: 'ultida.module-plan.v1'; templateId: string; family: string; name: string; dimensionsMm: { width: number; depth: number; height: number }; wallWidthMm: number; clearanceMm: number };
 type DesignPreset = { id: string; name: string; family: string; roomTypes: string[]; referenceStyle: string[]; renderRules: string[]; productionRules: string[] };
@@ -130,6 +130,7 @@ function buildSceneForElevation(
       heightMm: m.heightMm,
       position: { xMm: posX, yMm: posY, zMm: 0 },
       rotationDeg: rotDeg,
+      materialId: m.materialId,
     };
   });
 
@@ -1848,8 +1849,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 )}
               </div>
 
-              {/* Elevation Stage & Sidebar Layout */}
-              <div style={{ display: 'grid', gridTemplateColumns: selectedModule ? '1fr 340px' : '1fr', gap: '20px', alignItems: 'start' }}>
+              {/* Elevation Stage & Persistent Sidebar Layout */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '20px', alignItems: 'start' }}>
                 {/* Main SVG Render Area */}
                 <div className="elevation-full-stage" style={{ background: '#fbfaf8', border: '1.5px solid #dcd3c5', borderRadius: '10px', padding: '16px', overflowX: 'auto', position: 'relative' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -1876,77 +1877,197 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   />
                 </div>
 
-                {/* Module Inspector & Material Swatch Panel */}
-                {selectedModule && (
-                  <Card style={{ border: '1px solid #e7dcce', borderRadius: '10px', background: '#fff' }}>
-                    <CardHeader style={{ padding: '14px 16px', borderBottom: '1px solid #f0e8dc', background: '#faf7f2' }}>
-                      <small style={{ color: 'var(--gold-dim)', fontWeight: 800, fontSize: '10.5px' }}>SELECTED CABINET INSPECTOR</small>
-                      <h4 style={{ margin: '2px 0 0', fontSize: '14px', fontWeight: 800, color: '#1c1917' }}>{selectedModule.label}</h4>
-                      <div style={{ fontSize: '11px', color: '#78716c', marginTop: '2px' }}>
-                        {selectedModule.family} · {selectedModule.widthMm} × {selectedModule.depthMm} × {selectedModule.heightMm} mm
-                      </div>
-                    </CardHeader>
-                    <CardContent style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                      {/* Nudge & Centering Quick Actions */}
-                      <div>
-                        <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
-                          Wall Placement (Offset: {Math.round(selectedModule.offsetMm ?? 0)} mm)
-                        </span>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                {/* Persistent Sidebar: Selected Cabinet Inspector OR Wall Specification Summary */}
+                {selectedModuleId && draftModules.some((m) => m.id === selectedModuleId) ? (
+                  (() => {
+                    const inspectedMod = draftModules.find((m) => m.id === selectedModuleId)!;
+                    return (
+                      <Card style={{ border: '1px solid #e7dcce', borderRadius: '10px', background: '#fff' }}>
+                        <CardHeader style={{ padding: '14px 16px', borderBottom: '1px solid #f0e8dc', background: '#faf7f2', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div>
+                            <small style={{ color: 'var(--gold-dim)', fontWeight: 800, fontSize: '10.5px' }}>SELECTED CABINET INSPECTOR</small>
+                            <h4 style={{ margin: '2px 0 0', fontSize: '14px', fontWeight: 800, color: '#1c1917' }}>{inspectedMod.label}</h4>
+                            <div style={{ fontSize: '11px', color: '#78716c', marginTop: '2px' }}>
+                              {inspectedMod.family} · {inspectedMod.widthMm} × {inspectedMod.depthMm} × {inspectedMod.heightMm} mm
+                            </div>
+                          </div>
                           <button
                             type="button"
-                            onClick={() => void nudgeModule(selectedModule.id, -50)}
-                            style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
+                            onClick={() => setSelectedModuleId(null)}
+                            title="Deselect to view wall overview"
+                            style={{ background: 'none', border: 'none', color: '#78716c', fontSize: '16px', cursor: 'pointer', padding: '2px' }}
                           >
-                            ◀ 50mm
+                            ✕
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => void centerModule(selectedModule.id)}
-                            style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
-                          >
-                            Center
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void nudgeModule(selectedModule.id, 50)}
-                            style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
-                          >
-                            50mm ▶
-                          </button>
-                        </div>
-                      </div>
+                        </CardHeader>
+                        <CardContent style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          {/* Nudge & Centering Quick Actions */}
+                          <div>
+                            <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+                              Wall Placement (Offset: {Math.round(inspectedMod.offsetMm ?? 0)} mm)
+                            </span>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button
+                                type="button"
+                                onClick={() => void nudgeModule(inspectedMod.id, -50)}
+                                style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
+                              >
+                                ◀ 50mm
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void centerModule(inspectedMod.id)}
+                                style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
+                              >
+                                Center
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void nudgeModule(inspectedMod.id, 50)}
+                                style={{ flex: 1, padding: '5px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d6d3d1', background: '#fff', cursor: 'pointer' }}
+                              >
+                                50mm ▶
+                              </button>
+                            </div>
+                          </div>
 
-                      {/* Material & Finish Swatch Grid (A4) */}
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase' }}>
-                            Material Swatches &amp; Finishes
-                          </span>
-                          <span style={{ fontSize: '9.5px', color: '#a8a29e' }}>Click to swap</span>
-                        </div>
-                        <ModuleMaterialSwatchGrid
-                          module={selectedModule}
-                          selectedCarcassLaminate={selectedCarcassLaminate}
-                          selectedShutterLaminate={selectedShutterLaminate}
-                          selectedHardwareObj={selectedHardwareObj}
-                          onOpenPicker={(slot) => {
-                            setActivePickerSlot(slot);
-                            setMaterialPickerOpen(true);
-                          }}
-                        />
-                      </div>
+                          {/* Material & Finish Swatch Grid */}
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                              <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase' }}>
+                                Material Swatches &amp; Finishes
+                              </span>
+                              <span style={{ fontSize: '9.5px', color: '#a8a29e' }}>Click to swap</span>
+                            </div>
+                            <ModuleMaterialSwatchGrid
+                              module={inspectedMod}
+                              selectedCarcassLaminate={selectedCarcassLaminate}
+                              selectedShutterLaminate={selectedShutterLaminate}
+                              selectedHardwareObj={selectedHardwareObj}
+                              onOpenPicker={(slot) => {
+                                setActivePickerSlot(slot);
+                                setMaterialPickerOpen(true);
+                              }}
+                            />
+                          </div>
 
-                      {/* Switch to Planner to edit parameters */}
-                      <Button
-                        variant="outline"
-                        onClick={() => setDesignMode('layout')}
-                        style={{ fontSize: '11.5px', padding: '8px 12px' }}
-                      >
-                        Edit in Module Planner →
-                      </Button>
-                    </CardContent>
-                  </Card>
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                            <Button
+                              variant="outline"
+                              onClick={() => setSelectedModuleId(null)}
+                              style={{ flex: 1, fontSize: '11px', padding: '6px' }}
+                            >
+                              Wall Overview
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => setDesignMode('layout')}
+                              style={{ flex: 1, fontSize: '11px', padding: '6px' }}
+                            >
+                              Edit in Planner →
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()
+                ) : (
+                  (() => {
+                    const currentActiveWallId = wallId || roomWalls[0]?.id || '';
+                    const activeWallObj = roomWalls.find((w) => w.id === currentActiveWallId) || roomWalls[0];
+                    const activeWallLengthMm = activeWallObj?.start && activeWallObj?.end
+                      ? Math.round(Math.hypot(activeWallObj.end.xMm - activeWallObj.start.xMm, activeWallObj.end.yMm - activeWallObj.start.yMm))
+                      : 3000;
+                    const wallModules = draftModules.filter((m) => m.wallId === currentActiveWallId);
+                    const usedMm = wallModules.reduce((acc, m) => acc + (m.widthMm || 0), 0);
+                    const remainingMm = Math.max(0, activeWallLengthMm - usedMm);
+                    const utilPercent = Math.min(100, Math.round((usedMm / (activeWallLengthMm || 1)) * 100));
+                    const wallLetter = String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === currentActiveWallId)));
+
+                    return (
+                      <Card style={{ border: '1px solid #e7dcce', borderRadius: '10px', background: '#fff' }}>
+                        <CardHeader style={{ padding: '14px 16px', borderBottom: '1px solid #f0e8dc', background: '#faf7f2' }}>
+                          <small style={{ color: 'var(--gold-dim)', fontWeight: 800, fontSize: '10.5px' }}>WALL SPECIFICATION SUMMARY</small>
+                          <h4 style={{ margin: '2px 0 0', fontSize: '14px', fontWeight: 800, color: '#1c1917' }}>WALL {wallLetter} OVERVIEW</h4>
+                          <div style={{ fontSize: '11px', color: '#78716c', marginTop: '2px' }}>
+                            Span: {activeWallLengthMm} mm · {wallModules.length} Placed Cabinet{wallModules.length === 1 ? '' : 's'}
+                          </div>
+                        </CardHeader>
+                        <CardContent style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          {/* Linear Clearance & Utilization Meter */}
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '4px', fontWeight: 600 }}>
+                              <span style={{ color: '#44403c' }}>Linear Clearance</span>
+                              <span style={{ color: '#78716c' }}>{usedMm} / {activeWallLengthMm} mm ({utilPercent}%)</span>
+                            </div>
+                            <div style={{ width: '100%', height: '8px', background: '#e7e5e4', borderRadius: '4px', overflow: 'hidden' }}>
+                              <div style={{ width: `${utilPercent}%`, height: '100%', background: utilPercent > 100 ? '#ef4444' : 'var(--gold-dim)', transition: 'width 0.3s ease' }} />
+                            </div>
+                            <span style={{ fontSize: '10px', color: '#78716c', marginTop: '3px', display: 'block' }}>
+                              {remainingMm > 0 ? `✓ ${remainingMm} mm remaining clearance on this wall` : '⚠️ Full wall span utilized'}
+                            </span>
+                          </div>
+
+                          {/* Placed Cabinets List */}
+                          <div>
+                            <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
+                              Units on Wall {wallLetter} ({wallModules.length})
+                            </span>
+                            {wallModules.length === 0 ? (
+                              <div style={{ padding: '12px', background: '#fdfbf7', border: '1px dashed #d6cbba', borderRadius: '6px', textAlign: 'center', fontSize: '11.5px', color: '#78716c' }}>
+                                No cabinets placed on Wall {wallLetter} yet.
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
+                                {wallModules.map((m) => {
+                                  const mat = (elevationScene.materials ?? []).find((matItem) => matItem.id === m.materialId);
+                                  return (
+                                    <button
+                                      key={m.id}
+                                      type="button"
+                                      onClick={() => setSelectedModuleId(m.id)}
+                                      style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        padding: '8px 10px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #e7dcce',
+                                        background: '#fafaf9',
+                                        cursor: 'pointer',
+                                        textAlign: 'left',
+                                        transition: 'all 0.15s ease',
+                                      }}
+                                    >
+                                      <div>
+                                        <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#1c1917' }}>{m.label}</div>
+                                        <div style={{ fontSize: '10px', color: '#78716c' }}>
+                                          {m.widthMm}mm · {mat?.name ? `Finish: ${mat.name}` : m.family}
+                                        </div>
+                                      </div>
+                                      <span style={{ fontSize: '11px', color: 'var(--gold-dim)', fontWeight: 700 }}>Inspect →</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Quick Add Cabinet action */}
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              setWallId(currentActiveWallId);
+                              setDesignMode('layout');
+                            }}
+                            style={{ fontSize: '12px', padding: '8px 12px', marginTop: '4px' }}
+                          >
+                            + Add Cabinet to Wall {wallLetter}
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()
                 )}
               </div>
             </CardContent>
@@ -2948,6 +3069,21 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 if (semanticSlot === 'carcass') setCarcassLaminateId(materialId);
                 else if (semanticSlot === 'shutter') setShutterLaminateId(materialId);
                 else setActiveLaminate(materialId);
+                setDraftModules((current) =>
+                  current.map((m) =>
+                    m.id === selectedModule.id
+                      ? {
+                          ...m,
+                          materialId,
+                          finishes: {
+                            ...(m.finishes ?? {}),
+                            [semanticSlot]: materialId,
+                          },
+                          updatedAt: new Date().toISOString(),
+                        }
+                      : m
+                  )
+                );
                 setMaterialAssignmentsSaved(true);
                 setPlacementNotice(`✓ Saved ${laminate} on ${selectedModule.label} (${semanticSlot})`);
                 setMaterialPickerOpen(false);
@@ -2978,13 +3114,13 @@ function DrawingCoreWallElevation({
   const svgContent = useMemo(() => {
     try {
       if (renderType === 'shop-sheet') {
-        return generateArchitecturalShopSheetSvg(scene, activeWallId);
+        return generateArchitecturalShopSheetSvg(scene, activeWallId, { selectedModuleId: selectedModuleId ?? undefined });
       }
-      return generateWallElevationSvg(scene, activeWallId);
+      return generateWallElevationSvg(scene, activeWallId, { selectedModuleId: selectedModuleId ?? undefined });
     } catch (err: any) {
       return `<div style="padding: 24px; color: #dc2626; font-size: 13px;">Elevation generation error: ${err?.message ?? 'Unknown error'}</div>`;
     }
-  }, [scene, activeWallId, renderType]);
+  }, [scene, activeWallId, renderType, selectedModuleId]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = (e.target as HTMLElement).closest('[data-module-id]');

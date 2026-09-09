@@ -66,7 +66,7 @@ export function validateElevationSheet(spec: ElevationSheetSpecV1) {
 
 export type DrawingLine = { id: string; layer: 'walls' | 'modules' | 'openings'; x1: number; y1: number; x2: number; y2: number };
 export type ProjectedOpening = { id: string; kind: string; wallId: string; offsetMm: number; widthMm: number; heightMm: number };
-export type ProjectedModule = { id: string; family: string; roomId: string; xMm: number; yMm: number; widthMm: number; depthMm: number; heightMm: number; rotationDeg: number; wallId?: string; offsetAlongWallMm?: number };
+export type ProjectedModule = { id: string; family: string; roomId: string; xMm: number; yMm: number; widthMm: number; depthMm: number; heightMm: number; rotationDeg: number; wallId?: string; offsetAlongWallMm?: number; materialId?: string };
 export type WallElevationProjection = { wallId: string; lengthMm: number; heightMm: number; openings: ProjectedOpening[]; modules: ProjectedModule[] };
 export type DrawingPackageProjection = {
   schema: 'drawing.projection.v1';
@@ -152,7 +152,7 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
       continue;
     }
     const nearest = (scene.walls ?? []).map((wall: SceneWallV1) => ({ wall, ...moduleWallPosition(module, wall) })).sort((a: { distance: number }, b: { distance: number }) => a.distance - b.distance)[0];
-    const projected: ProjectedModule = { id: module.id, family: module.family, roomId: module.roomId ?? '', xMm: module.position.xMm, yMm: module.position.yMm, widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm, rotationDeg: module.rotationDeg ?? 0, wallId: nearest?.wall.id, offsetAlongWallMm: nearest?.offset };
+    const projected: ProjectedModule = { id: module.id, family: module.family, roomId: module.roomId ?? '', xMm: module.position.xMm, yMm: module.position.yMm, widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm, rotationDeg: module.rotationDeg ?? 0, wallId: nearest?.wall.id, offsetAlongWallMm: nearest?.offset, materialId: module.materialId };
     modules.push(projected);
     const corners = rotatedRectangle(projected.xMm, projected.yMm, projected.widthMm, projected.depthMm, projected.rotationDeg);
     corners.forEach((corner, index) => {
@@ -1644,18 +1644,26 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
     hSegments.push({ xMm: offMm, wMm: mod.widthMm, label: `${Math.round(mod.widthMm)}` });
     prevEndMm = offMm + mod.widthMm;
 
+    const isSelected = options?.selectedModuleId === mod.id;
     const isTall = mod.heightMm > 1800;
     const isBase = mod.heightMm <= 900;
-    const fillColor = isTall ? '#d6e4f7' : isBase ? '#fdf0d0' : '#ddeeff';
-    const strokeColor = isTall ? MOD_STROKE : isBase ? '#7c5c12' : MOD_STROKE;
+    const fillColor = isSelected ? '#fef3c7' : isTall ? '#d6e4f7' : isBase ? '#fdf0d0' : '#ddeeff';
+    const strokeColor = isSelected ? '#d97706' : isTall ? MOD_STROKE : isBase ? '#7c5c12' : MOD_STROKE;
+    const strokeWidth = isSelected ? '2.8' : '1.8';
 
     // Outer module group for lineage-aware picking
-    moduleSvgElements += `<g data-module-id="${mod.id}" class="elevation-module-group" style="cursor: pointer;">`;
+    moduleSvgElements += `<g data-module-id="${mod.id}" class="elevation-module-group ${isSelected ? 'elevation-module-selected' : ''}" style="cursor: pointer;">`;
 
     // Outer module rectangle
     moduleSvgElements += `<rect x="${mx}" y="${my}" width="${mw}" height="${mh}"
-      fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.8" fill-opacity="0.7"
+      fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill-opacity="0.8"
       data-module-id="${mod.id}" class="elevation-module-rect"/>`;
+
+    // Selection badge
+    if (isSelected && mw > 60) {
+      moduleSvgElements += `<rect x="${mx + mw / 2 - 42}" y="${my + 6}" width="84" height="16" rx="4" fill="#d97706" />
+        <text x="${mx + mw / 2}" y="${my + 17}" text-anchor="middle" fill="#ffffff" font-size="8" font-weight="bold" font-family="Arial,sans-serif">★ SELECTED</text>`;
+    }
 
     // Skirting band (100mm plinth)
     const plinthPx = PLINTH_H * scale;
@@ -1697,6 +1705,12 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
         fill="${LINE_DARK}" font-size="10" font-weight="bold" font-family="Arial,sans-serif">${mod.family}</text>`;
       moduleSvgElements += `<text x="${mx + mw / 2}" y="${my + mh / 2 + 14}" text-anchor="middle"
         fill="#4b5563" font-size="8.5" font-family="Arial,sans-serif">${Math.round(mod.widthMm)} x ${Math.round(mod.heightMm)} mm</text>`;
+
+      const matObj = (scene.materials ?? []).find((m) => m.id === mod.materialId);
+      if (matObj && mw > 70 && mh > 70) {
+        moduleSvgElements += `<text x="${mx + mw / 2}" y="${my + mh / 2 + 27}" text-anchor="middle"
+          fill="#b45309" font-size="8" font-weight="bold" font-family="Arial,sans-serif">Finish: ${matObj.name}</text>`;
+      }
     }
 
     moduleSvgElements += `</g>`;

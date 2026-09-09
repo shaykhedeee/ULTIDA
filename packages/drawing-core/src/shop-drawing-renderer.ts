@@ -18,6 +18,7 @@ export interface ShopDrawingOptions {
   laminateB?: string;
   internalFinish?: string;
   includeTopView?: boolean;
+  selectedModuleId?: string;
 }
 
 /**
