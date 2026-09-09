@@ -226,46 +226,55 @@ function getThreeMaterialForFinish(materialId?: string, fallbackColor = '#b99167
 }
 
 function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean) {
-  if (!wallVisible) return;
+  if (!wallVisible || !scene?.walls) return;
   for (const wall of scene.walls) {
-    const dx = wall.end.xMm - wall.start.xMm;
-    const dz = wall.end.yMm - wall.start.yMm;
+    const startX = Number(wall.start?.xMm ?? (wall.start as any)?.x ?? 0);
+    const startY = Number(wall.start?.yMm ?? (wall.start as any)?.y ?? 0);
+    const endX = Number(wall.end?.xMm ?? (wall.end as any)?.x ?? 1000);
+    const endY = Number(wall.end?.yMm ?? (wall.end as any)?.y ?? 0);
+    const wallThick = Number(wall.thicknessMm ?? 150);
+    const wallH = Number(wall.heightMm ?? 2700);
+    const dx = endX - startX;
+    const dz = endY - startY;
     const length = Math.hypot(dx, dz);
     if (length <= 0) continue;
     const angle = Math.atan2(dz, dx);
-    const openings = scene.openings.filter((opening) => opening.wallId === wall.id).sort((a, b) => a.offsetMm - b.offsetMm);
+    const openings = (scene.openings ?? []).filter((opening) => opening.wallId === wall.id).sort((a, b) => Number(a.offsetMm ?? (a as any).offsetAlongWallMm ?? 0) - Number(b.offsetMm ?? (b as any).offsetAlongWallMm ?? 0));
     let cursor = 0;
     const addSegment = (from: number, to: number, bottomMm: number, heightMm: number, suffix: string) => {
       if (to - from <= 1 || heightMm <= 0) return;
-      const geometry = new THREE.BoxGeometry(to - from, heightMm, wall.thicknessMm);
+      const geometry = new THREE.BoxGeometry(to - from, heightMm, wallThick);
       const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: '#eee9e0', roughness: 0.88, metalness: 0.02 }));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       const midpoint = (from + to) / 2;
-      mesh.position.set(wall.start.xMm + Math.cos(angle) * midpoint, bottomMm + heightMm / 2, wall.start.yMm + Math.sin(angle) * midpoint);
+      mesh.position.set(startX + Math.cos(angle) * midpoint, bottomMm + heightMm / 2, startY + Math.sin(angle) * midpoint);
       mesh.rotation.y = -angle;
       mesh.name = `${wall.id}:${suffix}`;
       mesh.userData = { kind: 'wall', id: wall.id };
       group.add(mesh);
     };
     for (const opening of openings) {
-      const start = Math.max(cursor, opening.offsetMm);
-      addSegment(cursor, start, 0, wall.heightMm, 'solid');
-      const openingEnd = Math.min(length, opening.offsetMm + opening.widthMm);
-      const sill = opening.sillHeightMm ?? 0;
+      const opOffset = Number(opening.offsetMm ?? (opening as any).offsetAlongWallMm ?? 0);
+      const opWidth = Number(opening.widthMm ?? 900);
+      const opHeight = Number(opening.heightMm ?? 2100);
+      const sill = Number(opening.sillHeightMm ?? (opening as any).sillMm ?? 0);
+      const start = Math.max(cursor, opOffset);
+      addSegment(cursor, start, 0, wallH, 'solid');
+      const openingEnd = Math.min(length, opOffset + opWidth);
       addSegment(start, openingEnd, 0, sill, `${opening.id}:sill`);
-      addSegment(start, openingEnd, sill + opening.heightMm, wall.heightMm - sill - opening.heightMm, `${opening.id}:head`);
+      addSegment(start, openingEnd, sill + opHeight, wallH - sill - opHeight, `${opening.id}:head`);
       cursor = Math.max(cursor, openingEnd);
 
       const opMid = (start + openingEnd) / 2;
-      const opWidth = Math.max(200, openingEnd - start);
-      const posX = wall.start.xMm + Math.cos(angle) * opMid;
-      const posZ = wall.start.yMm + Math.sin(angle) * opMid;
+      const effectiveOpWidth = Math.max(200, openingEnd - start);
+      const posX = startX + Math.cos(angle) * opMid;
+      const posZ = startY + Math.sin(angle) * opMid;
 
       if (opening.kind === 'door') {
-        const doorLeafGeo = new THREE.BoxGeometry(opWidth - 30, opening.heightMm - 20, 36);
+        const doorLeafGeo = new THREE.BoxGeometry(effectiveOpWidth - 30, opHeight - 20, 36);
         const doorLeafMesh = new THREE.Mesh(doorLeafGeo, new THREE.MeshStandardMaterial({ color: '#5c3d2e', roughness: 0.55, metalness: 0.05 }));
-        doorLeafMesh.position.set(posX, sill + (opening.heightMm - 20) / 2 + 10, posZ);
+        doorLeafMesh.position.set(posX, sill + (opHeight - 20) / 2 + 10, posZ);
         doorLeafMesh.rotation.y = -angle;
         doorLeafMesh.castShadow = true;
         group.add(doorLeafMesh);
@@ -273,11 +282,11 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
         // Door knob / handle
         const knobGeo = new THREE.CylinderGeometry(15, 15, 60, 16);
         const knobMesh = new THREE.Mesh(knobGeo, new THREE.MeshStandardMaterial({ color: '#c59c2d', metalness: 0.9, roughness: 0.2 }));
-        knobMesh.position.set(posX + Math.cos(angle) * (opWidth / 2 - 60), sill + 1000, posZ + Math.sin(angle) * (opWidth / 2 - 60));
+        knobMesh.position.set(posX + Math.cos(angle) * (effectiveOpWidth / 2 - 60), sill + 1000, posZ + Math.sin(angle) * (effectiveOpWidth / 2 - 60));
         knobMesh.rotation.z = Math.PI / 2;
         group.add(knobMesh);
       } else if (opening.kind === 'window') {
-        const glassGeo = new THREE.BoxGeometry(opWidth - 20, opening.heightMm - 20, 10);
+        const glassGeo = new THREE.BoxGeometry(effectiveOpWidth - 20, opHeight - 20, 10);
         const glassMesh = new THREE.Mesh(glassGeo, new THREE.MeshPhysicalMaterial({
           color: '#e0f2fe',
           roughness: 0.05,
@@ -286,18 +295,18 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
           transparent: true,
           opacity: 0.65,
         }));
-        glassMesh.position.set(posX, sill + (opening.heightMm) / 2, posZ);
+        glassMesh.position.set(posX, sill + opHeight / 2, posZ);
         glassMesh.rotation.y = -angle;
         group.add(glassMesh);
 
-        const winFrameGeo = new THREE.BoxGeometry(opWidth, 35, wall.thicknessMm + 24);
+        const winFrameGeo = new THREE.BoxGeometry(effectiveOpWidth, 35, wallThick + 24);
         const winFrameMesh = new THREE.Mesh(winFrameGeo, new THREE.MeshStandardMaterial({ color: '#334155', metalness: 0.8, roughness: 0.25 }));
         winFrameMesh.position.set(posX, sill + 18, posZ);
         winFrameMesh.rotation.y = -angle;
         group.add(winFrameMesh);
       }
     }
-    addSegment(cursor, length, 0, wall.heightMm, 'solid');
+    addSegment(cursor, length, 0, wallH, 'solid');
   }
 }
 
@@ -843,9 +852,11 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   useEffect(() => {
     const host = canvasRef.current;
     if (!host || !scene) return;
+    const width = Math.max(host.clientWidth || 800, 300);
+    const height = Math.max(host.clientHeight || 560, 300);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(host.clientWidth, host.clientHeight);
+    renderer.setSize(width, height);
     renderer.setClearColor(lightingMode === 'evening' ? '#181622' : '#f8f6f0');
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -854,11 +865,13 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     rendererInstanceRef.current = renderer;
     host.replaceChildren(renderer.domElement);
     const root = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, host.clientWidth / host.clientHeight, 10, 100000);
+    const camera = new THREE.PerspectiveCamera(45, width / height, 10, 100000);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.maxPolarAngle = Math.PI / 2 - 0.02;
+    controls.minDistance = 200;
+    controls.maxDistance = 80000;
+    controls.maxPolarAngle = Math.PI / 2 + 0.15;
 
     const hemiConfig = lightingMode === 'daylight'
       ? { sky: '#ffffff', ground: '#94a3b8', intensity: 2.5 }
@@ -1076,10 +1089,12 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     addWallSegments(wallsGroup, scene, wallsVisible);
 
     const modulesGroup = new THREE.Group(); geometryGroup.add(modulesGroup);
-    for (const mod of scene.modules) {
+    for (const mod of (scene.modules ?? [])) {
       const modContainer = new THREE.Group();
-      modContainer.position.set(mod.position.xMm, 0, mod.position.yMm);
-      modContainer.rotation.y = (mod.rotationDeg * Math.PI) / 180;
+      const posX = Number(mod.position?.xMm ?? (mod as any)?.position?.x ?? 1500);
+      const posY = Number(mod.position?.yMm ?? (mod as any)?.position?.y ?? 1500);
+      modContainer.position.set(posX, 0, posY);
+      modContainer.rotation.y = (((mod.rotationDeg ?? 0) * Math.PI) / 180);
       modContainer.name = `module:${mod.id}`;
       modContainer.userData = { kind: 'module', id: mod.id, family: mod.family };
 
@@ -1470,6 +1485,8 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     // Fallback synthesis: If moduleParts is empty or has no lighting anchors, check if scene has certified modules like tv-unit
     if (compiledLightingAnchors.length === 0) {
       for (const mod of scene.modules ?? []) {
+        const posX = Number(mod.position?.xMm ?? 1500);
+        const posY = Number(mod.position?.yMm ?? 1500);
         const family = (mod.family || '').toLowerCase();
         if (family.includes('tv') || family.includes('entertainment')) {
           addCompiledLightingAnchor(lightingGroup, {
@@ -1482,7 +1499,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
             widthMm: Math.max(1200, mod.widthMm - 80),
             depthMm: 14,
             heightMm: 14,
-            position: { xMm: mod.position.xMm, yMm: mod.position.yMm, zMm: 220 },
+            position: { xMm: posX, yMm: posY, zMm: 220 },
             rotationDeg: mod.rotationDeg || 0,
             fixtureType: 'led-strip',
             colorTemperatureK: 3000,
@@ -1500,8 +1517,8 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               depthMm: 14,
               heightMm: 1600,
               position: {
-                xMm: mod.position.xMm + (mod.widthMm / 2 - 200),
-                yMm: mod.position.yMm,
+                xMm: posX + (mod.widthMm / 2 - 200),
+                yMm: posY,
                 zMm: 500,
               },
               rotationDeg: mod.rotationDeg || 0,
@@ -1518,22 +1535,23 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     modulesGroup.visible = assetFilter !== 'lighting';
 
     // Ceiling spot lights in each room with atmosphere color
-    for (const room of scene.rooms) {
-      if (room.boundary.length >= 3) {
+    for (const room of (scene.rooms ?? [])) {
+      if (Array.isArray(room.boundary) && room.boundary.length >= 3) {
         const poly = room.boundary;
-        const cx = poly.reduce((s, p) => s + p.xMm, 0) / poly.length;
-        const cz = poly.reduce((s, p) => s + p.yMm, 0) / poly.length;
+        const cx = poly.reduce((s, p) => s + Number(p.xMm ?? (p as any).x ?? 0), 0) / poly.length;
+        const cz = poly.reduce((s, p) => s + Number(p.yMm ?? (p as any).y ?? 0), 0) / poly.length;
         const lightColor = lightingMode === 'daylight' ? '#f8fafc' : lightingMode === 'evening' ? '#f59e0b' : '#fff2d9';
         const lightIntensity = lightingMode === 'evening' ? 2.4 : 1.5;
         const roomLight = new THREE.PointLight(lightColor, lightIntensity, 6500, 1.2);
-        roomLight.position.set(cx, 2600, cz);
+        roomLight.position.set(isNaN(cx) ? 2000 : cx, 2600, isNaN(cz) ? 1500 : cz);
         root.add(roomLight);
       }
     }
 
     if (ceilingVisible) {
-      for (const room of scene.rooms) {
-        const points = room.boundary.slice(0, -1).map((point) => new THREE.Vector2(point.xMm, point.yMm));
+      for (const room of (scene.rooms ?? [])) {
+        if (!Array.isArray(room.boundary) || room.boundary.length < 3) continue;
+        const points = room.boundary.slice(0, -1).map((point) => new THREE.Vector2(Number(point.xMm ?? (point as any).x ?? 0), Number(point.yMm ?? (point as any).y ?? 0)));
         if (points.length < 3) continue;
         const shape = new THREE.Shape(points);
         const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshStandardMaterial({
@@ -1550,8 +1568,8 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     }
 
     const bounds = new THREE.Box3().setFromObject(geometryGroup);
-    const center = bounds.isEmpty() ? new THREE.Vector3() : bounds.getCenter(new THREE.Vector3());
-    const size = bounds.isEmpty() ? new THREE.Vector3(4000, 2700, 3000) : bounds.getSize(new THREE.Vector3());
+    const center = (bounds.isEmpty() || !isFinite(bounds.min.x)) ? new THREE.Vector3(2000, 1200, 1500) : bounds.getCenter(new THREE.Vector3());
+    const size = (bounds.isEmpty() || !isFinite(bounds.min.x)) ? new THREE.Vector3(4000, 2700, 3000) : bounds.getSize(new THREE.Vector3());
     const span = Math.max(size.x, size.z, 2000);
 
     const applyPreset = () => {
@@ -1559,14 +1577,16 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       let targetSpan = span;
 
       if (selectedRoomId) {
-        const selRoom = scene.rooms.find((r) => r.id === selectedRoomId);
-        if (selRoom && selRoom.boundary.length > 2) {
-          const roomPts = selRoom.boundary.map((p) => new THREE.Vector3(p.xMm, 0, p.yMm));
+        const selRoom = (scene.rooms ?? []).find((r) => r.id === selectedRoomId);
+        if (selRoom && Array.isArray(selRoom.boundary) && selRoom.boundary.length > 2) {
+          const roomPts = selRoom.boundary.map((p) => new THREE.Vector3(Number(p.xMm ?? (p as any).x ?? 0), 0, Number(p.yMm ?? (p as any).y ?? 0)));
           const roomBox = new THREE.Box3().setFromPoints(roomPts);
-          targetCenter = roomBox.getCenter(new THREE.Vector3());
-          targetCenter.y = 1200;
-          const rSize = roomBox.getSize(new THREE.Vector3());
-          targetSpan = Math.max(rSize.x, rSize.z, 1500);
+          if (!roomBox.isEmpty() && isFinite(roomBox.min.x)) {
+            targetCenter = roomBox.getCenter(new THREE.Vector3());
+            targetCenter.y = 1200;
+            const rSize = roomBox.getSize(new THREE.Vector3());
+            targetSpan = Math.max(rSize.x, rSize.z, 1500);
+          }
         }
       }
 
@@ -1613,8 +1633,11 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     };
     renderer.domElement.addEventListener('pointerdown', onPointer);
     const resize = () => {
-      renderer.setSize(host.clientWidth, host.clientHeight);
-      camera.aspect = host.clientWidth / host.clientHeight;
+      if (!host) return;
+      const w = Math.max(host.clientWidth, 300);
+      const h = Math.max(host.clientHeight, 300);
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
     const observer = new ResizeObserver(resize);
@@ -1972,8 +1995,8 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           </button>
         </aside>
         <Card className="scene-viewport">
-          <CardContent style={{ position: 'relative', minHeight: 460 }}>
-            <div ref={canvasRef} className="scene-canvas" aria-label="Interactive three dimensional scene preview" style={{ width: '100%', height: 460 }} />
+          <CardContent style={{ position: 'relative', minHeight: 520, height: '100%', padding: 0 }}>
+            <div ref={canvasRef} className="scene-canvas" aria-label="Interactive three dimensional scene preview" style={{ width: '100%', height: '100%', minHeight: 520 }} />
             {scene && (
               <div className="scene-viewport-overlay" aria-hidden="true">
                 <span>{preset === 'walkthrough' ? 'WALKTHROUGH CAMERA' : preset === 'top' ? 'PLAN CAMERA' : preset === 'isometric' ? 'ISOMETRIC CAMERA' : 'PERSPECTIVE CAMERA'}</span>
