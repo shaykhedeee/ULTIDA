@@ -994,25 +994,19 @@ export function SpacesWorkspace() {
 
       return {
         ...room,
-        requiredFurniture: Array.from(new Set(categories.length ? categories : ['tv_unit', 'sofa'])),
+        requiredFurniture: Array.from(new Set(categories)),
         wallRoles,
-        verificationStatus: 'verified',
+        verificationStatus: 'unverified',
         floorFinish: room.floorFinish || (room.roomType === 'living' ? 'French Light Oak Herringbone' : room.roomType === 'kitchen' ? 'Roman Travertine' : 'Calacatta Gold'),
       };
     });
 
     setRooms(updatedRooms);
     setCanvasRenderMode('3d_isometric');
-    setSaveState('AI enhanced all rooms, assigned wall roles, and verified all spaces for 3D layout.');
-    void saveGeometryVersion(updatedRooms);
-
-    // Apply layout candidates to scene for all rooms
-    void (async () => {
-      for (const r of updatedRooms) {
-        await applyLayoutCandidateToScene(r, 'balanced').catch(() => null);
-      }
-      setSaveState('All 8 spaces verified with modular units and synced to 3D Scene.');
-    })();
+    setSaveState('Room design suggestions prepared. Review measurements, wall roles and finishes before approving each room.');
+    void saveGeometryVersion(updatedRooms).catch((error) => {
+      setSaveState(error instanceof Error ? error.message : 'Design suggestions could not be saved. Retry Save geometry.');
+    });
   };
 
   function onCanvasClick(e: React.MouseEvent) {
@@ -1754,7 +1748,7 @@ export function SpacesWorkspace() {
                     boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
                   }}
                 >
-                  <Sparkles size={13} /> AI Auto-Enhance Entire Plan
+                  <Sparkles size={13} /> Suggest room finishes
                 </button>
                 <div className="canvas-mode-toggle" role="group" aria-label="Floor plan view mode">
                   <button type="button" className={`canvas-mode-btn ${canvasRenderMode === '2d' ? 'active' : ''}`} onClick={() => setCanvasRenderMode('2d')}>

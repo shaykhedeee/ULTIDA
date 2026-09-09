@@ -1262,11 +1262,9 @@ export function PlanReviewWorkspace({
     const mmPerPixel = effectiveScale.mmPerPixel;
     const effectiveSourceAssetId = sourceAssetId || `source-plan-${Date.now()}`;
 
-    // Auto-synthesize all missing partition walls, doors, and windows for all rooms
-    let activeElements = autoSynthesizePartitionWallsAndOpenings(
-      approvalElements.length ? approvalElements : elements.filter((e) => e.status !== 'rejected'),
-      ceilingHeightMm ?? 2700
-    );
+    // Approval persists reviewed evidence. Generating additional geometry here
+    // would add walls or openings the designer never saw or confirmed.
+    const activeElements = approvalElements.length ? approvalElements : elements.filter((e) => e.status !== 'rejected');
 
     const selectedWalls = activeElements.filter((element) => element.kind === 'wall');
     const durableIds = new Map<string, string>();
