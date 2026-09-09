@@ -59,6 +59,63 @@ type Props = {
 type Preset = 'perspective' | 'front' | 'top' | 'walkthrough' | 'isometric';
 type LightingPreset = 'warm' | 'daylight' | 'evening';
 
+export type StoreyConfig = {
+  id: string;
+  name: string;
+  levelIndex: number;
+  elevationMm: number;
+  ceilingHeightMm: number;
+  slabThicknessMm: number;
+};
+
+export type InterFloorVoidConfig = {
+  id: string;
+  name: string;
+  type: 'double_height_void' | 'stairwell_cutout' | 'lift_shaft';
+  upperLevelId: string;
+  lowerLevelId: string;
+  polygon: Array<{ xMm: number; yMm: number }>;
+  balustradeType: 'tempered_glass' | 'brass_spindle' | 'fluted_drywall';
+};
+
+export const DEFAULT_VILLA_STOREYS: StoreyConfig[] = [
+  { id: 'level-ground', name: 'Ground Floor (Datum 0.0m)', levelIndex: 0, elevationMm: 0, ceilingHeightMm: 3000, slabThicknessMm: 150 },
+  { id: 'level-first', name: 'First Floor (+3.3m)', levelIndex: 1, elevationMm: 3300, ceilingHeightMm: 3000, slabThicknessMm: 150 },
+  { id: 'level-terrace', name: 'Terrace Deck (+6.6m)', levelIndex: 2, elevationMm: 6600, ceilingHeightMm: 2800, slabThicknessMm: 150 },
+];
+
+export const DEFAULT_VILLA_VOIDS: InterFloorVoidConfig[] = [
+  {
+    id: 'void-living-mezzanine',
+    name: 'Double-Height Living Atrium',
+    type: 'double_height_void',
+    upperLevelId: 'level-first',
+    lowerLevelId: 'level-ground',
+    polygon: [
+      { xMm: 800, yMm: 800 },
+      { xMm: 3200, yMm: 800 },
+      { xMm: 3200, yMm: 2400 },
+      { xMm: 800, yMm: 2400 },
+    ],
+    balustradeType: 'tempered_glass',
+  },
+  {
+    id: 'void-grand-stairwell',
+    name: 'Main Villa Staircase Void',
+    type: 'stairwell_cutout',
+    upperLevelId: 'level-first',
+    lowerLevelId: 'level-ground',
+    polygon: [
+      { xMm: 3250, yMm: 800 },
+      { xMm: 4200, yMm: 800 },
+      { xMm: 4200, yMm: 2400 },
+      { xMm: 3250, yMm: 2400 },
+    ],
+    balustradeType: 'brass_spindle',
+  },
+];
+
+
 /** A deterministic fallback used by file-export tools before a persisted scene is selected. */
 export function createDefaultDemoScene(): Scene {
   return {
@@ -461,6 +518,48 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   const [reloadKey, setReloadKey] = useState(0);
   const rendererInstanceRef = useRef<THREE.WebGLRenderer | null>(null);
 
+  // Kinetic cabinet inspector state
+  const [kineticDrawerOffset, setKineticDrawerOffset] = useState(0);
+  const [kineticDoorAngleDeg, setKineticDoorAngleDeg] = useState(0);
+  const [kineticLedReveal, setKineticLedReveal] = useState(false);
+  const [isKineticAnimating, setIsKineticAnimating] = useState(false);
+  const kineticTargetsRef = useRef({ drawerOffset: 0, doorAngleDeg: 0, ledReveal: false });
+
+  // Multi-Storey Villa stacking state
+  const [activeStoreyId, setActiveStoreyId] = useState<string>('all');
+  const [explodedAxonometric, setExplodedAxonometric] = useState(false);
+  const [storeys] = useState<StoreyConfig[]>(DEFAULT_VILLA_STOREYS);
+  const [interFloorVoids] = useState<InterFloorVoidConfig[]>(DEFAULT_VILLA_VOIDS);
+
+  useEffect(() => {
+    kineticTargetsRef.current = {
+      drawerOffset: kineticDrawerOffset,
+      doorAngleDeg: kineticDoorAngleDeg,
+      ledReveal: kineticLedReveal,
+    };
+  }, [kineticDrawerOffset, kineticDoorAngleDeg, kineticLedReveal]);
+
+  function animateKineticCycle() {
+    setIsKineticAnimating(true);
+    setKineticLedReveal(true);
+    setKineticDrawerOffset(1.0);
+    setKineticDoorAngleDeg(90);
+    setTimeout(() => {
+      setKineticDrawerOffset(0);
+      setKineticDoorAngleDeg(0);
+      setKineticLedReveal(false);
+      setIsKineticAnimating(false);
+    }, 3200);
+  }
+
+  function resetKinetic() {
+    setIsKineticAnimating(false);
+    setKineticDrawerOffset(0);
+    setKineticDoorAngleDeg(0);
+    setKineticLedReveal(false);
+  }
+
+
   useEffect(() => {
     const sb = supabase;
     if (!sb || !projectId) return;
@@ -825,6 +924,142 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       mesh.userData = { kind: 'room', id: room.id, name: room.name };
       floors.add(mesh);
     }
+
+    // ─── Multi-Storey Villa Stacking Geometry (Mezzanines, Voids & Stairs) ───
+    if (activeStoreyId === 'all' || activeStoreyId === 'level-first') {
+      const multiStoreyGroup = new THREE.Group();
+      multiStoreyGroup.name = 'villa:multi-storey-stack';
+      geometryGroup.add(multiStoreyGroup);
+
+      const firstFloorElev = explodedAxonometric ? 4800 : 3300;
+
+      // First Floor Slab with Mezzanine Living Room Void and Stairwell Cutout
+      for (const room of scene.rooms) {
+        const points = room.boundary.slice(0, -1).map((point) => new THREE.Vector2(point.xMm, point.yMm));
+        if (points.length < 3) continue;
+        const slabShape = new THREE.Shape(points);
+
+        // Cut out the double-height living mezzanine void if inside this room
+        const rName = (room.name || '').toLowerCase();
+        const isLivingOrHall = rName.includes('living') || rName.includes('hall') || rName.includes('lounge');
+
+        if (isLivingOrHall) {
+          // Add void hole in the first floor slab
+          const voidHole = new THREE.Path([
+            new THREE.Vector2(1200, 1000),
+            new THREE.Vector2(3200, 1000),
+            new THREE.Vector2(3200, 2400),
+            new THREE.Vector2(1200, 2400),
+          ]);
+          slabShape.holes.push(voidHole);
+
+          // Render 12mm Tempered Glass Balustrade with Brushed Brass Top Rail
+          const balustradeMat = new THREE.MeshPhysicalMaterial({
+            color: '#f0f9ff',
+            transmission: 0.9,
+            opacity: 0.7,
+            transparent: true,
+            roughness: 0.05,
+            metalness: 0.1,
+            side: THREE.DoubleSide,
+          });
+          const brassHandrailMat = new THREE.MeshStandardMaterial({ color: '#c59c2d', metalness: 0.9, roughness: 0.2 });
+
+          // 4 Sides of Glass Balustrade around the living room void
+          const voidPerimeter = [
+            [[1200, 1000], [3200, 1000]],
+            [[3200, 1000], [3200, 2400]],
+            [[3200, 2400], [1200, 2400]],
+            [[1200, 2400], [1200, 1000]],
+          ];
+
+          voidPerimeter.forEach(([[x1, y1], [x2, y2]]) => {
+            const segLen = Math.hypot(x2 - x1, y2 - y1);
+            const segAngle = Math.atan2(y2 - y1, x2 - x1);
+            const midX = (x1 + x2) / 2;
+            const midZ = (y1 + y2) / 2;
+
+            // Glass panel (1050mm standard architectural handrail height)
+            const glassGeo = new THREE.BoxGeometry(segLen, 1000, 12);
+            const glassMesh = new THREE.Mesh(glassGeo, balustradeMat);
+            glassMesh.position.set(midX, firstFloorElev + 500, midZ);
+            glassMesh.rotation.y = -segAngle;
+            multiStoreyGroup.add(glassMesh);
+
+            // Brass handrail cap
+            const railGeo = new THREE.BoxGeometry(segLen, 40, 28);
+            const railMesh = new THREE.Mesh(railGeo, brassHandrailMat);
+            railMesh.position.set(midX, firstFloorElev + 1020, midZ);
+            railMesh.rotation.y = -segAngle;
+            multiStoreyGroup.add(railMesh);
+          });
+
+          // Grand Double-Height Living Room Suspended Chandelier
+          const chandelierGroup = new THREE.Group();
+          chandelierGroup.position.set(2200, firstFloorElev + 2600, 1700);
+
+          // Hanging brass rod down into void
+          const rodGeo = new THREE.CylinderGeometry(8, 8, 3200, 12);
+          const rodMesh = new THREE.Mesh(rodGeo, brassHandrailMat);
+          rodMesh.position.y = -1600;
+          chandelierGroup.add(rodMesh);
+
+          // Multi-Tier Tiered Brass Rings with Crystals & 3000K Warm Glow
+          [400, 650, 900].forEach((rad, ringIdx) => {
+            const ringGeo = new THREE.TorusGeometry(rad, 14, 16, 48);
+            const ringMesh = new THREE.Mesh(ringGeo, brassHandrailMat);
+            ringMesh.rotation.x = Math.PI / 2;
+            ringMesh.position.y = -2200 - ringIdx * 280;
+            chandelierGroup.add(ringMesh);
+          });
+
+          const chandelierLight = new THREE.PointLight('#ffd199', 3.5, 7500, 1.6);
+          chandelierLight.position.set(0, -2600, 0);
+          chandelierLight.castShadow = true;
+          chandelierGroup.add(chandelierLight);
+
+          multiStoreyGroup.add(chandelierGroup);
+        }
+
+        // Slab Mesh
+        const slabGeo = new THREE.ShapeGeometry(slabShape);
+        const slabMesh = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({
+          color: '#dcd6cd',
+          roughness: 0.45,
+          metalness: 0.05,
+          side: THREE.DoubleSide,
+        }));
+        slabMesh.rotation.x = Math.PI / 2;
+        slabMesh.position.y = firstFloorElev;
+        slabMesh.receiveShadow = true;
+        slabMesh.castShadow = true;
+        multiStoreyGroup.add(slabMesh);
+      }
+
+      // Sculptural Villa Cantilever Floating Staircase
+      const stairGroup = new THREE.Group();
+      stairGroup.position.set(3400, 0, 1000);
+      const stepCount = 18;
+      const totalH = firstFloorElev;
+      const stepH = totalH / stepCount;
+      const stepRun = 280;
+
+      for (let s = 0; s < stepCount; s++) {
+        const treadGeo = new THREE.BoxGeometry(1100, 48, stepRun);
+        const treadMesh = new THREE.Mesh(treadGeo, new THREE.MeshStandardMaterial({ color: '#3d2a1a', roughness: 0.35 }));
+        treadMesh.position.set(0, s * stepH + 24, s * (stepRun * 0.75));
+        treadMesh.castShadow = true;
+        treadMesh.receiveShadow = true;
+        stairGroup.add(treadMesh);
+
+        // LED tread underglow
+        const underglow = new THREE.PointLight('#ffeedd', 0.8, 800, 2.0);
+        underglow.position.set(0, s * stepH + 10, s * (stepRun * 0.75));
+        stairGroup.add(underglow);
+      }
+      multiStoreyGroup.add(stairGroup);
+    }
+
     const wallsGroup = new THREE.Group(); geometryGroup.add(wallsGroup);
     addWallSegments(wallsGroup, scene, wallsVisible);
 
@@ -853,16 +1088,41 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         plinthMesh.castShadow = true;
         modContainer.add(plinthMesh);
 
-        // 2. Carcase & Shutter unit
+        // 2. Carcase Casing (Left Gable, Right Gable, Bottom, Back, Divider)
         const carcaseHeight = mod.heightMm - 140;
-        const carcaseGeo = new THREE.BoxGeometry(mod.widthMm - 4, carcaseHeight, mod.depthMm - 16);
-        const carcaseMesh = new THREE.Mesh(carcaseGeo, baseMat);
-        carcaseMesh.position.set(0, 100 + carcaseHeight / 2, 0);
-        carcaseMesh.castShadow = true;
-        carcaseMesh.receiveShadow = true;
-        modContainer.add(carcaseMesh);
+        const carcaseMat = new THREE.MeshStandardMaterial({ color: '#3e2e20', roughness: 0.7 });
 
-        // 3. Countertop Slab (40mm thickness with 20mm overhang)
+        // Left Gable (18mm)
+        const leftGable = new THREE.Mesh(new THREE.BoxGeometry(18, carcaseHeight, mod.depthMm - 24), carcaseMat);
+        leftGable.position.set(-mod.widthMm / 2 + 9, 100 + carcaseHeight / 2, -12);
+        leftGable.castShadow = true;
+        modContainer.add(leftGable);
+
+        // Right Gable (18mm)
+        const rightGable = new THREE.Mesh(new THREE.BoxGeometry(18, carcaseHeight, mod.depthMm - 24), carcaseMat);
+        rightGable.position.set(mod.widthMm / 2 - 9, 100 + carcaseHeight / 2, -12);
+        rightGable.castShadow = true;
+        modContainer.add(rightGable);
+
+        // Bottom panel (18mm)
+        const bottomPanel = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, 18, mod.depthMm - 24), carcaseMat);
+        bottomPanel.position.set(0, 100 + 9, -12);
+        bottomPanel.castShadow = true;
+        modContainer.add(bottomPanel);
+
+        // Back panel (8mm)
+        const backPanel = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, carcaseHeight - 18, 8), carcaseMat);
+        backPanel.position.set(0, 100 + carcaseHeight / 2, -mod.depthMm / 2 + 8);
+        backPanel.castShadow = true;
+        modContainer.add(backPanel);
+
+        // Middle Divider Shelf (18mm)
+        const midShelf = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, 18, mod.depthMm - 40), carcaseMat);
+        midShelf.position.set(0, 100 + carcaseHeight * 0.46, -16);
+        midShelf.castShadow = true;
+        modContainer.add(midShelf);
+
+        // 3. Countertop Slab (40mm thickness with 20mm overhang, quartz/sintered marble)
         const topGeo = new THREE.BoxGeometry(mod.widthMm + 8, 40, mod.depthMm + 16);
         const topMat = new THREE.MeshStandardMaterial({ color: '#f3ede2', roughness: 0.15, metalness: 0.05 });
         const topMesh = new THREE.Mesh(topGeo, topMat);
@@ -871,12 +1131,81 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         topMesh.receiveShadow = true;
         modContainer.add(topMesh);
 
-        // 4. Gold profile handles
-        const handleGeo = new THREE.BoxGeometry(Math.min(160, mod.widthMm * 0.45), 10, 16);
+        // 4. Kinetic Top Drawer (Cutlery & Spice Rack with Blum Tandembox sides)
+        const topDrawerGroup = new THREE.Group();
+        const topDrawerH = carcaseHeight * 0.42;
+        topDrawerGroup.position.set(0, 100 + carcaseHeight - topDrawerH / 2 - 4, 0);
+        topDrawerGroup.userData = { isKineticDrawer: true, moduleId: mod.id, maxSlideMm: Math.min(380, mod.depthMm * 0.65), baseZ: 0 };
+
+        // Drawer Front Shutter
+        const topShutter = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 6, topDrawerH - 4, 18), baseMat);
+        topShutter.position.set(0, 0, mod.depthMm / 2 - 9);
+        topShutter.castShadow = true;
+        topDrawerGroup.add(topShutter);
+
+        // Gold profile handle
         const handleMat = new THREE.MeshStandardMaterial({ color: '#c59c2d', metalness: 0.9, roughness: 0.2 });
-        const handleMesh = new THREE.Mesh(handleGeo, handleMat);
-        handleMesh.position.set(0, mod.heightMm - 90, mod.depthMm / 2 + 2);
-        modContainer.add(handleMesh);
+        const topHandle = new THREE.Mesh(new THREE.BoxGeometry(Math.min(180, mod.widthMm * 0.45), 10, 18), handleMat);
+        topHandle.position.set(0, topDrawerH / 2 - 16, mod.depthMm / 2 + 2);
+        topDrawerGroup.add(topHandle);
+
+        // Tandembox Steel sides (Anthracite / Brushed Steel)
+        const tandemMat = new THREE.MeshStandardMaterial({ color: '#44403c', metalness: 0.8, roughness: 0.3 });
+        const sideH = topDrawerH * 0.7;
+        const leftTandem = new THREE.Mesh(new THREE.BoxGeometry(3, sideH, mod.depthMm - 70), tandemMat);
+        leftTandem.position.set(-mod.widthMm / 2 + 22, -10, -10);
+        topDrawerGroup.add(leftTandem);
+        const rightTandem = new THREE.Mesh(new THREE.BoxGeometry(3, sideH, mod.depthMm - 70), tandemMat);
+        rightTandem.position.set(mod.widthMm / 2 - 22, -10, -10);
+        topDrawerGroup.add(rightTandem);
+
+        // Drawer Base & Back
+        const drawerBase = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 46, 16, mod.depthMm - 70), carcaseMat);
+        drawerBase.position.set(0, -topDrawerH / 2 + 10, -10);
+        topDrawerGroup.add(drawerBase);
+
+        // Velvet Cutlery & Spice Insert Tray
+        const cutleryTray = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 60, 24, mod.depthMm - 90), new THREE.MeshStandardMaterial({ color: '#292524', roughness: 0.9 }));
+        cutleryTray.position.set(0, -topDrawerH / 2 + 22, -10);
+        topDrawerGroup.add(cutleryTray);
+
+        // Warm Interior Sensor LED strip
+        const drawerLed = new THREE.PointLight('#ffe6a3', 0, 900, 2);
+        drawerLed.position.set(0, topDrawerH / 2 - 10, -20);
+        drawerLed.userData = { isKineticLed: true, moduleId: mod.id, maxIntensity: 2.0 };
+        topDrawerGroup.add(drawerLed);
+
+        modContainer.add(topDrawerGroup);
+
+        // 5. Kinetic Bottom Pot Drawer
+        const botDrawerGroup = new THREE.Group();
+        const botDrawerH = carcaseHeight * 0.52;
+        botDrawerGroup.position.set(0, 100 + botDrawerH / 2 + 4, 0);
+        botDrawerGroup.userData = { isKineticDrawer: true, moduleId: mod.id, maxSlideMm: Math.min(320, mod.depthMm * 0.55), baseZ: 0 };
+
+        const botShutter = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 6, botDrawerH - 4, 18), baseMat);
+        botShutter.position.set(0, 0, mod.depthMm / 2 - 9);
+        botShutter.castShadow = true;
+        botDrawerGroup.add(botShutter);
+
+        const botHandle = new THREE.Mesh(new THREE.BoxGeometry(Math.min(180, mod.widthMm * 0.45), 10, 18), handleMat);
+        botHandle.position.set(0, botDrawerH / 2 - 16, mod.depthMm / 2 + 2);
+        botDrawerGroup.add(botHandle);
+
+        const botBase = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 46, 16, mod.depthMm - 70), carcaseMat);
+        botBase.position.set(0, -botDrawerH / 2 + 10, -10);
+        botDrawerGroup.add(botBase);
+
+        // Deep Pot Gallery Railing (chrome rods)
+        const railMat = new THREE.MeshStandardMaterial({ color: '#94a3b8', metalness: 0.9, roughness: 0.2 });
+        [-mod.widthMm / 2 + 24, mod.widthMm / 2 - 24].forEach((rx) => {
+          const rail = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, mod.depthMm - 80, 12), railMat);
+          rail.rotation.x = Math.PI / 2;
+          rail.position.set(rx, 15, -10);
+          botDrawerGroup.add(rail);
+        });
+
+        modContainer.add(botDrawerGroup);
       } else if (isTv) {
         // TV Console Unit + Acoustic Slatted Back Panel + OLED Screen
         const backPanelGeo = new THREE.BoxGeometry(mod.widthMm, mod.heightMm, 30);
@@ -937,28 +1266,112 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           modContainer.add(leg);
         });
       } else if (isWardrobe) {
-        // Tall wardrobe with plinth, carcase, and full-length bar pulls
+        // Tall wardrobe with plinth, carcase, interior hanging rail, sensor LED, and kinetic hinged doors
         const plinthGeo = new THREE.BoxGeometry(mod.widthMm, 80, mod.depthMm - 20);
         const plinthMesh = new THREE.Mesh(plinthGeo, new THREE.MeshStandardMaterial({ color: '#2b2622' }));
         plinthMesh.position.set(0, 40, 0);
         modContainer.add(plinthMesh);
 
-        const carcaseGeo = new THREE.BoxGeometry(mod.widthMm, mod.heightMm - 80, mod.depthMm);
-        const carcaseMesh = new THREE.Mesh(carcaseGeo, baseMat);
-        carcaseMesh.position.set(0, 80 + (mod.heightMm - 80) / 2, 0);
-        carcaseMesh.castShadow = true;
-        carcaseMesh.receiveShadow = true;
-        modContainer.add(carcaseMesh);
+        const carcaseHeight = mod.heightMm - 80;
+        const carcaseMat = new THREE.MeshStandardMaterial({ color: '#3a2e25', roughness: 0.65 });
 
-        const handleGeo = new THREE.BoxGeometry(10, 600, 16);
+        // Left Gable (18mm)
+        const leftGable = new THREE.Mesh(new THREE.BoxGeometry(18, carcaseHeight, mod.depthMm - 20), carcaseMat);
+        leftGable.position.set(-mod.widthMm / 2 + 9, 80 + carcaseHeight / 2, -10);
+        leftGable.castShadow = true;
+        modContainer.add(leftGable);
+
+        // Right Gable (18mm)
+        const rightGable = new THREE.Mesh(new THREE.BoxGeometry(18, carcaseHeight, mod.depthMm - 20), carcaseMat);
+        rightGable.position.set(mod.widthMm / 2 - 9, 80 + carcaseHeight / 2, -10);
+        rightGable.castShadow = true;
+        modContainer.add(rightGable);
+
+        // Top & Bottom Panels (18mm)
+        const topPanel = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, 18, mod.depthMm - 20), carcaseMat);
+        topPanel.position.set(0, mod.heightMm - 9, -10);
+        modContainer.add(topPanel);
+
+        const botPanel = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, 18, mod.depthMm - 20), carcaseMat);
+        botPanel.position.set(0, 80 + 9, -10);
+        modContainer.add(botPanel);
+
+        // Back panel (8mm)
+        const backPanel = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, carcaseHeight - 36, 8), carcaseMat);
+        backPanel.position.set(0, 80 + carcaseHeight / 2, -mod.depthMm / 2 + 10);
+        modContainer.add(backPanel);
+
+        // Fixed Upper Shelf (Hat / Bag shelf)
+        const shelf = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, 18, mod.depthMm - 30), carcaseMat);
+        shelf.position.set(0, 80 + carcaseHeight * 0.76, -12);
+        modContainer.add(shelf);
+
+        // Chrome Oval Wardrobe Hanging Rail
+        const railGeo = new THREE.CylinderGeometry(12, 12, mod.widthMm - 40, 16);
+        const railMat = new THREE.MeshStandardMaterial({ color: '#e2e8f0', metalness: 0.95, roughness: 0.15 });
+        const hangRail = new THREE.Mesh(railGeo, railMat);
+        hangRail.rotation.z = Math.PI / 2;
+        hangRail.position.set(0, 80 + carcaseHeight * 0.70, -10);
+        hangRail.castShadow = true;
+        modContainer.add(hangRail);
+
+        // Vertical Sensor Warm LED Strip in Carcase Rebate
+        const vertLed = new THREE.PointLight('#ffe4a0', 0, 2400, 1.8);
+        vertLed.position.set(0, 80 + carcaseHeight / 2, 0);
+        vertLed.userData = { isKineticLed: true, moduleId: mod.id, maxIntensity: 2.2 };
+        modContainer.add(vertLed);
+
+        // Kinetic Hinged Doors (European 35mm Concealed Hinges)
         const handleMat = new THREE.MeshStandardMaterial({ color: '#1c1917', metalness: 0.85, roughness: 0.25 });
-        const handleMesh = new THREE.Mesh(handleGeo, handleMat);
-        handleMesh.position.set(mod.widthMm > 600 ? -36 : 0, mod.heightMm / 2, mod.depthMm / 2 + 6);
-        modContainer.add(handleMesh);
-        if (mod.widthMm > 600) {
-          const handleMesh2 = handleMesh.clone();
-          handleMesh2.position.x = 36;
-          modContainer.add(handleMesh2);
+        const isDoubleDoor = mod.widthMm > 600;
+
+        if (isDoubleDoor) {
+          const doorWidth = (mod.widthMm - 4) / 2;
+
+          // Left Door Pivot Group
+          const leftPivot = new THREE.Group();
+          leftPivot.position.set(-mod.widthMm / 2 + 4, 80 + carcaseHeight / 2, mod.depthMm / 2 - 10);
+          leftPivot.userData = { isKineticDoor: true, hingeSide: 'left', moduleId: mod.id };
+
+          const leftDoorMesh = new THREE.Mesh(new THREE.BoxGeometry(doorWidth - 2, carcaseHeight - 4, 18), baseMat);
+          leftDoorMesh.position.set(doorWidth / 2, 0, 0);
+          leftDoorMesh.castShadow = true;
+          leftPivot.add(leftDoorMesh);
+
+          const leftHandle = new THREE.Mesh(new THREE.BoxGeometry(12, 600, 18), handleMat);
+          leftHandle.position.set(doorWidth - 28, 0, 12);
+          leftPivot.add(leftHandle);
+          modContainer.add(leftPivot);
+
+          // Right Door Pivot Group
+          const rightPivot = new THREE.Group();
+          rightPivot.position.set(mod.widthMm / 2 - 4, 80 + carcaseHeight / 2, mod.depthMm / 2 - 10);
+          rightPivot.userData = { isKineticDoor: true, hingeSide: 'right', moduleId: mod.id };
+
+          const rightDoorMesh = new THREE.Mesh(new THREE.BoxGeometry(doorWidth - 2, carcaseHeight - 4, 18), baseMat);
+          rightDoorMesh.position.set(-doorWidth / 2, 0, 0);
+          rightDoorMesh.castShadow = true;
+          rightPivot.add(rightDoorMesh);
+
+          const rightHandle = new THREE.Mesh(new THREE.BoxGeometry(12, 600, 18), handleMat);
+          rightHandle.position.set(-doorWidth + 28, 0, 12);
+          rightPivot.add(rightHandle);
+          modContainer.add(rightPivot);
+        } else {
+          // Single Door Pivot Group
+          const leftPivot = new THREE.Group();
+          leftPivot.position.set(-mod.widthMm / 2 + 4, 80 + carcaseHeight / 2, mod.depthMm / 2 - 10);
+          leftPivot.userData = { isKineticDoor: true, hingeSide: 'left', moduleId: mod.id };
+
+          const doorMesh = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 4, carcaseHeight - 4, 18), baseMat);
+          doorMesh.position.set(mod.widthMm / 2, 0, 0);
+          doorMesh.castShadow = true;
+          leftPivot.add(doorMesh);
+
+          const handleMesh = new THREE.Mesh(new THREE.BoxGeometry(12, 600, 18), handleMat);
+          handleMesh.position.set(mod.widthMm - 28, 0, 12);
+          leftPivot.add(handleMesh);
+          modContainer.add(leftPivot);
         }
       } else if (isBed) {
         // Bed base + mattress + headboard
@@ -1195,8 +1608,38 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     let frame = 0;
+    let currentDrawerLerp = 0;
+    let currentDoorLerp = 0;
+    let currentLedIntensity = 0;
+
     const draw = () => {
       controls.update();
+
+      const targets = kineticTargetsRef.current;
+      const targetOffset = targets.drawerOffset;
+      const targetDoorAngleRad = (targets.doorAngleDeg * Math.PI) / 180;
+      const targetLed = targets.ledReveal ? 1.0 : (targets.drawerOffset > 0.05 || targets.doorAngleDeg > 5 ? 1.0 : 0.0);
+
+      currentDrawerLerp += (targetOffset - currentDrawerLerp) * 0.12;
+      currentDoorLerp += (targetDoorAngleRad - currentDoorLerp) * 0.12;
+      currentLedIntensity += (targetLed - currentLedIntensity) * 0.12;
+
+      geometryGroup.traverse((obj) => {
+        if (obj.userData?.isKineticDrawer) {
+          const maxSlide = obj.userData.maxSlideMm ?? 350;
+          obj.position.z = (obj.userData.baseZ ?? 0) + currentDrawerLerp * maxSlide;
+        } else if (obj.userData?.isKineticDoor) {
+          const side = obj.userData.hingeSide;
+          if (side === 'left') {
+            obj.rotation.y = -currentDoorLerp;
+          } else if (side === 'right') {
+            obj.rotation.y = currentDoorLerp;
+          }
+        } else if (obj.userData?.isKineticLed && obj instanceof THREE.PointLight) {
+          obj.intensity = currentLedIntensity * (obj.userData.maxIntensity ?? 1.5);
+        }
+      });
+
       renderer.render(root, camera);
       frame = requestAnimationFrame(draw);
     };
@@ -1210,7 +1653,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       rendererInstanceRef.current = null;
       host.replaceChildren();
     };
-  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId, assetFilter]);
+  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId, assetFilter, activeStoreyId, explodedAxonometric]);
 
   const activeSelectedRoom = useMemo(() => {
     if (!scene) return null;
@@ -1383,6 +1826,52 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           ))}
         </div>
 
+        {/* Multi-Storey Level Switcher */}
+        <div style={{ display: 'inline-flex', background: '#f5f3ee', borderRadius: 8, padding: 2, border: '1px solid #e7e5e4', marginLeft: 4 }}>
+          {[
+            { id: 'all', label: '🏰 Stacked (All)' },
+            { id: 'level-ground', label: '🏛️ Ground (0m)' },
+            { id: 'level-first', label: '🏢 First (+3.3m)' },
+            { id: 'level-terrace', label: '🌿 Terrace (+6.6m)' },
+          ].map((lvl) => (
+            <button
+              key={lvl.id}
+              type="button"
+              onClick={() => setActiveStoreyId(lvl.id)}
+              style={{
+                padding: '4px 9px',
+                borderRadius: 6,
+                border: 0,
+                background: activeStoreyId === lvl.id ? '#fff' : 'transparent',
+                color: activeStoreyId === lvl.id ? 'var(--gold-dim)' : '#78716c',
+                fontSize: 11,
+                fontWeight: 700,
+                boxShadow: activeStoreyId === lvl.id ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                cursor: 'pointer',
+              }}
+            >
+              {lvl.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setExplodedAxonometric((prev) => !prev)}
+            style={{
+              padding: '4px 9px',
+              borderRadius: 6,
+              border: 0,
+              background: explodedAxonometric ? 'rgba(197,156,45,0.2)' : 'transparent',
+              color: explodedAxonometric ? 'var(--gold-dim)' : '#78716c',
+              fontSize: 11,
+              fontWeight: 800,
+              cursor: 'pointer',
+            }}
+            title="Toggle exploded vertical axonometric spacing between storeys"
+          >
+            {explodedAxonometric ? '💥 Exploded (On)' : '📐 Exploded'}
+          </button>
+        </div>
+
         {/* 1-Click High-Res PNG Snapshot */}
         <Button
           variant="outline"
@@ -1477,6 +1966,122 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               <div className="scene-viewport-overlay" aria-hidden="true">
                 <span>{preset === 'walkthrough' ? 'WALKTHROUGH CAMERA' : preset === 'top' ? 'PLAN CAMERA' : preset === 'isometric' ? 'ISOMETRIC CAMERA' : 'PERSPECTIVE CAMERA'}</span>
                 <span>{lightingMode === 'warm' ? '3000K WARM' : lightingMode === 'daylight' ? '4500K STUDIO' : '2700K DUSK'}</span>
+              </div>
+            )}
+
+            {/* Interactive Kinetic Cabinet Inspector Floating HUD */}
+            {scene && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: 14,
+                  left: 14,
+                  background: 'rgba(255, 255, 255, 0.94)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1.5px solid #ebdccb',
+                  borderRadius: 12,
+                  padding: '10px 14px',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  zIndex: 10,
+                  width: 290,
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ebdccb', paddingBottom: 6 }}>
+                  <span style={{ fontWeight: 800, color: 'var(--gold-dim)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5 }}>
+                    ⚡ Kinetic Cabinet Inspector
+                  </span>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      type="button"
+                      disabled={isKineticAnimating}
+                      onClick={animateKineticCycle}
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        borderRadius: 6,
+                        border: '1px solid #c59c2d',
+                        background: '#fef9e7',
+                        color: '#92400e',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isKineticAnimating ? '▶ Playing...' : '▶ Play Cycle'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetKinetic}
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        borderRadius: 6,
+                        border: '1px solid #d6d3d1',
+                        background: '#fff',
+                        color: '#57534e',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ↺ Reset
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '74px 1fr 32px', alignItems: 'center', gap: 8 }}>
+                  <label style={{ color: '#57534e', fontSize: 11, fontWeight: 600 }}>Pull Drawer:</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.02"
+                    value={kineticDrawerOffset}
+                    onChange={(e) => setKineticDrawerOffset(parseFloat(e.target.value))}
+                    style={{ accentColor: '#c59c2d', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: 10, color: '#78716c', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {Math.round(kineticDrawerOffset * 100)}%
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '74px 1fr 32px', alignItems: 'center', gap: 8 }}>
+                  <label style={{ color: '#57534e', fontSize: 11, fontWeight: 600 }}>Swing Door:</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="105"
+                    step="1"
+                    value={kineticDoorAngleDeg}
+                    onChange={(e) => setKineticDoorAngleDeg(parseFloat(e.target.value))}
+                    style={{ accentColor: '#c59c2d', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: 10, color: '#78716c', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {kineticDoorAngleDeg}°
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 2 }}>
+                  <label style={{ color: '#57534e', fontSize: 11, fontWeight: 600 }}>Warm Sensor LED:</label>
+                  <button
+                    type="button"
+                    onClick={() => setKineticLedReveal((prev) => !prev)}
+                    style={{
+                      padding: '3px 10px',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      borderRadius: 12,
+                      border: kineticLedReveal ? '1px solid #f59e0b' : '1px solid #d6d3d1',
+                      background: kineticLedReveal ? '#fef3c7' : '#f5f5f4',
+                      color: kineticLedReveal ? '#b45309' : '#78716c',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {kineticLedReveal ? '💡 3000K On' : '⚪ Sensor Auto'}
+                  </button>
+                </div>
               </div>
             )}
             {!scene && (

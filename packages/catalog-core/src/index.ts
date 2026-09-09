@@ -541,3 +541,13 @@ export function generateW06PanelSchedule(module: CatalogModule): W06PanelSpec[] 
 
   return panels;
 }
+
+export {
+  generateHomagWoodWopMpr,
+  generateBiesseCix,
+  compileCabinetCncPackage,
+  type CncDrillHole,
+  type CncGroove,
+  type CncPanel,
+  type CabinetCncPackage,
+} from './cnc-post-processor.js';

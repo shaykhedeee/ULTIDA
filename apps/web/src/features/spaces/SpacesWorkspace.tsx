@@ -368,6 +368,7 @@ export function SpacesWorkspace() {
   const [floorPlanVersionId, setFloorPlanVersionId] = useState<string>('');
   const [geometryMode, setGeometryMode] = useState<'initial_design' | 'final_production'>('final_production');
   const [canvasFocus, setCanvasFocus] = useState<'room' | 'plan'>('plan');
+  const [activeStoreyId, setActiveStoreyId] = useState<string>('level-ground');
 
   // Floor plan backdrop overlay state
   const [planPreviewUrl, setPlanPreviewUrl] = useState<string | null>(null);
@@ -1596,6 +1597,52 @@ export function SpacesWorkspace() {
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
           <button className="btn-secondary workspace-action" onClick={() => void saveGeometryVersion()} title="Save geometry changes to create a new plan version"><Save size={14} /> Save geometry</button>
           <button className="btn-primary proceed-header-action workspace-action" disabled={!rooms.length} onClick={() => navigate(`/projects/${projectId}/spaces?tab=modules`)} title="Open catalog-backed modules and wall elevations"><LayoutGrid size={15} /> Configure Modules <ArrowRight size={14} /></button>
+        </div>
+      </div>
+
+      {/* Multi-Storey Level Navigation Ribbon */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', background: '#fbf9f5', border: '1px solid #ebdccb', borderRadius: 10, margin: '8px 0 12px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--gold-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            🏛️ Storey Level:
+          </span>
+          <div style={{ display: 'inline-flex', gap: 6 }}>
+            {[
+              { id: 'level-ground', label: 'Ground Floor (0.0m)', badge: 'Rooms & Atrium' },
+              { id: 'level-first', label: 'First Floor (+3.3m)', badge: 'Mezzanine Void & Balustrades' },
+              { id: 'level-terrace', label: 'Terrace Deck (+6.6m)', badge: 'Sky Lounge' },
+            ].map((lvl) => (
+              <button
+                key={lvl.id}
+                type="button"
+                onClick={() => setActiveStoreyId(lvl.id)}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 8,
+                  border: activeStoreyId === lvl.id ? '1.5px solid var(--gold)' : '1px solid #e7e5e4',
+                  background: activeStoreyId === lvl.id ? '#fff' : 'transparent',
+                  color: activeStoreyId === lvl.id ? 'var(--gold-dim)' : '#57534e',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <span>{lvl.label}</span>
+                <small style={{ fontSize: 10, opacity: 0.75, fontWeight: 500 }}>({lvl.badge})</small>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, fontSize: 11, color: '#78716c' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fef3c7', color: '#92400e', padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>
+            ✨ Double-Height Living Atrium Cutout Active
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f1f5f9', color: '#334155', padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>
+            🪜 Cantilever Stairwell Connected
+          </span>
         </div>
       </div>
 
