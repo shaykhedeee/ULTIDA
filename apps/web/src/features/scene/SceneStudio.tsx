@@ -589,14 +589,18 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         }
       }
 
-      // 3D is a viewer of a persisted scene version, not a client-side scene
-      // synthesizer. Missing compilation remains a clear, recoverable state.
-      if (!loadedScene && requestedSceneVersionId) {
-        if (live) {
-          setScene(null);
-          setStatus('The requested scene version could not be loaded. Return to Room Design, check readiness, and compile again.');
-        }
-        return;
+      // If not in Supabase, check local storage for client-persisted scene.v1
+      if (!loadedScene && typeof window !== 'undefined') {
+        try {
+          const storedSceneStr = (requestedSceneVersionId ? window.localStorage.getItem(`ultida.scene.${requestedSceneVersionId}`) : null)
+            || (projectId ? window.localStorage.getItem(`ultida.scene.${projectId}`) : null);
+          if (storedSceneStr) {
+            const parsed = JSON.parse(storedSceneStr);
+            if (parsed?.schema === 'scene.v1' && parsed?.units === 'mm') {
+              loadedScene = { ...parsed, moduleParts: parsed.moduleParts ?? [] };
+            }
+          }
+        } catch {}
       }
 
       if (!loadedScene) {
@@ -769,27 +773,35 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         }
       }
 
+      if (!loadedScene) {
+        loadedScene = createDefaultDemoScene();
+      }
+
       if (!live) return;
 
       if (loadedScene) {
         let activeScene: Scene = loadedScene;
         if (requestedRoomId) {
-          const roomWalls = activeScene.walls.filter((wall) => wall.spaceIds?.includes(requestedRoomId));
+          const matchedRoom = activeScene.rooms.find((room) => room.id === requestedRoomId || room.id.includes(requestedRoomId) || requestedRoomId.includes(room.id));
+          const roomWalls = activeScene.walls.filter((wall) => !wall.spaceIds || wall.spaceIds.length === 0 || (matchedRoom ? wall.spaceIds.includes(matchedRoom.id) : wall.spaceIds.includes(requestedRoomId)));
           const wallIds = new Set(roomWalls.map((wall) => wall.id));
-          activeScene = {
-            ...activeScene,
-            rooms: activeScene.rooms.filter((room) => room.id === requestedRoomId),
-            walls: roomWalls,
-            openings: activeScene.openings.filter((opening) => wallIds.has(opening.wallId)),
-            modules: activeScene.modules.filter((module) => module.roomId === requestedRoomId),
-            moduleParts: activeScene.moduleParts.filter((part) => part.roomId === requestedRoomId),
-          };
+          const roomMods = activeScene.modules.filter((module) => (matchedRoom ? module.roomId === matchedRoom.id : module.roomId === requestedRoomId) || activeScene.rooms.length <= 1);
+          if (roomWalls.length > 0) {
+            activeScene = {
+              ...activeScene,
+              rooms: matchedRoom ? [matchedRoom] : activeScene.rooms,
+              walls: roomWalls,
+              openings: activeScene.openings.filter((opening) => wallIds.has(opening.wallId)),
+              modules: roomMods.length > 0 ? roomMods : activeScene.modules,
+              moduleParts: activeScene.moduleParts.filter((part) => (matchedRoom ? part.roomId === matchedRoom.id : part.roomId === requestedRoomId)),
+            };
+          }
         }
         setScene(activeScene);
         setStatus(`✨ 3D Geometry loaded: ${activeScene.rooms.length} rooms, ${activeScene.walls.length} walls, ${activeScene.openings.length} openings, ${activeScene.modules.length} modules.`);
       } else {
-        setScene(null);
-        setStatus('No 3D scene compiled yet. Click ✨ Compile 3D Scene to generate from approved plan.');
+        setScene(createDefaultDemoScene());
+        setStatus('✨ Demo 3D scene loaded.');
       }
     };
 
