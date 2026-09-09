@@ -88,26 +88,14 @@ function generateModuleDxf(name: string, sku: string, w: number, d: number, h: n
   return lines.join('\r\n');
 }
 
-function generateModuleCutlistCsv(name: string, sku: string, w: number, d: number, h: number): string {
-  const shutterCount = w >= 600 ? 2 : 1;
-  const shutterW = Math.round((w / shutterCount) - 2);
-  const shutterH = Math.round(h - 104);
+function generateModuleBriefCsv(name: string, sku: string, w: number, d: number, h: number): string {
   const rows = [
-    ['Part Name', 'Qty', 'Cut Length (mm)', 'Cut Width (mm)', 'Thickness (mm)', 'Core Material', 'Surface Finish', 'Edgeband Exposed (mm)', 'Notes'],
-    ['Left Gable End', '1', String(h - 100), String(d), '18', 'HDHMR Green Core', 'Balancing Liner', '2.0mm ABS', 'System 32 hole line at 37mm datum'],
-    ['Right Gable End', '1', String(h - 100), String(d), '18', 'HDHMR Green Core', 'Balancing Liner', '2.0mm ABS', 'System 32 hole line at 37mm datum'],
-    ['Bottom Base Panel', '1', String(w - 36), String(d), '18', 'HDHMR Green Core', 'Balancing Liner', '1.0mm PVC', 'Rebated for 6mm back'],
-    ['Top Tie Rail Front', '1', String(w - 36), '100', '18', 'HDHMR Green Core', 'Balancing Liner', '1.0mm PVC', 'Countertop screw fixing holes'],
-    ['Top Tie Rail Rear', '1', String(w - 36), '100', '18', 'HDHMR Green Core', 'Balancing Liner', '1.0mm PVC', 'Wall anchor bracket anchor'],
-    ['Back Panel (Grooved)', '1', String(w - 24), String(h - 110), '6', 'MDF / HDF White', 'Pre-Laminated', 'None', 'Slid into 6x8mm groove'],
-    ['System 32 Shelf', '2', String(w - 36), String(d - 20), '18', 'HDHMR Green Core', 'Suede Laminate', '1.0mm PVC all 4 sides', 'Rested on Ø5mm brass shelf studs'],
-    ...Array.from({ length: shutterCount }).map((_, i) => [
-      `Fascia Shutter ${i + 1}`, '1', String(shutterH), String(shutterW), '18', 'HDHMR Green Core', '1.0mm Acrylic / Fluted PU', '2.0mm ABS matching edge', '35mm cup hinge boring at 100mm from top/bottom'
-    ])
+    ['Status', 'Template', 'SKU', 'Overall width (mm)', 'Overall depth (mm)', 'Overall height (mm)', 'Next step'],
+    ['VISUAL DRAFT - NOT FOR FABRICATION', name, sku, String(w), String(d), String(h),
+      'Place in a measured project room, compile and approve the scene, then export verified panels from Production.'],
   ];
-  return rows.map((r) => r.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(',')).join('\r\n');
+  return rows.map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(',')).join('\r\n');
 }
-
 export function ModularUnitPlanner() {
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<'configurator' | 'elevation' | 'cad_sheet'>('configurator');
@@ -217,9 +205,9 @@ export function ModularUnitPlanner() {
       clearanceMm: clearance,
     };
     window.localStorage.setItem('ultida.pendingModulePlan.v1', JSON.stringify(prepared));
-    setStatus(`Direct-dispatched ${selected.name} to ${targetProjectName}. Directing to space configuration…`);
+    setStatus(`Prepared ${selected.name} for ${targetProjectName}. Choose a room and wall to save placement.`);
     setShowProjectPicker(false);
-    navigate(`/projects/${targetProjectId}/spaces?tab=modules&placed=1`);
+    navigate(`/projects/${targetProjectId}/spaces?tab=modules&placeModule=1`);
   }
 
   function prepareProjectPlacement() {
@@ -331,19 +319,19 @@ export function ModularUnitPlanner() {
                 const activeW = width || selected.widthMm;
                 const activeD = depth || selected.depthMm;
                 const activeH = height || selected.heightMm;
-                const csvContent = generateModuleCutlistCsv(selected.name, selected.sku, activeW, activeD, activeH);
+                const csvContent = generateModuleBriefCsv(selected.name, selected.sku, activeW, activeD, activeH);
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `${selected.sku || selected.id}-cutlist.csv`;
+                a.download = `${selected.sku || selected.id}-design-brief.csv`;
                 a.click();
                 URL.revokeObjectURL(url);
-                setStatus(`Exported CAM production cutlist (.csv) for ${selected.name}.`);
+                setStatus(`Downloaded draft dimensions, not fabrication instructions, for ${selected.name}.`);
               }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'linear-gradient(135deg, #059669, #047857)', color: '#fff', border: 0, borderRadius: 7, fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
             >
-              <Download size={14} /> Export CAM Cutlist (.csv)
+              <Download size={14} /> Download design brief (.csv)
             </button>
           </div>
         </div>
@@ -525,7 +513,7 @@ export function ModularUnitPlanner() {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #332d29', paddingBottom: 12 }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#34d399' }}>Direct-Dispatch to Project</h3>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#34d399' }}>Choose project for placement</h3>
               <p style={{ margin: '4px 0 0', fontSize: 12, color: '#a8a29e' }}>
                 Select target project to place <strong>{selected?.name}</strong> ({width || selected?.widthMm}W × {depth || selected?.depthMm}D × {height || selected?.heightMm}H mm)
               </p>
