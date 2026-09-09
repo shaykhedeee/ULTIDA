@@ -554,10 +554,9 @@ export async function createVisualJob(environment: Record<string, string | undef
         materialKeyMapUrl: baseArtifacts.materialRegions[0]?.url,
         objectMaskUrl: selectedObjectMask?.url ?? baseArtifacts.objectMasks[0]?.url,
       },
-      // Cloudflare FLUX.2 is the only automatic hosted path for both draft
-      // generation and geometry-locked material revisions. A studio-local
-      // provider must be deliberately selected by a future explicit control.
-      providerPreference: ['cloudflare'],
+      providerPreference: request.providerPreference?.length
+        ? request.providerPreference
+        : ['cloudflare', 'gemini-nano-banana-2', 'free-image-worker', 'huggingface', 'pollinations'],
     };
     await client.from('jobs').update({
       status: 'running',

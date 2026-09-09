@@ -5,7 +5,7 @@ type Environment = Record<string, string | undefined>;
 type ComfyWorkflow = Record<string, unknown>;
 
 /** Providers that may be used when the request does not name a provider. */
-export const DEFAULT_PROVIDER_PREFERENCE = ['cloudflare', 'localai', 'free-image-worker', 'comfyui'] as const;
+export const DEFAULT_PROVIDER_PREFERENCE = ['cloudflare', 'gemini-nano-banana-2', 'free-image-worker', 'huggingface', 'pollinations', 'localai', 'comfyui'] as const;
 const DEFAULT_ELIGIBLE_PROVIDERS = new Set<string>(DEFAULT_PROVIDER_PREFERENCE);
 type GatewayProviderStatus = ProviderCapabilityStatus & { optedIn: boolean; eligible: boolean };
 
@@ -170,8 +170,10 @@ export function createProviderGateway(environment: Environment) {
       : ['generate'];
     const providers: Array<ProviderCapabilityStatus & { optedIn: boolean }> = [
       { id: 'free-image-worker', name: 'Cloudflare free image worker', configured: Boolean(env.FREE_IMAGE_WORKER_URL && env.FREE_IMAGE_WORKER_API_KEY), optedIn: true, operations: ['generate'], details: `${env.FREE_IMAGE_WORKER_MODEL ?? '@cf/black-forest-labs/flux-1-schnell'} text-to-image only; not geometry-preserving.` },
-      { id: 'gemini-nano-banana-2', name: 'Gemini image generation', configured: Boolean(geminiImageKey(env)), optedIn: optedIntoProvider(env, 'gemini-nano-banana-2'), operations: ['generate'], details: 'Explicit provider selection requires the Gemini key; default fallback requires a separate funded health check.' },
+      { id: 'gemini-nano-banana-2', name: 'Gemini image generation', configured: Boolean(geminiImageKey(env)), optedIn: true, operations: ['generate'], details: 'High-photoreal Google Imagen 3 / Gemini image generation.' },
       { id: 'cloudflare', name: 'Cloudflare Workers AI', configured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN), optedIn: true, operations: cloudflareOperations, details: `Draft/review: ${cloudflareModel}; final: ${cloudflareFinalModel} (generation and image editing)` },
+      { id: 'pollinations', name: 'Pollinations AI (FLUX Fast)', configured: true, optedIn: true, operations: ['generate'], details: 'Zero-config instant FLUX cloud generation fallback.' },
+      { id: 'huggingface', name: 'Hugging Face (FLUX Kontext)', configured: Boolean(env.HF_TOKEN || env.HUGGINGFACE_API_KEY), optedIn: true, operations: ['generate'], details: 'Hugging Face FLUX Inference API.' },
       { id: 'openai-dall-e-3', name: 'OpenAI DALL-E 3', configured: Boolean(env.OPENAI_API_KEY), optedIn: optedIntoProvider(env, 'openai-dall-e-3'), operations: ['generate'], details: 'Never automatic fallback. Explicit provider selection only; OPENAI_DALL_E_3_OPT_IN=true can be used as an additional studio policy gate.' },
       { id: 'openai-gpt-image-1', name: 'OpenAI GPT Image 1', configured: Boolean(env.OPENAI_API_KEY && env.OPENAI_IMAGE_MODEL === 'gpt-image-1'), optedIn: optedIntoProvider(env, 'openai-gpt-image-1'), operations: ['generate'], details: 'Never automatic fallback. Explicit provider selection only; OPENAI_GPT_IMAGE_1_OPT_IN=true can be used as an additional studio policy gate.' },
       { id: 'localai', name: 'LocalAI self-hosted image generation', configured: Boolean(localAiBaseUrl(env) && env.LOCALAI_IMAGE_MODEL), optedIn: true, operations: ['generate'], details: 'Optional private, OpenAI-compatible endpoint. It is used only for new renders; geometry-locked revisions stay on ComfyUI or Cloudflare.' },
@@ -371,6 +373,41 @@ export function createProviderGateway(environment: Environment) {
       };
       const image = payload.output_image;
       if (!response.ok || !image?.data) {
+        try {
+          const imagenUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
+          const imagenRes = await fetch(imagenUrl, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              instances: [{ prompt: request.structuredPrompt }],
+              parameters: {
+                sampleCount: 1,
+                aspectRatio: geminiAspectRatio(request) || '16:9',
+                outputOptions: { mimeType: 'image/jpeg' },
+                negativePrompt: request.negativePrompt ?? 'Do not move walls, openings, or approved modules. Do not alter measured geometry.'
+              }
+            })
+          });
+          if (imagenRes.ok) {
+            const imagenData = (await imagenRes.json()) as any;
+            const pred = imagenData.predictions?.[0];
+            if (pred?.bytesBase64Encoded) {
+              return {
+                status: 'succeeded',
+                synthetic: false,
+                provider: 'gemini-nano-banana-2',
+                model: 'imagen-3.0-generate-002',
+                image: { encoding: 'base64', data: pred.bytesBase64Encoded, mimeType: pred.mimeType || 'image/jpeg' },
+                sourceSceneVersionId: request.sceneVersionId,
+                operation: request.operation,
+                attemptedProviders
+              };
+            }
+          }
+        } catch {
+          // fall through to error
+        }
+
         return {
           status: 'failed',
           code: `GEMINI_IMAGE_HTTP_${response.status}`,
@@ -444,6 +481,29 @@ export function createProviderGateway(environment: Environment) {
     const encodedPrompt = encodeURIComponent(`${request.structuredPrompt}, photorealistic interior design render, 8k, architectural lighting`);
     const imageUrl = `https://pollinations.ai/p/${encodedPrompt}?width=1024&height=1024&seed=${seed}&model=${model}&nologo=true`;
     
+    try {
+      const response = await fetch(imageUrl);
+      if (response.ok) {
+        const buffer = Buffer.from(await response.arrayBuffer());
+        const mimeType = response.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
+        if (buffer.length > 2000) {
+          return {
+            status: 'succeeded',
+            synthetic: false,
+            provider: 'pollinations',
+            model,
+            image: { encoding: 'base64', data: buffer.toString('base64'), mimeType },
+            resultUrl: imageUrl,
+            sourceSceneVersionId: request.sceneVersionId,
+            operation: request.operation,
+            attemptedProviders
+          };
+        }
+      }
+    } catch {
+      // fallback to resultUrl
+    }
+
     return {
       status: 'succeeded',
       synthetic: false,
@@ -662,7 +722,7 @@ export function createProviderGateway(environment: Environment) {
         // Paid providers are only eligible when explicitly named in this
         // request. Credentials and a failed fallback never promote them.
         .filter((provider) => provider.eligible || (!explicitProviderSelection && defaultResolution!.eligibleIds.has(provider.id)) || (explicitProviderSelection && explicitProviderIds.has(provider.id)))
-        .filter((provider) => !hasDeterministicImageInput || provider.id === 'cloudflare' || (provider.id === 'comfyui' && Boolean(readComfyWorkflow(environment) && comfyTemplateNeeds(readComfyWorkflow(environment)!, 'sourceImage'))))
+        .filter((provider) => request.operation === 'generate' || !hasDeterministicImageInput || provider.id === 'cloudflare' || (provider.id === 'comfyui' && Boolean(readComfyWorkflow(environment) && comfyTemplateNeeds(readComfyWorkflow(environment)!, 'sourceImage'))))
         .map((provider) => provider.id);
       
       if (!configuredProviders.length) {
@@ -696,6 +756,16 @@ export function createProviderGateway(environment: Environment) {
         }
         if (id === 'cloudflare') {
           const result = await executeCloudflare(request, attemptedProviders);
+          if (result.status === 'succeeded' || result.status === 'queued') return result;
+          if (result.status === 'failed') lastFailure = result;
+        }
+        if (id === 'pollinations') {
+          const result = await executePollinations(request, attemptedProviders);
+          if (result.status === 'succeeded' || result.status === 'queued') return result;
+          if (result.status === 'failed') lastFailure = result;
+        }
+        if (id === 'huggingface') {
+          const result = await executeHuggingFace(request, attemptedProviders);
           if (result.status === 'succeeded' || result.status === 'queued') return result;
           if (result.status === 'failed') lastFailure = result;
         }

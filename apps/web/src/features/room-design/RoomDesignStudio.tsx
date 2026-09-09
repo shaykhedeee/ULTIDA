@@ -72,6 +72,32 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
             <BookOpen size={15} style={{ color: 'var(--gold)' }} />
             <span>Design Catalog</span>
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.set('tab', 'modules');
+              next.set('mode', 'elevations');
+              setSearchParams(next, { replace: true });
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '10px 16px',
+              borderRadius: 10,
+              background: '#292524',
+              color: '#fdfbf7',
+              border: '1px solid #57534e',
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            }}
+          >
+            <Ruler size={15} style={{ color: 'var(--gold)' }} />
+            <span>Wall Elevations (A/B/C/D)</span>
+          </button>
           <div className="room-design-authority">
             <CheckCircle2 size={16} />
             <span>

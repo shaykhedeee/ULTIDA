@@ -292,7 +292,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const moduleEditPending = useRef(false);
   const [moduleSaving, setModuleSaving] = useState(false);
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
-  const [designMode, setDesignMode] = useState<'layout' | 'elevations' | 'moodboard'>(focus === 'materials' ? 'moodboard' : 'layout');
+  const [designMode, setDesignMode] = useState<'layout' | 'elevations' | 'moodboard'>(() => {
+    const requestedMode = searchParams.get('mode');
+    if (requestedMode === 'elevations' || requestedMode === 'elevation') return 'elevations';
+    if (requestedMode === 'moodboard' || requestedMode === 'materials' || focus === 'materials') return 'moodboard';
+    return 'layout';
+  });
   const [elevationRenderType, setElevationRenderType] = useState<'elevation' | 'shop-sheet'>('elevation');
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const [activePickerSlot, setActivePickerSlot] = useState<string>('shutter');
@@ -331,9 +336,15 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   // Enter the task-specific tab when following a workflow action without losing
   // any persisted placement or material data.
   useEffect(() => {
-    if (focus === 'modules') setDesignMode('layout');
-    if (focus === 'materials') setDesignMode('moodboard');
-  }, [focus]);
+    const requestedMode = searchParams.get('mode');
+    if (requestedMode === 'elevations' || requestedMode === 'elevation') {
+      setDesignMode('elevations');
+    } else if (requestedMode === 'moodboard' || requestedMode === 'materials' || focus === 'materials') {
+      setDesignMode('moodboard');
+    } else if (focus === 'modules') {
+      setDesignMode('layout');
+    }
+  }, [focus, searchParams]);
 
   // Moodboard States
   const [stylePresets, setStylePresets] = useState<DesignPreset[]>([]);
