@@ -612,6 +612,20 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         } catch {}
       }
 
+      // Check if client-side localStorage has active placed modules from Stage 3
+      let localClientModules: any[] = [];
+      if (typeof window !== 'undefined' && projectId) {
+        try {
+          const rawLocalMods = window.localStorage.getItem(`ultida.modules.${projectId}`);
+          if (rawLocalMods) {
+            const parsed = JSON.parse(rawLocalMods);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              localClientModules = parsed;
+            }
+          }
+        } catch {}
+      }
+
       if (!loadedScene) {
         try {
           const planRes = await fetch(`${apiBase}/projects/${projectId}/floor-plan/active`, { headers });
@@ -657,20 +671,60 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               kind: (o.kind === 'window' ? 'window' : 'door') as 'door' | 'window',
             }));
 
-            let finalModules = rawModules.map((m: any, idx: number) => {
-              const pos = m.position_json ?? {};
-              const conf = m.config_json ?? {};
-              return {
-                id: m.id || `mod-${idx}`,
-                roomId: String(m.space_id ?? pos.roomId ?? ''),
-                family: m.category || conf.family || 'modular',
-                widthMm: Number(conf.widthMm ?? 1800),
-                depthMm: Number(conf.depthMm ?? 600),
-                heightMm: Number(conf.heightMm ?? 2100),
-                position: { xMm: Number(pos.xMm ?? 1000 + (idx % 3) * 600), yMm: Number(pos.yMm ?? 1000 + Math.floor(idx / 3) * 600) },
-                rotationDeg: Number(pos.rotationDeg ?? 0),
-              };
-            });
+            // Prefer client-edited modules from Stage 3 if present
+            let finalModules: any[] = [];
+            if (localClientModules.length > 0) {
+              finalModules = localClientModules.map((m: any, idx: number) => {
+                let posX = Number(m.xMm);
+                let posY = Number(m.yMm);
+                let rot = Number(m.rotationDeg ?? 0);
+                if ((!Number.isFinite(posX) || !Number.isFinite(posY)) && m.wallId) {
+                  const anchorWall = sceneWalls.find((w: any) => w.id === m.wallId);
+                  if (anchorWall?.start && anchorWall?.end) {
+                    const dx = anchorWall.end.xMm - anchorWall.start.xMm;
+                    const dy = anchorWall.end.yMm - anchorWall.start.yMm;
+                    const len = Math.hypot(dx, dy) || 1;
+                    const nx = dx / len;
+                    const ny = dy / len;
+                    const off = Number(m.offsetMm ?? 100) + Number(m.widthMm ?? 1200) / 2;
+                    posX = Math.round(anchorWall.start.xMm + nx * off);
+                    posY = Math.round(anchorWall.start.yMm + ny * off);
+                    rot = Math.round((Math.atan2(dy, dx) * 180) / Math.PI);
+                  }
+                }
+                const targetRoomId = m.roomId || sceneRooms[0]?.id || 'room-default';
+                return {
+                  id: m.id || `mod-${idx}`,
+                  roomId: targetRoomId,
+                  family: m.family || 'modular',
+                  widthMm: Number(m.widthMm || 1800),
+                  depthMm: Number(m.depthMm || 600),
+                  heightMm: Number(m.heightMm || 2100),
+                  position: {
+                    xMm: Number.isFinite(posX) ? posX : 1200 + (idx % 3) * 800,
+                    yMm: Number.isFinite(posY) ? posY : 1200 + Math.floor(idx / 3) * 800,
+                  },
+                  rotationDeg: rot,
+                  materialId: m.materialId || 'mat-1',
+                };
+              });
+            } else if (rawModules.length > 0) {
+              finalModules = rawModules.map((m: any, idx: number) => {
+                const pos = m.position_json ?? {};
+                const conf = m.config_json ?? {};
+                return {
+                  id: m.id || `mod-${idx}`,
+                  roomId: String(m.space_id ?? pos.roomId ?? sceneRooms[0]?.id ?? ''),
+                  family: m.category || conf.family || 'modular',
+                  widthMm: Number(conf.widthMm ?? 1800),
+                  depthMm: Number(conf.depthMm ?? 600),
+                  heightMm: Number(conf.heightMm ?? 2100),
+                  position: { xMm: Number(pos.xMm ?? 1000 + (idx % 3) * 600), yMm: Number(pos.yMm ?? 1000 + Math.floor(idx / 3) * 600) },
+                  rotationDeg: Number(pos.rotationDeg ?? 0),
+                  materialId: 'mat-1',
+                };
+              });
+            }
 
             if (finalModules.length === 0 && sceneRooms.length > 0) {
               const synthesized: any[] = [];
@@ -690,6 +744,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 if (rType.includes('living') || rType.includes('hall') || rType.includes('lounge')) {
                   synthesized.push({
                     id: `mod-tv-${rIdx}`,
+                    roomId: r.id,
                     family: 'tv-unit',
                     widthMm: Math.min(2400, Math.max(1600, width - 400)),
                     depthMm: 400,
@@ -700,6 +755,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                   });
                   synthesized.push({
                     id: `mod-sofa-${rIdx}`,
+                    roomId: r.id,
                     family: 'sofa',
                     widthMm: Math.min(2400, Math.max(1600, width - 400)),
                     depthMm: 1200,
@@ -711,6 +767,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 } else if (rType.includes('bed')) {
                   synthesized.push({
                     id: `mod-bed-${rIdx}`,
+                    roomId: r.id,
                     family: 'bed',
                     widthMm: 1800,
                     depthMm: 2100,
@@ -721,6 +778,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                   });
                   synthesized.push({
                     id: `mod-wardrobe-${rIdx}`,
+                    roomId: r.id,
                     family: 'wardrobe',
                     widthMm: Math.min(2400, Math.max(1600, width - 400)),
                     depthMm: 600,
@@ -732,6 +790,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 } else if (rType.includes('kitchen')) {
                   synthesized.push({
                     id: `mod-kit-base-${rIdx}`,
+                    roomId: r.id,
                     family: 'kitchen-base',
                     widthMm: Math.min(2800, Math.max(1800, width - 300)),
                     depthMm: 600,
@@ -743,11 +802,24 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 } else if (rType.includes('dining')) {
                   synthesized.push({
                     id: `mod-dining-${rIdx}`,
+                    roomId: r.id,
                     family: 'dining-table',
                     widthMm: 1800,
                     depthMm: 900,
                     heightMm: 760,
                     position: { xMm: cx, yMm: cy },
+                    rotationDeg: 0,
+                    materialId: 'mat-1',
+                  });
+                } else {
+                  synthesized.push({
+                    id: `mod-storage-${rIdx}`,
+                    roomId: r.id,
+                    family: 'wardrobe',
+                    widthMm: Math.min(1800, Math.max(1200, width - 600)),
+                    depthMm: 500,
+                    heightMm: 2100,
+                    position: { xMm: cx, yMm: minY + 300 },
                     rotationDeg: 0,
                     materialId: 'mat-1',
                   });
@@ -773,13 +845,29 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 { id: 'mat-3', name: 'Matte Suede Zero-G Shutter', code: 'SHUT-LAM-SUEDE', finish: 'Anti-Fingerprint' },
                 { id: 'mat-4', name: 'Tinted Fluted Profile Glass', code: 'GLAS-FLUTED-TINT', finish: 'Anodized Bronze' },
               ],
-              cameras: [
-                { id: 'cam-main', name: 'Overview Perspective', position: { xMm: 4000, yMm: 4000, zMm: 2400 }, target: { xMm: 1500, yMm: 1500, zMm: 1000 }, lensMm: 28 },
-              ],
+              cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: 2000, yMm: 1600, zMm: -4000 }, target: { xMm: 2000, yMm: 1200, zMm: 1200 }, lensMm: 35 }],
             };
           }
         } catch {
         }
+      }
+
+      // If loadedScene was loaded from cache but client has newer active modules, synchronize them
+      if (loadedScene && localClientModules.length > 0 && (!loadedScene.modules || loadedScene.modules.length === 0)) {
+        loadedScene = {
+          ...loadedScene,
+          modules: localClientModules.map((m: any, idx: number) => ({
+            id: m.id || `mod-${idx}`,
+            roomId: m.roomId || loadedScene!.rooms[0]?.id || 'room-master-bed',
+            family: m.family || 'modular',
+            widthMm: Number(m.widthMm || 1800),
+            depthMm: Number(m.depthMm || 600),
+            heightMm: Number(m.heightMm || 2100),
+            position: { xMm: Number(m.xMm ?? 1500 + (idx % 3) * 600), yMm: Number(m.yMm ?? 1500 + Math.floor(idx / 3) * 600) },
+            rotationDeg: Number(m.rotationDeg ?? 0),
+            materialId: m.materialId || 'mat-1',
+          })),
+        };
       }
 
       if (!loadedScene) {
@@ -794,7 +882,10 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           const matchedRoom = activeScene.rooms.find((room) => room.id === requestedRoomId || room.id.includes(requestedRoomId) || requestedRoomId.includes(room.id));
           const roomWalls = activeScene.walls.filter((wall) => !wall.spaceIds || wall.spaceIds.length === 0 || (matchedRoom ? wall.spaceIds.includes(matchedRoom.id) : wall.spaceIds.includes(requestedRoomId)));
           const wallIds = new Set(roomWalls.map((wall) => wall.id));
-          const roomMods = activeScene.modules.filter((module) => (matchedRoom ? module.roomId === matchedRoom.id : module.roomId === requestedRoomId) || activeScene.rooms.length <= 1);
+          const roomMods = activeScene.modules.filter((module) => {
+            if (!matchedRoom) return module.roomId === requestedRoomId;
+            return module.roomId === matchedRoom.id || !module.roomId;
+          });
           if (roomWalls.length > 0) {
             activeScene = {
               ...activeScene,
@@ -842,10 +933,10 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
 
   useEffect(() => {
     if (!scene) return;
-    const availableRoomIds = new Set(scene.modules.map((module) => module.roomId));
-    const nextRoomId = requestedRoomId && availableRoomIds.has(requestedRoomId)
+    const availableRoomIds = new Set(scene.modules.map((module) => module.roomId).filter(Boolean));
+    const nextRoomId = (requestedRoomId && (availableRoomIds.has(requestedRoomId) || scene.rooms.some((r) => r.id === requestedRoomId)))
       ? requestedRoomId
-      : scene.modules[0]?.roomId ?? null;
+      : scene.rooms[0]?.id ?? scene.modules[0]?.roomId ?? null;
     setSelectedRoomId(nextRoomId);
   }, [scene, requestedRoomId]);
 

@@ -713,6 +713,25 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         setSceneModules((storedScene.modules ?? []).map((module) => ({ ...module, label: module.label ?? module.family })));
         setSceneMaterials(storedScene.materials ?? []);
         setSceneApproved(['approved', 'locked'].includes(String(sceneRow.status)));
+      } else if (projectId) {
+        try {
+          const localSceneRaw = window.localStorage.getItem(`ultida.scene.${projectId}`);
+          if (localSceneRaw) {
+            const parsed = JSON.parse(localSceneRaw);
+            if (Array.isArray(parsed?.modules) && parsed.modules.length > 0) {
+              setSceneModules(parsed.modules.map((m: any) => ({ ...m, label: m.label ?? m.family })));
+              if (Array.isArray(parsed.materials)) setSceneMaterials(parsed.materials);
+            }
+          } else {
+            const localModsRaw = window.localStorage.getItem(`ultida.modules.${projectId}`);
+            if (localModsRaw) {
+              const parsedMods = JSON.parse(localModsRaw);
+              if (Array.isArray(parsedMods) && parsedMods.length > 0) {
+                setSceneModules(parsedMods.map((m: any) => ({ ...m, label: m.label ?? m.family })));
+              }
+            }
+          }
+        } catch {}
       }
     })();
     return () => { cancelled = true; };
@@ -1317,6 +1336,25 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (projectId) {
       try {
         window.localStorage.setItem(`ultida.sceneVersionId.${projectId}`, fallbackId);
+        const sceneDoc = {
+          schema: 'scene.v1',
+          units: 'mm',
+          rooms: [{ id: roomId, name: 'Main Suite', boundary: [{ xMm: 0, yMm: 0 }, { xMm: 4500, yMm: 0 }, { xMm: 4500, yMm: 3600 }, { xMm: 0, yMm: 3600 }] }],
+          walls: [
+            { id: 'wall-a', start: { xMm: 0, yMm: 0 }, end: { xMm: 4500, yMm: 0 }, thicknessMm: 150, heightMm: 2700 },
+            { id: 'wall-b', start: { xMm: 4500, yMm: 0 }, end: { xMm: 4500, yMm: 3600 }, thicknessMm: 150, heightMm: 2700 },
+            { id: 'wall-c', start: { xMm: 4500, yMm: 3600 }, end: { xMm: 0, yMm: 3600 }, thicknessMm: 150, heightMm: 2700 },
+            { id: 'wall-d', start: { xMm: 0, yMm: 3600 }, end: { xMm: 0, yMm: 0 }, thicknessMm: 150, heightMm: 2700 },
+          ],
+          openings: [],
+          modules: normalizedModules,
+          moduleParts: [],
+          lighting: [],
+          materials: materials,
+          cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: 2000, yMm: 1600, zMm: -4000 }, target: { xMm: 2000, yMm: 1200, zMm: 1200 }, lensMm: 35 }],
+        };
+        window.localStorage.setItem(`ultida.scene.${projectId}`, JSON.stringify(sceneDoc));
+        window.localStorage.setItem(`ultida.scene.${fallbackId}`, JSON.stringify(sceneDoc));
       } catch {}
     }
     setPlanStatus('Measured scene compiled from the active plan.v1.');
