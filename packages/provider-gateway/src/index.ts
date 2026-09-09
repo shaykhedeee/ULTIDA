@@ -5,7 +5,7 @@ type Environment = Record<string, string | undefined>;
 type ComfyWorkflow = Record<string, unknown>;
 
 /** Providers that may be used when the request does not name a provider. */
-export const DEFAULT_PROVIDER_PREFERENCE = ['cloudflare', 'gemini-nano-banana-2', 'free-image-worker', 'huggingface', 'pollinations', 'localai', 'comfyui'] as const;
+export const DEFAULT_PROVIDER_PREFERENCE = ['cloudflare', 'free-image-worker', 'huggingface', 'pollinations', 'localai', 'comfyui'] as const;
 const DEFAULT_ELIGIBLE_PROVIDERS = new Set<string>(DEFAULT_PROVIDER_PREFERENCE);
 type GatewayProviderStatus = ProviderCapabilityStatus & { optedIn: boolean; eligible: boolean };
 
@@ -170,9 +170,9 @@ export function createProviderGateway(environment: Environment) {
       : ['generate'];
     const providers: Array<ProviderCapabilityStatus & { optedIn: boolean }> = [
       { id: 'free-image-worker', name: 'Cloudflare free image worker', configured: Boolean(env.FREE_IMAGE_WORKER_URL && env.FREE_IMAGE_WORKER_API_KEY), optedIn: true, operations: ['generate'], details: `${env.FREE_IMAGE_WORKER_MODEL ?? '@cf/black-forest-labs/flux-1-schnell'} text-to-image only; not geometry-preserving.` },
-      { id: 'gemini-nano-banana-2', name: 'Gemini image generation', configured: Boolean(geminiImageKey(env)), optedIn: true, operations: ['generate'], details: 'High-photoreal Google Imagen 3 / Gemini image generation.' },
+      { id: 'gemini-nano-banana-2', name: 'Gemini image generation', configured: Boolean(geminiImageKey(env)), optedIn: optedIntoProvider(env, 'gemini-nano-banana-2'), operations: ['generate'], details: 'High-photoreal Google Imagen 3 / Gemini image generation.' },
       { id: 'cloudflare', name: 'Cloudflare Workers AI', configured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN), optedIn: true, operations: cloudflareOperations, details: `Draft/review: ${cloudflareModel}; final: ${cloudflareFinalModel} (generation and image editing)` },
-      { id: 'pollinations', name: 'Pollinations AI (FLUX Fast)', configured: true, optedIn: true, operations: ['generate'], details: 'Zero-config instant FLUX cloud generation fallback.' },
+      { id: 'pollinations', name: 'Pollinations AI (FLUX Fast)', configured: Boolean(env.POLLINATIONS_ENABLED === 'true' || env.ENABLE_POLLINATIONS === 'true'), optedIn: true, operations: ['generate'], details: 'Zero-config instant FLUX cloud generation fallback.' },
       { id: 'huggingface', name: 'Hugging Face (FLUX Kontext)', configured: Boolean(env.HF_TOKEN || env.HUGGINGFACE_API_KEY), optedIn: true, operations: ['generate'], details: 'Hugging Face FLUX Inference API.' },
       { id: 'openai-dall-e-3', name: 'OpenAI DALL-E 3', configured: Boolean(env.OPENAI_API_KEY), optedIn: optedIntoProvider(env, 'openai-dall-e-3'), operations: ['generate'], details: 'Never automatic fallback. Explicit provider selection only; OPENAI_DALL_E_3_OPT_IN=true can be used as an additional studio policy gate.' },
       { id: 'openai-gpt-image-1', name: 'OpenAI GPT Image 1', configured: Boolean(env.OPENAI_API_KEY && env.OPENAI_IMAGE_MODEL === 'gpt-image-1'), optedIn: optedIntoProvider(env, 'openai-gpt-image-1'), operations: ['generate'], details: 'Never automatic fallback. Explicit provider selection only; OPENAI_GPT_IMAGE_1_OPT_IN=true can be used as an additional studio policy gate.' },

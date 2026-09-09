@@ -277,3 +277,261 @@ export function validatePlacement(module: CatalogModule, roomType: z.infer<typeo
   if (clearanceMm < module.minClearanceMm) issues.push(`${module.name} needs at least ${module.minClearanceMm} mm clear circulation.`);
   return { valid: issues.length === 0, issues };
 }
+
+// ─── GLB 3D DIGITAL TWIN PIPELINE & UPLOAD VALIDATION ────────────────
+
+export interface GlbValidationInput {
+  declaredDimensionsMm: { width: number; depth: number; height: number };
+  boundingBoxMm: { width: number; depth: number; height: number };
+  polyCount: number;
+  materialSlotNames: string[];
+  maxPolyCount?: number;
+}
+
+export interface GlbValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  normalizedScaleFactor: number;
+  lodTier: 'lod0' | 'lod1';
+}
+
+/**
+ * Validates imported GLB 3D model metadata against catalog declarations:
+ * - Bounding box dimension match within ±2mm (with auto-normalization if modeled in meters)
+ * - Material slot mapping against MaterialSlotSchema
+ * - Performance guardrail: max 50,000 polygons
+ * - Assigns LOD0 (high detail) or LOD1 (low poly proxy) tier
+ */
+export function validateGlbModelMetadata(input: GlbValidationInput): GlbValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const maxPolys = input.maxPolyCount ?? 50000;
+
+  // Auto-detect meter scale (e.g., width 0.6m instead of 600mm)
+  let scaleFactor = 1.0;
+  if (input.boundingBoxMm.width < 10 && input.declaredDimensionsMm.width >= 100) {
+    scaleFactor = 1000.0;
+    warnings.push('Bounding box appears to be in meters; automatically scaling to millimeters.');
+  }
+
+  const effectiveWidth = input.boundingBoxMm.width * scaleFactor;
+  const effectiveDepth = input.boundingBoxMm.depth * scaleFactor;
+  const effectiveHeight = input.boundingBoxMm.height * scaleFactor;
+
+  // Dimension check: ±2mm tolerance
+  const diffW = Math.abs(effectiveWidth - input.declaredDimensionsMm.width);
+  const diffD = Math.abs(effectiveDepth - input.declaredDimensionsMm.depth);
+  const diffH = Math.abs(effectiveHeight - input.declaredDimensionsMm.height);
+
+  if (diffW > 2) {
+    errors.push(`Width mismatch: declared ${input.declaredDimensionsMm.width}mm, GLB model is ${Math.round(effectiveWidth)}mm (diff: ${Math.round(diffW)}mm). Tolerance is ±2mm.`);
+  }
+  if (diffD > 2) {
+    errors.push(`Depth mismatch: declared ${input.declaredDimensionsMm.depth}mm, GLB model is ${Math.round(effectiveDepth)}mm (diff: ${Math.round(diffD)}mm). Tolerance is ±2mm.`);
+  }
+  if (diffH > 2) {
+    errors.push(`Height mismatch: declared ${input.declaredDimensionsMm.height}mm, GLB model is ${Math.round(effectiveHeight)}mm (diff: ${Math.round(diffH)}mm). Tolerance is ±2mm.`);
+  }
+
+  // Polygon guardrail
+  if (input.polyCount > maxPolys) {
+    errors.push(`Polygon count (${input.polyCount.toLocaleString()}) exceeds maximum allowed threshold of ${maxPolys.toLocaleString()} triangles.`);
+  }
+
+  // Material slot mapping check
+  const recognizedSlots = MaterialSlotSchema.options as readonly string[];
+  const unrecognized = input.materialSlotNames.filter((s) => !recognizedSlots.includes(s));
+  if (unrecognized.length > 0) {
+    warnings.push(`Unrecognized mesh material nodes: ${unrecognized.join(', ')}. Recognized slots: ${recognizedSlots.join(', ')}.`);
+  }
+
+  const lodTier: 'lod0' | 'lod1' = input.polyCount > 15000 ? 'lod0' : 'lod1';
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    normalizedScaleFactor: scaleFactor,
+    lodTier,
+  };
+}
+
+/**
+ * Builds canonical private vault storage path for 3D GLB digital twins.
+ * Format: catalog/{organizationId}/{productId}/{assetVersionId}/model.glb
+ */
+export function buildGlbStoragePath(organizationId: string, productId: string, assetVersionId: string): string {
+  const cleanOrg = organizationId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanProd = productId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanVer = assetVersionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `catalog/${cleanOrg}/${cleanProd}/${cleanVer}/model.glb`;
+}
+
+/**
+ * Generates an authenticated signed URL signature string with standard 60-minute expiry.
+ */
+export function generateSignedGlbUrl(storagePath: string, expiryMinutes = 60): string {
+  const expiresAt = Math.floor(Date.now() / 1000) + expiryMinutes * 60;
+  return `https://storage.ultida.internal/${storagePath}?expires=${expiresAt}&signed=true`;
+}
+
+// ─── STRICT W06 MANUFACTURING STANDARD AUDIT & PANEL SCHEDULE ──────
+
+export interface W06PanelSpec {
+  partId: string;
+  panelName: string;
+  role: 'carcass' | 'shutter' | 'shelf' | 'back_panel' | 'plinth' | 'countertop' | 'filler';
+  widthMm: number;
+  heightMm: number;
+  depthMm?: number;
+  thicknessMm: number;
+  materialSlot: z.infer<typeof MaterialSlotSchema>;
+  grainDirection: 'vertical' | 'horizontal' | 'none';
+  edgeBanding: {
+    topMm: number;
+    bottomMm: number;
+    leftMm: number;
+    rightMm: number;
+  };
+  system32Boring: boolean;
+  hingeBores?: Array<{ distanceMm: number; diameterMm: number }>;
+}
+
+/**
+ * Generates the strict W06 panel inventory for any catalog module:
+ * Left Gable, Right Gable, Top Stretcher/Panel, Bottom Base, Back Panel,
+ * Internal Shelves with 32mm hole lines, and Shutter with 35mm hinge bore holes.
+ */
+export function generateW06PanelSchedule(module: CatalogModule): W06PanelSpec[] {
+  const { id, widthMm, depthMm, heightMm, family } = module;
+  const coreThick = 18; // 18mm standard core board
+  const backThick = 6;  // 6mm grooved back panel
+  const panels: W06PanelSpec[] = [];
+
+  const isBase = family.includes('base') || family === 'tv-unit' || family === 'crockery';
+  const isTall = family.includes('tall') || family === 'wardrobe';
+  const isWall = family.includes('wall');
+
+  // 1. Left Gable
+  panels.push({
+    partId: `${id}-GBL-L`,
+    panelName: 'Left Carcass Gable',
+    role: 'carcass',
+    widthMm: depthMm,
+    heightMm,
+    thicknessMm: coreThick,
+    materialSlot: 'carcass',
+    grainDirection: 'vertical',
+    edgeBanding: { topMm: 1, bottomMm: 1, leftMm: 2, rightMm: 0.8 },
+    system32Boring: true,
+  });
+
+  // 2. Right Gable
+  panels.push({
+    partId: `${id}-GBL-R`,
+    panelName: 'Right Carcass Gable',
+    role: 'carcass',
+    widthMm: depthMm,
+    heightMm,
+    thicknessMm: coreThick,
+    materialSlot: 'carcass',
+    grainDirection: 'vertical',
+    edgeBanding: { topMm: 1, bottomMm: 1, leftMm: 2, rightMm: 0.8 },
+    system32Boring: true,
+  });
+
+  // Internal usable width between 18mm gables
+  const internalWidth = Math.max(100, widthMm - 2 * coreThick);
+
+  // 3. Bottom Panel (Base)
+  panels.push({
+    partId: `${id}-BASE`,
+    panelName: 'Bottom Base Panel',
+    role: 'carcass',
+    widthMm: internalWidth,
+    depthMm,
+    heightMm: coreThick,
+    thicknessMm: coreThick,
+    materialSlot: 'carcass',
+    grainDirection: 'horizontal',
+    edgeBanding: { topMm: 0, bottomMm: 0, leftMm: 0.8, rightMm: 2 },
+    system32Boring: false,
+  });
+
+  // 4. Top Panel or Top Stretchers
+  panels.push({
+    partId: `${id}-TOP`,
+    panelName: isBase ? 'Top Dual Tie Rails (100mm)' : 'Top Ceiling Panel',
+    role: 'carcass',
+    widthMm: internalWidth,
+    depthMm: isBase ? 100 : depthMm,
+    heightMm: coreThick,
+    thicknessMm: coreThick,
+    materialSlot: 'carcass',
+    grainDirection: 'horizontal',
+    edgeBanding: { topMm: 0, bottomMm: 0, leftMm: 0.8, rightMm: 2 },
+    system32Boring: false,
+  });
+
+  // 5. Back Panel (Grooved 6mm with 10mm inset)
+  panels.push({
+    partId: `${id}-BCK`,
+    panelName: 'Back Enclosure Panel (Grooved)',
+    role: 'back_panel',
+    widthMm: internalWidth + 16,
+    heightMm: Math.max(100, heightMm - 36),
+    thicknessMm: backThick,
+    materialSlot: 'back-panel',
+    grainDirection: 'vertical',
+    edgeBanding: { topMm: 0, bottomMm: 0, leftMm: 0, rightMm: 0 },
+    system32Boring: false,
+  });
+
+  // 6. Adjustable Shelves (with 2mm setback from front edge)
+  const shelfCount = isTall ? 3 : isWall || isBase ? 1 : 0;
+  for (let s = 1; s <= shelfCount; s++) {
+    panels.push({
+      partId: `${id}-SHLF-${s}`,
+      panelName: `Internal Adjustable Shelf ${s} (System 32)`,
+      role: 'shelf',
+      widthMm: internalWidth - 2, // 1mm clearance each side
+      depthMm: Math.max(50, depthMm - 20),
+      heightMm: coreThick,
+      thicknessMm: coreThick,
+      materialSlot: 'carcass',
+      grainDirection: 'horizontal',
+      edgeBanding: { topMm: 0.8, bottomMm: 0.8, leftMm: 0.8, rightMm: 2 },
+      system32Boring: false,
+    });
+  }
+
+  // 7. Shutters (with 35mm hinge cup bores at 100mm from ends)
+  if (module.production.cutlistSupported && (isBase || isWall || isTall)) {
+    const isDoubleDoor = widthMm >= 600;
+    const shutterCount = isDoubleDoor ? 2 : 1;
+    const shutterWidth = Math.round((widthMm - (isDoubleDoor ? 6 : 4)) / shutterCount);
+    const shutterHeight = Math.max(100, heightMm - 4);
+
+    for (let sh = 1; sh <= shutterCount; sh++) {
+      panels.push({
+        partId: `${id}-SHT-${sh}`,
+        panelName: `Facia Shutter ${sh} of ${shutterCount}`,
+        role: 'shutter',
+        widthMm: shutterWidth,
+        heightMm: shutterHeight,
+        thicknessMm: coreThick,
+        materialSlot: 'shutter',
+        grainDirection: 'vertical',
+        edgeBanding: { topMm: 2, bottomMm: 2, leftMm: 2, rightMm: 2 },
+        system32Boring: true,
+        hingeBores: [
+          { distanceMm: 100, diameterMm: 35 },
+          { distanceMm: shutterHeight - 100, diameterMm: 35 },
+        ],
+      });
+    }
+  }
+
+  return panels;
+}

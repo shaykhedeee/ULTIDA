@@ -83,7 +83,7 @@ test('default image fallback never spends through OpenAI or Gemini credentials a
     throw new Error(`Unexpected fallback URL ${url}`);
   }) as typeof fetch;
   try {
-    assert.deepEqual([...DEFAULT_PROVIDER_PREFERENCE], ['cloudflare', 'localai', 'free-image-worker', 'comfyui']);
+    assert.deepEqual([...DEFAULT_PROVIDER_PREFERENCE], ['cloudflare', 'free-image-worker', 'huggingface', 'pollinations', 'localai', 'comfyui']);
     const gateway = createProviderGateway({
       OPENAI_API_KEY: 'openai-test-key',
       GEMINI_IMAGE_API_KEY: 'gemini-test-key',
