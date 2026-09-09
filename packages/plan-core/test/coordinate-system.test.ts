@@ -8,8 +8,8 @@ import {
   worldToWallLocal, 
   convertToMm, 
   convertFromMm 
-} from '../src/coordinate-system.js';
-import { resolveScale, type ScaleObservation } from '../src/scale-engine.js';
+} from '../dist/coordinate-system.js';
+import { resolveScale, type ScaleObservation } from '../dist/scale-engine.js';
 
 test('Unit conversions', () => {
   assert.strictEqual(convertToMm(10, 'cm'), 100);

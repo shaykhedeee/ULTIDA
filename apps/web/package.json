@@ -15,6 +15,7 @@
     "@ultida/catalog-core": "^0.1.0",
     "@ultida/scene-compiler": "^0.1.0",
     "@ultida/drawing-core": "^0.1.0",
+    "@ultida/plan-core": "^0.1.0",
     "@ultida/scene-core": "^0.1.0",
     "@ultida/spaces-core": "^0.1.0",
     "lucide-react": "^0.468.0",

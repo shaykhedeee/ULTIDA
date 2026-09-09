@@ -9,8 +9,15 @@ import {
   CheckCircle2, XCircle, Trash2, Edit3, Save, ArrowRight, ArrowLeft,
   Eye, EyeOff, FileText, FileDown, Loader2, Sparkles, RefreshCw, Upload, FileUp, Undo2, Redo2
 } from 'lucide-react';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  mergeCollinearSegments,
+  refineCornerSubPix,
+  validateWallThicknessBounds,
+  crossCheckCalibrationDimensions,
+  type CalibrationCrossCheckDiscrepancy,
+} from '@ultida/plan-core';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import { createFreshPlanCalibrationState, requireConfirmedScale } from './plan-calibration';
 import './plan-review.css';
@@ -294,7 +301,7 @@ function cleanAndRectifyPlanGeometry(existingElements: PlanElement[], ceilingH =
   const otherElements = existingElements.filter((e) => e.kind !== 'wall' && e.kind !== 'room');
   let walls = existingElements.filter((e) => e.kind === 'wall' && e.status !== 'rejected');
 
-  // Step 1: Orthogonal snapping (snap walls within ±5° to strict horizontal or vertical)
+  // Step 1: Strict Orthogonal Snapping (snap walls within ±3° to pure right angles) & Thickness Bounding
   walls = walls.map((w) => {
     const { x1, y1, x2, y2 } = w.geometry;
     if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) return w;
@@ -307,17 +314,21 @@ function cleanAndRectifyPlanGeometry(existingElements: PlanElement[], ceilingH =
     let ny1 = y1;
     let nx2 = x2;
     let ny2 = y2;
-    if (Math.abs(angle) < 5 || Math.abs(angle) > 175) {
+    // Strict ±3° orthogonal snapping (within 3° of 0°, 90°, 180°, 270°)
+    if (Math.abs(angle) < 3 || Math.abs(angle) > 177) {
       const avgY = Math.round((y1 + y2) / 2);
       ny1 = avgY;
       ny2 = avgY;
-    } else if (Math.abs(Math.abs(angle) - 90) < 5) {
+    } else if (Math.abs(Math.abs(angle) - 90) < 3) {
       const avgX = Math.round((x1 + x2) / 2);
       nx1 = avgX;
       nx2 = avgX;
     }
     const isExterior = nx1 < 140 || nx2 < 140 || ny1 < 160 || ny2 < 160 || nx1 > 860 || nx2 > 860 || ny1 > 720 || ny2 > 720;
-    const standardThickness = isExterior ? 230 : (w.thicknessMm && w.thicknessMm >= 200 ? 230 : 115);
+    const targetThickness = w.thicknessMm && w.thicknessMm > 0 ? w.thicknessMm : (isExterior ? 230 : 115);
+    // Real-world architectural bounds: enforce 75mm - 300mm
+    const boundCheck = validateWallThicknessBounds(targetThickness);
+    const standardThickness = boundCheck.clampedMm;
     const dimMm = mmPerPixel && mmPerPixel > 0 ? Math.round(Math.hypot(nx2 - nx1, ny2 - ny1) * mmPerPixel) : w.dimensionMm;
     return {
       ...w,
@@ -326,34 +337,36 @@ function cleanAndRectifyPlanGeometry(existingElements: PlanElement[], ceilingH =
       dimensionMm: dimMm,
       heightMm: w.heightMm || ceilingH,
       status: 'accepted' as const,
+      note: boundCheck.warning ? `${w.note ? w.note + '; ' : ''}${boundCheck.warning}` : w.note,
     };
   });
 
-  // Step 2: Corner snapping / gap closure (<16px distance)
-  for (let i = 0; i < walls.length; i++) {
-    for (let j = i + 1; j < walls.length; j++) {
-      const w1 = walls[i].geometry;
-      const w2 = walls[j].geometry;
-      if (w1.x1 === undefined || w2.x1 === undefined) continue;
-      const pairs = [
-        { p1: { x: w1.x1, y: w1.y1! }, p2: { x: w2.x1, y: w2.y1! }, set1: (p: Point) => { w1.x1 = p.x; w1.y1 = p.y; }, set2: (p: Point) => { w2.x1 = p.x; w2.y1 = p.y; } },
-        { p1: { x: w1.x1, y: w1.y1! }, p2: { x: w2.x2!, y: w2.y2! }, set1: (p: Point) => { w1.x1 = p.x; w1.y1 = p.y; }, set2: (p: Point) => { w2.x2 = p.x; w2.y2 = p.y; } },
-        { p1: { x: w1.x2!, y: w1.y2! }, p2: { x: w2.x1, y: w2.y1! }, set1: (p: Point) => { w1.x2 = p.x; w1.y2 = p.y; }, set2: (p: Point) => { w2.x1 = p.x; w2.y1 = p.y; } },
-        { p1: { x: w1.x2!, y: w1.y2! }, p2: { x: w2.x2!, y: w2.y2! }, set1: (p: Point) => { w1.x2 = p.x; w1.y2 = p.y; }, set2: (p: Point) => { w2.x2 = p.x; w2.y2 = p.y; } },
-      ];
-      for (const pair of pairs) {
-        const dist = Math.hypot(pair.p1.x - pair.p2.x, pair.p1.y - pair.p2.y);
-        if (dist > 0.1 && dist <= 16) {
-          const midX = Math.round((pair.p1.x + pair.p2.x) / 2);
-          const midY = Math.round((pair.p1.y + pair.p2.y) / 2);
-          pair.set1({ x: midX, y: midY });
-          pair.set2({ x: midX, y: midY });
-        }
+  // Step 2: Corner Healing — Merge collinear segments along the same datum into continuous wall runs
+  walls = mergeCollinearSegments(walls, 6, 25);
+
+  // Step 3: Sub-pixel corner refinement & junction closure
+  const allEndpoints: Array<{ x: number; y: number }> = [];
+  walls.forEach((w) => {
+    if (w.geometry.x1 !== undefined && w.geometry.y1 !== undefined) allEndpoints.push({ x: w.geometry.x1, y: w.geometry.y1 });
+    if (w.geometry.x2 !== undefined && w.geometry.y2 !== undefined) allEndpoints.push({ x: w.geometry.x2, y: w.geometry.y2 });
+  });
+  if (allEndpoints.length > 0) {
+    const refinedVertices = refineCornerSubPix(allEndpoints, 12);
+    let vIdx = 0;
+    walls = walls.map((w) => {
+      if (w.geometry.x1 !== undefined && w.geometry.y1 !== undefined && w.geometry.x2 !== undefined && w.geometry.y2 !== undefined) {
+        const p1 = refinedVertices[vIdx++];
+        const p2 = refinedVertices[vIdx++];
+        return {
+          ...w,
+          geometry: { ...w.geometry, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y },
+        };
       }
-    }
+      return w;
+    });
   }
 
-  // Step 3: Add enclosing walls only for missing room boundaries
+  // Step 4: Add enclosing walls only for missing room boundaries
   const hasWallNear = (p1: Point, p2: Point, tolerance = 24) => {
     return walls.some((w) => {
       const { x1, y1, x2, y2 } = w.geometry;
@@ -668,6 +681,206 @@ export function PlanReviewWorkspace({
     const rectified = cleanAndRectifyPlanGeometry(elements, ceilingHeightMm ?? 2700, scale?.mmPerPixel);
     commitElements(rectified);
     setContinuationHint('⚡ Architectural Plan Rectified: Walls snapped to 0°/90° orthogonal angles, corners healed, and standard structural thicknesses (115/230mm) applied.');
+  };
+
+  // Trick 4: Retroactive Calibration Cross-Checking against detected dimension strings
+  const calibrationDiscrepancies = useMemo<CalibrationCrossCheckDiscrepancy[]>(() => {
+    if (!scale?.mmPerPixel || scale.mmPerPixel <= 0) return [];
+    return crossCheckCalibrationDimensions(
+      elements.filter((e) => e.kind === 'wall' && typeof e.dimensionMm === 'number' && e.dimensionMm > 0),
+      scale.mmPerPixel,
+      0.05
+    );
+  }, [elements, scale]);
+
+  // Mode 1: As-Built Extraction Batch Actions
+  const rawDetections = useMemo(() => elements.filter((e) => !e.isAnalysisGuide), [elements]);
+  const highConfidenceRawCount = useMemo(
+    () => rawDetections.filter((e) => e.confidence >= 0.90 && (e.status === 'proposed' || e.status === 'needs_review')).length,
+    [rawDetections]
+  );
+  const lowConfidenceRawCount = useMemo(
+    () => rawDetections.filter((e) => e.confidence < 0.70 && (e.status === 'proposed' || e.status === 'needs_review')).length,
+    [rawDetections]
+  );
+  const unacceptedRawCount = useMemo(
+    () => rawDetections.filter((e) => e.status === 'proposed' || e.status === 'needs_review').length,
+    [rawDetections]
+  );
+
+  const handleAcceptAllHighConfidence = () => {
+    commitElements((prev) =>
+      prev.map((e) =>
+        e.confidence >= 0.90 && (e.status === 'proposed' || e.status === 'needs_review')
+          ? { ...e, status: 'accepted' }
+          : e
+      )
+    );
+    setContinuationHint('✨ All high-confidence (>90%) raw CV detections accepted into measured plan.');
+  };
+
+  const handleRejectLowConfidence = () => {
+    commitElements((prev) =>
+      prev.map((e) =>
+        e.confidence < 0.70 && (e.status === 'proposed' || e.status === 'needs_review')
+          ? { ...e, status: 'rejected' }
+          : e
+      )
+    );
+    setContinuationHint('Low-confidence (<70%) noise detections rejected from measured model.');
+  };
+
+  // Mode 2: Collinear Wall Run Merging
+  const handleMergeCollinearWalls = () => {
+    commitElements((prev) => {
+      const nonWalls = prev.filter((e) => e.kind !== 'wall');
+      const walls = prev.filter((e) => e.kind === 'wall');
+      const merged = mergeCollinearSegments(walls, 6, 25);
+      return [...nonWalls, ...merged];
+    });
+    setContinuationHint('Collinear wall segments merged into continuous datum-aligned wall runs.');
+  };
+
+  // Mode 3: AI Spatial Planning & Guided Layouts
+  const handleGenerateSpatialProposals = () => {
+    const verifiedRooms = elements.filter((e) => e.kind === 'room' && e.status !== 'rejected');
+    if (verifiedRooms.length === 0) {
+      setContinuationHint('Please define or accept at least one room boundary before generating spatial layouts.');
+      return;
+    }
+
+    const proposedElements: PlanElement[] = [];
+
+    verifiedRooms.forEach((room) => {
+      const g = room.geometry;
+      const poly = g.polygon ?? (g.x !== undefined && g.y !== undefined && g.width && g.height ? [
+        { x: g.x, y: g.y },
+        { x: g.x + g.width, y: g.y },
+        { x: g.x + g.width, y: g.y + g.height },
+        { x: g.x, y: g.y + g.height },
+      ] : []);
+      if (poly.length < 4) return;
+
+      const minX = Math.min(...poly.map((p) => p.x));
+      const maxX = Math.max(...poly.map((p) => p.x));
+      const minY = Math.min(...poly.map((p) => p.y));
+      const maxY = Math.max(...poly.map((p) => p.y));
+      const w = maxX - minX;
+      const h = maxY - minY;
+
+      if (room.roomType === 'bedroom' || room.roomType === 'master_bedroom') {
+        proposedElements.push({
+          id: `prop-bed-${room.id}`,
+          kind: 'fixture',
+          label: `${room.label} - King Bed Zone`,
+          confidence: 0.88,
+          status: 'proposed',
+          color: '#8b5cf6',
+          geometry: {
+            x: minX + w * 0.3,
+            y: minY + 15,
+            width: w * 0.4,
+            height: h * 0.45,
+            polygon: [
+              { x: minX + w * 0.3, y: minY + 15 },
+              { x: minX + w * 0.7, y: minY + 15 },
+              { x: minX + w * 0.7, y: minY + 15 + h * 0.45 },
+              { x: minX + w * 0.3, y: minY + 15 + h * 0.45 },
+            ],
+          },
+          note: 'Provisional furniture footprint: 1800x2000mm bed placement',
+        });
+        proposedElements.push({
+          id: `prop-wardrobe-${room.id}`,
+          kind: 'fixture',
+          label: `${room.label} - Wardrobe Alcove`,
+          confidence: 0.92,
+          status: 'proposed',
+          color: '#8b5cf6',
+          geometry: {
+            x: maxX - 45,
+            y: minY + 20,
+            width: 35,
+            height: h * 0.65,
+            polygon: [
+              { x: maxX - 45, y: minY + 20 },
+              { x: maxX - 10, y: minY + 20 },
+              { x: maxX - 10, y: minY + 20 + h * 0.65 },
+              { x: maxX - 45, y: minY + 20 + h * 0.65 },
+            ],
+          },
+          note: 'Provisional wardrobe zone: 600mm carcass depth clearance',
+        });
+      } else if (room.roomType === 'kitchen') {
+        proposedElements.push({
+          id: `prop-counter-${room.id}`,
+          kind: 'fixture',
+          label: 'Modular Kitchen Counter Run',
+          confidence: 0.91,
+          status: 'proposed',
+          color: '#059669',
+          geometry: {
+            x: minX + 15,
+            y: minY + 15,
+            width: w * 0.7,
+            height: 35,
+            polygon: [
+              { x: minX + 15, y: minY + 15 },
+              { x: minX + 15 + w * 0.7, y: minY + 15 },
+              { x: minX + 15 + w * 0.7, y: minY + 50 },
+              { x: minX + 15, y: minY + 50 },
+            ],
+          },
+          note: 'Provisional modular kitchen: 600mm counter depth',
+        });
+      } else if (room.roomType === 'living') {
+        proposedElements.push({
+          id: `prop-tv-${room.id}`,
+          kind: 'fixture',
+          label: 'Living TV Entertainment Feature Wall',
+          confidence: 0.94,
+          status: 'proposed',
+          color: '#d97706',
+          geometry: {
+            x: minX + w * 0.2,
+            y: maxY - 30,
+            width: w * 0.6,
+            height: 20,
+            polygon: [
+              { x: minX + w * 0.2, y: maxY - 30 },
+              { x: minX + w * 0.8, y: maxY - 30 },
+              { x: minX + w * 0.8, y: maxY - 10 },
+              { x: minX + w * 0.2, y: maxY - 10 },
+            ],
+          },
+          note: 'Provisional media wall unit: 400mm console footprint',
+        });
+      }
+    });
+
+    if (proposedElements.length > 0) {
+      commitElements((prev) => {
+        const existingWithoutOldProps = prev.filter((e) => !e.id.startsWith('prop-'));
+        return [...existingWithoutOldProps, ...proposedElements];
+      });
+      setContinuationHint(`✨ Mode 3 Propose: Generated ${proposedElements.length} provisional spatial layout proposals.`);
+    } else {
+      setContinuationHint('Mode 3 Propose: Assign room types (Bedroom, Kitchen, Living) to generate tailored spatial layout proposals.');
+    }
+  };
+
+  const handleAcceptAllProposals = () => {
+    commitElements((prev) =>
+      prev.map((e) => (e.status === 'proposed' ? { ...e, status: 'accepted' } : e))
+    );
+    setContinuationHint('All provisional spatial layout proposals accepted into measured model.');
+  };
+
+  const handleDiscardAllProposals = () => {
+    commitElements((prev) =>
+      prev.filter((e) => !e.id.startsWith('prop-') && e.status !== 'proposed')
+    );
+    setContinuationHint('Provisional guide layer cleared without altering measured as-built geometry.');
   };
   const undo = () => {
     setUndoStack((stack) => {
@@ -1241,6 +1454,13 @@ export function PlanReviewWorkspace({
       setActiveTool('calibrate');
       return;
     }
+
+    // Core Architectural Principle: Never allow unreviewed AI-detected geometry to quietly become approved construction data.
+    if (planWorkspaceMode === 'extract' && unacceptedRawCount > 0) {
+      setContinuationHint(`⚠️ Core Architectural Rule: ${unacceptedRawCount} unaccepted AI detections cannot be compiled into scene.v1. Review and accept measured elements in Mode 1 or clean geometry in Mode 2 before approval.`);
+      return;
+    }
+
     const isInitialDesign = geometryMode === 'initial_design';
     const effectiveScale = scaleGate.scale;
     const mmPerPixel = effectiveScale.mmPerPixel;
@@ -1459,6 +1679,26 @@ export function PlanReviewWorkspace({
                   {analysisInFlight ? <Loader2 size={14} className="ultida-spinner" /> : <Sparkles size={14} style={{ color: 'var(--gold)' }} />}
                   {analysisInFlight ? 'AI Analysing Floor Plan...' : 'AI Vision Extract & Analyse Plan'}
                 </button>
+                {highConfidenceRawCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleAcceptAllHighConfidence}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#064e3b', color: '#6ee7b7', border: '1px solid #059669', borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                    title="Accept all raw AI detections with confidence > 90%"
+                  >
+                    <CheckCircle2 size={14} /> Accept High-Conf ({highConfidenceRawCount})
+                  </button>
+                )}
+                {lowConfidenceRawCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleRejectLowConfidence}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#450a0a', color: '#fca5a5', border: '1px solid #b91c1c', borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                    title="Reject raw AI noise detections with confidence < 70%"
+                  >
+                    <XCircle size={14} /> Reject Low-Conf ({lowConfidenceRawCount})
+                  </button>
+                )}
                 {onStartManualReview && !analysed && (
                   <button
                     type="button"
@@ -1524,34 +1764,121 @@ export function PlanReviewWorkspace({
                     cursor: 'pointer',
                     boxShadow: '0 2px 8px rgba(197,156,45,0.35)',
                   }}
-                  title="Snap all walls to 0°/90° orthogonal angles, heal corner gaps, and standardize thicknesses"
+                  title="Snap all walls to 0°/90° orthogonal angles (±3°), heal corner gaps, and standardize thicknesses"
                 >
-                  <Sparkles size={14} /> ⚡ Rectify 0°/90° &amp; Standardize Walls (115/230mm)
+                  <Sparkles size={14} /> ⚡ Rectify 0°/90° (±3°) &amp; Walls (115/230mm)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMergeCollinearWalls}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '7px 14px',
+                    background: '#1e293b',
+                    color: '#e2e8f0',
+                    border: '1px solid #475569',
+                    borderRadius: 7,
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                  title="Merge collinear wall segments along the same datum into continuous wall runs"
+                >
+                  <Combine size={14} /> Heal Collinear Walls
                 </button>
               </>
             )}
 
             {planWorkspaceMode === 'propose' && (
-              <button
-                type="button"
-                onClick={deriveWallsFromRoomBoundaries}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '7px 16px',
-                  background: '#1e293b',
-                  color: 'var(--gold, #d4af37)',
-                  border: '1px solid var(--gold, #d4af37)',
-                  borderRadius: 7,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-                title="Derive perimeter layout proposals from verified rooms"
-              >
-                <LayoutGrid size={14} /> Derive Proposals from Room Boundaries
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleGenerateSpatialProposals}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '7px 16px',
+                    background: 'linear-gradient(135deg, #1c1917, #3d2a1a)',
+                    color: 'var(--gold, #d4af37)',
+                    border: '1px solid var(--gold, #d4af37)',
+                    borderRadius: 7,
+                    fontSize: 12.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 8px rgba(197,156,45,0.25)',
+                  }}
+                  title="Generate suggested room zoning, circulation paths, door swings, and furniture footprints"
+                >
+                  <Sparkles size={14} /> ✨ Generate AI Spatial Layouts
+                </button>
+                <button
+                  type="button"
+                  onClick={deriveWallsFromRoomBoundaries}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '7px 14px',
+                    background: '#1e293b',
+                    color: 'var(--gold, #d4af37)',
+                    border: '1px solid var(--gold, #d4af37)',
+                    borderRadius: 7,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                  title="Derive perimeter layout proposals from verified rooms"
+                >
+                  <LayoutGrid size={14} /> Derive Walls
+                </button>
+                {elements.some((e) => e.status === 'proposed') && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleAcceptAllProposals}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '7px 14px',
+                        background: '#064e3b',
+                        color: '#6ee7b7',
+                        border: '1px solid #059669',
+                        borderRadius: 7,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                      title="Accept all provisional layout proposals into the measured plan"
+                    >
+                      <CheckCircle2 size={14} /> Accept Proposals
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDiscardAllProposals}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '7px 14px',
+                        background: '#fff',
+                        color: '#b91c1c',
+                        border: '1px solid #f87171',
+                        borderRadius: 7,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                      title="Clear all provisional guide overlays without affecting measured walls"
+                    >
+                      <Trash2 size={14} /> Discard Proposals
+                    </button>
+                  </>
+                )}
+              </>
             )}
             <button
               type="button"
@@ -1855,10 +2182,52 @@ export function PlanReviewWorkspace({
                 </div>
               </div>
             )}
+
+            {/* Mode-specific Architectural HUD Banners */}
+            {planWorkspaceMode === 'extract' && (
+              <div style={{ position: 'absolute', top: 10, left: 12, display: 'flex', gap: 10, alignItems: 'center', background: 'rgba(15, 23, 42, 0.94)', border: '1px solid #334155', borderRadius: 8, padding: '6px 14px', color: '#f8fafc', fontSize: 11.5, zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>
+                <span style={{ fontWeight: 800, color: '#38bdf8', letterSpacing: '0.05em' }}>MODE 1: AS-BUILT CAPTURE</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#10b981', fontWeight: 700 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} /> &gt;90% High</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#f59e0b', fontWeight: 700 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b' }} /> 70–90% Review</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#ef4444', fontWeight: 700 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} /> &lt;70% Low</span>
+                <span style={{ color: '#64748b' }}>|</span>
+                <span style={{ color: '#94a3b8' }}>Unaccepted AI geometry blocked from scene.v1</span>
+                {unacceptedRawCount > 0 ? (
+                  <span style={{ background: '#ef444422', color: '#f87171', border: '1px solid #ef444444', padding: '2px 8px', borderRadius: 5, fontWeight: 800 }}>
+                    {unacceptedRawCount} unreviewed
+                  </span>
+                ) : (
+                  <span style={{ background: '#10b98122', color: '#34d399', border: '1px solid #10b98144', padding: '2px 8px', borderRadius: 5, fontWeight: 800 }}>
+                    ✓ All Verified
+                  </span>
+                )}
+              </div>
+            )}
+            {planWorkspaceMode === 'clean' && (
+              <div style={{ position: 'absolute', top: 10, left: 12, display: 'flex', gap: 10, alignItems: 'center', background: 'rgba(255, 255, 255, 0.95)', border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 14px', color: '#1e293b', fontSize: 11.5, zIndex: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                <span style={{ fontWeight: 800, color: '#2563eb' }}>MODE 2: CLEAN &amp; RECTIFY</span>
+                <span style={{ color: '#64748b' }}>±3° Orthogonal Snapping • 75–300mm Thickness Bounds • Datum Collinear Healing</span>
+                {calibrationDiscrepancies.length > 0 && (
+                  <span style={{ background: '#fef3c7', color: '#d97706', border: '1px solid #f59e0b', padding: '2px 8px', borderRadius: 5, fontWeight: 800 }}>
+                    ⚠️ {calibrationDiscrepancies.length} OCR Scale Drift{calibrationDiscrepancies.length === 1 ? '' : 's'}
+                  </span>
+                )}
+              </div>
+            )}
+            {planWorkspaceMode === 'propose' && (
+              <div style={{ position: 'absolute', top: 10, left: 12, display: 'flex', gap: 10, alignItems: 'center', background: 'rgba(24, 24, 27, 0.92)', border: '1px solid rgba(212, 175, 55, 0.4)', borderRadius: 8, padding: '6px 14px', color: '#fef3c7', fontSize: 11.5, zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+                <span style={{ fontWeight: 800, color: 'var(--gold, #d4af37)' }}>MODE 3: PROPOSE &amp; GUIDE</span>
+                <span style={{ color: '#d4d4d8' }}>Dashed Non-Destructive Guide Layers (Proposals decoupled from measured walls)</span>
+                <span style={{ background: 'rgba(212,175,55,0.2)', color: '#fef08a', border: '1px solid rgba(212,175,55,0.4)', padding: '2px 8px', borderRadius: 5, fontWeight: 800 }}>
+                  {elements.filter((e) => e.status === 'proposed').length} Provisional Items
+                </span>
+              </div>
+            )}
+
             <svg
               ref={svgRef}
               viewBox="0 0 1000 850"
-              className="interactive-svg-canvas"
+              className={`interactive-svg-canvas ${planWorkspaceMode === 'extract' ? 'cad-blueprint-mode' : ''}`}
               onClickCapture={handleCalibrationCapture}
               onClick={handleCanvasClick}
               onMouseDown={handleCanvasMouseDown}
@@ -1868,15 +2237,19 @@ export function PlanReviewWorkspace({
               style={{
                 transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
                 transformOrigin: 'center center',
+                background: planWorkspaceMode === 'extract' ? '#0b1120' : undefined,
               }}
             >
               {/* Background grid */}
               <defs>
                 <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
-                  <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#e8e0d4" strokeWidth="0.5" />
+                  <path d="M 50 0 L 0 0 0 50" fill="none" stroke={planWorkspaceMode === 'extract' ? '#1e293b' : '#e8e0d4'} strokeWidth="0.5" />
                 </pattern>
               </defs>
-              <rect width="1000" height="850" fill="url(#grid)" />
+              <rect width="1000" height="850" fill={planWorkspaceMode === 'extract' ? '#0b1120' : 'url(#grid)'} />
+              {planWorkspaceMode === 'extract' && (
+                <rect width="1000" height="850" fill="url(#grid)" opacity="0.6" pointerEvents="none" />
+              )}
               {toolStart && pointerPoint && activeTool === 'add_room' && (
                 <rect x={Math.min(toolStart.x, pointerPoint.x)} y={Math.min(toolStart.y, pointerPoint.y)} width={Math.abs(pointerPoint.x - toolStart.x)} height={Math.abs(pointerPoint.y - toolStart.y)} fill="rgba(197,156,45,.12)" stroke="#c59c2d" strokeWidth="2" strokeDasharray="6,4" />
               )}
@@ -2028,6 +2401,20 @@ export function PlanReviewWorkspace({
                 const isSelected = wall.id === selectedId;
                 const { x1 = 0, y1 = 0, x2 = 0, y2 = 0 } = wall.geometry;
                 const len = Math.hypot(x2 - x1, y2 - y1);
+
+                // Mode 1: CV Confidence Colors (Green > 90%, Amber 70–90%, Red < 70%)
+                const cvColor = wall.confidence >= 0.90 ? '#10b981' : wall.confidence >= 0.70 ? '#f59e0b' : '#ef4444';
+                const wallStroke = planWorkspaceMode === 'extract'
+                  ? (isSelected ? '#38bdf8' : cvColor)
+                  : (wall.status === 'proposed' ? '#d4af37' : (isSelected ? '#c59c2d' : wall.color));
+                const isProvisional = wall.status === 'proposed' || (planWorkspaceMode === 'propose' && wall.status !== 'accepted');
+                const strokeDash = isProvisional ? '6,4' : undefined;
+
+                // Trick 4: Retroactive Calibration Discrepancy
+                const discrepancy = calibrationDiscrepancies.find((d) => d.elementId === wall.id);
+                // Architectural thickness bounds check (<75mm or >300mm)
+                const isThicknessOOB = wall.thicknessMm !== undefined && (wall.thicknessMm < 75 || wall.thicknessMm > 300);
+
                 return (
                   <g
                     key={wall.id}
@@ -2045,13 +2432,34 @@ export function PlanReviewWorkspace({
                   >
                     <line
                       x1={x1} y1={y1} x2={x2} y2={y2}
-                      stroke={isSelected ? '#c59c2d' : wall.color}
+                      stroke={wallStroke}
                       strokeWidth={isSelected ? 7 : 5}
+                      strokeDasharray={strokeDash}
                       strokeLinecap="round"
                       style={{ cursor: 'pointer' }}
                     />
-                    {/* Wall dimension text with backdrop pill */}
-                    {len > 30 && wall.dimensionMm && (
+                    {/* Sub-pixel Junction Endpoints in Mode 1 (Extract) */}
+                    {planWorkspaceMode === 'extract' && (
+                      <>
+                        <circle cx={x1} cy={y1} r={3.5} fill="#38bdf8" stroke="#0f172a" strokeWidth={1} pointerEvents="none" />
+                        <circle cx={x2} cy={y2} r={3.5} fill="#38bdf8" stroke="#0f172a" strokeWidth={1} pointerEvents="none" />
+                      </>
+                    )}
+                    {/* Mode 1 Confidence % Pill */}
+                    {planWorkspaceMode === 'extract' && len > 24 && (
+                      <g transform={`translate(${(x1 + x2) / 2}, ${(y1 + y2) / 2 - 12})`} style={{ pointerEvents: 'none' }}>
+                        <rect
+                          x={-18} y={-7} width={36} height={14} rx={4}
+                          fill={cvColor}
+                          filter="drop-shadow(0 1px 3px rgba(0,0,0,0.5))"
+                        />
+                        <text y={3} textAnchor="middle" fill="#ffffff" fontSize="8.5" fontWeight="800">
+                          {Math.round(wall.confidence * 100)}%
+                        </text>
+                      </g>
+                    )}
+                    {/* Standard Wall Dimension Text (Clean/Propose Modes) */}
+                    {planWorkspaceMode !== 'extract' && len > 30 && wall.dimensionMm && (
                       <g transform={`translate(${(x1 + x2) / 2}, ${(y1 + y2) / 2 - 9})`} style={{ pointerEvents: 'none' }}>
                         <rect
                           x={-28} y={-8} width={56} height={15} rx={4}
@@ -2067,6 +2475,44 @@ export function PlanReviewWorkspace({
                           fontWeight="700"
                         >
                           {wall.dimensionMm} mm
+                        </text>
+                      </g>
+                    )}
+                    {/* Trick 4: Retroactive Calibration Discrepancy Alert Pill */}
+                    {discrepancy && (
+                      <g
+                        transform={`translate(${(x1 + x2) / 2}, ${(y1 + y2) / 2 + 10})`}
+                        style={{ cursor: 'pointer' }}
+                        onClick={(e) => { e.stopPropagation(); setSelectedId(wall.id); }}
+                      >
+                        <rect
+                          x={-56} y={-8} width={112} height={16} rx={8}
+                          fill={discrepancy.severity === 'critical' ? '#ef4444' : '#f59e0b'}
+                          stroke="#ffffff"
+                          strokeWidth={1}
+                          filter="drop-shadow(0 2px 4px rgba(0,0,0,0.25))"
+                        />
+                        <text y={3.5} textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="800">
+                          ⚠️ OCR {discrepancy.ocrDimensionMm} vs {discrepancy.calibratedMm}mm
+                        </text>
+                      </g>
+                    )}
+                    {/* Wall Thickness Bounds Warning Pill */}
+                    {isThicknessOOB && (
+                      <g
+                        transform={`translate(${(x1 + x2) / 2}, ${(y1 + y2) / 2 + (discrepancy ? 28 : 10)})`}
+                        style={{ cursor: 'pointer' }}
+                        onClick={(e) => { e.stopPropagation(); setSelectedId(wall.id); }}
+                      >
+                        <rect
+                          x={-48} y={-8} width={96} height={16} rx={8}
+                          fill="#dc2626"
+                          stroke="#ffffff"
+                          strokeWidth={1}
+                          filter="drop-shadow(0 2px 4px rgba(0,0,0,0.25))"
+                        />
+                        <text y={3.5} textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="800">
+                          ⚠️ Thick: {wall.thicknessMm}mm
                         </text>
                       </g>
                     )}
@@ -2240,6 +2686,190 @@ export function PlanReviewWorkspace({
               />
             </div>
           </div>
+
+          {/* Mode 1 QA: As-Built Measured Capture Status */}
+          {planWorkspaceMode === 'extract' && (
+            <div className="panel-box" style={{ marginTop: 12, border: '1px solid #334155', background: '#0f172a', color: '#f8fafc' }}>
+              <div className="panel-box-title" style={{ color: '#38bdf8' }}>
+                <Eye size={14} />
+                <span>Mode 1: As-Built Measured Capture</span>
+              </div>
+              <p style={{ margin: '4px 0 10px', fontSize: 11.5, color: '#94a3b8', lineHeight: 1.4 }}>
+                Measured reality must remain strictly decoupled from schematic AI space planning. Unreviewed AI geometry cannot enter scene.v1.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 10 }}>
+                <div style={{ padding: '6px 8px', borderRadius: 6, background: '#064e3b22', border: '1px solid #059669', textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, color: '#6ee7b7', fontWeight: 700 }}>High (&gt;90%)</div>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: '#34d399' }}>{rawDetections.filter((e) => e.confidence >= 0.90).length}</div>
+                </div>
+                <div style={{ padding: '6px 8px', borderRadius: 6, background: '#78350f22', border: '1px solid #d97706', textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, color: '#fde68a', fontWeight: 700 }}>Review (70-90%)</div>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: '#f59e0b' }}>{rawDetections.filter((e) => e.confidence >= 0.70 && e.confidence < 0.90).length}</div>
+                </div>
+                <div style={{ padding: '6px 8px', borderRadius: 6, background: '#450a0a22', border: '1px solid #dc2626', textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, color: '#fca5a5', fontWeight: 700 }}>Low (&lt;70%)</div>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: '#ef4444' }}>{rawDetections.filter((e) => e.confidence < 0.70).length}</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {highConfidenceRawCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleAcceptAllHighConfidence}
+                    style={{ flex: 1, padding: '7px 8px', borderRadius: 6, border: '1px solid #059669', background: '#064e3b', color: '#6ee7b7', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                  >
+                    Accept High-Conf ({highConfidenceRawCount})
+                  </button>
+                )}
+                {lowConfidenceRawCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleRejectLowConfidence}
+                    style={{ flex: 1, padding: '7px 8px', borderRadius: 6, border: '1px solid #dc2626', background: '#450a0a', color: '#fca5a5', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                  >
+                    Reject Low-Conf ({lowConfidenceRawCount})
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Mode 2 QA: Geometric Healing & Calibration Cross-Check (Trick 4) */}
+          {planWorkspaceMode === 'clean' && (
+            <div className="panel-box" style={{ marginTop: 12 }}>
+              <div className="panel-box-title" style={{ color: '#2563eb' }}>
+                <CheckCircle2 size={14} />
+                <span>Mode 2: Orthogonal Healing &amp; QA</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.45, marginTop: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--line)' }}>
+                  <span>Orthogonal Snap Tolerance</span>
+                  <strong>±3.0° (Strict)</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--line)' }}>
+                  <span>Architectural Thickness Bounds</span>
+                  <strong>75mm – 300mm</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                  <span>Continuous Wall Datum Runs</span>
+                  <strong>{elements.filter((e) => e.kind === 'wall').length} walls</strong>
+                </div>
+              </div>
+
+              {/* Trick 4: Retroactive Calibration Cross-Check QA Card */}
+              {calibrationDiscrepancies.length > 0 && (
+                <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#b45309', fontWeight: 800, fontSize: 12 }}>
+                    <AlertTriangle size={14} />
+                    <span>Retroactive Scale Cross-Check ({calibrationDiscrepancies.length})</span>
+                  </div>
+                  <p style={{ margin: '4px 0 8px', fontSize: 11, color: '#92400e', lineHeight: 1.4 }}>
+                    Scale drift detected between OCR printed dimension strings and calibrated pixels:
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {calibrationDiscrepancies.map((disc) => (
+                      <div
+                        key={disc.elementId}
+                        style={{
+                          padding: '6px 8px',
+                          borderRadius: 6,
+                          background: '#ffffff',
+                          border: disc.severity === 'critical' ? '1px solid #f87171' : '1px solid #fcd34d',
+                          fontSize: 11,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div>
+                          <strong style={{ color: '#1e293b' }}>{disc.label}</strong>
+                          <div style={{ color: '#64748b' }}>OCR: {disc.ocrDimensionMm}mm • Calibrated: {disc.calibratedMm}mm ({disc.deltaPct > 0 ? '+' : ''}{disc.deltaPct}%)</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            updateElement(disc.elementId, { dimensionMm: disc.calibratedMm });
+                            setContinuationHint(`Synced ${disc.label} to calibrated dimension: ${disc.calibratedMm}mm.`);
+                          }}
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 4,
+                            border: '1px solid var(--gold)',
+                            background: 'var(--cream-warm)',
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            color: '#7a5a11',
+                          }}
+                        >
+                          Sync
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Mode 3: Provisional Space Planning Guide Layer */}
+          {planWorkspaceMode === 'propose' && (
+            <div className="panel-box" style={{ marginTop: 12, border: '1px solid rgba(212, 175, 55, 0.4)', background: '#1c1917', color: '#fef3c7' }}>
+              <div className="panel-box-title" style={{ color: 'var(--gold, #d4af37)' }}>
+                <Sparkles size={14} />
+                <span>Mode 3: Provisional Layout Guides</span>
+              </div>
+              <p style={{ margin: '4px 0 10px', fontSize: 11.5, color: '#d4d4d8', lineHeight: 1.4 }}>
+                AI-suggested furniture footprints, door swings, and wall allocations. Rendered as non-destructive dashed guides.
+              </p>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <button
+                  type="button"
+                  onClick={handleGenerateSpatialProposals}
+                  style={{ flex: 1, padding: '7px 8px', borderRadius: 6, border: '1px solid var(--gold)', background: 'linear-gradient(135deg, #271c12, #3d2a1a)', color: '#e8c96a', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
+                >
+                  <Sparkles size={12} style={{ display: 'inline', marginRight: 4 }} /> Generate Proposals
+                </button>
+                {elements.some((e) => e.status === 'proposed') && (
+                  <button
+                    type="button"
+                    onClick={handleDiscardAllProposals}
+                    style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #7f1d1d', background: '#450a0a', color: '#fca5a5', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              {elements.filter((e) => e.status === 'proposed').length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+                  {elements.filter((e) => e.status === 'proposed').map((prop) => (
+                    <div
+                      key={prop.id}
+                      style={{
+                        padding: '5px 8px',
+                        borderRadius: 5,
+                        background: '#27272a',
+                        border: '1px solid #3f3f46',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontSize: 11,
+                      }}
+                    >
+                      <span style={{ color: '#f4f4f5', fontWeight: 600 }}>{prop.label}</span>
+                      <button
+                        type="button"
+                        onClick={() => acceptElement(prop.id)}
+                        style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid #059669', background: '#064e3b', color: '#6ee7b7', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        Accept
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {analysisQualityNotice && (
             <div className="panel-box" style={{ marginTop: 12, borderColor: 'var(--info-line)', background: 'var(--info-bg)' }}>
