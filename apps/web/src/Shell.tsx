@@ -103,6 +103,9 @@ export function Shell({
   }
 
   const inProject = Boolean(projectId);
+  const doneStagesCount = workflowStages.filter((stage) => stage.status === 'done').length;
+  const totalStagesCount = workflowStages.length;
+  const workflowProgressPct = totalStagesCount > 0 ? Math.round((doneStagesCount / totalStagesCount) * 100) : 0;
 
   useEffect(() => {
     window.localStorage.setItem('ultida-sidebar-collapsed', String(collapsed));
@@ -110,11 +113,18 @@ export function Shell({
 
   return (
     <div className={`ultida-shell${collapsed ? ' sidebar-collapsed' : ''}`}>
+      {/* Mobile Drawer Backdrop Overlay */}
+      <div
+        className={`sidebar-backdrop${mobileOpen ? ' active' : ''}`}
+        onClick={() => setMobileOpen(false)}
+        aria-hidden="true"
+      />
+
       {/* ─── Primary Sidebar ─── */}
       <aside className={`primary-sidebar${mobileOpen ? ' mobile-open' : ''}`}>
         {/* Brand */}
         <div className="sidebar-brand">
-          <div className="brand-mark">U</div>
+          <div className="brand-mark" title="ULTIDA Studio OS">U</div>
           <div className="brand-text">
             <strong>ULTIDA</strong>
             <span>Interior Design OS</span>
@@ -138,18 +148,43 @@ export function Shell({
                 to={item.path}
                 className={`nav-item${isActive ? ' active' : ''}`}
                 onClick={() => setMobileOpen(false)}
+                title={collapsed ? item.label : undefined}
+                data-tooltip={item.label}
               >
                 <span className="nav-icon"><Icon size={16} /></span>
-                <span>{item.label}</span>
+                <span className="nav-label-text">{item.label}</span>
                 {item.id === 'projects' && <span className="nav-badge">•</span>}
               </Link>
             );
           })}
         </div>
 
-        {!inProject && <div className="sidebar-tool-groups">
-          {TOOL_NAV.map(group => <div className="sidebar-tool-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => { const Icon = item.icon; const active = location.pathname === item.path; return <Link key={item.id} to={item.path} className={`nav-item compact${active ? ' active' : ''}`} onClick={() => setMobileOpen(false)}><span className="nav-icon"><Icon size={15} /></span><span>{item.label}</span></Link>; })}</div>)}
-        </div>}
+        {!inProject && (
+          <div className="sidebar-tool-groups">
+            {TOOL_NAV.map(group => (
+              <div className="sidebar-tool-group" key={group.label}>
+                <span className="nav-label">{group.label}</span>
+                {group.items.map(item => {
+                  const Icon = item.icon;
+                  const active = location.pathname === item.path;
+                  return (
+                    <Link
+                      key={item.id}
+                      to={item.path}
+                      className={`nav-item compact${active ? ' active' : ''}`}
+                      onClick={() => setMobileOpen(false)}
+                      title={collapsed ? item.label : undefined}
+                      data-tooltip={item.label}
+                    >
+                      <span className="nav-icon"><Icon size={15} /></span>
+                      <span className="nav-label-text">{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Project workflow nav */}
         {inProject && (
@@ -158,11 +193,17 @@ export function Shell({
               <span className="workflow-nav-title">
                 {projectName || 'Current Project'}
               </span>
-              <span className="workflow-count" aria-label={`${workflowStages.filter((stage) => stage.status === 'done').length} of ${workflowStages.length} stages complete`}>
-                {workflowStages.filter((stage) => stage.status === 'done').length}/{workflowStages.length}
+              <span className="workflow-count" aria-label={`${doneStagesCount} of ${totalStagesCount} stages complete`}>
+                {doneStagesCount}/{totalStagesCount}
               </span>
             </div>
-            {workflowStages.map((stage, i) => {
+
+            {/* Workflow Progress Bar */}
+            <div className="workflow-progress-track" title={`${workflowProgressPct}% complete`}>
+              <div className="workflow-progress-bar" style={{ width: `${workflowProgressPct}%` }} />
+            </div>
+
+            {workflowStages.map((stage) => {
               const isActive = location.pathname.includes(`/${stage.path}`);
               const isLocked = stage.status === 'locked';
               const StageItemIcon = stage.icon ?? Home;
@@ -179,7 +220,8 @@ export function Shell({
                       setMobileOpen(false);
                     }
                   }}
-                  title={isLocked ? stage.lockReason : stage.label}
+                  title={collapsed ? stage.label : (isLocked ? stage.lockReason : stage.label)}
+                  data-tooltip={stage.label}
                 >
                   <span className="stage-nav-icon"><StageItemIcon size={14} /></span>
                   <span className="stage-label-text">{stage.label}</span>
@@ -194,22 +236,23 @@ export function Shell({
         <div className="sidebar-footer">
           {sessionEmail ? (
             <>
-              <div className="user-avatar">{sessionEmail[0].toUpperCase()}</div>
+              <div className="user-avatar" title={sessionEmail}>{sessionEmail[0].toUpperCase()}</div>
               <div className="user-info">
                 <span className="user-email">{sessionEmail}</span>
                 <span className="user-org">{orgName ?? 'No organization'}</span>
               </div>
               <button
-                style={{ background: 'transparent', border: 0, color: 'rgba(255,255,255,.3)', display: 'flex', padding: '4px' }}
+                className="user-signout-btn"
                 onClick={signOut}
-                title="Sign out"
+                title="Sign out of ULTIDA"
+                aria-label="Sign out"
               >
                 <LogOut size={15} />
               </button>
             </>
           ) : (
             <div className="user-info">
-              <span className="user-email">Not signed in</span>
+              <span className="user-email">Guest Session</span>
             </div>
           )}
         </div>
@@ -226,30 +269,50 @@ export function Shell({
           >
             <Menu size={18} />
           </button>
+          
           <div className="command-bar-breadcrumb">
-            <span>Projects</span>
+            <Link to="/projects" className="breadcrumb-link">Projects</Link>
             {projectName && (
               <>
                 <ChevronRight size={14} className="command-bar-sep" />
-                <strong>{projectName}</strong>
+                {projectId ? (
+                  <Link to={`/projects/${projectId}/brief`} className="breadcrumb-link active">
+                    <strong>{projectName}</strong>
+                  </Link>
+                ) : (
+                  <strong>{projectName}</strong>
+                )}
               </>
             )}
             {location.pathname.split('/').filter(Boolean).length > 2 && (
               <>
                 <ChevronRight size={14} className="command-bar-sep" />
-                <span style={{ textTransform: 'capitalize' }}>
+                <span className="breadcrumb-active-stage">
                   {location.pathname.split('/').at(-1)?.replace('-', ' ')}
                 </span>
               </>
             )}
           </div>
+
           <div className="command-bar-actions">
+            {/* Studio status pill */}
+            <div className="command-bar-status" title="Studio Engine Connected">
+              <span className="status-pulse-dot" />
+              <span className="status-pulse-label">Studio Active</span>
+            </div>
+
+            {/* Quick AI tool launcher */}
+            <Link to="/tools/aura" className="command-bar-ai-btn" title="Launch AURA Design Assistant">
+              <Sparkles size={14} />
+              <span className="ai-btn-text">AURA AI</span>
+            </Link>
+
             {!inProject && onNewProject && (
               <button
                 onClick={onNewProject}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', background: 'var(--brown-mid)', color: '#fff', border: '0', borderRadius: '7px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}
+                className="command-bar-primary-btn"
               >
-                <Plus size={15} /> New Project
+                <Plus size={15} /> <span>New Project</span>
               </button>
             )}
           </div>

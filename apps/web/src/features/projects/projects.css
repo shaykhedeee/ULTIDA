@@ -58,55 +58,64 @@
   flex: 1;
   min-width: 200px;
   max-width: 320px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   background: var(--surface);
   color: var(--text-primary);
+  transition: all 0.15s ease;
 }
-.filter-search:focus { outline: none; border-color: var(--gold); }
+.filter-search:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.2);
+}
 
 .filter-pill {
-  padding: 6px 12px;
+  padding: 6px 14px;
   border: 1px solid var(--line);
-  border-radius: 20px;
+  border-radius: var(--radius-full);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
   background: var(--surface);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all .15s;
+  transition: all 0.15s ease;
 }
 .filter-pill:hover, .filter-pill.active {
   border-color: var(--gold);
-  background: rgba(197,156,45,.08);
+  background: rgba(197, 156, 45, 0.12);
   color: var(--gold-dim);
+  box-shadow: 0 1px 4px rgba(197, 156, 45, 0.15);
 }
 
 /* ─── Project Grid ──────────────────────────── */
 .project-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 18px;
+  gap: 20px;
 }
 
 /* ─── Project Card ──────────────────────────── */
 .project-card {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   cursor: pointer;
-  transition: all .2s ease;
+  transition: transform 0.22s var(--ease-smooth),
+              box-shadow 0.22s var(--ease-smooth),
+              border-color 0.22s var(--ease-smooth);
   display: flex;
   flex-direction: column;
+  box-shadow: var(--shadow-sm);
 }
 
 .project-card:hover {
-  border-color: var(--gold);
-  box-shadow: 0 8px 32px rgba(0,0,0,.08);
-  transform: translateY(-2px);
+  border-color: rgba(197, 156, 45, 0.45);
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(197, 156, 45, 0.2);
+  transform: translateY(-3px);
 }
 
 /* Render thumbnail / header area */

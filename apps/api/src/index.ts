@@ -2367,6 +2367,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
       moduleParts: resolvedModuleParts,
       materials,
       compositionSchedules,
+      floorSurfaces: Array.isArray(request.body?.floorSurfaces) ? request.body.floorSurfaces : undefined,
       changeReason: typeof request.body?.changeReason === 'string' ? request.body.changeReason : undefined,
     });
   } catch (error) {

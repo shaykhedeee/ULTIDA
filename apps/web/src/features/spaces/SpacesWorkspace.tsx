@@ -8,7 +8,7 @@ import {
   Home, CheckCircle2, Circle, Edit3, AlertTriangle, Layers, Ruler, Square, SplitSquareHorizontal,
   Merge, Columns, Plug, DoorOpen, Pencil, Undo2, Redo2, Eye, EyeOff, Sparkles,
   MapPin, TriangleAlert, Save, Plus, X, Maximize, ArrowRight, ArrowLeft, LayoutGrid, Sofa,
-  BookOpen, Search, Image as ImageIcon, Sliders, Check, Wand2, Info, ChevronRight, Compass, Download
+  BookOpen, Search, Image as ImageIcon, Sliders, Check, Wand2, Info, ChevronRight, Compass, Download, Grid
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -29,7 +29,8 @@ import TopViewFloorplanEnhancer, {
   type VastuFinding,
 } from '../../components/spaces/TopViewFloorplanEnhancer';
 import WallBayEditor from '../../components/spaces/WallBayEditor';
-import { type CompositionScheduleV1 } from '@ultida/contracts';
+import FlooringStudio from '../../components/spaces/FlooringStudio';
+import { type CompositionScheduleV1, type FloorSurfaceV1 } from '@ultida/contracts';
 import { getApiBase } from '../../lib/api-base';
 import './spaces.css';
 
@@ -379,11 +380,13 @@ export function SpacesWorkspace() {
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
-  const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'modules' | 'brief' | 'scene'>(() => {
+  const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'modules' | 'flooring' | 'brief' | 'scene'>(() => {
     const tab = searchParams.get('tab');
+    if (tab === 'flooring') return 'flooring';
     return tab === 'modules' || tab === 'bays' ? 'modules' : 'candidates';
   });
   const [compositionSchedules, setCompositionSchedules] = useState<Record<string, CompositionScheduleV1>>({});
+  const [floorSurfaces, setFloorSurfaces] = useState<Record<string, FloorSurfaceV1>>({});
   const [canvasRenderMode, setCanvasRenderMode] = useState<'2d' | '3d_isometric' | 'stager'>('2d');
   const [roomFurnitureMap, setRoomFurnitureMap] = useState<Record<string, TopViewFurniture[]>>({});
   const [roomVastuMap, setRoomVastuMap] = useState<Record<string, VastuAnalysis>>({});
@@ -2066,13 +2069,13 @@ export function SpacesWorkspace() {
             {sel ? (
               <div className="props-body">
                 <div className="room-workflow-summary">
-                  <span>{spacePanel === 'geometry' ? '1' : spacePanel === 'candidates' ? '2' : spacePanel === 'modules' ? '3' : spacePanel === 'brief' ? '4' : spacePanel === 'scene' ? '5' : '★'}</span>
+                  <span>{spacePanel === 'geometry' ? '1' : spacePanel === 'candidates' ? '2' : spacePanel === 'modules' ? '3' : spacePanel === 'flooring' ? '4' : spacePanel === 'brief' ? '5' : spacePanel === 'scene' ? '6' : '★'}</span>
                   <div>
                     <strong>
-                      {spacePanel === 'geometry' ? 'Verify the physical room' : spacePanel === 'candidates' ? 'Deterministic Layout Candidates' : spacePanel === 'modules' ? 'Wall Bays & Modular Reconciliation' : spacePanel === 'brief' ? 'Define the design brief' : spacePanel === 'scene' ? 'Prepare the scene' : 'Senior Designer Architectural Audit'}
+                      {spacePanel === 'geometry' ? 'Verify the physical room' : spacePanel === 'candidates' ? 'Deterministic Layout Candidates' : spacePanel === 'modules' ? 'Wall Bays & Modular Reconciliation' : spacePanel === 'flooring' ? 'Flooring Surface & Skirting Studio' : spacePanel === 'brief' ? 'Define the design brief' : spacePanel === 'scene' ? 'Prepare the scene' : 'Senior Designer Architectural Audit'}
                     </strong>
                     <small>
-                      {spacePanel === 'geometry' ? 'Room edges, wall sizes, openings and ceiling.' : spacePanel === 'candidates' ? 'Select an architecturally verified layout candidate.' : spacePanel === 'modules' ? 'Adjust bay boundaries, enforce keep-outs, and reconcile live usable width.' : spacePanel === 'brief' ? 'Required modules, priorities and client intent.' : spacePanel === 'scene' ? 'Feature walls, finishes and preferred camera.' : '10-Year expert ergonomics, work triangles, lighting and material harmony.'}
+                      {spacePanel === 'geometry' ? 'Room edges, wall sizes, openings and ceiling.' : spacePanel === 'candidates' ? 'Select an architecturally verified layout candidate.' : spacePanel === 'modules' ? 'Adjust bay boundaries, enforce keep-outs, and reconcile live usable width.' : spacePanel === 'flooring' ? 'Substrate buildup, laying patterns, cut-tile optimization, and skirting linear meters.' : spacePanel === 'brief' ? 'Required modules, priorities and client intent.' : spacePanel === 'scene' ? 'Feature walls, finishes and preferred camera.' : '10-Year expert ergonomics, work triangles, lighting and material harmony.'}
                     </small>
                   </div>
                 </div>
@@ -2082,6 +2085,7 @@ export function SpacesWorkspace() {
                   <button type="button" className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>AI Architect (10Y)</button>
                   <button type="button" className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>Geometry</button>
                   <button type="button" className={spacePanel === 'modules' ? 'active' : ''} onClick={() => setSpacePanel('modules')}>Bays &amp; Modules</button>
+                  <button type="button" className={spacePanel === 'flooring' ? 'active' : ''} onClick={() => setSpacePanel('flooring')}>Flooring &amp; Skirting</button>
                   <button type="button" className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>Design brief</button>
                   <button type="button" className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>Scene setup</button>
                 </div>
@@ -2547,6 +2551,30 @@ export function SpacesWorkspace() {
                   );
                 })()}
 
+                {spacePanel === 'flooring' && (
+                  <FlooringStudio
+                    roomId={sel.room.id}
+                    roomName={sel.room.name}
+                    roomAreaSqm={sel.effectiveAreaSqm ?? sel.room.areaSqm}
+                    roomPolygon={sel.room.polygon}
+                    doorOpenings={openings
+                      .filter((o) => o.kind === 'door' || o.kind === 'passage')
+                      .map((o) => ({
+                        id: o.id,
+                        offsetAlongWallMm: o.offsetAlongWallMm,
+                        widthMm: o.widthMm
+                      }))}
+                    initialSurface={floorSurfaces[sel.room.id] || null}
+                    onSurfaceChange={(surface) => {
+                      setFloorSurfaces((prev) => ({ ...prev, [sel.room.id]: surface }));
+                    }}
+                    onSave={(surface) => {
+                      setFloorSurfaces((prev) => ({ ...prev, [sel.room.id]: surface }));
+                      setSaveState(`Flooring specification for ${sel.room.name} saved!`);
+                    }}
+                  />
+                )}
+
                 {spacePanel === 'brief' && <>
                   <div className="ai-brief-trigger">
                     <button type="button" className="btn-secondary btn-full" onClick={() => detectAiLayout(sel.room)}>
@@ -2597,6 +2625,15 @@ export function SpacesWorkspace() {
                       </button>
                     ))}
                   </div>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 6, width: '100%', justifyContent: 'center' }}
+                    onClick={() => setSpacePanel('flooring')}
+                  >
+                    <Grid size={13} style={{ color: 'var(--gold)' }} />
+                    <span>Open Precision Flooring &amp; Skirting Studio &rarr;</span>
+                  </button>
 
                   <label>False ceiling style</label>
                   <select

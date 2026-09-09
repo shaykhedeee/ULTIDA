@@ -12,7 +12,7 @@
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { X, Plus, ChevronRight } from 'lucide-react';
+import { X, Plus, ChevronRight, Mail, Lock, Sparkles, Layers, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
 import { getApiBase } from './lib/api-base';
 import { Shell, DEFAULT_WORKFLOW_STAGES, type WorkflowStageConfig } from './Shell';
@@ -210,54 +210,176 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
 
   return (
     <div style={{
-      minHeight: '100vh', background: 'linear-gradient(135deg, #111218 0%, #1a1208 100%)',
-      display: 'grid', placeItems: 'center', padding: 20
+      minHeight: '100vh',
+      background: 'radial-gradient(circle at 50% 15%, rgba(197, 156, 45, 0.16) 0%, transparent 60%), radial-gradient(circle at 80% 80%, rgba(138, 109, 30, 0.08) 0%, transparent 50%), linear-gradient(180deg, #0a0c12 0%, #11131c 50%, #16120c 100%)',
+      backgroundImage: `
+        radial-gradient(circle at 50% 15%, rgba(197, 156, 45, 0.16) 0%, transparent 60%),
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px)
+      `,
+      backgroundSize: '100% 100%, 32px 32px, 32px 32px',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '36px 20px',
+      boxSizing: 'border-box',
     }}>
-      <div style={{ width: '100%', maxWidth: 420 }}>
-        {/* Brand */}
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
+      <div style={{ width: '100%', maxWidth: 440 }}>
+        {/* Brand Header */}
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{
-            width: 56, height: 56, borderRadius: 14,
-            background: 'linear-gradient(135deg, #c59c2d, #a2533c)',
+            width: 58, height: 58, borderRadius: 16,
+            background: 'linear-gradient(135deg, #c59c2d 0%, #e8c45a 50%, #8a6d1e 100%)',
             display: 'grid', placeItems: 'center',
-            fontSize: 24, fontWeight: 900, color: '#fff', margin: '0 auto 16px'
+            fontSize: 26, fontWeight: 900, color: '#17120a',
+            margin: '0 auto 16px',
+            boxShadow: '0 4px 24px rgba(197, 156, 45, 0.45)',
+            border: '1px solid rgba(255, 255, 255, 0.3)'
           }}>U</div>
-          <h1 style={{ color: '#fff', fontSize: 28, fontWeight: 900, letterSpacing: '.04em', margin: '0 0 6px' }}>ULTIDA</h1>
-          <p style={{ color: 'rgba(255,255,255,.4)', fontSize: 14, margin: 0 }}>AI-Assisted Modular Interior Design</p>
+          <h1 style={{
+            color: '#fff', fontSize: 26, fontWeight: 900,
+            letterSpacing: '.08em', margin: '0 0 6px',
+            textShadow: '0 2px 10px rgba(0,0,0,0.5)'
+          }}>ULTIDA</h1>
+          <p style={{
+            color: 'rgba(232, 196, 90, 0.85)',
+            fontSize: 11.5,
+            fontWeight: 700,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            margin: 0
+          }}>
+            Architectural Interior Design OS
+          </p>
         </div>
 
         {/* Form card */}
         <form onSubmit={handleSubmit} style={{
-          background: '#fff', borderRadius: 16, padding: 32,
-          boxShadow: '0 24px 64px rgba(0,0,0,.4)'
+          background: 'rgba(255, 255, 255, 0.98)',
+          borderRadius: 18,
+          padding: '32px 28px',
+          boxShadow: '0 24px 70px rgba(0,0,0,0.45), 0 0 0 1px rgba(197, 156, 45, 0.25)',
+          borderTop: '3px solid var(--gold)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
         }}>
-          <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>
-            {mode === 'signin' ? 'Sign in to your studio' : 'Create a studio account'}
+          {/* Segmented Mode Switcher */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            background: '#f2ecdf',
+            borderRadius: 10,
+            padding: 3,
+            marginBottom: 22,
+          }}>
+            <button
+              type="button"
+              onClick={() => { setMode('signin'); setMessage(''); }}
+              style={{
+                border: 0,
+                borderRadius: 8,
+                padding: '8px 0',
+                fontSize: 12.5,
+                fontWeight: 750,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                background: mode === 'signin' ? '#fff' : 'transparent',
+                color: mode === 'signin' ? '#1a1208' : '#7f7365',
+                boxShadow: mode === 'signin' ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+              }}
+            >
+              Studio Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode('signup'); setMessage(''); }}
+              style={{
+                border: 0,
+                borderRadius: 8,
+                padding: '8px 0',
+                fontSize: 12.5,
+                fontWeight: 750,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                background: mode === 'signup' ? '#fff' : 'transparent',
+                color: mode === 'signup' ? '#1a1208' : '#7f7365',
+                boxShadow: mode === 'signup' ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+              }}
+            >
+              Register Studio
+            </button>
+          </div>
+
+          <h2 style={{ fontSize: 17, fontWeight: 800, color: '#1a1208', marginBottom: 14 }}>
+            {mode === 'signin' ? 'Access your studio workspace' : 'Create an architectural studio account'}
           </h2>
+
           {!supabaseConfigured && (
             <div style={{
-              padding: '8px 12px', background: '#fef3c7', borderRadius: 7, fontSize: 12,
-              marginBottom: 16, color: '#92400e', fontWeight: 600, border: '1px solid #fde68a'
+              padding: '10px 14px', background: '#fffbeb', borderRadius: 8, fontSize: 12,
+              marginBottom: 16, color: '#92400e', fontWeight: 600, border: '1px solid #fde68a',
+              lineHeight: 1.45
             }}>
-              Supabase is not configured. Project data cannot be saved until authentication is configured.
+              Notice: Supabase is not configured for this environment. Realtime cloud saves require configured credentials.
             </div>
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
-            <div className="form-field">
-              <label>Email</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email"
-                placeholder="you@studio.com" autoFocus style={{ padding: '10px 12px', border: '1px solid #e8e0d4', borderRadius: 7, fontSize: 14 }} />
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: '#4d3428', marginBottom: 6 }}>
+                <Mail size={14} style={{ color: 'var(--gold-dim)' }} />
+                <span>Studio Email</span>
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                placeholder="architect@studio.com"
+                autoFocus
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '10px 14px', border: '1px solid #dfd5c4',
+                  borderRadius: 8, fontSize: 13.5, background: '#fdfcf9',
+                  color: '#1a1208', outline: 'none',
+                  transition: 'border-color 0.15s, box-shadow 0.15s'
+                }}
+              />
             </div>
-            <div className="form-field">
-              <label>Password</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-                placeholder="At least 8 characters" style={{ padding: '10px 12px', border: '1px solid #e8e0d4', borderRadius: 7, fontSize: 14 }} />
+
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: '#4d3428', marginBottom: 6 }}>
+                <Lock size={14} style={{ color: 'var(--gold-dim)' }} />
+                <span>Password</span>
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                placeholder="At least 8 characters"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '10px 14px', border: '1px solid #dfd5c4',
+                  borderRadius: 8, fontSize: 13.5, background: '#fdfcf9',
+                  color: '#1a1208', outline: 'none',
+                  transition: 'border-color 0.15s, box-shadow 0.15s'
+                }}
+              />
             </div>
           </div>
 
           {message && (
-            <div style={{ padding: '10px 12px', background: messageKind === 'error' ? '#fef2f2' : '#ecfdf5', border: `1px solid ${messageKind === 'error' ? '#fecaca' : '#a7f3d0'}`, borderRadius: 7, fontSize: 12, color: messageKind === 'error' ? '#dc2626' : '#047857', marginBottom: 14, fontWeight: 600 }}>
+            <div style={{
+              padding: '10px 14px',
+              background: messageKind === 'error' ? '#fef2f2' : '#ecfdf5',
+              border: `1px solid ${messageKind === 'error' ? '#fecaca' : '#a7f3d0'}`,
+              borderRadius: 8, fontSize: 12.5,
+              color: messageKind === 'error' ? '#dc2626' : '#047857',
+              marginBottom: 16, fontWeight: 650,
+              lineHeight: 1.45
+            }}>
               {message}
             </div>
           )}
@@ -266,12 +388,18 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
             type="submit"
             disabled={busy}
             style={{
-              width: '100%', padding: 12, background: '#3d2a1a', color: '#fff',
-              border: 0, borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer',
-              opacity: busy ? .6 : 1, marginBottom: 12
+              width: '100%', padding: '12px 18px',
+              background: 'linear-gradient(135deg, #2b1f14 0%, #4a3424 100%)',
+              color: '#fff', border: 0, borderRadius: 8,
+              fontSize: 14, fontWeight: 750,
+              cursor: busy ? 'not-allowed' : 'pointer',
+              opacity: busy ? 0.7 : 1, marginBottom: 12,
+              boxShadow: '0 4px 14px rgba(43, 31, 20, 0.35)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              transition: 'all 0.18s ease'
             }}
           >
-            {busy ? 'Signing in…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+            {busy ? 'Authenticating…' : mode === 'signin' ? 'Enter Studio' : 'Create Studio Account'}
           </button>
 
           {mode === 'signin' && canResendConfirmation && (
@@ -282,22 +410,59 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
               style={{
                 width: '100%', padding: 10, background: '#f5f2eb', border: '1px solid #d4c5b2',
                 borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer',
-                opacity: busy ? .6 : 1, marginBottom: 12, color: '#3d2a1a'
+                opacity: busy ? 0.6 : 1, marginBottom: 12, color: '#3d2a1a'
               }}
             >
               Resend confirmation email
             </button>
           )}
 
-
           <button
             type="button"
-            onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-            style={{ background: 'transparent', border: 0, fontSize: 12, color: '#8a7762', cursor: 'pointer', width: '100%', padding: '4px 0' }}
+            onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage(''); }}
+            style={{
+              background: 'transparent', border: 0, fontSize: 12.5,
+              color: '#8a7762', cursor: 'pointer', width: '100%', padding: '6px 0',
+              fontWeight: 600
+            }}
           >
-            {mode === 'signin' ? 'Need a studio account? Create one' : 'Already have access? Sign in'}
+            {mode === 'signin' ? 'Need a studio account? Register here' : 'Already registered? Sign in to studio'}
           </button>
         </form>
+
+        {/* Studio Capabilities Showcase Pills */}
+        <div style={{
+          marginTop: 22,
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 8,
+          justifyContent: 'center'
+        }}>
+          {[
+            { icon: Layers, text: 'System 32 Joinery' },
+            { icon: Sparkles, text: '3D Raytraced Lighting' },
+            { icon: ShieldCheck, text: 'Automated DXF & Shop Docs' }
+          ].map((pill, idx) => {
+            const PillIcon = pill.icon;
+            return (
+              <div key={idx} style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '4px 10px',
+                borderRadius: 999,
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(197, 156, 45, 0.22)',
+                color: 'rgba(255, 255, 255, 0.65)',
+                fontSize: 11,
+                fontWeight: 600
+              }}>
+                <PillIcon size={12} style={{ color: 'var(--gold-light)' }} />
+                <span>{pill.text}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -1364,7 +1529,66 @@ function DashboardShell({ sessionEmail, orgName, onStudioIdentitySaved }: { sess
 }
 
 function RouteLoading({ label }: { label: string }) {
-  return <div role="status" aria-live="polite" style={{ minHeight: 280, display: 'grid', placeItems: 'center', color: '#6f5f50', fontWeight: 700 }}>{label}</div>;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        minHeight: 340,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 16,
+        padding: '32px 16px',
+      }}
+    >
+      <div style={{ position: 'relative', width: 52, height: 52, display: 'grid', placeItems: 'center' }}>
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          borderRadius: '50%',
+          border: '2.5px solid rgba(197, 156, 45, 0.16)',
+          borderTopColor: 'var(--gold)',
+          animation: 'ultida-spin 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite'
+        }} />
+        <div style={{
+          width: 32,
+          height: 32,
+          borderRadius: 8,
+          background: 'linear-gradient(135deg, var(--gold) 0%, var(--gold-dim) 100%)',
+          display: 'grid',
+          placeItems: 'center',
+          color: '#1a1208',
+          fontWeight: 900,
+          fontSize: 14,
+          boxShadow: '0 2px 8px rgba(197, 156, 45, 0.35)'
+        }}>U</div>
+      </div>
+      <div style={{ textAlign: 'center' }}>
+        <span style={{
+          display: 'block',
+          fontSize: 13.5,
+          fontWeight: 700,
+          color: 'var(--brown-mid)',
+          letterSpacing: '0.02em',
+          marginBottom: 4
+        }}>
+          {label}
+        </span>
+        <span style={{
+          display: 'block',
+          fontSize: 11,
+          fontWeight: 600,
+          color: 'var(--text-muted)',
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase'
+        }}>
+          ULTIDA Design OS
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // ─── Root App ──────────────────────────────────────────────────────
