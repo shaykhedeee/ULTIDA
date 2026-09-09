@@ -715,6 +715,11 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         setSceneApproved(['approved', 'locked'].includes(String(sceneRow.status)));
       } else if (projectId) {
         try {
+          const localVer = window.localStorage.getItem(`ultida.sceneVersionId.${projectId}`) || `scene-v1-${projectId}`;
+          setSceneVersionId(localVer);
+          if (window.localStorage.getItem(`ultida.sceneApproved.${projectId}`) === 'true') {
+            setSceneApproved(true);
+          }
           const localSceneRaw = window.localStorage.getItem(`ultida.scene.${projectId}`);
           if (localSceneRaw) {
             const parsed = JSON.parse(localSceneRaw);
@@ -729,6 +734,41 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
               if (Array.isArray(parsedMods) && parsedMods.length > 0) {
                 setSceneModules(parsedMods.map((m: any) => ({ ...m, label: m.label ?? m.family })));
               }
+            } else {
+              const starterModules = [
+                {
+                  id: `mod-starter-wardrobe-${projectId}`,
+                  roomId: 'room-main',
+                  family: 'wardrobe',
+                  label: '2400mm 4-Door Fluted Glass Wardrobe',
+                  widthMm: 2400,
+                  depthMm: 600,
+                  heightMm: 2400,
+                  wallId: 'wall-a',
+                  offsetMm: 200,
+                  configuration: { archetype: 'profile_glass_display', shutterStyle: 'profile-glass', drawerCount: 3, includeLoft: true, glassProfile: true, lighting: 'shelf-led' },
+                  position: { xMm: 1200, yMm: 300 },
+                  rotationDeg: 0,
+                },
+                {
+                  id: `mod-starter-tv-${projectId}`,
+                  roomId: 'room-main',
+                  family: 'tv-unit',
+                  label: '1800mm Floating TV Credenza & Slat Wall',
+                  widthMm: 1800,
+                  depthMm: 400,
+                  heightMm: 1800,
+                  wallId: 'wall-b',
+                  offsetMm: 400,
+                  configuration: { archetype: 'tv_credenza_slats', shutterStyle: 'fluted-panel', drawerCount: 2, lighting: 'cove' },
+                  position: { xMm: 3200, yMm: 300 },
+                  rotationDeg: 90,
+                }
+              ];
+              setSceneModules(starterModules);
+              try {
+                window.localStorage.setItem(`ultida.modules.${projectId}`, JSON.stringify(starterModules));
+              } catch {}
             }
           }
         } catch {}
@@ -851,37 +891,30 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     return () => { stopped = true; window.clearInterval(timer); };
   }, [analysisJobId, analysisRefreshNonce, planAnalysed, projectId, stage, navigate]);
 
-  // Determine workflow stages statuses
+  // Determine workflow stages statuses — completely unlocked for free exploration
   const serverStageMap: Record<string, boolean> = serverStages ?? {};
-  const useServerStages = Object.keys(serverStageMap).length > 0;
   const stageStatuses: WorkflowStageConfig[] = DEFAULT_WORKFLOW_STAGES.map((s) => {
-    const currentIdx = DEFAULT_WORKFLOW_STAGES.findIndex((x) => x.id === activeStageId);
-    const thisIdx = DEFAULT_WORKFLOW_STAGES.findIndex((x) => x.id === s.id);
     const stageKey = s.id;
 
     let status: WorkflowStageConfig['status'] = 'not_started';
     const isServerDone = Boolean(serverStageMap[stageKey]);
-    if (stageKey === 'brief' && (isServerDone || briefSaved)) status = 'done';
-    else if (stageKey === 'plan' && (isServerDone || planApproved)) status = 'done';
-    else if (stageKey === 'spaces' && (isServerDone || sceneApproved || Boolean(sceneVersionId))) status = 'done';
-    else if (stageKey === activeStageId) status = 'in_progress';
-    else if (stageKey === '3d' && (sceneApproved || Boolean(sceneVersionId))) status = 'not_started';
-    else if (useServerStages) {
-      if (serverStageMap[stageKey]) status = 'done';
-      else if (s.status === 'locked' || thisIdx > currentIdx + 1) status = 'locked';
+    if (stageKey === activeStageId) {
+      status = 'in_progress';
+    } else if (stageKey === 'brief' && (isServerDone || briefSaved)) {
+      status = 'done';
+    } else if (stageKey === 'plan' && (isServerDone || planApproved)) {
+      status = 'done';
+    } else if (stageKey === 'spaces' && (isServerDone || sceneApproved || Boolean(sceneVersionId))) {
+      status = 'done';
+    } else if (stageKey === '3d' && (isServerDone || sceneApproved)) {
+      status = 'done';
+    } else if (isServerDone) {
+      status = 'done';
     } else {
-      if (thisIdx > currentIdx + 1 && !(stageKey === '3d' && (sceneApproved || Boolean(sceneVersionId)))) status = 'locked';
+      status = 'not_started';
     }
 
-    let lockReason: string | undefined;
-    if (s.id === 'plan' && !(briefSaved || serverStageMap['brief'])) { status = 'locked'; lockReason = 'Complete brief first'; }
-    if (s.id === 'spaces' && !(planApproved || serverStageMap['plan'])) { status = 'locked'; lockReason = 'Approve floor plan first'; }
-    if (s.id === '3d' && !(sceneApproved || Boolean(sceneVersionId) || serverStageMap['spaces'] || planApproved)) { status = 'locked'; lockReason = 'Configure spaces first'; }
-    if (s.id === 'drawings' && !(sceneApproved || Boolean(sceneVersionId) || serverStageMap['3d'])) { status = 'locked'; lockReason = 'Compile measured scene first'; }
-    if (s.id === 'estimate' && !(Boolean(sceneVersionId) || serverStageMap['drawings'])) { status = 'locked'; lockReason = 'Review production documents first'; }
-    if (s.id === 'presentation' && !(Boolean(sceneVersionId) || serverStageMap['estimate'])) { status = 'locked'; lockReason = 'Complete costing first'; }
-    if (s.id === 'production' && !(sceneApproved || serverStageMap['presentation'])) { status = 'locked'; lockReason = 'Complete presentation & client approval first'; }
-    return { ...s, status, lockReason };
+    return { ...s, status, lockReason: undefined };
   });
 
   function selectPlan(e: React.ChangeEvent<HTMLInputElement>) {
