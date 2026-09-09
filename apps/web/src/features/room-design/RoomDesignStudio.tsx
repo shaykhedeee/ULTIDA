@@ -1,4 +1,4 @@
-import { BookOpen, Boxes, CheckCircle2, LayoutTemplate, Ruler, Sparkles } from 'lucide-react';
+import { BookOpen, Boxes, Box, CheckCircle2, LayoutTemplate, Ruler, Sparkles } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import './room-design.css';
@@ -98,6 +98,29 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
             <Ruler size={15} style={{ color: 'var(--gold)' }} />
             <span>Wall Elevations (A/B/C/D)</span>
           </button>
+          <a
+            href="/tools/modules"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '10px 16px',
+              borderRadius: 10,
+              background: '#292524',
+              color: '#fdfbf7',
+              border: '1px solid #57534e',
+              fontSize: 12.5,
+              fontWeight: 700,
+              textDecoration: 'none',
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            }}
+          >
+            <Box size={15} style={{ color: 'var(--gold)' }} />
+            <span>Modular Unit Planner</span>
+          </a>
           <div className="room-design-authority">
             <CheckCircle2 size={16} />
             <span>
