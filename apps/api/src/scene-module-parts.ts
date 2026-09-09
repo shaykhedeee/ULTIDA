@@ -27,6 +27,7 @@ function compilerCategory(family: string): CategoryType | null {
   if (normalized.includes('kitchen')) return 'kitchen';
   if (normalized.includes('bed')) return 'bed';
   if (normalized.includes('utility')) return 'utility';
+  if (normalized.includes('light')) return 'freestanding_lighting';
   return null;
 }
 
@@ -136,6 +137,10 @@ export function compileStoredModuleForScene(
       ...scenePosition(modulePosition, part.transform),
       rotationDeg,
       materialId: part.meta.materialSlot.id,
+      kind: part.kind ?? (part.meta.semanticType === 'lighting_anchor' ? 'lighting_anchor' : undefined),
+      fixtureType: part.fixtureType ?? part.meta.fixtureType,
+      colorTemperatureK: part.colorTemperatureK ?? part.meta.colorTemperatureK,
+      lengthMm: part.lengthMm ?? part.meta.lengthMm,
     })),
   };
 }

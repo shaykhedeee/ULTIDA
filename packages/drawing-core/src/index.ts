@@ -1476,9 +1476,13 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
     const fillColor = isTall ? '#d6e4f7' : isBase ? '#fdf0d0' : '#ddeeff';
     const strokeColor = isTall ? MOD_STROKE : isBase ? '#7c5c12' : MOD_STROKE;
 
+    // Outer module group for lineage-aware picking
+    moduleSvgElements += `<g data-module-id="${mod.id}" class="elevation-module-group" style="cursor: pointer;">`;
+
     // Outer module rectangle
     moduleSvgElements += `<rect x="${mx}" y="${my}" width="${mw}" height="${mh}"
-      fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.8" fill-opacity="0.7"/>`;
+      fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.8" fill-opacity="0.7"
+      data-module-id="${mod.id}" class="elevation-module-rect"/>`;
 
     // Skirting band (100mm plinth)
     const plinthPx = PLINTH_H * scale;
@@ -1521,6 +1525,8 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
       moduleSvgElements += `<text x="${mx + mw / 2}" y="${my + mh / 2 + 14}" text-anchor="middle"
         fill="#4b5563" font-size="8.5" font-family="Arial,sans-serif">${Math.round(mod.widthMm)} x ${Math.round(mod.heightMm)} mm</text>`;
     }
+
+    moduleSvgElements += `</g>`;
 
     // Leader annotations on left side
     moduleAnnotations.push(leader(my + mh * 0.15, mod.family.toUpperCase().replace(/-/g, ' ')));

@@ -56,3 +56,30 @@
 .production-right-inspector.collapsed { width: 0; min-width: 0; overflow: hidden; border-left: none; }
 .inspector-content { padding: 12px; flex: 1; overflow-y: auto; }
 .inspector-empty { color: #9ca3af; font-size: 12px; text-align: center; padding: 24px 8px; }
+
+/* ═══ 2D CAD ARCHITECTURAL ELEVATIONS SUITE ═══ */
+.production-elevations { display: grid; gap: 14px; }
+.elevations-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+.elevations-header-title { display: flex; align-items: center; gap: 8px; }
+.elevations-header-title h4 { font-size: 15px; margin: 0; color: #1c1917; font-weight: 700; }
+.elevation-template-selector { display: flex; gap: 8px; flex-wrap: wrap; background: #eee7dc; padding: 4px; border-radius: 8px; }
+.elevation-pill { padding: 6px 12px; border-radius: 6px; border: none; background: transparent; color: #57534e; font-size: 11.5px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+.elevation-pill:hover { color: #1c1917; background: rgba(255, 255, 255, 0.5); }
+.elevation-pill.active { background: #1c1917; color: #f5f5f4; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+.elevation-view-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+@media (max-width: 1080px) { .elevation-view-grid { grid-template-columns: 1fr; } }
+.elevation-sheet-card { background: #fff; border: 1px solid #e7dfd5; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 16px rgba(40, 30, 20, 0.04); }
+.elevation-sheet-topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #fdfbf7; border-bottom: 1px solid #eee5d8; font-size: 11.5px; }
+.elevation-badge-gold { background: #fef9ee; color: #92400e; border: 1px solid #fcd34d; padding: 2px 8px; border-radius: 999px; font-weight: 700; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; }
+.elevation-svg-stage { padding: 16px; background: #faf9f6; display: flex; justify-content: center; align-items: center; min-height: 380px; overflow: auto; }
+.elevation-svg-stage img, .elevation-svg-stage svg { max-width: 100%; height: auto; border: 1px solid #dcd3c5; border-radius: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.06); background: #fff; }
+.elevation-sheet-actions { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #fbf8f2; border-top: 1px solid #eee5d8; gap: 10px; flex-wrap: wrap; }
+.elevation-specs-sidebar { display: grid; gap: 12px; }
+.elevation-specs-card { background: #fff; border: 1px solid #e7dfd5; border-radius: 10px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+.elevation-specs-card h5 { margin: 0 0 10px; font-size: 12.5px; color: #1c1917; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.elevation-spec-rows { display: grid; gap: 6px; font-size: 11.5px; }
+.elevation-spec-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #efe9e0; }
+.elevation-spec-row span { color: #78716c; }
+.elevation-spec-row strong { color: #1c1917; font-weight: 600; text-align: right; }
+.elevation-highlights-list { margin: 0; padding-left: 18px; font-size: 11px; color: #44403c; line-height: 1.5; display: grid; gap: 4px; }
+

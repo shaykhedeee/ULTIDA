@@ -14,8 +14,34 @@ type Scene = {
   rooms: Array<{ id: string; name: string; boundary: Array<{ xMm: number; yMm: number }> }>;
   walls: Array<{ id: string; start: { xMm: number; yMm: number }; end: { xMm: number; yMm: number }; thicknessMm: number; heightMm: number; spaceIds?: string[] }>;
   openings: Array<{ id: string; wallId: string; offsetMm: number; widthMm: number; heightMm: number; sillHeightMm?: number; kind: 'door' | 'window' }>;
-  modules: Array<{ id: string; roomId: string; family: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number }; rotationDeg: number; materialId?: string }>;
-  moduleParts: Array<{ id: string; moduleId: string; roomId: string; semanticType: string; name: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number; zMm: number }; rotationDeg: number; materialId?: string }>;
+  modules: Array<{
+    id: string;
+    roomId: string;
+    family: string;
+    widthMm: number;
+    depthMm: number;
+    heightMm: number;
+    position: { xMm: number; yMm: number };
+    rotationDeg: number;
+    materialId?: string;
+  }>;
+  moduleParts: Array<{
+    id: string;
+    moduleId: string;
+    roomId: string;
+    semanticType: string;
+    name: string;
+    widthMm: number;
+    depthMm: number;
+    heightMm: number;
+    position: { xMm: number; yMm: number; zMm: number };
+    rotationDeg: number;
+    materialId?: string;
+    kind?: string;
+    fixtureType?: 'led-strip' | 'downlight' | 'spot' | 'pendant' | string;
+    colorTemperatureK?: number;
+    lengthMm?: number;
+  }>;
   materials: Array<{ id: string; name: string; code: string; finish?: string }>;
   lighting: Array<{ id: string; spaceId: string; kind: 'ambient' | 'task' | 'accent' | 'natural'; position: { xMm: number; yMm: number }; fixture?: 'ceiling-spot' | 'floor-lamp' | 'table-lamp' | 'pendant' | 'cove'; heightMm?: number; shadeDiameterMm?: number; colorTemperatureK?: number; lumens?: number; materialId?: string }>;
   cameras: Array<{ id: string; name: string; position: { xMm: number; yMm: number; zMm: number }; target: { xMm: number; yMm: number; zMm: number }; lensMm: number }>;
@@ -40,10 +66,51 @@ export function createDefaultDemoScene(): Scene {
       { id: 'wall-b', start: { xMm: 4000, yMm: 0 }, end: { xMm: 4000, yMm: 3000 }, thicknessMm: 150, heightMm: 2700, spaceIds: ['room-master-bed'] },
     ],
     openings: [],
-    modules: [{ id: 'module-wardrobe', roomId: 'room-master-bed', family: 'wardrobe', widthMm: 2400, depthMm: 600, heightMm: 2400, position: { xMm: 800, yMm: 0 }, rotationDeg: 0 }],
-    moduleParts: [],
-    materials: [],
-    lighting: [],
+    modules: [
+      { id: 'module-tv-wall', roomId: 'room-master-bed', family: 'tv-unit', widthMm: 2400, depthMm: 400, heightMm: 2400, position: { xMm: 2000, yMm: 260 }, rotationDeg: 0, materialId: 'mat-1' },
+      { id: 'module-wardrobe', roomId: 'room-master-bed', family: 'wardrobe', widthMm: 1800, depthMm: 600, heightMm: 2400, position: { xMm: 800, yMm: 0 }, rotationDeg: 0, materialId: 'mat-3' },
+    ],
+    moduleParts: [
+      {
+        id: 'tv-console-led-underglow',
+        moduleId: 'module-tv-wall',
+        roomId: 'room-master-bed',
+        semanticType: 'lighting_anchor',
+        kind: 'lighting_anchor',
+        name: 'Floating TV Console Underglow 3000K LED',
+        widthMm: 2320,
+        depthMm: 14,
+        heightMm: 14,
+        position: { xMm: 2000, yMm: 260, zMm: 220 },
+        rotationDeg: 0,
+        fixtureType: 'led-strip',
+        colorTemperatureK: 3000,
+        lengthMm: 2320,
+      },
+      {
+        id: 'tv-profile-glass-led',
+        moduleId: 'module-tv-wall',
+        roomId: 'room-master-bed',
+        semanticType: 'lighting_anchor',
+        kind: 'lighting_anchor',
+        name: 'Profile-Glass Illuminated Display Bay',
+        widthMm: 14,
+        depthMm: 14,
+        heightMm: 1800,
+        position: { xMm: 3050, yMm: 420, zMm: 450 },
+        rotationDeg: 0,
+        fixtureType: 'led-strip',
+        colorTemperatureK: 3000,
+        lengthMm: 1800,
+      },
+    ],
+    materials: [
+      { id: 'mat-1', name: 'Smoked Walnut Veneer', code: 'VIRGO-OAK-01', finish: 'Satin PU' },
+      { id: 'mat-3', name: 'Matte Suede Zero-G Shutter', code: 'SHUT-LAM-SUEDE', finish: 'Anti-Fingerprint' },
+    ],
+    lighting: [
+      { id: 'light-ceiling-spot-1', spaceId: 'room-master-bed', kind: 'ambient', position: { xMm: 2000, yMm: 1500 }, fixture: 'ceiling-spot', heightMm: 2600, colorTemperatureK: 3000, lumens: 700 },
+    ],
     cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: 2000, yMm: 1600, zMm: -4000 }, target: { xMm: 2000, yMm: 1200, zMm: 1200 }, lensMm: 35 }],
   };
 }
@@ -221,6 +288,152 @@ function addSceneFixture(group: THREE.Group, light: Scene['lighting'][number]) {
   point.position.set(0, Math.max(260, height - shadeDiameter * 0.4), 0);
   point.castShadow = fixture !== 'ceiling-spot';
   fixtureGroup.add(point);
+  group.add(fixtureGroup);
+}
+
+export function kelvinToHex(kelvin = 3000): string {
+  const temp = Math.max(1800, Math.min(6500, Number(kelvin) || 3000));
+  if (temp <= 2400) return '#ffb870';
+  if (temp <= 2800) return '#ffd199';
+  if (temp <= 3200) return '#ffe4b5';
+  if (temp <= 3800) return '#ffeedd';
+  if (temp <= 4500) return '#f8f9fa';
+  if (temp <= 5500) return '#f0f5ff';
+  return '#e2eeff';
+}
+
+function addCompiledLightingAnchor(group: THREE.Group, part: Scene['moduleParts'][number]) {
+  const fixtureType = (part.fixtureType ?? 'led-strip').toLowerCase();
+  const cct = part.colorTemperatureK ?? 3000;
+  const hex = kelvinToHex(cct);
+
+  const fixtureGroup = new THREE.Group();
+  fixtureGroup.name = `compiled-light:${part.id}`;
+  fixtureGroup.userData = {
+    kind: 'compiled_lighting',
+    id: part.id,
+    name: part.name,
+    fixtureType,
+    colorTemperatureK: cct,
+    lengthMm: part.lengthMm,
+    moduleId: part.moduleId,
+  };
+
+  // World coordinates: X = xMm, Y = zMm (height above floor), Z = yMm (plan depth)
+  fixtureGroup.position.set(part.position.xMm, part.position.zMm, part.position.yMm);
+  fixtureGroup.rotation.y = (-part.rotationDeg * Math.PI) / 180;
+
+  const emissiveMat = new THREE.MeshStandardMaterial({
+    color: hex,
+    emissive: hex,
+    emissiveIntensity: 1.25,
+    roughness: 0.25,
+    metalness: 0.1,
+  });
+
+  const housingMat = new THREE.MeshStandardMaterial({
+    color: '#262626',
+    metalness: 0.8,
+    roughness: 0.3,
+  });
+
+  if (fixtureType === 'pendant') {
+    const cordLen = Math.max(200, 2700 - part.position.zMm);
+    const cord = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, cordLen, 12), housingMat);
+    cord.position.y = cordLen / 2;
+
+    const shade = new THREE.Mesh(
+      new THREE.ConeGeometry(110, 150, 24, 1, true),
+      new THREE.MeshStandardMaterial({ color: '#3d312a', metalness: 0.65, roughness: 0.25, side: THREE.DoubleSide })
+    );
+    shade.position.y = 75;
+
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(32, 16, 16), emissiveMat);
+    bulb.position.y = 25;
+
+    fixtureGroup.add(cord, shade, bulb);
+
+    const point = new THREE.PointLight(hex, 2.4, 3800, 1.8);
+    point.position.set(0, 0, 0);
+    point.castShadow = true;
+    fixtureGroup.add(point);
+  } else if (fixtureType === 'spot' || fixtureType === 'downlight') {
+    const isFloorLamp = part.name.toLowerCase().includes('floor') || (part.position.zMm > 1200 && part.heightMm > 1200);
+    const isTableLamp = part.name.toLowerCase().includes('table') || part.name.toLowerCase().includes('desk');
+
+    if (isFloorLamp) {
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(180, 180, 30, 24), housingMat);
+      base.position.y = -part.position.zMm + 15;
+      const stemH = Math.max(400, part.position.zMm);
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(14, 18, stemH, 16), housingMat);
+      stem.position.y = -part.position.zMm + stemH / 2;
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(140, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2), emissiveMat);
+      dome.rotation.x = Math.PI;
+      dome.position.y = 40;
+      fixtureGroup.add(base, stem, dome);
+
+      const light = new THREE.PointLight(hex, 2.5, 4200, 1.7);
+      light.position.set(0, -20, 0);
+      light.castShadow = true;
+      fixtureGroup.add(light);
+    } else if (isTableLamp) {
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(80, 100, 180, 20), housingMat);
+      base.position.y = 90;
+      const shade = new THREE.Mesh(new THREE.CylinderGeometry(110, 140, 180, 24), emissiveMat);
+      shade.position.y = 220;
+      fixtureGroup.add(base, shade);
+
+      const light = new THREE.PointLight(hex, 1.8, 2800, 1.8);
+      light.position.set(0, 200, 0);
+      fixtureGroup.add(light);
+    } else {
+      const bezel = new THREE.Mesh(new THREE.CylinderGeometry(45, 45, 16, 20), housingMat);
+      bezel.position.y = 8;
+      const lens = new THREE.Mesh(new THREE.CircleGeometry(38, 20), emissiveMat);
+      lens.rotation.x = Math.PI / 2;
+      lens.position.y = 1;
+      fixtureGroup.add(bezel, lens);
+
+      const spot = new THREE.PointLight(hex, 1.8, 3000, 1.8);
+      spot.position.set(0, -10, 0);
+      spot.castShadow = false;
+      fixtureGroup.add(spot);
+    }
+  } else {
+    // LED strip (profile glass, under-cabinet, underglow, backlight)
+    const stripLen = Math.max(160, part.lengthMm ?? part.widthMm ?? 800);
+    const isVertical = part.heightMm > part.widthMm && part.heightMm > 400;
+
+    const channelGeo = isVertical
+      ? new THREE.BoxGeometry(14, stripLen, 14)
+      : new THREE.BoxGeometry(stripLen, 14, 14);
+    const channel = new THREE.Mesh(channelGeo, housingMat);
+
+    const diffuserGeo = isVertical
+      ? new THREE.BoxGeometry(10, stripLen - 4, 10)
+      : new THREE.BoxGeometry(stripLen - 4, 10, 10);
+    const diffuser = new THREE.Mesh(diffuserGeo, emissiveMat);
+
+    fixtureGroup.add(channel, diffuser);
+
+    if (stripLen <= 1000) {
+      const light = new THREE.PointLight(hex, 1.5, 2600, 1.7);
+      light.position.set(0, isVertical ? 0 : -8, isVertical ? 8 : 12);
+      fixtureGroup.add(light);
+    } else {
+      const step = stripLen / 3;
+      [-step, step].forEach((offset) => {
+        const light = new THREE.PointLight(hex, 1.2, 2400, 1.7);
+        if (isVertical) {
+          light.position.set(0, offset, 12);
+        } else {
+          light.position.set(offset, -8, 12);
+        }
+        fixtureGroup.add(light);
+      });
+    }
+  }
+
   group.add(fixtureGroup);
 }
 
@@ -456,20 +669,21 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       if (!live) return;
 
       if (loadedScene) {
+        let activeScene: Scene = loadedScene;
         if (requestedRoomId) {
-          const roomWalls = loadedScene.walls.filter((wall) => wall.spaceIds?.includes(requestedRoomId));
+          const roomWalls = activeScene.walls.filter((wall) => wall.spaceIds?.includes(requestedRoomId));
           const wallIds = new Set(roomWalls.map((wall) => wall.id));
-          loadedScene = {
-            ...loadedScene,
-            rooms: loadedScene.rooms.filter((room) => room.id === requestedRoomId),
+          activeScene = {
+            ...activeScene,
+            rooms: activeScene.rooms.filter((room) => room.id === requestedRoomId),
             walls: roomWalls,
-            openings: loadedScene.openings.filter((opening) => wallIds.has(opening.wallId)),
-            modules: loadedScene.modules.filter((module) => module.roomId === requestedRoomId),
-            moduleParts: loadedScene.moduleParts.filter((part) => part.roomId === requestedRoomId),
+            openings: activeScene.openings.filter((opening) => wallIds.has(opening.wallId)),
+            modules: activeScene.modules.filter((module) => module.roomId === requestedRoomId),
+            moduleParts: activeScene.moduleParts.filter((part) => part.roomId === requestedRoomId),
           };
         }
-        setScene(loadedScene);
-        setStatus(`✨ 3D Geometry loaded: ${loadedScene.rooms.length} rooms, ${loadedScene.walls.length} walls, ${loadedScene.openings.length} openings, ${loadedScene.modules.length} modules.`);
+        setScene(activeScene);
+        setStatus(`✨ 3D Geometry loaded: ${activeScene.rooms.length} rooms, ${activeScene.walls.length} walls, ${activeScene.openings.length} openings, ${activeScene.modules.length} modules.`);
       } else {
         setScene(null);
         setStatus('No 3D scene compiled yet. Click ✨ Compile 3D Scene to generate from approved plan.');
@@ -776,6 +990,71 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     const lightingGroup = new THREE.Group(); geometryGroup.add(lightingGroup);
     for (const light of scene.lighting ?? []) addSceneFixture(lightingGroup, light);
 
+    const compiledLightingAnchors = (scene.moduleParts ?? []).filter(
+      (part) =>
+        part.semanticType === 'lighting_anchor' ||
+        part.kind === 'lighting_anchor' ||
+        part.semanticType === 'lighting_channel'
+    );
+
+    const placedAnchorIds = new Set<string>();
+    for (const part of compiledLightingAnchors) {
+      if (!placedAnchorIds.has(part.id)) {
+        placedAnchorIds.add(part.id);
+        addCompiledLightingAnchor(lightingGroup, part);
+      }
+    }
+
+    // Fallback synthesis: If moduleParts is empty or has no lighting anchors, check if scene has certified modules like tv-unit
+    if (compiledLightingAnchors.length === 0) {
+      for (const mod of scene.modules ?? []) {
+        const family = (mod.family || '').toLowerCase();
+        if (family.includes('tv') || family.includes('entertainment')) {
+          addCompiledLightingAnchor(lightingGroup, {
+            id: `${mod.id}-tv-underglow`,
+            moduleId: mod.id,
+            roomId: mod.roomId || scene.rooms[0]?.id || 'room-master-bed',
+            semanticType: 'lighting_anchor',
+            kind: 'lighting_anchor',
+            name: 'Floating Console Underglow LED',
+            widthMm: Math.max(1200, mod.widthMm - 80),
+            depthMm: 14,
+            heightMm: 14,
+            position: { xMm: mod.position.xMm, yMm: mod.position.yMm, zMm: 220 },
+            rotationDeg: mod.rotationDeg || 0,
+            fixtureType: 'led-strip',
+            colorTemperatureK: 3000,
+            lengthMm: Math.max(1200, mod.widthMm - 80),
+          });
+          if (mod.widthMm >= 2000) {
+            addCompiledLightingAnchor(lightingGroup, {
+              id: `${mod.id}-tv-glass-accent`,
+              moduleId: mod.id,
+              roomId: mod.roomId || scene.rooms[0]?.id || 'room-master-bed',
+              semanticType: 'lighting_anchor',
+              kind: 'lighting_anchor',
+              name: 'Profile Glass Display LED',
+              widthMm: 14,
+              depthMm: 14,
+              heightMm: 1600,
+              position: {
+                xMm: mod.position.xMm + (mod.widthMm / 2 - 200),
+                yMm: mod.position.yMm,
+                zMm: 500,
+              },
+              rotationDeg: mod.rotationDeg || 0,
+              fixtureType: 'led-strip',
+              colorTemperatureK: 3000,
+              lengthMm: 1600,
+            });
+          }
+        }
+      }
+    }
+
+    lightingGroup.visible = assetFilter !== 'furniture';
+    modulesGroup.visible = assetFilter !== 'lighting';
+
     // Ceiling spot lights in each room with atmosphere color
     for (const room of scene.rooms) {
       if (room.boundary.length >= 3) {
@@ -853,10 +1132,18 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
       const hit = raycaster.intersectObjects(geometryGroup.children, true)[0];
-      if (hit?.object.userData?.id) {
-        setSelected(hit.object.userData.id);
-        if (hit.object.userData.kind === 'room') {
-          setSelectedRoomId(hit.object.userData.id);
+      if (hit) {
+        let curr: THREE.Object3D | null = hit.object;
+        while (curr && !curr.userData?.id && curr.parent && curr.parent !== geometryGroup) {
+          curr = curr.parent;
+        }
+        if (curr?.userData?.id) {
+          setSelected(curr.userData.id);
+          if (curr.userData.kind === 'room') {
+            setSelectedRoomId(curr.userData.id);
+          }
+        } else {
+          setSelected(null);
         }
       } else {
         setSelected(null);
@@ -886,7 +1173,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       rendererInstanceRef.current = null;
       host.replaceChildren();
     };
-  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId]);
+  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId, assetFilter]);
 
   const activeSelectedRoom = useMemo(() => {
     if (!scene) return null;
@@ -900,7 +1187,28 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
 
   const activeSelectedLighting = useMemo(() => {
     if (!scene || !selected) return null;
-    return scene.lighting.find((light) => light.id === selected) ?? null;
+    const directLight = scene.lighting.find((light) => light.id === selected);
+    if (directLight) return directLight;
+
+    const compiledPart = (scene.moduleParts ?? []).find((p) => p.id === selected);
+    if (
+      compiledPart &&
+      (compiledPart.semanticType === 'lighting_anchor' ||
+        compiledPart.kind === 'lighting_anchor' ||
+        compiledPart.semanticType === 'lighting_channel')
+    ) {
+      return {
+        id: compiledPart.id,
+        spaceId: compiledPart.roomId,
+        kind: 'compiled_lighting',
+        fixture: (compiledPart.fixtureType ?? 'led-strip') as any,
+        position: { xMm: compiledPart.position.xMm, yMm: compiledPart.position.yMm },
+        heightMm: compiledPart.position.zMm,
+        colorTemperatureK: compiledPart.colorTemperatureK ?? 3000,
+        lumens: 800,
+      };
+    }
+    return null;
   }, [scene, selected]);
 
   const activeSelectedModule = useMemo(() => {
@@ -908,16 +1216,46 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     return scene.modules.find((module) => module.id === selected) ?? null;
   }, [scene, selected]);
 
+  const allLightingItems = useMemo(() => {
+    if (!scene) return [];
+    const direct = (scene.lighting ?? []).map((l) => ({
+      id: l.id,
+      name: (l.fixture ?? l.kind).replaceAll('-', ' '),
+      fixture: l.fixture ?? l.kind,
+      cct: l.colorTemperatureK ?? 3000,
+      lumens: l.lumens ?? 650,
+      heightMm: l.heightMm ?? 2600,
+      source: 'scene' as const,
+    }));
+    const compiled = (scene.moduleParts ?? [])
+      .filter(
+        (p) =>
+          p.semanticType === 'lighting_anchor' ||
+          p.kind === 'lighting_anchor' ||
+          p.semanticType === 'lighting_channel'
+      )
+      .map((p) => ({
+        id: p.id,
+        name: p.name || (p.fixtureType ?? 'led-strip').replaceAll('-', ' '),
+        fixture: p.fixtureType ?? 'led-strip',
+        cct: p.colorTemperatureK ?? 3000,
+        lumens: 800,
+        heightMm: p.position.zMm,
+        source: 'compiled' as const,
+      }));
+    return [...direct, ...compiled];
+  }, [scene]);
+
   const renderReadiness = useMemo(() => {
     if (!scene) return [];
     return [
       { label: 'Measured scene geometry', detail: `${scene.rooms.length} rooms · ${scene.walls.length} walls`, ready: scene.rooms.length > 0 && scene.walls.length > 0 },
-      { label: 'Scheduled fixtures', detail: `${scene.lighting.length} authored lights`, ready: scene.lighting.length > 0 },
+      { label: 'Scheduled fixtures', detail: `${allLightingItems.length} fixtures (${scene.lighting.length} room · ${allLightingItems.length - scene.lighting.length} module)`, ready: allLightingItems.length > 0 },
       { label: 'Material context', detail: `${scene.materials.length} finish records`, ready: scene.materials.length > 0 },
       { label: 'Camera coverage', detail: `${scene.cameras.length} saved view${scene.cameras.length === 1 ? '' : 's'}`, ready: scene.cameras.length > 0 },
       { label: 'Production geometry', detail: `${scene.moduleParts.length} component parts`, ready: scene.modules.length === 0 || scene.moduleParts.length > 0 },
     ];
-  }, [scene]);
+  }, [scene, allLightingItems]);
 
   return (
     <section className="scene-studio">
@@ -1043,7 +1381,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
             <strong>Furniture, fixtures & material context</strong>
           </div>
           <div className="scene-ingredient-list">
-            {scene.lighting.map((light) => (
+            {allLightingItems.map((light) => (
               <button
                 type="button"
                 key={light.id}
@@ -1051,7 +1389,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 onClick={() => setSelected(light.id)}
               >
                 <span className="scene-ingredient-icon">{light.fixture === 'pendant' ? '◌' : light.fixture === 'floor-lamp' ? '⌁' : light.fixture === 'table-lamp' ? '◒' : '•'}</span>
-                <span><strong>{(light.fixture ?? light.kind).replaceAll('-', ' ')}</strong><small>{light.colorTemperatureK ?? 3000}K · {light.lumens ?? 650} lm</small></span>
+                <span><strong>{light.name}</strong><small>{light.cct}K · {light.source === 'compiled' ? 'Integrated linear' : `${light.lumens} lm`}</small></span>
               </button>
             ))}
             {scene.modules.slice(0, 5).map((module) => (
@@ -1078,10 +1416,10 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
             ))}
           </div>
           <div className="scene-assets-list">
-            {assetFilter !== 'furniture' && (scene?.lighting ?? []).slice(0, 6).map((light) => (
+            {assetFilter !== 'furniture' && allLightingItems.slice(0, 8).map((light) => (
               <button type="button" key={light.id} className={`scene-asset-card ${selected === light.id ? 'selected' : ''}`} onClick={() => setSelected(light.id)}>
                 <span className="scene-asset-icon"><LampDesk size={16} /></span>
-                <span><strong>{(light.fixture ?? light.kind).replaceAll('-', ' ')}</strong><small>{light.heightMm ?? 2600} mm · {light.lumens ?? 650} lm</small></span>
+                <span><strong>{light.name}</strong><small>{light.heightMm} mm · {light.cct}K</small></span>
               </button>
             ))}
             {assetFilter !== 'lighting' && (scene?.modules ?? []).slice(0, 6).map((module) => (

@@ -7,6 +7,7 @@
  * The TV-unit compiler lives in tv-unit-compiler.ts (the first vertical template).
  */
 import { Part, TemplateCompileInput, TemplateCompileResult, type CategoryType } from './types.js';
+import { compileLightingElements } from './lighting-compiler.js';
 import {
   DEFAULT_CARCASS_THICKNESS_MM, DEFAULT_BACK_PANEL_THICKNESS_MM, DEFAULT_SHELF_THICKNESS_MM,
   DEFAULT_DRAWER_HEIGHT_MM, DEFAULT_WARDROBE_DEPTH_MM, TARGET_SHUTTER_WIDTH_MM,
@@ -91,7 +92,8 @@ export function compileWardrobe(input: TemplateCompileInput): TemplateCompileRes
   if (p.lighting === 'profile_led' || p.lighting === 'both') parts.push({ id: `${instanceId}-led-channel`, templateVersionId: input.templateVersionId, instanceId, name: 'Wardrobe Sensor LED Channel', transform: { xMm: DEFAULT_CARCASS_THICKNESS_MM, yMm: totalD - 24, zMm: storageHeightMm - 24, rotationDeg: 0 }, size: { widthMm: totalW - DEFAULT_CARCASS_THICKNESS_MM * 2, depthMm: 12, heightMm: 12 }, anchor: { face: 'front' }, meta: { semanticType: 'lighting_channel', parentId: null, materialSlot: { id: COMPAT.led, code: COMPAT.led, name: 'Warm LED' }, drawing: { layer: 'A-ANNO-LIGHTING', sortOrder: 4 }, bom: { sku: 'LED-3000K-CHANNEL', qty: 1, unit: 'pc', lengthMm: totalW - DEFAULT_CARCASS_THICKNESS_MM * 2 } } });
   // internal shelf + hanging rod (shelf semantic)
   parts.push({ id: `${instanceId}-shelf-1`, templateVersionId: input.templateVersionId, instanceId, name: 'Internal Shelf', transform: { xMm: DEFAULT_CARCASS_THICKNESS_MM, yMm: DEFAULT_CARCASS_THICKNESS_MM, zMm: totalH / 2, rotationDeg: 0 }, size: { widthMm: totalW - DEFAULT_CARCASS_THICKNESS_MM * 2, depthMm: totalD - DEFAULT_CARCASS_THICKNESS_MM * 2, heightMm: DEFAULT_SHELF_THICKNESS_MM }, anchor: { face: 'center' }, meta: { semanticType: 'shelf', parentId: `${instanceId}-carcass-bottom`, materialSlot: { id: COMPAT.shelf, code: COMPAT.shelf, name: 'Shelf' }, drawing: { layer: 'A-MOD-SHELF', sortOrder: 2 }, bom: { sku: 'SHELF-18MM', qty: 1, unit: 'sqm', lengthMm: totalW - 36, widthMm: totalD - 36, thicknessMm: DEFAULT_SHELF_THICKNESS_MM } } });
-  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts };
+  parts.push(...compileLightingElements(input, { family: 'wardrobe' }));
+  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts, elements: parts };
 }
 
 // ── Crockery unit ───────────────────────────────────────────
@@ -153,7 +155,8 @@ export function compileCrockery(input: TemplateCompileInput): TemplateCompileRes
   }
   for (let shelf = 0; shelf < 2; shelf += 1) add(`upper-shelf-${shelf + 1}`, `Upper Display Shelf ${shelf + 1}`, t, 90, upperZ + 230 + shelf * Math.max(260, Math.round(upperH / 3)), totalW - t * 2, totalD - 120, t, 'shelf', COMPAT.shelf, 'A-MOD-SHELF', 'CROCKERY-UPPER-SHELF');
   if (p.includeLoft) add('top-filler', 'Crockery Top Filler', 0, 0, totalH - 50, totalW, totalD, 50, 'filler', COMPAT.carcass, 'A-MOD-FILLER', 'CROCKERY-TOP-FILLER');
-  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts };
+  parts.push(...compileLightingElements(input, { family: 'crockery' }));
+  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts, elements: parts };
 }
 
 // ── Study unit ──────────────────────────────────────────────
@@ -165,7 +168,8 @@ export function compileStudy(input: TemplateCompileInput): TemplateCompileResult
   const blocking: string[] = []; if (totalW > wallW) blocking.push(`Study width ${totalW}mm exceeds wall ${wallW}mm.`);
   const parts = baseParts(input, instanceId, wallW, wallH, totalW, totalH, totalD, COMPAT.carcass, COMPAT.shutter);
   parts.push({ id: `${instanceId}-drawer-top`, templateVersionId: input.templateVersionId, instanceId, name: 'Study Drawer', transform: { xMm: 0, yMm: 0, zMm: DEFAULT_CARCASS_THICKNESS_MM, rotationDeg: 0 }, size: { widthMm: totalW - DEFAULT_CARCASS_THICKNESS_MM * 2, depthMm: totalD - 60, heightMm: DEFAULT_DRAWER_HEIGHT_MM }, anchor: { face: 'front' }, meta: { semanticType: 'drawer', parentId: `${instanceId}-carcass-bottom`, materialSlot: { id: COMPAT.shutter, code: COMPAT.shutter, name: 'Drawer' }, drawing: { layer: 'A-MOD-DRAWER', sortOrder: 3 }, bom: { sku: 'DRAWER-BOX', qty: 1, unit: 'pc', lengthMm: totalW - 36, heightMm: DEFAULT_DRAWER_HEIGHT_MM } } });
-  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: [], parts };
+  parts.push(...compileLightingElements(input, { family: 'study' }));
+  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: [], parts, elements: parts };
 }
 
 // ── Pooja unit ──────────────────────────────────────────────
@@ -179,7 +183,8 @@ export function compilePooja(input: TemplateCompileInput): TemplateCompileResult
   parts.push({ id: `${instanceId}-tray`, templateVersionId: input.templateVersionId, instanceId, name: 'Pooja Tray', transform: { xMm: totalW / 2 - 75, yMm: totalD / 2, zMm: 900, rotationDeg: 0 }, size: { widthMm: 150, depthMm: 150, heightMm: 75 }, anchor: { face: 'center' }, meta: { semanticType: 'shelf', parentId: `${instanceId}-carcass-bottom`, materialSlot: { id: COMPAT.shelf, code: COMPAT.shelf, name: 'Tray' }, drawing: { layer: 'A-MOD-SHELF', sortOrder: 2 }, bom: { sku: 'POOJA-TRAY', qty: 1, unit: 'pc' } } });
   const shutterCount = 1; const shutterW = totalW; const shutterH = totalH - DEFAULT_CARCASS_THICKNESS_MM * 2;
   parts.push(...shutterRow(instanceId, input.templateVersionId, 0, 0, shutterW, shutterH, DEFAULT_CARCASS_THICKNESS_MM, 'mat-gold-accent', totalD));
-  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: [], parts };
+  parts.push(...compileLightingElements(input, { family: 'pooja' }));
+  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: [], parts, elements: parts };
 }
 
 // ── Kitchen (base + upper + countertop) ─────────────────────
@@ -203,7 +208,8 @@ export function compileKitchen(input: TemplateCompileInput): TemplateCompileResu
   parts.push({ id: `${instanceId}-upper-carcass`, templateVersionId: input.templateVersionId, instanceId, name: 'Upper Carcass', transform: { xMm: 0, yMm: 0, zMm: baseH + 100, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: totalD - 300, heightMm: upperH }, anchor: { face: 'top' }, meta: { semanticType: 'carcass', parentId: null, materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Upper Carcass' }, drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 }, bom: { sku: 'CARCASS-18MM', qty: 1, unit: 'sqm', lengthMm: totalW, widthMm: totalD - 300, thicknessMm: DEFAULT_CARCASS_THICKNESS_MM } } });
   parts.push(...carcassSides(input, instanceId, 'upper', totalW, upperH, totalD - 300, COMPAT.carcass, baseH + 100));
   if (!input.wall.id && warning.length === 0) warning.push('Kitchen requires plumbing service point.');
-  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts };
+  parts.push(...compileLightingElements(input, { family: 'kitchen' }));
+  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts, elements: parts };
 }
 
 // ── Bed (panel-built storage bed + headboard) ───────────────
@@ -245,7 +251,8 @@ export function compileBed(input: TemplateCompileInput): TemplateCompileResult {
     addPanel('headboard-wing-right', 'Extended Headboard Right Wing', totalW, 0, 0, wingWidth, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-WING-18MM');
   }
   parts.push({ id: `${instanceId}-hydraulic-pair`, templateVersionId: input.templateVersionId, instanceId, name: 'Hydraulic Lift Mechanism Pair', transform: { xMm: totalW / 2, yMm: totalD / 2, zMm: platformH - 80, rotationDeg: 0 }, size: { widthMm: 40, depthMm: 420, heightMm: 80 }, anchor: { face: 'center' }, meta: { semanticType: 'hardware', parentId: null, materialSlot: { id: COMPAT.hardware, code: COMPAT.hardware, name: 'Hydraulic hardware' }, drawing: { layer: 'A-ANNO-HARDWARE', sortOrder: parts.length + 1 }, bom: { sku: 'HW-BED-HYDRAULIC-PAIR', qty: 1, unit: 'set' } } });
-  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts };
+  parts.push(...compileLightingElements(input, { family: 'bed' }));
+  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts, elements: parts };
 }
 
 // ── Utility (tall units + sink base) ────────────────────────
@@ -261,7 +268,45 @@ export function compileUtility(input: TemplateCompileInput): TemplateCompileResu
   for (let i = 0; i < shutterCount; i++) parts.push(...shutterRow(instanceId, input.templateVersionId, i, i * shutterW, shutterW, shutterH, DEFAULT_CARCASS_THICKNESS_MM, COMPAT.shutter, totalD));
   // tall filler at top
   parts.push({ id: `${instanceId}-filler`, templateVersionId: input.templateVersionId, instanceId, name: 'Top Filler', transform: { xMm: 0, yMm: 0, zMm: totalH - 50, rotationDeg: 0 }, size: { widthMm: totalW, depthMm: totalD, heightMm: 50 }, anchor: { face: 'top' }, meta: { semanticType: 'filler', parentId: null, materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Filler' }, drawing: { layer: 'A-MOD-FILLER', sortOrder: 1 }, bom: { sku: 'FILLER-50MM', qty: 1, unit: 'sqm', lengthMm: totalW, heightMm: 50 } } });
-  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: [], parts };
+  parts.push(...compileLightingElements(input, { family: 'utility' }));
+  return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: [], parts, elements: parts };
+}
+
+// ── Freestanding Lighting (Floor, Table, Pendant, Sconce Luminaires) ──
+export function compileFreestandingLighting(input: TemplateCompileInput): TemplateCompileResult {
+  const p = input.parameters as any;
+  const instanceId = input.instanceId ?? 'freestanding-light-1';
+  const totalW = Number(p.totalWidthMm ?? p.widthMm ?? 400);
+  const totalD = Number(p.totalDepthMm ?? p.depthMm ?? 400);
+  const totalH = Number(p.totalHeightMm ?? p.heightMm ?? 1600);
+  const parts: Part[] = [
+    {
+      id: `${instanceId}-base-stand`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Luminaire Base & Stand',
+      transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 },
+      size: { widthMm: totalW, depthMm: totalD, heightMm: Math.min(60, totalH * 0.05) },
+      anchor: { face: 'bottom' },
+      meta: {
+        semanticType: 'hardware',
+        parentId: null,
+        materialSlot: { id: 'mat-metal-brass', code: 'BRASS', name: 'Luminaire Body' },
+        drawing: { layer: 'A-ANNO-LIGHTING', sortOrder: 1 },
+        bom: { sku: 'LUMINAIRE-STAND', qty: 1, unit: 'pc', heightMm: totalH },
+      },
+    },
+    ...compileLightingElements(input, { family: 'freestanding-lighting' }),
+  ];
+  return {
+    templateVersionId: input.templateVersionId,
+    instanceId,
+    valid: true,
+    blockingViolations: [],
+    warningViolations: [],
+    parts,
+    elements: parts,
+  };
 }
 
 export const COMPILER_REGISTRY: Record<CategoryType, (input: TemplateCompileInput) => TemplateCompileResult> = {
@@ -273,6 +318,7 @@ export const COMPILER_REGISTRY: Record<CategoryType, (input: TemplateCompileInpu
   kitchen: compileKitchen,
   bed: compileBed,
   utility: compileUtility,
+  freestanding_lighting: compileFreestandingLighting,
 };
 
 // re-import to avoid circular at top

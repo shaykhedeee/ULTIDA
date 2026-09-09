@@ -1,4 +1,5 @@
 import { Part, SemanticType, TemplateCompileInput, TemplateCompileResult, TvUnitParameters } from './types.js';
+import { compileLightingElements } from './lighting-compiler.js';
 import {
   FINGER_GROOVE_GAP_MM,
   LOFT_FILLER_MM,
@@ -267,6 +268,9 @@ export function compileTvUnit(input: TemplateCompileInput): TemplateCompileResul
     });
   }
 
+  // 9. Lighting Elements
+  parts.push(...compileLightingElements(input, { family: 'tv-unit' }));
+
   const valid = blockingViolations.length === 0;
 
   return {
@@ -275,7 +279,8 @@ export function compileTvUnit(input: TemplateCompileInput): TemplateCompileResul
     valid,
     blockingViolations,
     warningViolations,
-    parts
+    parts,
+    elements: parts,
   };
 }
 
@@ -373,7 +378,8 @@ function compileTvWallComposition(
   if (params.overheadStorage) add('top-filler', 'Top Filler / Loft Closure', 0, 0, baseClearance + totalHeight - 50, totalWidth, totalDepth, 50, 'filler', materials.carcass, 'A-MOD-FILLER', 'TV-TOP-FILLER');
 
   addWallSideFillers(parts, input, params, instanceId, materials.carcass, baseClearance);
-  return { templateVersionId: input.templateVersionId, instanceId, valid: blockingViolations.length === 0, blockingViolations, warningViolations, parts };
+  parts.push(...compileLightingElements(input, { family: 'tv-unit' }));
+  return { templateVersionId: input.templateVersionId, instanceId, valid: blockingViolations.length === 0, blockingViolations, warningViolations, parts, elements: parts };
 }
 
 function addWallSideFillers(parts: Part[], input: TemplateCompileInput, params: TvUnitParameters, instanceId: string, materialId: string, baseClearance: number) {

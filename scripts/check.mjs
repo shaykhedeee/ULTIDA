@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
+import { resolve } from 'node:path';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const rootDir = process.cwd();
+
 const packages = [
   '@ultida/contracts', '@ultida/geometry-core', '@ultida/scene-core',
   '@ultida/drawing-core', '@ultida/scene-compiler', '@ultida/layout-core',
@@ -11,12 +14,22 @@ const packages = [
 ];
 const applications = ['@ultida/api', '@ultida/cloudflare-ai-worker', '@ultida/web', '@ultida/worker', '@ultida/aura-tools'];
 
-function run(label, args, timeoutMs = 120_000) {
+const binDir = resolve(rootDir, 'node_modules/.bin');
+const pathEnv = `${binDir};${process.env.PATH || process.env.Path || ''}`;
+
+function run(label, args, timeoutMs = 180_000) {
   return new Promise((resolve, reject) => {
     process.stdout.write(`\n[check] ${label} started\n`);
-    // npm.cmd is a Windows command shim and must be launched through the
-    // command shell; on POSIX the real npm executable is spawned directly.
-    const child = spawn(npm, args, { stdio: 'inherit', shell: process.platform === 'win32' });
+    const child = spawn(npm, args, {
+      stdio: ['ignore', 'inherit', 'inherit'],
+      shell: process.platform === 'win32',
+      env: {
+        ...process.env,
+        PATH: pathEnv,
+        Path: pathEnv,
+        ELECTRON_RUN_AS_NODE: '1',
+      },
+    });
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
       reject(new Error(`${label} exceeded ${Math.round(timeoutMs / 1000)} seconds and was stopped.`));

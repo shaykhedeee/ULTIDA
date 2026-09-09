@@ -1,0 +1,79 @@
+﻿{
+  "title": "MASTER BEDROOM WARDROBE & DRESSER ELEVATION",
+  "room": "5BHK LUXURY VILLA - FIRST FLOOR MASTER SUITE",
+  "date": "2026-09-08",
+  "wall_width_mm": 2977,
+  "wall_height_mm": 3000,
+  "skirting_height_mm": 75,
+  "controlled_chain_width_mm": 2977,
+  "chain_tolerance_mm": 1,
+  "dim_offset_mm": 200,
+  "modules": [
+    {
+      "label": "30mm WALL SCRIBE DUMMY",
+      "kind": "filler",
+      "status": "verified",
+      "chain": true,
+      "dimension": true,
+      "x_mm": 0,
+      "y_mm": 0,
+      "width_mm": 30,
+      "height_mm": 3000
+    },
+    {
+      "label": "BAY 1: HANGING + LOFTS",
+      "kind": "shutter",
+      "status": "verified",
+      "chain": true,
+      "dimension": true,
+      "x_mm": 30,
+      "y_mm": 0,
+      "width_mm": 800,
+      "height_mm": 3000
+    },
+    {
+      "label": "BAY 2: SHELVES + DRAWERS",
+      "kind": "shutter",
+      "status": "verified",
+      "chain": true,
+      "dimension": true,
+      "x_mm": 830,
+      "y_mm": 0,
+      "width_mm": 800,
+      "height_mm": 3000
+    },
+    {
+      "label": "BAY 3: LONG HANG + LOFTS",
+      "kind": "shutter",
+      "status": "verified",
+      "chain": true,
+      "dimension": true,
+      "x_mm": 1630,
+      "y_mm": 0,
+      "width_mm": 817,
+      "height_mm": 3000
+    },
+    {
+      "label": "500mm DRESSER & VANITY NICHE",
+      "kind": "carcass",
+      "status": "verified",
+      "chain": true,
+      "dimension": true,
+      "x_mm": 2447,
+      "y_mm": 0,
+      "width_mm": 500,
+      "height_mm": 3000
+    },
+    {
+      "label": "30mm END GABLE SCRIBE",
+      "kind": "filler",
+      "status": "verified",
+      "chain": true,
+      "dimension": true,
+      "x_mm": 2947,
+      "y_mm": 0,
+      "width_mm": 30,
+      "height_mm": 3000
+    }
+  ]
+}
