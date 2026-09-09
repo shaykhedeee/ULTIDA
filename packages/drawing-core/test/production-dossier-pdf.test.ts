@@ -31,7 +31,7 @@ test('generateProductionDossierPdf generates an authoritative multi-sheet archit
         { name: 'Kitchen Chimney', brand: 'Faber', model: 'Primus Plus 90cm', dimensionsMm: '900x500mm', status: 'studio_supplied' },
       ],
     },
-    elevations: [], // Defaults will generate kitchen, master-bed, and living/dining
+    elevations: [], // No elevation or production records were supplied.
   };
 
   const stream = new PassThrough();
@@ -58,17 +58,17 @@ test('generateProductionDossierPdf generates an authoritative multi-sheet archit
   assert.ok(pdfText.includes('DWG-002'), 'Must include Sheet 2: Design Brief');
   assert.ok(pdfText.includes('DWG-003'), 'Must include Sheet 3: Key Plan & Floor Plan');
   assert.ok(pdfText.includes('DWG-004'), 'Must include Sheet 4: Master Finishes Matrix');
-  assert.ok(pdfText.includes('DWG-005'), 'Must include Sheet 5: Kitchen Elevation & Joinery');
-  assert.ok(pdfText.includes('DWG-006'), 'Must include Sheet 6: Master Bed Elevation & Joinery');
-  assert.ok(pdfText.includes('DWG-008'), 'Must include Sheet 8: Production BOM & Nesting');
-  assert.ok(pdfText.includes('DWG-009'), 'Must include Sheet 9: Commercial BOQ');
-  assert.ok(pdfText.includes('DWG-010'), 'Must include Sheet 10: 10-Point Site Checklist & Handover');
+  for (const absentSheet of ['DWG-005', 'DWG-006']) {
+    assert.equal(pdfText.includes(absentSheet), false, `${absentSheet} must not be fabricated without source records`);
+  }
+  assert.ok(pdfText.includes('NOT QUOTED'), 'Missing commercial data must be explicit');
+  assert.ok(pdfText.includes('NOT AVAILABLE'), 'Missing nesting yield must be explicit');
 
   // Verify Credentials & Content
   assert.ok(pdfText.includes('SHARMA LUXURY RESIDENCE'), 'Must contain project name');
   assert.ok(pdfText.includes('MR. ROHIT'), 'Must contain client name');
   assert.ok(pdfText.includes('MUSKAN PAREEK'), 'Must contain designer name');
   assert.ok(pdfText.includes('VIKRAM SINGH'), 'Must contain factory production manager');
-  assert.ok(pdfText.includes('SYSTEM 32 JOINERY'), 'Must enforce System 32 joinery standard');
-  assert.ok(pdfText.includes('IS 710'), 'Must cite IS 710 Marine standard');
+  assert.ok(pdfText.includes('Bosch'), 'Must preserve supplied appliance provenance');
+  assert.ok(pdfText.includes('780x510mm'), 'Must preserve supplied appliance dimensions');
 });

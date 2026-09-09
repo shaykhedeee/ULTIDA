@@ -54,7 +54,9 @@ test('generateArchitecturalShopSheetSvg renders full external elevation with car
 
   // Header Banner
   assert.ok(svg.includes('KITCHEN WALL-A EXTERNAL:'));
-  assert.ok(svg.includes('IS 710 / SYSTEM 32 MANUFACTURING SPECIFICATION'));
+  assert.ok(svg.includes('MEASURED GEOMETRY'));
+  assert.ok(svg.includes('Approved site measurement survey S-11'));
+  assert.ok(svg.includes('UNITS: MM'));
 
   // Top View Plan
   assert.ok(svg.includes('TOP VIEW'));
