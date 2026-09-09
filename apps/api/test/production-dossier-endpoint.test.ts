@@ -60,7 +60,8 @@ const sampleScene: SceneV1 = {
     { id: 'p3', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'shelf', name: 'Top Fixed Shelf', widthMm: 2364, depthMm: 560, heightMm: 18, position: { xMm: 518, yMm: 100, zMm: 2100 }, rotationDeg: 0, confidence: 1 },
     { id: 'p4', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'shutter', name: 'Front Shutter Left', widthMm: 590, depthMm: 18, heightMm: 2100, position: { xMm: 500, yMm: 100, zMm: 100 }, rotationDeg: 0, confidence: 1 },
     { id: 'p5', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'shutter', name: 'Front Shutter Right', widthMm: 590, depthMm: 18, heightMm: 2100, position: { xMm: 1095, yMm: 100, zMm: 100 }, rotationDeg: 0, confidence: 1 },
-    { id: 'p6', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'back', name: 'Back Panel 8mm', widthMm: 2200, depthMm: 8, heightMm: 2200, position: { xMm: 518, yMm: 692, zMm: 100 }, rotationDeg: 0, confidence: 1 },
+    { id: 'p6', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'back', name: 'Back Panel Left 8mm', widthMm: 1100, depthMm: 8, heightMm: 2200, position: { xMm: 518, yMm: 692, zMm: 100 }, rotationDeg: 0, confidence: 1 },
+    { id: 'p6b', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'back', name: 'Back Panel Right 8mm', widthMm: 1100, depthMm: 8, heightMm: 2200, position: { xMm: 1618, yMm: 692, zMm: 100 }, rotationDeg: 0, confidence: 1 },
     { id: 'p7', moduleId: 'mod-kitchen-base', roomId: 'r-kitchen', semanticType: 'panel', name: 'Base Carcass Side', widthMm: 850, depthMm: 560, heightMm: 18, position: { xMm: 200, yMm: 100, zMm: 0 }, rotationDeg: 0, confidence: 1 },
     { id: 'p8', moduleId: 'mod-kitchen-base', roomId: 'r-kitchen', semanticType: 'shutter', name: 'Sink Shutter', widthMm: 596, depthMm: 18, heightMm: 720, position: { xMm: 200, yMm: 100, zMm: 100 }, rotationDeg: 0, confidence: 1 },
   ],
@@ -81,6 +82,14 @@ async function withServer<T>(callback: (baseUrl: string) => Promise<T>) {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
+
+test('oversized back panel cannot be nested or silently resized', async () => {
+  const { nestPanels2D } = await import('@ultida/drawing-core');
+  const scene = structuredClone(sampleScene);
+  scene.moduleParts.find(part => part.id === 'p6')!.widthMm = 2200;
+  const snapshot = buildProductionSnapshot(scene);
+  assert.throws(() => nestPanels2D(snapshot.parts), /PANEL_EXCEEDS_USABLE_SHEET:p6:2200x2200/);
+});
 
 test('buildDossierSpecFromContext constructs an authoritative ProductionDossierSpecV1', async () => {
   const mockReq = {

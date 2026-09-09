@@ -566,16 +566,9 @@ export function SpacesWorkspace() {
     const b = bbox(room.polygon);
     const rawW = b.maxX - b.minX;
     const rawD = b.maxY - b.minY;
-    const isHabitable = ['living', 'bedroom', 'master_bedroom', 'kids_bedroom', 'dining', 'kitchen'].includes(room.roomType);
-    let widthMm = rawW;
-    let depthMm = rawD;
-    if (isHabitable && rawD > 0 && rawW / rawD > 4.2 && rawD < 1800) {
-      const minDepth = room.roomType === 'living' ? 3800 : room.roomType.includes('bed') ? 3200 : 2600;
-      depthMm = room.areaSqm > 10 ? Math.max(minDepth, Math.round((room.areaSqm * 1e6) / rawW)) : minDepth;
-    }
-    const effectiveAreaSqm = (widthMm !== rawW || depthMm !== rawD)
-      ? Number(((widthMm * depthMm) / 1e6).toFixed(1))
-      : room.areaSqm;
+    const widthMm = rawW;
+    const depthMm = rawD;
+    const effectiveAreaSqm = polyArea(room.polygon);
     const roomWalls = wallsForRoom(room);
     const roomOpenings = openings.filter(o => roomWalls.some(w => w.id === o.wallId));
     const roomCols = columns.filter(c => c.position.xMm >= b.minX && c.position.xMm <= b.maxX && c.position.yMm >= b.minY && c.position.yMm <= b.maxY);
@@ -633,7 +626,7 @@ export function SpacesWorkspace() {
     const rawHeight = sourceMeta?.heightPx ?? (sourceMeta as any)?.sourceHeight ?? 850;
     // Never invent a pixel calibration. Until the plan is explicitly calibrated,
     // the measured vector geometry remains the only trusted coordinate source.
-    const mmPerPx = sourceMeta?.mmPerPixel ?? (scaleVerified ? undefined : undefined);
+    const mmPerPx = scaleVerified && Number.isFinite(sourceMeta?.mmPerPixel) && sourceMeta!.mmPerPixel! > 0 ? sourceMeta!.mmPerPixel : undefined;
 
     const allPts = [
       ...rooms.flatMap(r => r.polygon),
@@ -643,11 +636,11 @@ export function SpacesWorkspace() {
       return { minX: 0, minY: 0, widthMm: mmPerPx ? rawWidth * mmPerPx : 1000, heightMm: mmPerPx ? rawHeight * mmPerPx : 850 };
     }
     const b = bbox(allPts);
-    const widthMm = mmPerPx ? Math.max(rawWidth * mmPerPx, b.maxX) : b.maxX - b.minX;
-    const heightMm = mmPerPx ? Math.max(rawHeight * mmPerPx, b.maxY) : b.maxY - b.minY;
+    const widthMm = mmPerPx ? rawWidth * mmPerPx : b.maxX - b.minX;
+    const heightMm = mmPerPx ? rawHeight * mmPerPx : b.maxY - b.minY;
     return {
-      minX: Math.min(0, b.minX),
-      minY: Math.min(0, b.minY),
+      minX: mmPerPx ? 0 : b.minX,
+      minY: mmPerPx ? 0 : b.minY,
       widthMm,
       heightMm,
     };
@@ -677,8 +670,13 @@ export function SpacesWorkspace() {
   const pxToMm = (x: number, y: number): Pt => ({ xMm: (x - 30) / view.scale + view.minX, yMm: (y - 30) / view.scale + view.minY });
 
   function svgPoint(e: React.MouseEvent) {
-    const svg = svgRef.current!; const rect = svg.getBoundingClientRect();
-    return pxToMm(e.clientX - rect.left, e.clientY - rect.top);
+    const svg = svgRef.current!;
+    const matrix = svg.getScreenCTM();
+    if (!matrix) throw new Error('The plan canvas is not ready for editing.');
+    const point = svg.createSVGPoint();
+    point.x = e.clientX; point.y = e.clientY;
+    const local = point.matrixTransform(matrix.inverse());
+    return pxToMm(local.x, local.y);
   }
 
   const sel = roomMetrics.find(m => m.room.id === selectedRoom);
@@ -1236,6 +1234,11 @@ export function SpacesWorkspace() {
   }
 
   async function persistRoom(room: PlanRoom, verificationStatus = room.verificationStatus) {
+    const bounds = bbox(room.polygon);
+    if (verificationStatus === 'verified' && (!scaleVerified || needsScaleReview(room, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY))) {
+      setSaveState('Confirm scale and review this room boundary in Floor Plan before approving its measurements.');
+      return;
+    }
     if (!supabase || !projectId) return;
     if (room.spaceRecordId && !room.requiredFurniture.length) {
       setSaveState('Choose at least one required modular category before saving this room.');
@@ -1869,7 +1872,7 @@ export function SpacesWorkspace() {
               </defs>
 
               {/* Floor plan backdrop image overlay - precisely registered in world mm coordinates */}
-              {showPlanOverlay && planPreviewUrl && (
+              {showPlanOverlay && planPreviewUrl && scaleVerified && Number(sourceMeta?.mmPerPixel) > 0 && (
                 <image
                   href={planPreviewUrl}
                   x={toPx({ xMm: sourceDimensionsMm.minX, yMm: sourceDimensionsMm.minY }).x}
@@ -1979,11 +1982,14 @@ export function SpacesWorkspace() {
                 if (!w) return null;
                 const a = toPx(w.start), b = toPx(w.end);
                 const length = wallLen(w) || 1;
-                const centerOffset = Math.max(0, Math.min(length, Number(o.offsetAlongWallMm ?? 0)));
+                const widthMm = Number(o.widthMm);
+                const startOffset = Number(o.offsetAlongWallMm);
+                if (!Number.isFinite(widthMm) || widthMm <= 0 || !Number.isFinite(startOffset) || startOffset < 0 || startOffset + widthMm > length + 0.5) return null;
+                const centerOffset = startOffset;
                 const t = centerOffset / length;
                 const px = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
                 const isDoor = o.kind === 'door';
-                const openingWidthPx = Math.max(14, (o.widthMm || (isDoor ? 900 : 1200)) * view.scale);
+                const openingWidthPx = widthMm * view.scale;
 
                 // Wall direction angle
                 const angle = Math.atan2(b.y - a.y, b.x - a.x);
@@ -1996,6 +2002,8 @@ export function SpacesWorkspace() {
                   const leafEndY = px.y + perpY * leafLength;
                   return (
                     <g key={o.id} className="arch-door-opening">
+                      <title>{`Door · ${widthMm} mm · offset ${startOffset} mm`}</title>
+                      <line x1={px.x} y1={px.y} x2={px.x + Math.cos(angle) * leafLength} y2={px.y + Math.sin(angle) * leafLength} stroke="#fffaf2" strokeWidth={8} />
                       {/* Door Jamb Ticks */}
                       <circle cx={px.x} cy={px.y} r={3} fill="#c97b2c" stroke="#fff" strokeWidth={1} />
                       {/* Door Leaf Open at 90° */}
@@ -2013,14 +2021,14 @@ export function SpacesWorkspace() {
                 }
 
                 // Window with Double-Line Glazing
-                const halfW = openingWidthPx / 2;
-                const wx1 = px.x - Math.cos(angle) * halfW;
-                const wy1 = px.y - Math.sin(angle) * halfW;
-                const wx2 = px.x + Math.cos(angle) * halfW;
-                const wy2 = px.y + Math.sin(angle) * halfW;
+                const wx1 = px.x;
+                const wy1 = px.y;
+                const wx2 = px.x + Math.cos(angle) * openingWidthPx;
+                const wy2 = px.y + Math.sin(angle) * openingWidthPx;
 
                 return (
                   <g key={o.id} className="arch-window-opening">
+                    <title>{`Window · ${widthMm} mm · offset ${startOffset} mm`}</title>
                     {/* Window Opening Cutout Backing */}
                     <line x1={wx1} y1={wy1} x2={wx2} y2={wy2} stroke="#fff" strokeWidth={8} strokeLinecap="square" />
                     {/* Outer Glazing Line */}

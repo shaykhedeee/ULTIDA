@@ -63,7 +63,7 @@ test('visual gateway falls back from OpenAI failure to queued ComfyUI without fa
   }) as typeof fetch;
   try {
     const gateway = createProviderGateway({ OPENAI_API_KEY: 'test-key', COMFYUI_BASE_URL: 'http://comfy.test', COMFYUI_WORKFLOW_JSON: '{"1":{"inputs":{"text":"{{prompt}}"}}}' });
-    const result = await gateway.createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['scene:approved'], referenceAssets: [], masks: [], operation: 'material-swap', style: 'warm contemporary', structuredPrompt: 'approved facts', negativePrompt: 'no geometry changes', promptVersion: PROMPT_VERSIONS.renderDirector, quality: 'review', providerPreference: ['openai', 'comfyui'] });
+    const result = await gateway.createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['scene:approved'], referenceAssets: [], masks: [], operation: 'generate', style: 'warm contemporary', structuredPrompt: 'approved facts', negativePrompt: 'no geometry changes', promptVersion: PROMPT_VERSIONS.renderDirector, quality: 'review', providerPreference: ['openai', 'comfyui'] });
     assert.equal(result.status, 'queued');
     assert.equal('provider' in result ? result.provider : null, 'comfyui');
     assert.deepEqual(result.attemptedProviders, ['openai-dall-e-3', 'comfyui']);
