@@ -1452,6 +1452,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             sceneReady={Boolean(sceneVersionId)}
             sceneApproved={sceneApproved}
             onApproveScene={approveScene}
+            projectId={projectId ?? null}
             review={
               <SceneStudio
                 sceneVersionId={sceneVersionId}
