@@ -23,6 +23,9 @@ export interface ShopDrawingOptions {
   /** A drawing is production-ready only after its source geometry is approved. */
   measurementStatus?: 'measured' | 'derived' | 'reference' | 'unverified';
   revision?: string;
+  selectedModuleId?: string;
+  materialSwatches?: Record<string, string>;
+  activeWallName?: string;
 }
 
 /**

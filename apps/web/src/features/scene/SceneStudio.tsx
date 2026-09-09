@@ -3,10 +3,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import './scene-studio.css';
+
+const gltfLoader = new GLTFLoader();
 
 type Scene = {
   schema: 'scene.v1';
@@ -24,6 +27,7 @@ type Scene = {
     position: { xMm: number; yMm: number };
     rotationDeg: number;
     materialId?: string;
+    glbUrl?: string;
   }>;
   moduleParts: Array<{
     id: string;
@@ -982,6 +986,39 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         boxMesh.receiveShadow = true;
         boxMesh.position.set(0, mod.heightMm / 2, 0);
         modContainer.add(boxMesh);
+      }
+
+      // Asynchronous GLB digital twin upgrade with parametric proxy fallback
+      if (mod.glbUrl) {
+        gltfLoader.load(
+          mod.glbUrl,
+          (gltf) => {
+            const bbox = new THREE.Box3().setFromObject(gltf.scene);
+            const size = bbox.getSize(new THREE.Vector3());
+            if (size.x > 0 && size.y > 0 && size.z > 0) {
+              const scaleX = mod.widthMm / size.x;
+              const scaleY = mod.heightMm / size.y;
+              const scaleZ = mod.depthMm / size.z;
+              gltf.scene.scale.set(scaleX, scaleY, scaleZ);
+              const center = bbox.getCenter(new THREE.Vector3());
+              gltf.scene.position.set(-center.x * scaleX, -bbox.min.y * scaleY, -center.z * scaleZ);
+            }
+            gltf.scene.traverse((child) => {
+              if ((child as THREE.Mesh).isMesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+              }
+            });
+            while (modContainer.children.length > 0) {
+              modContainer.remove(modContainer.children[0]);
+            }
+            modContainer.add(gltf.scene);
+          },
+          undefined,
+          (error) => {
+            console.warn(`GLTF asset failed to load for module ${mod.id}, retaining parametric proxy:`, error);
+          }
+        );
       }
 
       modulesGroup.add(modContainer);

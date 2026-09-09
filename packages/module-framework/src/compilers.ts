@@ -61,6 +61,9 @@ const COMPAT: Record<string, string> = {
 // ── Wardrobe ────────────────────────────────────────────────
 export function compileWardrobe(input: TemplateCompileInput): TemplateCompileResult {
   const p = input.parameters as any;
+  if (p?.isIsland || p?.archetype === 'dressing_island' || p?.archetype === 'jewellery_island' || input.templateVersionId?.includes('island')) {
+    return compileIsland(input);
+  }
   const instanceId = input.instanceId ?? 'wardrobe-1';
   const wallW = input.wall.widthMm, wallH = input.wall.heightMm;
   const totalW = p.totalWidthMm, totalH = p.totalHeightMm ?? 2400, totalD = p.totalDepthMm ?? DEFAULT_WARDROBE_DEPTH_MM;
@@ -190,6 +193,9 @@ export function compilePooja(input: TemplateCompileInput): TemplateCompileResult
 // ── Kitchen (base + upper + countertop) ─────────────────────
 export function compileKitchen(input: TemplateCompileInput): TemplateCompileResult {
   const p = input.parameters as any;
+  if (p?.isIsland || p?.archetype === 'island' || input.templateVersionId?.includes('island')) {
+    return compileIsland(input);
+  }
   const instanceId = input.instanceId ?? 'kitchen-1';
   const wallW = input.wall.widthMm, wallH = input.wall.heightMm;
   const totalW = p.totalWidthMm, baseH = p.baseHeightMm ?? 900, totalD = p.totalDepthMm ?? 600, upperH = p.upperHeightMm ?? 720;
@@ -309,6 +315,355 @@ export function compileFreestandingLighting(input: TemplateCompileInput): Templa
   };
 }
 
+// ── Island (Kitchen Breakfast Waterfall & Wardrobe Dressing Islands) ──
+export function compileIsland(input: TemplateCompileInput): TemplateCompileResult {
+  const p = input.parameters as any;
+  const instanceId = input.instanceId ?? 'island-1';
+  const totalW = Number(p.totalWidthMm ?? 1800);
+  const totalH = Number(p.totalHeightMm ?? 850);
+  const totalD = Number(p.totalDepthMm ?? 900);
+  const isDressing = Boolean(
+    p.islandType === 'dressing' ||
+    p.archetype === 'dressing_island' ||
+    p.archetype === 'jewellery_island' ||
+    input.templateVersionId?.includes('wardrobe') ||
+    input.templateVersionId?.includes('jewellery')
+  );
+
+  const t = DEFAULT_CARCASS_THICKNESS_MM;
+  const parts: Part[] = [];
+  const blocking: string[] = [];
+  const warning: string[] = [];
+
+  if (totalW < 600) blocking.push(`Island width ${totalW}mm is too narrow for modular fabrication.`);
+  if (totalD < 600) warning.push('Island depth < 600mm restricts dual-sided or drawer clearance.');
+
+  if (isDressing) {
+    // ── Luxury Dressing Island (Glass top reveal + velvet jewellery organizers + tandem drawers) ──
+    parts.push({
+      id: `${instanceId}-carcass-bottom`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Dressing Island Base Panel',
+      transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 },
+      size: { widthMm: totalW, depthMm: totalD, heightMm: t },
+      anchor: { face: 'bottom' },
+      meta: {
+        semanticType: 'carcass',
+        parentId: null,
+        materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Carcass Bottom' },
+        drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 },
+        bom: { sku: 'CARCASS-18MM', qty: 1, unit: 'sqm', lengthMm: totalW, widthMm: totalD, thicknessMm: t },
+      },
+    });
+    parts.push({
+      id: `${instanceId}-carcass-left`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Dressing Island Left Gable',
+      transform: { xMm: 0, yMm: 0, zMm: t, rotationDeg: 0 },
+      size: { widthMm: t, depthMm: totalD, heightMm: totalH - t - 30 },
+      anchor: { face: 'left' },
+      meta: {
+        semanticType: 'carcass',
+        parentId: null,
+        materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Carcass Side' },
+        drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 },
+        bom: { sku: 'CARCASS-SIDE-18MM', qty: 1, unit: 'pc', lengthMm: totalD, widthMm: totalH - t - 30, thicknessMm: t },
+      },
+    });
+    parts.push({
+      id: `${instanceId}-carcass-right`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Dressing Island Right Gable',
+      transform: { xMm: totalW - t, yMm: 0, zMm: t, rotationDeg: 0 },
+      size: { widthMm: t, depthMm: totalD, heightMm: totalH - t - 30 },
+      anchor: { face: 'right' },
+      meta: {
+        semanticType: 'carcass',
+        parentId: null,
+        materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Carcass Side' },
+        drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 },
+        bom: { sku: 'CARCASS-SIDE-18MM', qty: 1, unit: 'pc', lengthMm: totalD, widthMm: totalH - t - 30, thicknessMm: t },
+      },
+    });
+    parts.push({
+      id: `${instanceId}-carcass-divider`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Dressing Island Centre Divider',
+      transform: { xMm: totalW / 2 - t / 2, yMm: 0, zMm: t, rotationDeg: 0 },
+      size: { widthMm: t, depthMm: totalD, heightMm: totalH - t - 30 },
+      anchor: { face: 'center' },
+      meta: {
+        semanticType: 'carcass',
+        parentId: null,
+        materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Carcass Partition' },
+        drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 },
+        bom: { sku: 'CARCASS-PARTITION-18MM', qty: 1, unit: 'pc', lengthMm: totalD, widthMm: totalH - t - 30, thicknessMm: t },
+      },
+    });
+
+    const glassThickness = 10;
+    parts.push({
+      id: `${instanceId}-glass-top`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Ultra-Clear Toughened Glass Display Top',
+      transform: { xMm: 0, yMm: 0, zMm: totalH - glassThickness, rotationDeg: 0 },
+      size: { widthMm: totalW, depthMm: totalD, heightMm: glassThickness },
+      anchor: { face: 'top' },
+      meta: {
+        semanticType: 'glass',
+        parentId: null,
+        materialSlot: { id: COMPAT.glass, code: COMPAT.glass, name: 'Toughened Glass Top' },
+        drawing: { layer: 'A-MOD-GLASS', sortOrder: 5 },
+        bom: { sku: 'GLASS-TOP-TOUGHENED-10MM', qty: 1, unit: 'sqm', lengthMm: totalW, widthMm: totalD, thicknessMm: glassThickness },
+      },
+    });
+    parts.push({
+      id: `${instanceId}-glass-reveal-profile`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Brushed Brass Recessed Reveal Lip Profile',
+      transform: { xMm: 0, yMm: 0, zMm: totalH - 30, rotationDeg: 0 },
+      size: { widthMm: totalW, depthMm: totalD, heightMm: 20 },
+      anchor: { face: 'top' },
+      meta: {
+        semanticType: 'profile',
+        parentId: null,
+        materialSlot: { id: 'mat-brass-satin', code: 'BRASS', name: 'Profile Reveal' },
+        drawing: { layer: 'A-MOD-PROFILE', sortOrder: 4 },
+        bom: { sku: 'ALU-REVEAL-PROFILE', qty: 1, unit: 'pc', lengthMm: (totalW + totalD) * 2 },
+      },
+    });
+
+    const bayW = (totalW - t * 3) / 2;
+    for (let bay = 0; bay < 2; bay++) {
+      const bayX = t + bay * (bayW + t);
+      parts.push({
+        id: `${instanceId}-jewellery-organizer-bay-${bay + 1}`,
+        templateVersionId: input.templateVersionId,
+        instanceId,
+        name: `Velvet-Lined Jewellery & Watch Organiser Bay ${bay + 1}`,
+        transform: { xMm: bayX, yMm: 20, zMm: totalH - 120, rotationDeg: 0 },
+        size: { widthMm: bayW, depthMm: totalD - 40, heightMm: 80 },
+        anchor: { face: 'front' },
+        meta: {
+          semanticType: 'drawer',
+          parentId: `${instanceId}-carcass-bottom`,
+          materialSlot: { id: 'mat-velvet-slate', code: 'VELVET', name: 'Jewellery Velvet Insert' },
+          drawing: { layer: 'A-MOD-DRAWER', sortOrder: 3 },
+          bom: { sku: 'JEWELLERY-VELVET-ORGANIZER', qty: 1, unit: 'set', lengthMm: bayW, widthMm: totalD - 40, heightMm: 80 },
+        },
+      });
+
+      const lowerDrawerCount = Math.max(2, p.drawerCount ?? 3);
+      const remainingH = totalH - 140 - t;
+      const lowerDrawerH = remainingH / lowerDrawerCount;
+      for (let d = 0; d < lowerDrawerCount; d++) {
+        parts.push({
+          id: `${instanceId}-tandem-drawer-bay-${bay + 1}-${d + 1}`,
+          templateVersionId: input.templateVersionId,
+          instanceId,
+          name: `Soft-Close Tandem Drawer Bay ${bay + 1} Tier ${d + 1}`,
+          transform: { xMm: bayX, yMm: 0, zMm: t + d * lowerDrawerH, rotationDeg: 0 },
+          size: { widthMm: bayW, depthMm: totalD - 30, heightMm: lowerDrawerH - 4 },
+          anchor: { face: 'front' },
+          meta: {
+            semanticType: 'drawer',
+            parentId: `${instanceId}-carcass-bottom`,
+            materialSlot: { id: COMPAT.shutter, code: COMPAT.shutter, name: 'Drawer Front' },
+            drawing: { layer: 'A-MOD-DRAWER', sortOrder: 3 },
+            bom: { sku: 'WARDROBE-TANDEM-DRAWER', qty: 1, unit: 'pc', lengthMm: bayW, widthMm: totalD - 30, heightMm: lowerDrawerH - 4, thicknessMm: t },
+          },
+        });
+      }
+    }
+    parts.push(...compileLightingElements(input, { family: 'wardrobe' }));
+  } else {
+    // ── Gourmet Kitchen / Breakfast Island with Waterfall Stone & Stool Overhang ──
+    const overhangMm = Math.max(250, Number(p.overhangMm ?? 300));
+    const storageDepth = totalD - overhangMm;
+    const stoneThick = 40;
+    const baseH = totalH - stoneThick;
+
+    parts.push({
+      id: `${instanceId}-island-base`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Island Carcass Base Bottom',
+      transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 },
+      size: { widthMm: totalW, depthMm: storageDepth, heightMm: t },
+      anchor: { face: 'bottom' },
+      meta: {
+        semanticType: 'carcass',
+        parentId: null,
+        materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Island Base' },
+        drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 },
+        bom: { sku: 'CARCASS-18MM', qty: 1, unit: 'sqm', lengthMm: totalW, widthMm: storageDepth, thicknessMm: t },
+      },
+    });
+
+    parts.push({
+      id: `${instanceId}-carcass-left`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Island Carcass Left Gable',
+      transform: { xMm: 0, yMm: 0, zMm: t, rotationDeg: 0 },
+      size: { widthMm: t, depthMm: storageDepth, heightMm: baseH - t },
+      anchor: { face: 'left' },
+      meta: {
+        semanticType: 'carcass',
+        parentId: null,
+        materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Carcass Side' },
+        drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 },
+        bom: { sku: 'CARCASS-SIDE-18MM', qty: 1, unit: 'pc', lengthMm: storageDepth, widthMm: baseH - t, thicknessMm: t },
+      },
+    });
+    parts.push({
+      id: `${instanceId}-carcass-right`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Island Carcass Right Gable',
+      transform: { xMm: totalW - t, yMm: 0, zMm: t, rotationDeg: 0 },
+      size: { widthMm: t, depthMm: storageDepth, heightMm: baseH - t },
+      anchor: { face: 'right' },
+      meta: {
+        semanticType: 'carcass',
+        parentId: null,
+        materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Carcass Side' },
+        drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 },
+        bom: { sku: 'CARCASS-SIDE-18MM', qty: 1, unit: 'pc', lengthMm: storageDepth, widthMm: baseH - t, thicknessMm: t },
+      },
+    });
+
+    parts.push({
+      id: `${instanceId}-island-divider`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Double-Sided Carcass Dividing Spine',
+      transform: { xMm: t, yMm: storageDepth - t, zMm: t, rotationDeg: 0 },
+      size: { widthMm: totalW - t * 2, depthMm: t, heightMm: baseH - t },
+      anchor: { face: 'back' },
+      meta: {
+        semanticType: 'carcass',
+        parentId: null,
+        materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Divider Spine' },
+        drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 },
+        bom: { sku: 'CARCASS-SPINE-18MM', qty: 1, unit: 'sqm', lengthMm: totalW - t * 2, widthMm: baseH - t, thicknessMm: t },
+      },
+    });
+
+    const bayCount = Math.max(2, Math.round(totalW / 600));
+    const bayW = (totalW - (bayCount + 1) * t) / bayCount;
+    for (let b = 0; b < bayCount; b++) {
+      const bX = t + b * (bayW + t);
+      const drawerH = (baseH - t * 2) / 2;
+      for (let d = 0; d < 2; d++) {
+        parts.push({
+          id: `${instanceId}-front-drawer-${b + 1}-${d + 1}`,
+          templateVersionId: input.templateVersionId,
+          instanceId,
+          name: `Island Prep Tandem Drawer Bay ${b + 1} Tier ${d + 1}`,
+          transform: { xMm: bX, yMm: 0, zMm: t + d * drawerH, rotationDeg: 0 },
+          size: { widthMm: bayW, depthMm: storageDepth - 40, heightMm: drawerH - 4 },
+          anchor: { face: 'front' },
+          meta: {
+            semanticType: 'drawer',
+            parentId: `${instanceId}-island-base`,
+            materialSlot: { id: COMPAT.shutter, code: COMPAT.shutter, name: 'Drawer Front' },
+            drawing: { layer: 'A-MOD-DRAWER', sortOrder: 2 },
+            bom: { sku: 'ISLAND-TANDEM-DRAWER', qty: 1, unit: 'pc', lengthMm: bayW, widthMm: storageDepth - 40, heightMm: drawerH - 4, thicknessMm: t },
+          },
+        });
+      }
+    }
+
+    // Waterfall Countertop Slabs
+    parts.push({
+      id: `${instanceId}-countertop-top`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: '40mm Waterfall Sintered Stone Top Slab',
+      transform: { xMm: 0, yMm: 0, zMm: baseH, rotationDeg: 0 },
+      size: { widthMm: totalW, depthMm: totalD, heightMm: stoneThick },
+      anchor: { face: 'top' },
+      meta: {
+        semanticType: 'countertop',
+        parentId: null,
+        materialSlot: { id: COMPAT.counter, code: COMPAT.counter, name: 'Countertop Stone' },
+        drawing: { layer: 'A-MOD-COUNTER', sortOrder: 4 },
+        bom: { sku: 'SINTERED-WATERFALL-TOP-40MM', qty: 1, unit: 'sqm', lengthMm: totalW, widthMm: totalD, thicknessMm: stoneThick },
+      },
+    });
+
+    parts.push({
+      id: `${instanceId}-countertop-waterfall-left`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Left Vertical Waterfall Mitred Stone Slab',
+      transform: { xMm: -stoneThick, yMm: 0, zMm: 0, rotationDeg: 0 },
+      size: { widthMm: stoneThick, depthMm: totalD, heightMm: totalH },
+      anchor: { face: 'left' },
+      meta: {
+        semanticType: 'countertop',
+        parentId: null,
+        materialSlot: { id: COMPAT.counter, code: COMPAT.counter, name: 'Waterfall Slab' },
+        drawing: { layer: 'A-MOD-COUNTER', sortOrder: 4 },
+        bom: { sku: 'SINTERED-WATERFALL-LEG-40MM', qty: 1, unit: 'sqm', lengthMm: totalD, widthMm: totalH, thicknessMm: stoneThick },
+      },
+    });
+
+    parts.push({
+      id: `${instanceId}-countertop-waterfall-right`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: 'Right Vertical Waterfall Mitred Stone Slab',
+      transform: { xMm: totalW, yMm: 0, zMm: 0, rotationDeg: 0 },
+      size: { widthMm: stoneThick, depthMm: totalD, heightMm: totalH },
+      anchor: { face: 'right' },
+      meta: {
+        semanticType: 'countertop',
+        parentId: null,
+        materialSlot: { id: COMPAT.counter, code: COMPAT.counter, name: 'Waterfall Slab' },
+        drawing: { layer: 'A-MOD-COUNTER', sortOrder: 4 },
+        bom: { sku: 'SINTERED-WATERFALL-LEG-40MM', qty: 1, unit: 'sqm', lengthMm: totalD, widthMm: totalH, thicknessMm: stoneThick },
+      },
+    });
+
+    // Cantilever Overhang Supports
+    parts.push({
+      id: `${instanceId}-overhang-supports`,
+      templateVersionId: input.templateVersionId,
+      instanceId,
+      name: '300mm Breakfast Stool Cantilever Steel Support Rails',
+      transform: { xMm: 100, yMm: storageDepth, zMm: baseH - 40, rotationDeg: 0 },
+      size: { widthMm: totalW - 200, depthMm: overhangMm - 20, heightMm: 30 },
+      anchor: { face: 'center' },
+      meta: {
+        semanticType: 'hardware',
+        parentId: null,
+        materialSlot: { id: COMPAT.hardware, code: COMPAT.hardware, name: 'Structural Cleats' },
+        drawing: { layer: 'A-ANNO-HARDWARE', sortOrder: 5 },
+        bom: { sku: 'HW-ISLAND-OVERHANG-BRACKET', qty: 2, unit: 'pc', lengthMm: overhangMm },
+      },
+    });
+    parts.push(...compileLightingElements(input, { family: 'kitchen' }));
+  }
+
+  return {
+    templateVersionId: input.templateVersionId,
+    instanceId,
+    valid: blocking.length === 0,
+    blockingViolations: blocking,
+    warningViolations: warning,
+    parts,
+    elements: parts,
+  };
+}
+
 export const COMPILER_REGISTRY: Record<CategoryType, (input: TemplateCompileInput) => TemplateCompileResult> = {
   tv_unit: (i) => compileTvUnitFromRegistry(i),
   wardrobe: compileWardrobe,
@@ -319,6 +674,7 @@ export const COMPILER_REGISTRY: Record<CategoryType, (input: TemplateCompileInpu
   bed: compileBed,
   utility: compileUtility,
   freestanding_lighting: compileFreestandingLighting,
+  island: compileIsland,
 };
 
 // re-import to avoid circular at top
@@ -326,3 +682,4 @@ import { compileTvUnit } from './tv-unit-compiler.js';
 function compileTvUnitFromRegistry(i: TemplateCompileInput) { return compileTvUnit(i); }
 
 export type ModuleCompiler = (input: TemplateCompileInput) => TemplateCompileResult;
+

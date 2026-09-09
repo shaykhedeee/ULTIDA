@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { IndianModularCatalog, validatePlacement, RoomTypeSchema, listCatalog } from '../src/index.js';
+import { IndianModularCatalog, validatePlacement, RoomTypeSchema, listCatalog } from '../dist/index.js';
 
 function mmToFeetInches(mm: number): string {
   const totalInches = Math.round(mm / 25.4);
@@ -70,3 +70,52 @@ test('Dual unit conversions produce accurate architectural imperial and metric v
   assert.equal(sqmToSqft((9140 * 4200) / 1e6), 413);
   assert.equal(sqmToSqft(12), 129);
 });
+
+test('GLB metadata validator correctly verifies dimensions, poly limits, and storage conventions', async () => {
+  const { validateGlbModelMetadata, buildGlbStoragePath, generateSignedGlbUrl } = await import('../dist/index.js');
+
+  const validGlb = validateGlbModelMetadata({
+    declaredDimensionsMm: { width: 600, depth: 600, height: 750 },
+    boundingBoxMm: { width: 601, depth: 599.5, height: 751 },
+    polyCount: 12500,
+    materialSlotNames: ['carcass', 'shutter', 'hardware'],
+  });
+  assert.equal(validGlb.valid, true);
+  assert.equal(validGlb.lodTier, 'lod1');
+
+  const oversizedPolys = validateGlbModelMetadata({
+    declaredDimensionsMm: { width: 600, depth: 600, height: 750 },
+    boundingBoxMm: { width: 600, depth: 600, height: 750 },
+    polyCount: 85000,
+    materialSlotNames: ['carcass', 'shutter'],
+  });
+  assert.equal(oversizedPolys.valid, false);
+  assert.ok(oversizedPolys.errors[0].includes('exceeds maximum allowed threshold'));
+
+  const storageKey = buildGlbStoragePath('org-123', 'mod-wardrobe', 'v1');
+  assert.equal(storageKey, 'catalog/org-123/mod-wardrobe/v1/model.glb');
+
+  const signedUrl = generateSignedGlbUrl(storageKey, 60);
+  assert.ok(signedUrl.includes('catalog/org-123/mod-wardrobe/v1/model.glb'));
+  assert.ok(signedUrl.includes('signed=true'));
+});
+
+test('W06 panel schedule generator outputs certified panels with System 32 boring', async () => {
+  const { generateW06PanelSchedule, IndianModularCatalog } = await import('../dist/index.js');
+  const base600 = IndianModularCatalog.find((m) => m.id === 'kit-base-600')!;
+  assert.ok(base600);
+
+  const panels = generateW06PanelSchedule(base600);
+  assert.ok(panels.length >= 5, 'Base module must have gables, base, top, back, and shutters');
+
+  const leftGable = panels.find((p) => p.partId.includes('GBL-L'));
+  assert.ok(leftGable);
+  assert.equal(leftGable.system32Boring, true);
+  assert.equal(leftGable.thicknessMm, 18);
+
+  const shutter = panels.find((p) => p.partId.includes('SHT'));
+  assert.ok(shutter);
+  assert.equal(shutter.role, 'shutter');
+  assert.ok((shutter.hingeBores?.length ?? 0) >= 2);
+});
+

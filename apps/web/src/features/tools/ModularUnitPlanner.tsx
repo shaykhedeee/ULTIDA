@@ -88,6 +88,26 @@ function generateModuleDxf(name: string, sku: string, w: number, d: number, h: n
   return lines.join('\r\n');
 }
 
+function generateModuleCutlistCsv(name: string, sku: string, w: number, d: number, h: number): string {
+  const shutterCount = w >= 600 ? 2 : 1;
+  const shutterW = Math.round((w / shutterCount) - 2);
+  const shutterH = Math.round(h - 104);
+  const rows = [
+    ['Part Name', 'Qty', 'Cut Length (mm)', 'Cut Width (mm)', 'Thickness (mm)', 'Core Material', 'Surface Finish', 'Edgeband Exposed (mm)', 'Notes'],
+    ['Left Gable End', '1', String(h - 100), String(d), '18', 'HDHMR Green Core', 'Balancing Liner', '2.0mm ABS', 'System 32 hole line at 37mm datum'],
+    ['Right Gable End', '1', String(h - 100), String(d), '18', 'HDHMR Green Core', 'Balancing Liner', '2.0mm ABS', 'System 32 hole line at 37mm datum'],
+    ['Bottom Base Panel', '1', String(w - 36), String(d), '18', 'HDHMR Green Core', 'Balancing Liner', '1.0mm PVC', 'Rebated for 6mm back'],
+    ['Top Tie Rail Front', '1', String(w - 36), '100', '18', 'HDHMR Green Core', 'Balancing Liner', '1.0mm PVC', 'Countertop screw fixing holes'],
+    ['Top Tie Rail Rear', '1', String(w - 36), '100', '18', 'HDHMR Green Core', 'Balancing Liner', '1.0mm PVC', 'Wall anchor bracket anchor'],
+    ['Back Panel (Grooved)', '1', String(w - 24), String(h - 110), '6', 'MDF / HDF White', 'Pre-Laminated', 'None', 'Slid into 6x8mm groove'],
+    ['System 32 Shelf', '2', String(w - 36), String(d - 20), '18', 'HDHMR Green Core', 'Suede Laminate', '1.0mm PVC all 4 sides', 'Rested on Ø5mm brass shelf studs'],
+    ...Array.from({ length: shutterCount }).map((_, i) => [
+      `Fascia Shutter ${i + 1}`, '1', String(shutterH), String(shutterW), '18', 'HDHMR Green Core', '1.0mm Acrylic / Fluted PU', '2.0mm ABS matching edge', '35mm cup hinge boring at 100mm from top/bottom'
+    ])
+  ];
+  return rows.map((r) => r.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(',')).join('\r\n');
+}
+
 export function ModularUnitPlanner() {
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<'configurator' | 'elevation' | 'cad_sheet'>('configurator');
@@ -152,6 +172,56 @@ export function ModularUnitPlanner() {
     const link = document.createElement('a'); link.href = url; link.download = `${selected.id}-initial-design.json`; link.click(); URL.revokeObjectURL(url);
     setStatus('Initial Design specification downloaded. It is not a fabrication release until placed and verified in a project.');
   }
+  const [showProjectPicker, setShowProjectPicker] = useState(false);
+  const [availableProjects, setAvailableProjects] = useState<Array<{ id: string; name: string; client_name?: string; updated_at?: string }>>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+
+  async function openProjectPicker() {
+    if (!selected || !ready) return;
+    setShowProjectPicker(true);
+    setLoadingProjects(true);
+    try {
+      const res = await fetch(`${apiBase()}/projects`);
+      const data = await res.json().catch(() => null);
+      if (res.ok && Array.isArray(data?.projects) && data.projects.length > 0) {
+        setAvailableProjects(data.projects);
+      } else {
+        const local = JSON.parse(window.localStorage.getItem('ultida_local_projects') ?? '[]');
+        if (Array.isArray(local) && local.length > 0) {
+          setAvailableProjects(local);
+        } else {
+          setAvailableProjects([{ id: 'demo-villa-5bhk', name: 'Alibaug Luxury 5BHK Villa', client_name: 'Dr. Singhania' }]);
+        }
+      }
+    } catch {
+      const local = JSON.parse(window.localStorage.getItem('ultida_local_projects') ?? '[]');
+      if (Array.isArray(local) && local.length > 0) {
+        setAvailableProjects(local);
+      } else {
+        setAvailableProjects([{ id: 'demo-villa-5bhk', name: 'Alibaug Luxury 5BHK Villa', client_name: 'Dr. Singhania' }]);
+      }
+    } finally {
+      setLoadingProjects(false);
+    }
+  }
+
+  function dispatchToProject(targetProjectId: string, targetProjectName: string) {
+    if (!selected || !ready) return;
+    const prepared: PreparedModulePlan = {
+      schema: 'ultida.module-plan.v1',
+      templateId: selected.id,
+      family: selected.family,
+      name: selected.name,
+      dimensionsMm: { width, depth, height },
+      wallWidthMm: wallWidth,
+      clearanceMm: clearance,
+    };
+    window.localStorage.setItem('ultida.pendingModulePlan.v1', JSON.stringify(prepared));
+    setStatus(`Direct-dispatched ${selected.name} to ${targetProjectName}. Directing to space configuration…`);
+    setShowProjectPicker(false);
+    navigate(`/projects/${targetProjectId}/spaces?tab=modules&placed=1`);
+  }
+
   function prepareProjectPlacement() {
     if (!selected || !ready) return;
     const prepared: PreparedModulePlan = {
@@ -253,6 +323,27 @@ export function ModularUnitPlanner() {
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'linear-gradient(135deg, #0284c7, #0369a1)', color: '#fff', border: 0, borderRadius: 7, fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
             >
               <Download size={14} /> Download AutoCAD DXF (.dxf)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selected) return;
+                const activeW = width || selected.widthMm;
+                const activeD = depth || selected.depthMm;
+                const activeH = height || selected.heightMm;
+                const csvContent = generateModuleCutlistCsv(selected.name, selected.sku, activeW, activeD, activeH);
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${selected.sku || selected.id}-cutlist.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+                setStatus(`Exported CAM production cutlist (.csv) for ${selected.name}.`);
+              }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'linear-gradient(135deg, #059669, #047857)', color: '#fff', border: 0, borderRadius: 7, fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
+            >
+              <Download size={14} /> Export CAM Cutlist (.csv)
             </button>
           </div>
         </div>
@@ -378,8 +469,134 @@ export function ModularUnitPlanner() {
     ) : (
       <div className="module-planner-layout">
         <aside className="module-family-rail"><strong><Box size={16} /> Module families</strong><button className={family === 'all' ? 'active' : ''} onClick={() => setFamily('all')}>All templates <span>{modules.length}</span></button>{families.map((item) => <button key={item} className={family === item ? 'active' : ''} onClick={() => setFamily(item)}>{label(item)} <span>{modules.filter((module) => module.family === item).length}</span></button>)}</aside>
-        <section className="module-catalog"><label className="module-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search TV walls, crockery, wardrobes…" /></label><div className="module-library-filters"><label>Room<select value={room} onChange={(event) => setRoom(event.target.value)}><option value="all">All rooms</option>{rooms.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></label><label>Release<select value={certification} onChange={(event) => setCertification(event.target.value as typeof certification)}><option value="all">All releases</option><option value="production">Production certified</option><option value="visual">Visual draft</option></select></label><span>{visible.length} of {modules.length} modules</span></div><div className="module-card-grid">{visible.map((item) => { const certified = item.production.cutlistSupported && item.production.hardwareSchedule; return <article key={item.id} className={`module-catalog-card ${selectedId === item.id ? 'selected' : ''}`}><button type="button" className="module-card-select" onClick={() => { setSelectedId(item.id); window.localStorage.setItem('ultida_library_recent', item.id); }}><ModulePreview module={item} compact /><span className="module-card-family">{label(item.family)}</span><strong>{item.name}</strong><small>{item.widthMm}W × {item.depthMm}D × {item.heightMm}H mm</small><em>{item.roomTypes.join(' · ')}</em><span className={`module-certification ${certified ? 'certified' : 'visual'}`}>{certified ? 'Production certified' : 'Visual draft'}</span></button><button type="button" className={`module-favorite ${favorites.includes(item.id) ? 'active' : ''}`} aria-label={`${favorites.includes(item.id) ? 'Remove' : 'Add'} ${item.name} ${favorites.includes(item.id) ? 'from' : 'to'} favorites`} onClick={() => toggleFavorite(item.id)}>★</button></article>; })}</div>{!visible.length && <div className="module-empty">No modules match this search. Clear a filter or try a different room or unit name.</div>}</section>
-        <aside className="module-config">{selected ? <><div className="module-config-heading"><span><SlidersHorizontal size={17} /> CONFIGURE</span><h2>{selected.name}</h2><p>{selected.description ?? 'A production-aware modular template.'}</p></div><ModulePreview module={{ ...selected, widthMm: width || selected.widthMm, depthMm: depth || selected.depthMm, heightMm: height || selected.heightMm }} /><div className="module-input-grid"><label>Width (mm)<input type="number" min="300" value={width} onChange={(event) => setWidth(Number(event.target.value))} /></label><label>Depth (mm)<input type="number" min="250" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /></label><label>Height (mm)<input type="number" min="300" value={height} onChange={(event) => setHeight(Number(event.target.value))} /></label><label>Available wall (mm)<input type="number" min="300" value={wallWidth} onChange={(event) => setWallWidth(Number(event.target.value))} /></label><label>Clear circulation (mm)<input type="number" min="0" value={clearance} onChange={(event) => setClearance(Number(event.target.value))} /></label></div><div className={`module-fit ${ready ? 'ready' : 'blocked'}`}><strong>{ready ? <><CheckCircle2 size={15} /> Fits the entered planning envelope</> : <><TriangleAlert size={15} /> Needs adjustment</>}</strong><ul>{ready ? <li>Initial Design specification can be prepared. Site verification remains required for production.</li> : issues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div><div className="module-production"><strong>Production notes</strong><ul>{(selected.manufacturingRules ?? ['Confirm wall, opening and service geometry in the project before production.']).map((rule) => <li key={rule}>{rule}</li>)}</ul></div><div className="module-actions"><button disabled={!ready} onClick={copySpecification}><Clipboard size={15} /> Copy specification</button><button disabled={!ready} onClick={downloadSpecification}><Download size={15} /> Download initial brief</button><button className="project" disabled={!ready} onClick={prepareProjectPlacement}><FilePlus2 size={15} /> Place in a project</button></div></> : <div className="module-empty">Choose a template to configure it.</div>}</aside>
+        <section className="module-catalog">
+          <label className="module-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search TV walls, crockery, wardrobes…" /></label>
+          
+          {/* Quick Family Filter Chips */}
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '4px 0 10px', scrollbarWidth: 'none' }}>
+            {[
+              { label: 'All', icon: '✨', onClick: () => { setFamily('all'); setRoom('all'); setQuery(''); } },
+              { label: 'Islands', icon: '🏝️', onClick: () => { setQuery('island'); setFamily('all'); setRoom('all'); } },
+              { label: 'Bars & Credenzas', icon: '🍸', onClick: () => { setQuery('bar'); setFamily('all'); setRoom('all'); } },
+              { label: 'Sacred Pooja', icon: '🪔', onClick: () => { setFamily('pooja'); setRoom('all'); setQuery(''); } },
+              { label: 'Executive Study', icon: '📚', onClick: () => { setFamily('study'); setRoom('all'); setQuery(''); } },
+              { label: 'Walk-In Closets', icon: '👗', onClick: () => { setQuery('walk-in'); setFamily('all'); setRoom('all'); } },
+              { label: 'Media Walls', icon: '📺', onClick: () => { setFamily('tv-unit'); setRoom('all'); setQuery(''); } },
+            ].map((qf) => (
+              <button
+                key={qf.label}
+                type="button"
+                onClick={qf.onClick}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '5px 12px',
+                  borderRadius: 20,
+                  background: '#f5f5f4',
+                  border: '1px solid #d6d3d1',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: '#292524',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span>{qf.icon}</span> {qf.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="module-library-filters"><label>Room<select value={room} onChange={(event) => setRoom(event.target.value)}><option value="all">All rooms</option>{rooms.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></label><label>Release<select value={certification} onChange={(event) => setCertification(event.target.value as typeof certification)}><option value="all">All releases</option><option value="production">Production certified</option><option value="visual">Visual draft</option></select></label><span>{visible.length} of {modules.length} modules</span></div><div className="module-card-grid">{visible.map((item) => { const certified = item.production.cutlistSupported && item.production.hardwareSchedule; return <article key={item.id} className={`module-catalog-card ${selectedId === item.id ? 'selected' : ''}`}><button type="button" className="module-card-select" onClick={() => { setSelectedId(item.id); window.localStorage.setItem('ultida_library_recent', item.id); }}><ModulePreview module={item} compact /><span className="module-card-family">{label(item.family)}</span><strong>{item.name}</strong><small>{item.widthMm}W × {item.depthMm}D × {item.heightMm}H mm</small><em>{item.roomTypes.join(' · ')}</em><span className={`module-certification ${certified ? 'certified' : 'visual'}`}>{certified ? 'Production certified' : 'Visual draft'}</span></button><button type="button" className={`module-favorite ${favorites.includes(item.id) ? 'active' : ''}`} aria-label={`${favorites.includes(item.id) ? 'Remove' : 'Add'} ${item.name} ${favorites.includes(item.id) ? 'from' : 'to'} favorites`} onClick={() => toggleFavorite(item.id)}>★</button></article>; })}</div>{!visible.length && <div className="module-empty">No modules match this search. Clear a filter or try a different room or unit name.</div>}</section>
+        <aside className="module-config">{selected ? <><div className="module-config-heading"><span><SlidersHorizontal size={17} /> CONFIGURE</span><h2>{selected.name}</h2><p>{selected.description ?? 'A production-aware modular template.'}</p></div><ModulePreview module={{ ...selected, widthMm: width || selected.widthMm, depthMm: depth || selected.depthMm, heightMm: height || selected.heightMm }} /><div className="module-input-grid"><label>Width (mm)<input type="number" min="300" value={width} onChange={(event) => setWidth(Number(event.target.value))} /></label><label>Depth (mm)<input type="number" min="250" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /></label><label>Height (mm)<input type="number" min="300" value={height} onChange={(event) => setHeight(Number(event.target.value))} /></label><label>Available wall (mm)<input type="number" min="300" value={wallWidth} onChange={(event) => setWallWidth(Number(event.target.value))} /></label><label>Clear circulation (mm)<input type="number" min="0" value={clearance} onChange={(event) => setClearance(Number(event.target.value))} /></label></div><div className={`module-fit ${ready ? 'ready' : 'blocked'}`}><strong>{ready ? <><CheckCircle2 size={15} /> Fits the entered planning envelope</> : <><TriangleAlert size={15} /> Needs adjustment</>}</strong><ul>{ready ? <li>Initial Design specification can be prepared. Site verification remains required for production.</li> : issues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div><div className="module-production"><strong>Production notes</strong><ul>{(selected.manufacturingRules ?? ['Confirm wall, opening and service geometry in the project before production.']).map((rule) => <li key={rule}>{rule}</li>)}</ul></div><div className="module-actions"><button disabled={!ready} onClick={copySpecification}><Clipboard size={15} /> Copy specification</button><button disabled={!ready} onClick={downloadSpecification}><Download size={15} /> Download initial brief</button><button className="project" disabled={!ready} onClick={openProjectPicker}><FilePlus2 size={15} /> Place in a project</button></div></> : <div className="module-empty">Choose a template to configure it.</div>}</aside>
+      </div>
+    )}
+
+    {/* Target Project Selection Modal */}
+    {showProjectPicker && (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+      }}>
+        <div style={{
+          background: '#1c1917', border: '1px solid #332d29', borderRadius: 16, padding: 24,
+          maxWidth: 540, width: '100%', color: '#f5f0e8', display: 'flex', flexDirection: 'column', gap: 16,
+          boxShadow: '0 20px 40px rgba(0,0,0,0.5)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #332d29', paddingBottom: 12 }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#34d399' }}>Direct-Dispatch to Project</h3>
+              <p style={{ margin: '4px 0 0', fontSize: 12, color: '#a8a29e' }}>
+                Select target project to place <strong>{selected?.name}</strong> ({width || selected?.widthMm}W × {depth || selected?.depthMm}D × {height || selected?.heightMm}H mm)
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowProjectPicker(false)}
+              style={{ background: 'transparent', border: 0, color: '#78716c', cursor: 'pointer', fontSize: 18, fontWeight: 'bold' }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {loadingProjects ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24, color: '#a8a29e', fontSize: 13 }}>
+                <Loader2 className="ultida-spinner" size={16} /> Loading studio projects…
+              </div>
+            ) : availableProjects.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 20, color: '#78716c', fontSize: 13 }}>
+                No existing projects found. Start a new project to place this unit.
+              </div>
+            ) : (
+              availableProjects.map((p) => (
+                <div
+                  key={p.id}
+                  onClick={() => dispatchToProject(p.id, p.name)}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '12px 14px', background: '#292524', border: '1px solid #44403c', borderRadius: 8,
+                    cursor: 'pointer', transition: 'all 0.15s'
+                  }}
+                >
+                  <div>
+                    <strong style={{ fontSize: 13, color: '#fff', display: 'block' }}>{p.name}</strong>
+                    <small style={{ color: '#a8a29e', fontSize: 11 }}>{p.client_name ? `Client: ${p.client_name}` : 'Active Project'}</small>
+                  </div>
+                  <button
+                    type="button"
+                    style={{
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      color: '#000', border: 0, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700
+                    }}
+                  >
+                    Place Here →
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #332d29', paddingTop: 12 }}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowProjectPicker(false);
+                prepareProjectPlacement();
+              }}
+              style={{ background: 'transparent', border: 0, color: '#38bdf8', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
+            >
+              + Create New Project Instead
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowProjectPicker(false)}
+              style={{ background: '#292524', border: '1px solid #44403c', color: '#a8a29e', borderRadius: 6, padding: '6px 14px', fontSize: 12, cursor: 'pointer' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       </div>
     )}
   </main>;

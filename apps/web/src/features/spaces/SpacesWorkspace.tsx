@@ -8,7 +8,7 @@ import {
   Home, CheckCircle2, Circle, Edit3, AlertTriangle, Layers, Ruler, Square, SplitSquareHorizontal,
   Merge, Columns, Plug, DoorOpen, Pencil, Undo2, Redo2, Eye, EyeOff, Sparkles,
   MapPin, TriangleAlert, Save, Plus, X, Maximize, ArrowRight, ArrowLeft, LayoutGrid, Sofa,
-  BookOpen, Search, Image as ImageIcon, Sliders, Check, Wand2, Info, ChevronRight, Compass, Download
+  BookOpen, Search, Image as ImageIcon, Sliders, Check, Wand2, Info, ChevronRight, Compass, Download, Grid
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -29,7 +29,8 @@ import TopViewFloorplanEnhancer, {
   type VastuFinding,
 } from '../../components/spaces/TopViewFloorplanEnhancer';
 import WallBayEditor from '../../components/spaces/WallBayEditor';
-import { type CompositionScheduleV1 } from '@ultida/contracts';
+import FlooringStudio, { TILE_PRESETS } from '../../components/spaces/FlooringStudio';
+import { type CompositionScheduleV1, type FloorSurfaceV1 } from '@ultida/contracts';
 import { getApiBase } from '../../lib/api-base';
 import './spaces.css';
 
@@ -255,7 +256,14 @@ const CEILING_PRESETS = [
   { id: 'exposed_industrial', name: 'Exposed Concrete Loft Ceiling', desc: 'Modern industrial aesthetic' },
 ];
 
-function getFloorPatternId(finish?: string) {
+function getFloorPatternId(finish?: string, surface?: FloorSurfaceV1) {
+  if (surface?.materialVersionId) {
+    const matId = surface.materialVersionId.toLowerCase();
+    if (matId.includes('statuario') || matId.includes('marble')) return 'floor-statuario';
+    if (matId.includes('oak') || matId.includes('walnut') || matId.includes('wood')) return 'floor-wood';
+    if (matId.includes('terrazzo')) return 'floor-terrazzo';
+    if (matId.includes('tile') || matId.includes('slate') || matId.includes('ash')) return 'floor-tile';
+  }
   if (!finish) return 'floor-default';
   const f = finish.toLowerCase();
   if (f.includes('marble') || f.includes('botticino')) return 'floor-marble';
@@ -263,6 +271,7 @@ function getFloorPatternId(finish?: string) {
   if (f.includes('parquet') || f.includes('chevron') || f.includes('walnut')) return 'floor-parquet';
   if (f.includes('terrazzo')) return 'floor-terrazzo';
   if (f.includes('statuario') || f.includes('white')) return 'floor-statuario';
+  if (f.includes('slate') || f.includes('ash') || f.includes('tile')) return 'floor-tile';
   return 'floor-default';
 }
 
@@ -379,11 +388,13 @@ export function SpacesWorkspace() {
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
-  const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'modules' | 'brief' | 'scene'>(() => {
+  const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'modules' | 'flooring' | 'brief' | 'scene'>(() => {
     const tab = searchParams.get('tab');
+    if (tab === 'flooring') return 'flooring';
     return tab === 'modules' || tab === 'bays' ? 'modules' : 'candidates';
   });
   const [compositionSchedules, setCompositionSchedules] = useState<Record<string, CompositionScheduleV1>>({});
+  const [floorSurfaces, setFloorSurfaces] = useState<Record<string, FloorSurfaceV1>>({});
   const [canvasRenderMode, setCanvasRenderMode] = useState<'2d' | '3d_isometric' | 'stager'>('2d');
   const [roomFurnitureMap, setRoomFurnitureMap] = useState<Record<string, TopViewFurniture[]>>({});
   const [roomVastuMap, setRoomVastuMap] = useState<Record<string, VastuAnalysis>>({});
@@ -416,6 +427,24 @@ export function SpacesWorkspace() {
       setRoomDraftSummary(null);
     }
   }, [roomDraftRequested]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    try {
+      const savedSurfaces = window.localStorage.getItem(`ultida.floorSurfaces.${projectId}`);
+      if (savedSurfaces) {
+        const parsed = JSON.parse(savedSurfaces);
+        if (parsed && typeof parsed === 'object') setFloorSurfaces(parsed);
+      }
+      const savedSchedules = window.localStorage.getItem(`ultida.compositionSchedules.${projectId}`);
+      if (savedSchedules) {
+        const parsed = JSON.parse(savedSchedules);
+        if (parsed && typeof parsed === 'object') setCompositionSchedules(parsed);
+      }
+    } catch {
+      // ignore
+    }
+  }, [projectId]);
 
   // ── Load approved plan geometry & source backdrop ──
   useEffect(() => {
@@ -1892,7 +1921,7 @@ export function SpacesWorkspace() {
                 const isSel = selectedRoom === r.id;
                 const b = bbox(r.polygon);
                 const center = toPx({ xMm: (b.minX + b.maxX) / 2, yMm: (b.minY + b.maxY) / 2 });
-                const patternId = getFloorPatternId(r.floorFinish);
+                const patternId = getFloorPatternId(r.floorFinish, floorSurfaces[r.id]);
                 const badgeWidth = Math.max(80, r.name.length * 7 + 20);
 
                 return (
@@ -2080,13 +2109,13 @@ export function SpacesWorkspace() {
             {sel ? (
               <div className="props-body">
                 <div className="room-workflow-summary">
-                  <span>{spacePanel === 'geometry' ? '1' : spacePanel === 'candidates' ? '2' : spacePanel === 'modules' ? '3' : spacePanel === 'brief' ? '4' : spacePanel === 'scene' ? '5' : '★'}</span>
+                  <span>{spacePanel === 'geometry' ? '1' : spacePanel === 'candidates' ? '2' : spacePanel === 'modules' ? '3' : spacePanel === 'flooring' ? '4' : spacePanel === 'brief' ? '5' : spacePanel === 'scene' ? '6' : '★'}</span>
                   <div>
                     <strong>
-                      {spacePanel === 'geometry' ? 'Verify the physical room' : spacePanel === 'candidates' ? 'Deterministic Layout Candidates' : spacePanel === 'modules' ? 'Wall Bays & Modular Reconciliation' : spacePanel === 'brief' ? 'Define the design brief' : spacePanel === 'scene' ? 'Prepare the scene' : 'Senior Designer Architectural Audit'}
+                      {spacePanel === 'geometry' ? 'Verify the physical room' : spacePanel === 'candidates' ? 'Deterministic Layout Candidates' : spacePanel === 'modules' ? 'Wall Bays & Modular Reconciliation' : spacePanel === 'flooring' ? 'Flooring Surface & Skirting Studio' : spacePanel === 'brief' ? 'Define the design brief' : spacePanel === 'scene' ? 'Prepare the scene' : 'Senior Designer Architectural Audit'}
                     </strong>
                     <small>
-                      {spacePanel === 'geometry' ? 'Room edges, wall sizes, openings and ceiling.' : spacePanel === 'candidates' ? 'Select an architecturally verified layout candidate.' : spacePanel === 'modules' ? 'Adjust bay boundaries, enforce keep-outs, and reconcile live usable width.' : spacePanel === 'brief' ? 'Required modules, priorities and client intent.' : spacePanel === 'scene' ? 'Feature walls, finishes and preferred camera.' : '10-Year expert ergonomics, work triangles, lighting and material harmony.'}
+                      {spacePanel === 'geometry' ? 'Room edges, wall sizes, openings and ceiling.' : spacePanel === 'candidates' ? 'Select an architecturally verified layout candidate.' : spacePanel === 'modules' ? 'Adjust bay boundaries, enforce keep-outs, and reconcile live usable width.' : spacePanel === 'flooring' ? 'Substrate buildup, laying patterns, cut-tile optimization, and skirting linear meters.' : spacePanel === 'brief' ? 'Required modules, priorities and client intent.' : spacePanel === 'scene' ? 'Feature walls, finishes and preferred camera.' : '10-Year expert ergonomics, work triangles, lighting and material harmony.'}
                     </small>
                   </div>
                 </div>
@@ -2096,6 +2125,7 @@ export function SpacesWorkspace() {
                   <button type="button" className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>AI Architect (10Y)</button>
                   <button type="button" className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>Geometry</button>
                   <button type="button" className={spacePanel === 'modules' ? 'active' : ''} onClick={() => setSpacePanel('modules')}>Bays &amp; Modules</button>
+                  <button type="button" className={spacePanel === 'flooring' ? 'active' : ''} onClick={() => setSpacePanel('flooring')}>Flooring &amp; Skirting</button>
                   <button type="button" className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>Design brief</button>
                   <button type="button" className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>Scene setup</button>
                 </div>
@@ -2524,16 +2554,22 @@ export function SpacesWorkspace() {
                           rightClearanceMm={50}
                           initialSchedule={compositionSchedules[activeWall.id] || null}
                           onScheduleChange={(newSchedule) => {
-                            setCompositionSchedules((prev) => ({
-                              ...prev,
-                              [activeWall.id]: newSchedule,
-                            }));
+                            setCompositionSchedules((prev) => {
+                              const next = { ...prev, [activeWall.id]: newSchedule };
+                              if (projectId) {
+                                try { window.localStorage.setItem(`ultida.compositionSchedules.${projectId}`, JSON.stringify(next)); } catch {}
+                              }
+                              return next;
+                            });
                           }}
                           onConfirmSchedule={(confirmedSchedule) => {
-                            setCompositionSchedules((prev) => ({
-                              ...prev,
-                              [activeWall.id]: confirmedSchedule,
-                            }));
+                            setCompositionSchedules((prev) => {
+                              const next = { ...prev, [activeWall.id]: confirmedSchedule };
+                              if (projectId) {
+                                try { window.localStorage.setItem(`ultida.compositionSchedules.${projectId}`, JSON.stringify(next)); } catch {}
+                              }
+                              return next;
+                            });
                             setSaveState(`Wall ${activeWallLabel} bay schedule confirmed for production!`);
                           }}
                         />
@@ -2558,6 +2594,54 @@ export function SpacesWorkspace() {
                         </button>
                       </div>
                     </div>
+                  );
+                })()}
+
+                {spacePanel === 'flooring' && (() => {
+                  const bWalls = roomBoundaryWalls(sel.room);
+                  const bWallIds = new Set(bWalls.map((w) => w.id));
+                  const relevantDoorOpenings = openings
+                    .filter((o) => (o.kind === 'door' || o.kind === 'passage') && (bWallIds.has(o.wallId) || !o.wallId))
+                    .map((o) => ({
+                      id: o.id,
+                      offsetAlongWallMm: o.offsetAlongWallMm,
+                      widthMm: o.widthMm
+                    }));
+
+                  return (
+                    <FlooringStudio
+                      roomId={sel.room.id}
+                      roomName={sel.room.name}
+                      roomAreaSqm={sel.effectiveAreaSqm ?? sel.room.areaSqm}
+                      roomPolygon={sel.room.polygon}
+                      doorOpenings={relevantDoorOpenings}
+                      initialSurface={floorSurfaces[sel.room.id] || null}
+                      onSurfaceChange={(surface) => {
+                        setFloorSurfaces((prev) => {
+                          const next = { ...prev, [sel.room.id]: surface };
+                          if (projectId) {
+                            try { window.localStorage.setItem(`ultida.floorSurfaces.${projectId}`, JSON.stringify(next)); } catch {}
+                          }
+                          return next;
+                        });
+                      }}
+                      onSave={(surface, quantity) => {
+                        setFloorSurfaces((prev) => {
+                          const next = { ...prev, [sel.room.id]: surface };
+                          if (projectId) {
+                            try { window.localStorage.setItem(`ultida.floorSurfaces.${projectId}`, JSON.stringify(next)); } catch {}
+                          }
+                          return next;
+                        });
+                        const matchedPreset = TILE_PRESETS.find((p) => p.id === surface.materialVersionId);
+                        const finishName = matchedPreset ? matchedPreset.name : surface.materialVersionId;
+                        patchRoom(sel.room.id, { floorFinish: finishName });
+                        const summary = quantity
+                          ? ` · ${quantity.netAreaSqm} m², ${quantity.totalTileCount} tiles, ${quantity.skirtingLinearM}m skirting`
+                          : '';
+                        setSaveState(`✓ Flooring for ${sel.room.name} saved: ${finishName}${summary}`);
+                      }}
+                    />
                   );
                 })()}
 
@@ -2611,6 +2695,15 @@ export function SpacesWorkspace() {
                       </button>
                     ))}
                   </div>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 6, width: '100%', justifyContent: 'center' }}
+                    onClick={() => setSpacePanel('flooring')}
+                  >
+                    <Grid size={13} style={{ color: 'var(--gold)' }} />
+                    <span>Open Precision Flooring &amp; Skirting Studio &rarr;</span>
+                  </button>
 
                   <label>False ceiling style</label>
                   <select
@@ -3085,6 +3178,10 @@ export function SpacesWorkspace() {
                     <rect width="40" height="40" fill="#605e5a" />
                     <rect x="1" y="1" width="38" height="38" fill="#6d6a66" />
                   </pattern>
+                  <pattern id="modal-floor-statuario" width="60" height="60" patternUnits="userSpaceOnUse">
+                    <rect width="60" height="60" fill="#f8fafc" />
+                    <path d="M 0 30 Q 30 15 60 45 M 15 0 Q 45 30 30 60" fill="none" stroke="#cbd5e1" strokeWidth="1" />
+                  </pattern>
                   <pattern id="modal-floor-default" width="30" height="30" patternUnits="userSpaceOnUse">
                     <rect width="30" height="30" fill="#faf6ef" />
                   </pattern>
@@ -3095,7 +3192,7 @@ export function SpacesWorkspace() {
                   const pts = r.polygon.map(p => { const q = toPx(p); return `${q.x},${q.y}`; }).join(' ');
                   const b = bbox(r.polygon);
                   const center = toPx({ xMm: (b.minX + b.maxX) / 2, yMm: (b.minY + b.maxY) / 2 });
-                  const pId = getFloorPatternId(r.floorFinish);
+                  const pId = getFloorPatternId(r.floorFinish, floorSurfaces[r.id]);
                   return (
                     <g key={r.id}>
                       <polygon points={pts} fill={`url(#modal-${pId})`} stroke="#4a3728" strokeWidth={1.5} />

@@ -16,24 +16,26 @@ export type CarcassCore = 'HDHMR' | 'BWR_Plywood' | 'MDF' | 'Particle_Board';
 export type ShutterFinish = 'fluted_pu' | 'acrylic_gloss' | 'matte_laminate' | 'tinted_glass';
 export type UnitCategory = 'base_drawer' | 'single_shutter' | 'double_shutter' | 'open_niche' | 'overhead_loft';
 
-export const CARCASS_RATES: Record<CarcassCore, { name: string; ratePerSqFt: number }> = {
-  HDHMR: { name: 'Action TESA HDHMR (Water-Resistant)', ratePerSqFt: 3.8 },
-  BWR_Plywood: { name: '710 Grade Boiling Water Resistant Ply', ratePerSqFt: 4.5 },
-  MDF: { name: 'High Density Engineered MDF', ratePerSqFt: 2.9 },
-  Particle_Board: { name: 'Pre-Laminated Particle Board', ratePerSqFt: 2.2 },
+export type CurrencyMode = 'INR' | 'USD';
+
+export const CARCASS_RATES: Record<CarcassCore, { name: string; ratePerSqFt: number; ratePerSqFtInr: number }> = {
+  HDHMR: { name: 'Action TESA HDHMR (Water-Resistant)', ratePerSqFt: 4.2, ratePerSqFtInr: 350 },
+  BWR_Plywood: { name: '710 Grade Boiling Water Resistant Ply', ratePerSqFt: 5.8, ratePerSqFtInr: 480 },
+  MDF: { name: 'High Density Engineered MDF', ratePerSqFt: 3.4, ratePerSqFtInr: 280 },
+  Particle_Board: { name: 'Pre-Laminated Particle Board', ratePerSqFt: 2.5, ratePerSqFtInr: 210 },
 };
 
-export const FINISH_RATES: Record<ShutterFinish, { name: string; ratePerSqFt: number; hex: string }> = {
-  fluted_pu: { name: 'Fluted Charcoal PU Paint', ratePerSqFt: 6.5, hex: '#2b2d31' },
-  acrylic_gloss: { name: '2mm High-Gloss Anti-Scratch Acrylic', ratePerSqFt: 5.2, hex: '#eaeaea' },
-  matte_laminate: { name: '1mm Zero-G Matte Suede Laminate', ratePerSqFt: 3.0, hex: '#8c7a6b' },
-  tinted_glass: { name: 'Black Aluminum Profile + Tinted Fluted Glass', ratePerSqFt: 8.0, hex: '#18181b' },
+export const FINISH_RATES: Record<ShutterFinish, { name: string; ratePerSqFt: number; ratePerSqFtInr: number; hex: string }> = {
+  fluted_pu: { name: 'Fluted Charcoal PU Paint', ratePerSqFt: 7.8, ratePerSqFtInr: 650, hex: '#2b2d31' },
+  acrylic_gloss: { name: '2mm High-Gloss Anti-Scratch Acrylic', ratePerSqFt: 6.2, ratePerSqFtInr: 520, hex: '#eaeaea' },
+  matte_laminate: { name: '1mm Zero-G Matte Suede Laminate', ratePerSqFt: 3.8, ratePerSqFtInr: 320, hex: '#8c7a6b' },
+  tinted_glass: { name: 'Black Aluminum Profile + Tinted Fluted Glass', ratePerSqFt: 9.4, ratePerSqFtInr: 780, hex: '#18181b' },
 };
 
 export const HARDWARE_PRICING = {
-  softCloseHinge: 6.5,
-  tandemDrawerChannel: 28.0,
-  antiGravityHangingBracket: 14.0, // Heavy duty Camar wall mount kit
+  softCloseHinge: { inr: 450, usd: 5.5 },
+  tandemDrawerChannel: { inr: 2200, usd: 26.5 },
+  antiGravityHangingBracket: { inr: 1100, usd: 13.2 },
 };
 
 export interface ModularCabinetBuilderProps {
@@ -101,31 +103,45 @@ export default function ModularCabinetBuilder({
   const [selectedId, setSelectedId] = useState<string | null>(modules[0]?.id ?? null);
   const selectedModule = modules.find((m) => m.id === selectedId);
   const [generatingMaps, setGeneratingMaps] = useState(false);
+  const [currency, setCurrency] = useState<CurrencyMode>('INR');
 
   // ------------------------------------------
-  // DYNAMIC PRICING ENGINE
+  // DYNAMIC PRICING ENGINE (₹ INR / $ USD)
   // ------------------------------------------
   const pricingBreakdown = useMemo(() => {
     let totalCarcass = 0;
     let totalShutters = 0;
     let totalHardware = 0;
 
+    const isInr = currency === 'INR';
+
     modules.forEach((mod) => {
       const frontAreaSqFt = (mod.widthMm / 304.8) * (mod.heightMm / 304.8);
       const carcassSurfaceSqFt = frontAreaSqFt * 3.5;
 
-      totalCarcass += carcassSurfaceSqFt * (CARCASS_RATES[mod.carcassCore]?.ratePerSqFt ?? 3.5);
-      totalShutters += frontAreaSqFt * (FINISH_RATES[mod.shutterFinish]?.ratePerSqFt ?? 4.0);
+      const carcassRate = isInr
+        ? (CARCASS_RATES[mod.carcassCore]?.ratePerSqFtInr ?? 350)
+        : (CARCASS_RATES[mod.carcassCore]?.ratePerSqFt ?? 4.2);
+      const finishRate = isInr
+        ? (FINISH_RATES[mod.shutterFinish]?.ratePerSqFtInr ?? 520)
+        : (FINISH_RATES[mod.shutterFinish]?.ratePerSqFt ?? 6.2);
+
+      totalCarcass += carcassSurfaceSqFt * carcassRate;
+      totalShutters += frontAreaSqFt * finishRate;
+
+      const hingeRate = isInr ? HARDWARE_PRICING.softCloseHinge.inr : HARDWARE_PRICING.softCloseHinge.usd;
+      const drawerRate = isInr ? HARDWARE_PRICING.tandemDrawerChannel.inr : HARDWARE_PRICING.tandemDrawerChannel.usd;
+      const bracketRate = isInr ? HARDWARE_PRICING.antiGravityHangingBracket.inr : HARDWARE_PRICING.antiGravityHangingBracket.usd;
 
       const hw =
-        mod.hardware.hinges * HARDWARE_PRICING.softCloseHinge +
-        mod.hardware.drawerChannels * HARDWARE_PRICING.tandemDrawerChannel +
-        (mod.elevationMm > 0 ? mod.hardware.hangingBrackets * HARDWARE_PRICING.antiGravityHangingBracket : 0);
+        mod.hardware.hinges * hingeRate +
+        mod.hardware.drawerChannels * drawerRate +
+        (mod.elevationMm > 0 ? mod.hardware.hangingBrackets * bracketRate : 0);
       totalHardware += hw;
     });
 
     const subtotal = totalCarcass + totalShutters + totalHardware;
-    const estimatedTax = subtotal * 0.1;
+    const estimatedTax = subtotal * (isInr ? 0.18 : 0.10); // 18% GST in India
     const grandTotal = subtotal + estimatedTax;
 
     return {
@@ -133,8 +149,10 @@ export default function ModularCabinetBuilder({
       totalShutters: Math.round(totalShutters),
       totalHardware: Math.round(totalHardware),
       grandTotal: Math.round(grandTotal),
+      currencySymbol: isInr ? '₹' : '$',
+      taxLabel: isInr ? 'Estimated GST (18%)' : 'Estimated Tax (10%)',
     };
-  }, [modules]);
+  }, [modules, currency]);
 
   const handleAddModule = (width: 300 | 450 | 600 | 900, category: UnitCategory) => {
     const currentMaxX = modules.reduce((max, m) => Math.max(max, m.posX + m.widthMm), 0);
@@ -436,7 +454,7 @@ export default function ModularCabinetBuilder({
                 >
                   {Object.entries(CARCASS_RATES).map(([key, data]) => (
                     <option key={key} value={key}>
-                      {data.name} (+${data.ratePerSqFt}/sqft)
+                      {data.name} (+{currency === 'INR' ? `₹${data.ratePerSqFtInr}` : `$${data.ratePerSqFt}`}/sqft)
                     </option>
                   ))}
                 </select>
@@ -452,7 +470,7 @@ export default function ModularCabinetBuilder({
                 >
                   {Object.entries(FINISH_RATES).map(([key, data]) => (
                     <option key={key} value={key}>
-                      {data.name} (+${data.ratePerSqFt}/sqft)
+                      {data.name} (+{currency === 'INR' ? `₹${data.ratePerSqFtInr}` : `$${data.ratePerSqFt}`}/sqft)
                     </option>
                   ))}
                 </select>
@@ -471,27 +489,81 @@ export default function ModularCabinetBuilder({
             <h3 style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#fff', display: 'flex', alignItems: 'center', gap: 6, margin: 0 }}>
               <ShieldCheck size={16} color="#34d399" /> Dynamic BOM Quotation
             </h3>
-            <span style={{ fontSize: 10, background: 'rgba(16, 185, 129, 0.12)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '2px 8px', borderRadius: 999, fontFamily: 'monospace' }}>
-              Auto-Calculated
-            </span>
+            <div style={{ display: 'flex', gap: 3, background: '#292524', padding: '2px 4px', borderRadius: 6, border: '1px solid #44403c' }}>
+              <button
+                type="button"
+                onClick={() => setCurrency('INR')}
+                style={{
+                  padding: '2px 7px',
+                  borderRadius: 4,
+                  border: 0,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  background: currency === 'INR' ? '#10b981' : 'transparent',
+                  color: currency === 'INR' ? '#000' : '#a8a29e',
+                }}
+              >
+                ₹ INR
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrency('USD')}
+                style={{
+                  padding: '2px 7px',
+                  borderRadius: 4,
+                  border: 0,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  background: currency === 'USD' ? '#10b981' : 'transparent',
+                  color: currency === 'USD' ? '#000' : '#a8a29e',
+                }}
+              >
+                $ USD
+              </button>
+            </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#a8a29e' }}>
               <span>Carcass Plywood Panels:</span>
-              <span style={{ fontFamily: 'monospace', color: '#fff' }}>${pricingBreakdown.totalCarcass}</span>
+              <span style={{ fontFamily: 'monospace', color: '#fff' }}>{pricingBreakdown.currencySymbol}{pricingBreakdown.totalCarcass.toLocaleString(currency === 'INR' ? 'en-IN' : 'en-US')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#a8a29e' }}>
               <span>Shutter Finishes & Polish:</span>
-              <span style={{ fontFamily: 'monospace', color: '#fff' }}>${pricingBreakdown.totalShutters}</span>
+              <span style={{ fontFamily: 'monospace', color: '#fff' }}>{pricingBreakdown.currencySymbol}{pricingBreakdown.totalShutters.toLocaleString(currency === 'INR' ? 'en-IN' : 'en-US')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#a8a29e' }}>
               <span>Fittings & Hanging Cleats:</span>
-              <span style={{ fontFamily: 'monospace', color: '#fff' }}>${pricingBreakdown.totalHardware}</span>
+              <span style={{ fontFamily: 'monospace', color: '#fff' }}>{pricingBreakdown.currencySymbol}{pricingBreakdown.totalHardware.toLocaleString(currency === 'INR' ? 'en-IN' : 'en-US')}</span>
             </div>
             <div style={{ borderTop: '1px solid #332d29', paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 14, fontWeight: 700, color: '#fff' }}>
-              <span>Estimated Total (BOM):</span>
-              <span style={{ fontFamily: 'monospace', color: '#34d399', fontSize: 18 }}>${pricingBreakdown.grandTotal}</span>
+              <div>
+                <div>Estimated Total ({pricingBreakdown.taxLabel}):</div>
+                {currency === 'INR' && pricingBreakdown.grandTotal >= 100000 && (
+                  <small style={{ fontSize: 10, color: '#34d399', fontWeight: 600 }}>
+                    ₹{(pricingBreakdown.grandTotal / 100000).toFixed(2)} Lakhs
+                  </small>
+                )}
+                {currency === 'INR' && pricingBreakdown.grandTotal < 100000 && pricingBreakdown.grandTotal >= 1000 && (
+                  <small style={{ fontSize: 10, color: '#34d399', fontWeight: 600 }}>
+                    ₹{(pricingBreakdown.grandTotal / 1000).toFixed(1)} K
+                  </small>
+                )}
+                {currency === 'USD' && (
+                  <small style={{ fontSize: 10, color: '#38bdf8', fontWeight: 600 }}>
+                    Standard USD Export
+                  </small>
+                )}
+              </div>
+              <span style={{ fontFamily: 'monospace', color: '#34d399', fontSize: 18 }}>
+                {pricingBreakdown.currencySymbol}
+                {pricingBreakdown.grandTotal.toLocaleString(currency === 'INR' ? 'en-IN' : 'en-US', {
+                  maximumFractionDigits: currency === 'USD' ? 2 : 0,
+                  minimumFractionDigits: currency === 'USD' ? 2 : 0,
+                })}
+              </span>
             </div>
           </div>
 

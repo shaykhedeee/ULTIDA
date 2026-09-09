@@ -57,7 +57,7 @@ export type PlanElementDraft = {
   label: string;
   confidence: number;
   status: 'needs_review';
-  geometry: Record<string, number | string | undefined>;
+  geometry: Record<string, any>;
   source: 'ai' | 'ocr' | 'line' | 'mixed';
   note?: string;
 };
@@ -254,16 +254,34 @@ export function reconcileToElements(
     return Math.max(d1, d2);
   };
 
+  const rectifyWallAngle = (x1: number, y1: number, x2: number, y2: number): { x1: number; y1: number; x2: number; y2: number } => {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    if (len < 5) return { x1, y1, x2, y2 };
+    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    if (Math.abs(angle) < 4 || Math.abs(angle) > 176) {
+      const avgY = Math.round((y1 + y2) / 2);
+      return { x1, y1: avgY, x2, y2: avgY };
+    }
+    if (Math.abs(Math.abs(angle) - 90) < 4) {
+      const avgX = Math.round((x1 + x2) / 2);
+      return { x1: avgX, y1, x2: avgX, y2 };
+    }
+    return { x1, y1, x2, y2 };
+  };
+
   for (const w of ai.wallCandidates) {
-    const geo = { x1: num(w.x1), y1: num(w.y1), x2: num(w.x2), y2: num(w.y2) };
-    const match = cvWalls.find((c) => wallDist(geo, c) < 40);
+    const rawGeo = { x1: num(w.x1), y1: num(w.y1), x2: num(w.x2), y2: num(w.y2) };
+    const rectified = rectifyWallAngle(rawGeo.x1, rawGeo.y1, rawGeo.x2, rawGeo.y2);
+    const match = cvWalls.find((c) => wallDist(rectified, c) < 40);
     elements.push({
       id: str(w.id, `w${elements.length}`),
       kind: 'wall',
       label: str(w.label, `Wall ${w.id ?? elements.length}`),
       confidence: num(w.confidence),
       status: 'needs_review',
-      geometry: match ? { x1: match.x1, y1: match.y1, x2: match.x2, y2: match.y2 } : geo,
+      geometry: match ? { x1: match.x1, y1: match.y1, x2: match.x2, y2: match.y2 } : rectified,
       source: match ? 'mixed' : 'ai',
       note: w.notes,
     });
@@ -284,6 +302,7 @@ export function reconcileToElements(
         y: ys.length ? Math.min(...ys) : 0,
         width: xs.length ? Math.max(...xs) - Math.min(...xs) : 0,
         height: ys.length ? Math.max(...ys) - Math.min(...ys) : 0,
+        polygon: poly.length >= 3 ? poly.map((p) => ({ x: p[0], y: p[1] })) : undefined,
       },
       source: r.source,
       note: r.notes,

@@ -1035,10 +1035,9 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
     structuredPrompt: operation === 'material-swap'
       ? `Compiled server-side from the approved ULTIDA scene. Change only the ${targetSemanticSlot ?? 'selected finish'} of module ${targetModuleId}; preserve all geometry, openings, camera, ceiling, and every other module.`
       : 'Compiled server-side from the approved ULTIDA scene.',
-    // Cloudflare is the only automatic hosted render provider. LocalAI and
-    // ComfyUI remain explicit studio-local choices; silently changing
-    // providers makes cost, latency and render lineage unpredictable.
-    providerPreference: ['cloudflare']
+    providerPreference: Array.isArray(options.providerPreference) && options.providerPreference.length > 0
+      ? options.providerPreference
+      : ['cloudflare', 'gemini-nano-banana-2', 'free-image-worker', 'huggingface', 'pollinations']
   });
   if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_RENDER_REQUEST', message: 'Select a persisted room before requesting a scene render.', issues: parsed.error.issues });
   const result = await createVisualJob(process.env, gateway, parsed.data, authReq.ultidaUser?.id, getRequestSupabaseClient(request));
@@ -2342,6 +2341,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
       moduleParts: resolvedModuleParts,
       materials,
       compositionSchedules,
+      floorSurfaces: Array.isArray(request.body?.floorSurfaces) ? request.body.floorSurfaces : undefined,
       changeReason: typeof request.body?.changeReason === 'string' ? request.body.changeReason : undefined,
     });
   } catch (error) {

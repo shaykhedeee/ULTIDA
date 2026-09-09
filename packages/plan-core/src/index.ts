@@ -146,4 +146,5 @@ export function getCanonicalPlanModel(): unknown {
 
 export * from './coordinate-system.js';
 export * from './scale-engine.js';
+export * from './vector-extractor.js';
 export { geometryCore } from './geometry-shim.js';

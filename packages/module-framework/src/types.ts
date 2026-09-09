@@ -47,7 +47,8 @@ export type CategoryType =
   | 'kitchen'
   | 'bed'
   | 'utility'
-  | 'freestanding_lighting';
+  | 'freestanding_lighting'
+  | 'island';
 
 export type TvUnitFamily =
   | 'minimal_floating'

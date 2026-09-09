@@ -30,9 +30,9 @@ export function getVisionProvider(env: Env, preferred?: 'openai' | 'gemini' | 'c
     if (found) return found.make();
   }
 
-  // The shared Cloudflare path is the hosted default. Other providers require
-  // deliberate selection so a missing quota cannot silently alter a job.
-  const order: Array<'openai' | 'gemini' | 'cloudflare' | 'structured-floorplan'> = ['cloudflare', 'gemini', 'openai', 'structured-floorplan'];
+  // Prefer high-accuracy models (Gemini / OpenAI) whenever keys exist,
+  // falling back to Cloudflare Workers AI for zero-config hosted deployments.
+  const order: Array<'openai' | 'gemini' | 'cloudflare' | 'structured-floorplan'> = ['gemini', 'openai', 'cloudflare', 'structured-floorplan'];
   for (const key of order) {
     const match = providers.find((p) => p.key === key);
     if (match) return match.make();

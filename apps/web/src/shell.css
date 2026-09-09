@@ -186,7 +186,7 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 .workflow-nav::-webkit-scrollbar-thumb { background: linear-gradient(var(--gold-light), var(--gold-dim)); border: 2px solid var(--sidebar-bg); border-radius: 999px; }
 
 .workflow-nav-header {
-  padding: 10px 8px 8px;
+  padding: 10px 8px 6px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -194,17 +194,34 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 
 .workflow-count {
   color: var(--gold-light);
-  font-size: 10px;
+  font-size: 10.5px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  background: rgba(197,156,45,.12);
-  border: 1px solid rgba(232,201,106,.17);
+  background: rgba(197,156,45,.14);
+  border: 1px solid rgba(232,201,106,.24);
   border-radius: 999px;
-  padding: 3px 6px;
+  padding: 2px 7px;
 }
 
 .workflow-nav-title {
-  font-size: 9px; font-weight: 800; letter-spacing: .1em;
-  color: rgba(255,255,255,.25); text-transform: uppercase;
+  font-size: 9.5px; font-weight: 800; letter-spacing: .1em;
+  color: rgba(255,255,255,.45); text-transform: uppercase;
+}
+
+/* Workflow Progress Bar */
+.workflow-progress-track {
+  margin: 2px 8px 10px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.workflow-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #c59c2d 0%, #e8c45a 100%);
+  border-radius: 999px;
+  transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 8px rgba(232, 196, 90, 0.5);
 }
 
 .workflow-stage {
@@ -231,6 +248,11 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 .workflow-stage.locked { color: rgba(255,255,255,.2); cursor: not-allowed; }
 .workflow-stage.needs_review { color: #f5c56a; }
 
+@keyframes stagePulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(197, 156, 45, 0.4); }
+  50% { transform: scale(1.08); box-shadow: 0 0 8px 2px rgba(197, 156, 45, 0.35); }
+}
+
 .stage-num {
   width: 20px; height: 20px; border-radius: 50%;
   display: grid; place-items: center;
@@ -238,8 +260,13 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   flex-shrink: 0;
   background: rgba(255,255,255,.06);
   color: rgba(255,255,255,.35);
+  transition: all 0.2s;
 }
-.workflow-stage.active .stage-num { background: rgba(197,156,45,.2); color: var(--gold-light); }
+.workflow-stage.active .stage-num {
+  background: rgba(197,156,45,.25);
+  color: var(--gold-light);
+  animation: stagePulse 2.4s ease-in-out infinite;
+}
 .workflow-stage.done .stage-num { background: rgba(5,150,105,.2); color: #34d399; }
 .workflow-stage.locked .stage-num { background: rgba(255,255,255,.03); }
 .workflow-stage.needs_review .stage-num { background: rgba(245,158,11,.15); }
@@ -297,11 +324,27 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   display: grid; place-items: center;
   font-size: 12px; font-weight: 800; color: #fff;
   flex-shrink: 0;
+  border: 1px solid rgba(197, 156, 45, 0.4);
 }
 
 .user-info { overflow: hidden; flex: 1; }
-.user-email { font-size: 11px; color: rgba(255,255,255,.5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-.user-org   { font-size: 10px; color: rgba(255,255,255,.25); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.user-email { font-size: 11px; color: rgba(255,255,255,.6); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.user-org   { font-size: 10px; color: rgba(255,255,255,.3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+
+.user-signout-btn {
+  background: transparent;
+  border: 0;
+  color: rgba(255, 255, 255, 0.4);
+  display: flex;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.user-signout-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
 
 /* ─── Main Area ──────────────────────────────── */
 .shell-main {
@@ -315,12 +358,15 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 .command-bar {
   height: 56px;
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   padding: 0 24px;
   gap: 16px;
   flex-shrink: 0;
+  z-index: 40;
 }
 
 .command-bar-breadcrumb {
@@ -331,16 +377,105 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   color: var(--text-muted);
   flex: 1;
 }
+.breadcrumb-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.15s ease;
+  font-weight: 500;
+}
+.breadcrumb-link:hover {
+  color: var(--gold-dim);
+}
+.breadcrumb-link.active strong {
+  color: var(--text-primary);
+}
 .command-bar-breadcrumb strong {
   color: var(--text-primary);
   font-weight: 700;
 }
-.command-bar-sep { color: var(--line); }
+.breadcrumb-active-stage {
+  color: var(--gold-dim);
+  font-weight: 700;
+  text-transform: capitalize;
+  background: rgba(197, 156, 45, 0.1);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+.command-bar-sep { color: var(--line-strong, var(--line)); }
 
 .command-bar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+
+.command-bar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(5, 150, 105, 0.08);
+  border: 1px solid rgba(5, 150, 105, 0.22);
+  font-size: 11px;
+  font-weight: 700;
+  color: #047857;
+}
+@keyframes beaconPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.5; }
+}
+.status-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #059669;
+  animation: beaconPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.command-bar-ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(197, 156, 45, 0.12), rgba(197, 156, 45, 0.04));
+  border: 1px solid rgba(197, 156, 45, 0.35);
+  color: var(--gold-dim);
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.command-bar-ai-btn:hover {
+  background: linear-gradient(135deg, rgba(197, 156, 45, 0.22), rgba(197, 156, 45, 0.1));
+  border-color: var(--gold);
+  color: #1a1208;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(197, 156, 45, 0.25);
+}
+
+.command-bar-primary-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 15px;
+  background: var(--brown-mid);
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: var(--shadow-xs);
+}
+.command-bar-primary-btn:hover {
+  background: var(--brown-deep);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 /* Content area */
@@ -354,11 +489,12 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   max-width: 100%;
 }
 
-/* ─── Collapsed state ────────────────────────── */
+/* ─── Collapsed state & Floating Tooltips ────── */
 .ultida-shell.sidebar-collapsed .brand-text,
 .ultida-shell.sidebar-collapsed .nav-item span:not(.nav-icon),
 .ultida-shell.sidebar-collapsed .workflow-nav-header,
 .ultida-shell.sidebar-collapsed .workflow-count,
+.ultida-shell.sidebar-collapsed .workflow-progress-track,
 .ultida-shell.sidebar-collapsed .stage-status-dot,
 .ultida-shell.sidebar-collapsed .stage-num + span,
 .ultida-shell.sidebar-collapsed .workflow-stage > span:last-of-type,
@@ -373,14 +509,42 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 .ultida-shell.sidebar-collapsed .nav-item {
   justify-content: center;
   padding: 10px;
+  position: relative;
 }
 .ultida-shell.sidebar-collapsed .workflow-stage {
   justify-content: center;
   padding: 8px;
+  position: relative;
 }
 .ultida-shell.sidebar-collapsed .sidebar-footer {
   justify-content: center;
   padding: 10px 8px;
+}
+
+/* Floating Tooltips in Collapsed Mode */
+@keyframes tooltipFadeIn {
+  from { opacity: 0; transform: translateY(-50%) translateX(4px); }
+  to   { opacity: 1; transform: translateY(-50%) translateX(10px); }
+}
+
+.ultida-shell.sidebar-collapsed .nav-item[data-tooltip]:hover::after,
+.ultida-shell.sidebar-collapsed .workflow-stage[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  background: #181b26;
+  color: #fff;
+  border: 1px solid rgba(197, 156, 45, 0.4);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  padding: 5px 11px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 1000;
+  pointer-events: none;
+  animation: tooltipFadeIn 0.15s ease forwards;
 }
 
 /* ─── Status badges ──────────────────────────── */
@@ -399,14 +563,38 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 .status-badge.approved  { background: var(--success-bg); color: var(--success); border: 1px solid var(--success-line); }
 .status-badge.archived  { background: #f3f4f6; color: #6b7280; border: 1px solid #e5e7eb; }
 
-/* ─── Responsive ─────────────────────────────── */
+/* ─── Mobile Navigation Drawer & Backdrop ────── */
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 16, 23, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 95;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
 @media (max-width: 768px) {
   .ultida-shell { grid-template-columns: 0 1fr; }
-  .primary-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 240px; transform: translateX(-100%); transition: transform .25s ease; z-index: 100; }
+  .sidebar-backdrop.active {
+    display: block;
+    opacity: 1;
+  }
+  .primary-sidebar {
+    position: fixed;
+    left: 0; top: 0; bottom: 0;
+    width: 240px;
+    transform: translateX(-100%);
+    transition: transform .25s ease;
+    z-index: 100;
+  }
   .primary-sidebar.mobile-open { transform: translateX(0); }
   .mobile-nav-trigger { display: flex; }
   .command-bar { padding: 0 14px; }
   .shell-content { padding: 18px 14px; }
+  .command-bar-status { display: none; }
 }
 .sidebar-tool-groups { overflow-y: auto; padding: 4px 0 8px; border-top: 1px solid rgba(255,255,255,.07); }
 .sidebar-tool-group { padding-top: 9px; }

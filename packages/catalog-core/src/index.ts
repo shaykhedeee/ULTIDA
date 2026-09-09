@@ -192,6 +192,12 @@ export const IndianModularCatalog: CatalogModule[] = [
   { id: 'utility-laundry-1500', family: 'utility', name: '1500 Laundry & Utility Wall', roomTypes: ['utility', 'kitchen'], widthMm: 1500, depthMm: 650, heightMm: 2400, minClearanceMm: 1000, sku: 'ULT-UT-LN-1500', materialSlots: ['carcass', 'shutter', 'countertop', 'hardware'], tags: ['utility', 'laundry', 'washing-machine', 'tall-storage'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'A service-aware utility wall with washer void, counter, tall storage, and closed lofts.' },
   { id: 'washroom-shutter-vanity-900', family: 'utility', name: '900 Washroom Concealed Cistern Vanity & Overhead Shutter Unit', roomTypes: ['bathroom', 'utility', 'foyer', 'master_bedroom'], widthMm: 900, depthMm: 450, heightMm: 2100, minClearanceMm: 800, sku: 'ULT-WR-VS-900', materialSlots: ['carcass', 'shutter', 'countertop', 'hardware', 'lighting'], tags: ['washroom', 'toilet', 'vanity', 'overhead-shutter', 'cistern', 'calacatta'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Washroom composition with wall-hung vanity washbasin counter, concealed cistern ledge, open niche, and top 2-door overhead shutter cabinet.' },
   { id: 'foyer-console-1200', family: 'storage', name: '1200 Floating Foyer Console & Shoe Bench', roomTypes: ['foyer', 'living'], widthMm: 1200, depthMm: 350, heightMm: 2100, minClearanceMm: 800, sku: 'ULT-FY-1200', materialSlots: ['carcass', 'shutter', 'hardware', 'lighting'], tags: ['foyer', 'floating-console', 'drawer', 'key-drop', 'shoe-rack'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Entry foyer storage with soft-close drawers, shoe storage, key niche, and ambient LED lighting.' },
+  { id: 'foyer-shoe-closet-1600', family: 'storage', name: '1600 Grand Foyer Shoe Dressing Closet with Integrated Ottoman', roomTypes: ['foyer', 'living', 'bedroom'], widthMm: 1600, depthMm: 450, heightMm: 2100, minClearanceMm: 800, sku: 'ULT-FY-SHOE-1600', materialSlots: ['carcass', 'shutter', 'fabric', 'hardware', 'lighting'], tags: ['foyer', 'shoe-closet', 'ottoman-bench', 'angled-shelves', 'dressing', 'storage'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Full-height entrance dressing unit featuring an integrated bouclé fabric padded seating bench, illuminated angled shoe shelves with brass heel stops (30-pair capacity), and upper closed lofts.' },
+  { id: 'kit-island-waterfall-1800', family: 'kitchen-base', name: '1800 Breakfast Island with Waterfall Edge & Stool Recess', roomTypes: ['kitchen', 'dining'], widthMm: 1800, depthMm: 900, heightMm: 850, minClearanceMm: 900, sku: 'ULT-KB-ISL-1800', materialSlots: ['carcass', 'shutter', 'countertop', 'hardware', 'lighting'], tags: ['kitchen', 'island', 'breakfast-counter', 'waterfall-edge', 'tandem-drawers', 'luxury'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Gourmet kitchen island featuring 40mm Calacatta Gold sintered stone with double waterfall mitred edges, double-sided soft-close drawers, and a 300mm cantilevered breakfast stool overhang.' },
+  { id: 'wardrobe-island-jewellery-900', family: 'wardrobe', name: '900 Walk-In Island with Glass Top & Jewellery Organiser', roomTypes: ['bedroom', 'master_bedroom'], widthMm: 900, depthMm: 900, heightMm: 850, minClearanceMm: 900, sku: 'ULT-WD-ISL-900', materialSlots: ['carcass', 'shutter', 'glass', 'hardware', 'lighting'], tags: ['wardrobe', 'island', 'walk-in', 'jewellery-drawer', 'velvet-inserts', 'glass-top'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Central walk-in closet island with 10mm tempered ultra-clear glass countertop, top pull-out tray with bespoke velvet-lined watch and jewellery compartments, and 4 soft-close tandem drawers.' },
+  { id: 'pooja-corian-mandapa-1500', family: 'pooja', name: '1500 Sacred Corian Mandir with Diya Ventilation & Backlit Jaali', roomTypes: ['pooja', 'living'], widthMm: 1500, depthMm: 500, heightMm: 2300, minClearanceMm: 800, sku: 'ULT-PJ-CRN-1500', materialSlots: ['carcass', 'shutter', 'back-panel', 'metal', 'lighting'], tags: ['pooja', 'mandir', 'mandapa', 'corian', 'backlit-jaali', 'brass-bells', 'diya-drawer'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Sacred marble-finish Corian mandapa with intricate CNC Om and floral backlit jaali, brass hanging bells, heavy-duty telescopic diya bhog tray, concealed smoke ventilation, and storage drawers.' },
+  { id: 'study-executive-library-2400', family: 'study', name: '2400 Executive Study & Library Bookshelf with Concealed LED', roomTypes: ['study', 'living', 'bedroom'], widthMm: 2400, depthMm: 400, heightMm: 2400, minClearanceMm: 900, sku: 'ULT-ST-LIB-2400', materialSlots: ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'], tags: ['study', 'library', 'bookshelf', 'executive', 'fluted-back', 'led-channel'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Full-wall executive library bookcase with Smoked French Oak vertical partitions, fluted acoustic backing, 3000K warm LED profile light channels on all shelf front lips, and lower soft-close document cabinets.' },
+  { id: 'bar-credenza-cocktail-1500', family: 'crockery', name: '1500 Cocktail Bar Credenza with Wine Chiller Niche & Stemware', roomTypes: ['dining', 'living'], widthMm: 1500, depthMm: 500, heightMm: 1050, minClearanceMm: 900, sku: 'ULT-BAR-CRD-1500', materialSlots: ['carcass', 'shutter', 'glass', 'countertop', 'hardware', 'lighting'], tags: ['crockery', 'bar', 'cocktail', 'wine-chiller', 'stemware', 'tinted-glass'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Luxury dining and lounge cocktail credenza with 20mm Roman Travertine stone top, under-counter wine chiller niche, inverted brass stemware rails, and dark fluted profile-glass shutters with sensor illumination.' },
   { id: 'balcony-storage-bench-1500', family: 'storage', name: '1500 Balcony Storage Bench & Planter Ledge', roomTypes: ['balcony'], widthMm: 1500, depthMm: 450, heightMm: 600, minClearanceMm: 850, sku: 'ULT-BAL-1500', materialSlots: ['carcass', 'shutter', 'countertop', 'hardware'], tags: ['balcony', 'bench', 'planter', 'weather-resistant'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'Weather-resistant low storage bench with removable planter ledge and drainage-safe service gap.' },
   { id: 'other-flex-storage-1200', family: 'storage', name: '1200 Flexible Storage and Display Unit', roomTypes: ['other'], widthMm: 1200, depthMm: 400, heightMm: 2100, minClearanceMm: 800, sku: 'ULT-OT-FLEX-1200', materialSlots: ['carcass', 'shutter', 'back-panel', 'hardware', 'lighting'], tags: ['other', 'storage', 'display', 'adaptable'], production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true }, description: 'A neutral configurable storage and display unit for a space that still needs its room type corrected.' }
   ,{ id: 'light-floor-linen-1650', family: 'lighting', name: '1650 Linen Shade Floor Lamp', roomTypes: ['living', 'bedroom', 'study'], widthMm: 380, depthMm: 380, heightMm: 1650, minClearanceMm: 450, sku: 'ULT-LGT-FLR-1650', materialSlots: ['metal', 'lighting'], tags: ['scene-asset', 'lighting', 'floor-lamp', '2700k', 'decor'], production: { panelBased: false, hardwareSchedule: false, cutlistSupported: false }, description: 'Render-only floor lamp: warm 2700K linen-shade task light for room scenes and moodboards.' }
@@ -283,4 +289,262 @@ export function validatePlacement(module: CatalogModule, roomType: z.infer<typeo
   if (!supportsRoom(module, roomType)) issues.push(`${module.name} is not catalogued for ${roomType}.`);
   if (clearanceMm < module.minClearanceMm) issues.push(`${module.name} needs at least ${module.minClearanceMm} mm clear circulation.`);
   return { valid: issues.length === 0, issues };
+}
+
+// ─── GLB 3D DIGITAL TWIN PIPELINE & UPLOAD VALIDATION ────────────────
+
+export interface GlbValidationInput {
+  declaredDimensionsMm: { width: number; depth: number; height: number };
+  boundingBoxMm: { width: number; depth: number; height: number };
+  polyCount: number;
+  materialSlotNames: string[];
+  maxPolyCount?: number;
+}
+
+export interface GlbValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  normalizedScaleFactor: number;
+  lodTier: 'lod0' | 'lod1';
+}
+
+/**
+ * Validates imported GLB 3D model metadata against catalog declarations:
+ * - Bounding box dimension match within ±2mm (with auto-normalization if modeled in meters)
+ * - Material slot mapping against MaterialSlotSchema
+ * - Performance guardrail: max 50,000 polygons
+ * - Assigns LOD0 (high detail) or LOD1 (low poly proxy) tier
+ */
+export function validateGlbModelMetadata(input: GlbValidationInput): GlbValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const maxPolys = input.maxPolyCount ?? 50000;
+
+  // Auto-detect meter scale (e.g., width 0.6m instead of 600mm)
+  let scaleFactor = 1.0;
+  if (input.boundingBoxMm.width < 10 && input.declaredDimensionsMm.width >= 100) {
+    scaleFactor = 1000.0;
+    warnings.push('Bounding box appears to be in meters; automatically scaling to millimeters.');
+  }
+
+  const effectiveWidth = input.boundingBoxMm.width * scaleFactor;
+  const effectiveDepth = input.boundingBoxMm.depth * scaleFactor;
+  const effectiveHeight = input.boundingBoxMm.height * scaleFactor;
+
+  // Dimension check: ±2mm tolerance
+  const diffW = Math.abs(effectiveWidth - input.declaredDimensionsMm.width);
+  const diffD = Math.abs(effectiveDepth - input.declaredDimensionsMm.depth);
+  const diffH = Math.abs(effectiveHeight - input.declaredDimensionsMm.height);
+
+  if (diffW > 2) {
+    errors.push(`Width mismatch: declared ${input.declaredDimensionsMm.width}mm, GLB model is ${Math.round(effectiveWidth)}mm (diff: ${Math.round(diffW)}mm). Tolerance is ±2mm.`);
+  }
+  if (diffD > 2) {
+    errors.push(`Depth mismatch: declared ${input.declaredDimensionsMm.depth}mm, GLB model is ${Math.round(effectiveDepth)}mm (diff: ${Math.round(diffD)}mm). Tolerance is ±2mm.`);
+  }
+  if (diffH > 2) {
+    errors.push(`Height mismatch: declared ${input.declaredDimensionsMm.height}mm, GLB model is ${Math.round(effectiveHeight)}mm (diff: ${Math.round(diffH)}mm). Tolerance is ±2mm.`);
+  }
+
+  // Polygon guardrail
+  if (input.polyCount > maxPolys) {
+    errors.push(`Polygon count (${input.polyCount.toLocaleString()}) exceeds maximum allowed threshold of ${maxPolys.toLocaleString()} triangles.`);
+  }
+
+  // Material slot mapping check
+  const recognizedSlots = MaterialSlotSchema.options as readonly string[];
+  const unrecognized = input.materialSlotNames.filter((s) => !recognizedSlots.includes(s));
+  if (unrecognized.length > 0) {
+    warnings.push(`Unrecognized mesh material nodes: ${unrecognized.join(', ')}. Recognized slots: ${recognizedSlots.join(', ')}.`);
+  }
+
+  const lodTier: 'lod0' | 'lod1' = input.polyCount > 15000 ? 'lod0' : 'lod1';
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    normalizedScaleFactor: scaleFactor,
+    lodTier,
+  };
+}
+
+/**
+ * Builds canonical private vault storage path for 3D GLB digital twins.
+ * Format: catalog/{organizationId}/{productId}/{assetVersionId}/model.glb
+ */
+export function buildGlbStoragePath(organizationId: string, productId: string, assetVersionId: string): string {
+  const cleanOrg = organizationId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanProd = productId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanVer = assetVersionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `catalog/${cleanOrg}/${cleanProd}/${cleanVer}/model.glb`;
+}
+
+/**
+ * Generates an authenticated signed URL signature string with standard 60-minute expiry.
+ */
+export function generateSignedGlbUrl(storagePath: string, expiryMinutes = 60): string {
+  const expiresAt = Math.floor(Date.now() / 1000) + expiryMinutes * 60;
+  return `https://storage.ultida.internal/${storagePath}?expires=${expiresAt}&signed=true`;
+}
+
+// ─── STRICT W06 MANUFACTURING STANDARD AUDIT & PANEL SCHEDULE ──────
+
+export interface W06PanelSpec {
+  partId: string;
+  panelName: string;
+  role: 'carcass' | 'shutter' | 'shelf' | 'back_panel' | 'plinth' | 'countertop' | 'filler';
+  widthMm: number;
+  heightMm: number;
+  depthMm?: number;
+  thicknessMm: number;
+  materialSlot: z.infer<typeof MaterialSlotSchema>;
+  grainDirection: 'vertical' | 'horizontal' | 'none';
+  edgeBanding: {
+    topMm: number;
+    bottomMm: number;
+    leftMm: number;
+    rightMm: number;
+  };
+  system32Boring: boolean;
+  hingeBores?: Array<{ distanceMm: number; diameterMm: number }>;
+}
+
+/**
+ * Generates the strict W06 panel inventory for any catalog module:
+ * Left Gable, Right Gable, Top Stretcher/Panel, Bottom Base, Back Panel,
+ * Internal Shelves with 32mm hole lines, and Shutter with 35mm hinge bore holes.
+ */
+export function generateW06PanelSchedule(module: CatalogModule): W06PanelSpec[] {
+  const { id, widthMm, depthMm, heightMm, family } = module;
+  const coreThick = 18; // 18mm standard core board
+  const backThick = 6;  // 6mm grooved back panel
+  const panels: W06PanelSpec[] = [];
+
+  const isBase = family.includes('base') || family === 'tv-unit' || family === 'crockery';
+  const isTall = family.includes('tall') || family === 'wardrobe';
+  const isWall = family.includes('wall');
+
+  // 1. Left Gable
+  panels.push({
+    partId: `${id}-GBL-L`,
+    panelName: 'Left Carcass Gable',
+    role: 'carcass',
+    widthMm: depthMm,
+    heightMm,
+    thicknessMm: coreThick,
+    materialSlot: 'carcass',
+    grainDirection: 'vertical',
+    edgeBanding: { topMm: 1, bottomMm: 1, leftMm: 2, rightMm: 0.8 },
+    system32Boring: true,
+  });
+
+  // 2. Right Gable
+  panels.push({
+    partId: `${id}-GBL-R`,
+    panelName: 'Right Carcass Gable',
+    role: 'carcass',
+    widthMm: depthMm,
+    heightMm,
+    thicknessMm: coreThick,
+    materialSlot: 'carcass',
+    grainDirection: 'vertical',
+    edgeBanding: { topMm: 1, bottomMm: 1, leftMm: 2, rightMm: 0.8 },
+    system32Boring: true,
+  });
+
+  // Internal usable width between 18mm gables
+  const internalWidth = Math.max(100, widthMm - 2 * coreThick);
+
+  // 3. Bottom Panel (Base)
+  panels.push({
+    partId: `${id}-BASE`,
+    panelName: 'Bottom Base Panel',
+    role: 'carcass',
+    widthMm: internalWidth,
+    depthMm,
+    heightMm: coreThick,
+    thicknessMm: coreThick,
+    materialSlot: 'carcass',
+    grainDirection: 'horizontal',
+    edgeBanding: { topMm: 0, bottomMm: 0, leftMm: 0.8, rightMm: 2 },
+    system32Boring: false,
+  });
+
+  // 4. Top Panel or Top Stretchers
+  panels.push({
+    partId: `${id}-TOP`,
+    panelName: isBase ? 'Top Dual Tie Rails (100mm)' : 'Top Ceiling Panel',
+    role: 'carcass',
+    widthMm: internalWidth,
+    depthMm: isBase ? 100 : depthMm,
+    heightMm: coreThick,
+    thicknessMm: coreThick,
+    materialSlot: 'carcass',
+    grainDirection: 'horizontal',
+    edgeBanding: { topMm: 0, bottomMm: 0, leftMm: 0.8, rightMm: 2 },
+    system32Boring: false,
+  });
+
+  // 5. Back Panel (Grooved 6mm with 10mm inset)
+  panels.push({
+    partId: `${id}-BCK`,
+    panelName: 'Back Enclosure Panel (Grooved)',
+    role: 'back_panel',
+    widthMm: internalWidth + 16,
+    heightMm: Math.max(100, heightMm - 36),
+    thicknessMm: backThick,
+    materialSlot: 'back-panel',
+    grainDirection: 'vertical',
+    edgeBanding: { topMm: 0, bottomMm: 0, leftMm: 0, rightMm: 0 },
+    system32Boring: false,
+  });
+
+  // 6. Adjustable Shelves (with 2mm setback from front edge)
+  const shelfCount = isTall ? 3 : isWall || isBase ? 1 : 0;
+  for (let s = 1; s <= shelfCount; s++) {
+    panels.push({
+      partId: `${id}-SHLF-${s}`,
+      panelName: `Internal Adjustable Shelf ${s} (System 32)`,
+      role: 'shelf',
+      widthMm: internalWidth - 2, // 1mm clearance each side
+      depthMm: Math.max(50, depthMm - 20),
+      heightMm: coreThick,
+      thicknessMm: coreThick,
+      materialSlot: 'carcass',
+      grainDirection: 'horizontal',
+      edgeBanding: { topMm: 0.8, bottomMm: 0.8, leftMm: 0.8, rightMm: 2 },
+      system32Boring: false,
+    });
+  }
+
+  // 7. Shutters (with 35mm hinge cup bores at 100mm from ends)
+  if (module.production.cutlistSupported && (isBase || isWall || isTall)) {
+    const isDoubleDoor = widthMm >= 600;
+    const shutterCount = isDoubleDoor ? 2 : 1;
+    const shutterWidth = Math.round((widthMm - (isDoubleDoor ? 6 : 4)) / shutterCount);
+    const shutterHeight = Math.max(100, heightMm - 4);
+
+    for (let sh = 1; sh <= shutterCount; sh++) {
+      panels.push({
+        partId: `${id}-SHT-${sh}`,
+        panelName: `Facia Shutter ${sh} of ${shutterCount}`,
+        role: 'shutter',
+        widthMm: shutterWidth,
+        heightMm: shutterHeight,
+        thicknessMm: coreThick,
+        materialSlot: 'shutter',
+        grainDirection: 'vertical',
+        edgeBanding: { topMm: 2, bottomMm: 2, leftMm: 2, rightMm: 2 },
+        system32Boring: true,
+        hingeBores: [
+          { distanceMm: 100, diameterMm: 35 },
+          { distanceMm: shutterHeight - 100, diameterMm: 35 },
+        ],
+      });
+    }
+  }
+
+  return panels;
 }

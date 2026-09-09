@@ -2,7 +2,7 @@ import {
   LayoutDashboard, FolderKanban, Library, BookOpen,
   Palette, Settings, Users, Ruler, ChevronRight, Box, Home, Wand2, CalendarDays, Receipt, Compass,
   PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut, Sparkles, Layers,
-  CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2
+  CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2, ArrowLeft, ArrowRight
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -60,13 +60,14 @@ const TOOL_NAV = [
 
 // ─── Default workflow stages ──────────────────────────────────────
 export const DEFAULT_WORKFLOW_STAGES: WorkflowStageConfig[] = [
-  { id: 'brief',        label: 'Project Brief', path: 'brief',        icon: BookOpen, status: 'not_started' },
-  { id: 'plan',         label: 'Measured Plan', path: 'plan',         icon: Compass, status: 'locked', lockReason: 'Complete project brief first' },
-  { id: 'spaces',       label: 'Rooms & Modules', path: 'spaces',     icon: Home, status: 'locked', lockReason: 'Approve measured plan first' },
-  { id: '3d',           label: 'Scene Studio',  path: '3d',           icon: Wand2, status: 'locked', lockReason: 'Save a room design first' },
-  { id: 'drawings',     label: 'Production Docs', path: 'drawings',   icon: Ruler, status: 'locked', lockReason: 'Compile a scene first' },
-  { id: 'estimate',     label: 'Costing',       path: 'estimate',     icon: Receipt, status: 'locked', lockReason: 'Approve production documents first' },
-  { id: 'presentation', label: 'Presentation',  path: 'presentation', icon: Palette, status: 'locked', lockReason: 'Complete costing first' },
+  { id: 'brief',        label: 'Project Brief',   path: 'brief',        icon: BookOpen, status: 'not_started' },
+  { id: 'plan',         label: 'Measured Plan',   path: 'plan',         icon: Compass,  status: 'locked', lockReason: 'Complete project brief first' },
+  { id: 'spaces',       label: 'Rooms & Modules', path: 'spaces',       icon: Home,     status: 'locked', lockReason: 'Approve measured plan first' },
+  { id: '3d',           label: 'Scene Studio',    path: '3d',           icon: Wand2,    status: 'locked', lockReason: 'Save a room design first' },
+  { id: 'drawings',     label: 'Production Docs', path: 'drawings',     icon: Ruler,    status: 'locked', lockReason: 'Compile a scene first' },
+  { id: 'estimate',     label: 'Costing & BOQ',   path: 'estimate',     icon: Receipt,  status: 'locked', lockReason: 'Approve production documents first' },
+  { id: 'presentation', label: 'Presentation',    path: 'presentation', icon: Palette,  status: 'locked', lockReason: 'Complete costing first' },
+  { id: 'production',   label: 'CAM Production',  path: 'production',   icon: Box,      status: 'locked', lockReason: 'Complete presentation & client approval first' },
 ];
 
 // ─── Stage status icon ─────────────────────────────────────────────
@@ -103,6 +104,13 @@ export function Shell({
   }
 
   const inProject = Boolean(projectId);
+  const doneStagesCount = workflowStages.filter((stage) => stage.status === 'done').length;
+  const totalStagesCount = workflowStages.length;
+  const workflowProgressPct = totalStagesCount > 0 ? Math.round((doneStagesCount / totalStagesCount) * 100) : 0;
+  const activeStageIdx = workflowStages.findIndex((stage) => location.pathname.includes(`/${stage.path}`));
+  const activeStage = activeStageIdx >= 0 ? workflowStages[activeStageIdx] : null;
+  const prevStage = activeStageIdx > 0 ? workflowStages[activeStageIdx - 1] : null;
+  const nextStage = activeStageIdx >= 0 && activeStageIdx < workflowStages.length - 1 ? workflowStages[activeStageIdx + 1] : null;
 
   useEffect(() => {
     window.localStorage.setItem('ultida-sidebar-collapsed', String(collapsed));
@@ -110,11 +118,18 @@ export function Shell({
 
   return (
     <div className={`ultida-shell${collapsed ? ' sidebar-collapsed' : ''}`}>
+      {/* Mobile Drawer Backdrop Overlay */}
+      <div
+        className={`sidebar-backdrop${mobileOpen ? ' active' : ''}`}
+        onClick={() => setMobileOpen(false)}
+        aria-hidden="true"
+      />
+
       {/* ─── Primary Sidebar ─── */}
       <aside className={`primary-sidebar${mobileOpen ? ' mobile-open' : ''}`}>
         {/* Brand */}
         <div className="sidebar-brand">
-          <div className="brand-mark">U</div>
+          <div className="brand-mark" title="ULTIDA Studio OS">U</div>
           <div className="brand-text">
             <strong>ULTIDA</strong>
             <span>Interior Design OS</span>
@@ -138,18 +153,43 @@ export function Shell({
                 to={item.path}
                 className={`nav-item${isActive ? ' active' : ''}`}
                 onClick={() => setMobileOpen(false)}
+                title={collapsed ? item.label : undefined}
+                data-tooltip={item.label}
               >
                 <span className="nav-icon"><Icon size={16} /></span>
-                <span>{item.label}</span>
+                <span className="nav-label-text">{item.label}</span>
                 {item.id === 'projects' && <span className="nav-badge">•</span>}
               </Link>
             );
           })}
         </div>
 
-        {!inProject && <div className="sidebar-tool-groups">
-          {TOOL_NAV.map(group => <div className="sidebar-tool-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => { const Icon = item.icon; const active = location.pathname === item.path; return <Link key={item.id} to={item.path} className={`nav-item compact${active ? ' active' : ''}`} onClick={() => setMobileOpen(false)}><span className="nav-icon"><Icon size={15} /></span><span>{item.label}</span></Link>; })}</div>)}
-        </div>}
+        {!inProject && (
+          <div className="sidebar-tool-groups">
+            {TOOL_NAV.map(group => (
+              <div className="sidebar-tool-group" key={group.label}>
+                <span className="nav-label">{group.label}</span>
+                {group.items.map(item => {
+                  const Icon = item.icon;
+                  const active = location.pathname === item.path;
+                  return (
+                    <Link
+                      key={item.id}
+                      to={item.path}
+                      className={`nav-item compact${active ? ' active' : ''}`}
+                      onClick={() => setMobileOpen(false)}
+                      title={collapsed ? item.label : undefined}
+                      data-tooltip={item.label}
+                    >
+                      <span className="nav-icon"><Icon size={15} /></span>
+                      <span className="nav-label-text">{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Project workflow nav */}
         {inProject && (
@@ -158,11 +198,17 @@ export function Shell({
               <span className="workflow-nav-title">
                 {projectName || 'Current Project'}
               </span>
-              <span className="workflow-count" aria-label={`${workflowStages.filter((stage) => stage.status === 'done').length} of ${workflowStages.length} stages complete`}>
-                {workflowStages.filter((stage) => stage.status === 'done').length}/{workflowStages.length}
+              <span className="workflow-count" aria-label={`${doneStagesCount} of ${totalStagesCount} stages complete`}>
+                {doneStagesCount}/{totalStagesCount}
               </span>
             </div>
-            {workflowStages.map((stage, i) => {
+
+            {/* Workflow Progress Bar */}
+            <div className="workflow-progress-track" title={`${workflowProgressPct}% complete`}>
+              <div className="workflow-progress-bar" style={{ width: `${workflowProgressPct}%` }} />
+            </div>
+
+            {workflowStages.map((stage) => {
               const isActive = location.pathname.includes(`/${stage.path}`);
               const isLocked = stage.status === 'locked';
               const StageItemIcon = stage.icon ?? Home;
@@ -179,7 +225,8 @@ export function Shell({
                       setMobileOpen(false);
                     }
                   }}
-                  title={isLocked ? stage.lockReason : stage.label}
+                  title={collapsed ? stage.label : (isLocked ? stage.lockReason : stage.label)}
+                  data-tooltip={stage.label}
                 >
                   <span className="stage-nav-icon"><StageItemIcon size={14} /></span>
                   <span className="stage-label-text">{stage.label}</span>
@@ -194,22 +241,23 @@ export function Shell({
         <div className="sidebar-footer">
           {sessionEmail ? (
             <>
-              <div className="user-avatar">{sessionEmail[0].toUpperCase()}</div>
+              <div className="user-avatar" title={sessionEmail}>{sessionEmail[0].toUpperCase()}</div>
               <div className="user-info">
                 <span className="user-email">{sessionEmail}</span>
                 <span className="user-org">{orgName ?? 'No organization'}</span>
               </div>
               <button
-                style={{ background: 'transparent', border: 0, color: 'rgba(255,255,255,.3)', display: 'flex', padding: '4px' }}
+                className="user-signout-btn"
                 onClick={signOut}
-                title="Sign out"
+                title="Sign out of ULTIDA"
+                aria-label="Sign out"
               >
                 <LogOut size={15} />
               </button>
             </>
           ) : (
             <div className="user-info">
-              <span className="user-email">Not signed in</span>
+              <span className="user-email">Guest Session</span>
             </div>
           )}
         </div>
@@ -226,34 +274,149 @@ export function Shell({
           >
             <Menu size={18} />
           </button>
+          
           <div className="command-bar-breadcrumb">
-            <span>Projects</span>
+            <Link to="/projects" className="breadcrumb-link">Projects</Link>
             {projectName && (
               <>
                 <ChevronRight size={14} className="command-bar-sep" />
-                <strong>{projectName}</strong>
+                {projectId ? (
+                  <Link to={`/projects/${projectId}/brief`} className="breadcrumb-link active">
+                    <strong>{projectName}</strong>
+                  </Link>
+                ) : (
+                  <strong>{projectName}</strong>
+                )}
               </>
             )}
             {location.pathname.split('/').filter(Boolean).length > 2 && (
               <>
                 <ChevronRight size={14} className="command-bar-sep" />
-                <span style={{ textTransform: 'capitalize' }}>
+                <span className="breadcrumb-active-stage">
                   {location.pathname.split('/').at(-1)?.replace('-', ' ')}
                 </span>
               </>
             )}
           </div>
+
           <div className="command-bar-actions">
+            {/* Studio status pill */}
+            <div className="command-bar-status" title="Studio Engine Connected">
+              <span className="status-pulse-dot" />
+              <span className="status-pulse-label">Studio Active</span>
+            </div>
+
+            {/* Quick AI tool launcher */}
+            <Link to="/tools/aura" className="command-bar-ai-btn" title="Launch AURA Design Assistant">
+              <Sparkles size={14} />
+              <span className="ai-btn-text">AURA AI</span>
+            </Link>
+
             {!inProject && onNewProject && (
               <button
                 onClick={onNewProject}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', background: 'var(--brown-mid)', color: '#fff', border: '0', borderRadius: '7px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}
+                className="command-bar-primary-btn"
               >
-                <Plus size={15} /> New Project
+                <Plus size={15} /> <span>New Project</span>
               </button>
             )}
           </div>
         </div>
+
+        {/* Stage Forward/Back Continuity Bar */}
+        {inProject && activeStage && (
+          <div
+            className="workflow-continuity-strip"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 24px',
+              background: '#181614',
+              borderBottom: '1px solid #2d2925',
+              fontSize: '12px',
+              color: '#a8a29e',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ color: '#78716c', fontWeight: 600 }}>Stage {activeStageIdx + 1} of {workflowStages.length}:</span>
+              <span style={{ color: '#fff', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <StageIcon status={activeStage.status} />
+                {activeStage.label}
+              </span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  padding: '2px 8px',
+                  borderRadius: 12,
+                  background: activeStage.status === 'done' ? 'rgba(52, 211, 153, 0.15)' : 'rgba(255, 255, 255, 0.08)',
+                  color: activeStage.status === 'done' ? '#34d399' : '#d6d3d1',
+                  textTransform: 'uppercase',
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                }}
+              >
+                {stageStatusLabel(activeStage.status)}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {prevStage ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/projects/${projectId}/${prevStage.path}`)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 14px',
+                    background: '#24211e',
+                    border: '1px solid #3d3731',
+                    borderRadius: 7,
+                    color: '#e7e5e4',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                  title={`Return to previous stage: ${prevStage.label}`}
+                >
+                  <ArrowLeft size={13} /> {prevStage.label}
+                </button>
+              ) : null}
+
+              {nextStage ? (
+                <button
+                  type="button"
+                  disabled={nextStage.status === 'locked'}
+                  onClick={() => {
+                    if (nextStage.status !== 'locked') {
+                      navigate(`/projects/${projectId}/${nextStage.path}`);
+                    }
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 16px',
+                    background: nextStage.status === 'locked' ? '#24211e' : 'linear-gradient(135deg, #10b981, #059669)',
+                    border: nextStage.status === 'locked' ? '1px solid #3d3731' : '0',
+                    borderRadius: 7,
+                    color: nextStage.status === 'locked' ? '#78716c' : '#000',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: nextStage.status === 'locked' ? 'not-allowed' : 'pointer',
+                    boxShadow: nextStage.status === 'locked' ? 'none' : '0 2px 8px rgba(16, 185, 129, 0.25)',
+                  }}
+                  title={nextStage.status === 'locked' ? (nextStage.lockReason ?? 'Stage locked') : `Proceed to next stage: ${nextStage.label}`}
+                >
+                  Next: {nextStage.label} <ArrowRight size={13} />
+                </button>
+              ) : null}
+            </div>
+          </div>
+        )}
 
         {/* Page content */}
         <div className="shell-content">

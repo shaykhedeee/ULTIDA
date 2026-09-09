@@ -463,3 +463,4 @@ export type {
   StylePreference, BudgetBand, PriorityDriver, BriefCoreV1, RoomRequirementsV1,
 } from './brief_schema.js';
 export { ProjectBriefV1Schema, validateProjectBrief, type ProjectBriefV1 } from './brief_schema.js';
+export * from './flooring.js';
