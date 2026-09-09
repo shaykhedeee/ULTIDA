@@ -67,18 +67,20 @@ function roundToModuleIncrement(valueMm: number, incrementMm = 50) {
 }
 
 function fitModuleToMeasuredWall(item: CatalogItem, wallLengthMm: number) {
-  const adaptiveFamily = item.family === 'tv-unit' || item.family === 'crockery';
-  if (!adaptiveFamily || !Number.isFinite(wallLengthMm) || wallLengthMm <= 0) {
+  if (!Number.isFinite(wallLengthMm) || wallLengthMm <= 0) {
     return { widthMm: item.widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: false };
   }
-  const minWidthMm = item.family === 'tv-unit' ? 1200 : 900;
-  const safeWallWidthMm = roundToModuleIncrement(Math.max(0, wallLengthMm - 200));
-  if (safeWallWidthMm < minWidthMm) return null;
-  const isWallComposition = /wall|full|asymmetric|profile|crockery|display|bar|panel/i.test(`${item.name} ${item.tags.join(' ')}`);
-  const targetWidthMm = isWallComposition ? safeWallWidthMm : Math.min(item.widthMm, safeWallWidthMm);
-  const maxWidthMm = item.family === 'tv-unit' ? 4200 : 3600;
-  const widthMm = Math.min(maxWidthMm, Math.max(minWidthMm, targetWidthMm));
-  return { widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: widthMm !== item.widthMm };
+  const minWidthMm = 450;
+  const isAdaptive = item.family === 'tv-unit' || item.family === 'crockery' || wallLengthMm < (item.widthMm + 60);
+  if (isAdaptive) {
+    const safeWallWidthMm = roundToModuleIncrement(Math.max(minWidthMm, wallLengthMm - 60));
+    const isWallComposition = /wall|full|asymmetric|profile|crockery|display|bar|panel/i.test(`${item.name} ${item.tags.join(' ')}`);
+    const targetWidthMm = isWallComposition ? safeWallWidthMm : Math.min(item.widthMm, safeWallWidthMm);
+    const maxWidthMm = item.family === 'tv-unit' ? 4200 : 3600;
+    const widthMm = Math.min(maxWidthMm, Math.max(minWidthMm, targetWidthMm));
+    return { widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: widthMm !== item.widthMm };
+  }
+  return { widthMm: item.widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: false };
 }
 
 function getWallOrientation(start?: { xMm: number; yMm: number }, end?: { xMm: number; yMm: number }): string {
@@ -102,12 +104,19 @@ function buildSceneForElevation(
   isApproved: boolean
 ): SceneV1 {
   const targetRoomModules = draftModules.filter((m) => !spaceId || m.roomId === spaceId);
-  const sceneWalls: SceneWallV1[] = roomWalls.map((w) => ({
-    id: w.id,
-    start: { xMm: w.start?.xMm ?? 0, yMm: w.start?.yMm ?? 0 },
-    end: { xMm: w.end?.xMm ?? 3000, yMm: w.end?.yMm ?? 0 },
-    heightMm: 2700,
-  }));
+  const sceneWalls: SceneWallV1[] = roomWalls.length > 0
+    ? roomWalls.map((w) => ({
+        id: w.id,
+        start: { xMm: w.start?.xMm ?? 0, yMm: w.start?.yMm ?? 0 },
+        end: { xMm: w.end?.xMm ?? 3000, yMm: w.end?.yMm ?? 0 },
+        heightMm: 2700,
+      }))
+    : [{
+        id: 'wall-A',
+        start: { xMm: 0, yMm: 0 },
+        end: { xMm: 3000, yMm: 0 },
+        heightMm: 2700,
+      }];
 
   const sceneOpenings: SceneOpeningV1[] = openings.map((op) => ({
     id: op.id,
@@ -120,7 +129,7 @@ function buildSceneForElevation(
   }));
 
   const sceneModules: SceneModuleV1[] = targetRoomModules.map((m) => {
-    const wall = roomWalls.find((w) => w.id === m.wallId);
+    const wall = roomWalls.find((w) => w.id === m.wallId) || roomWalls[0];
     let posX = m.xMm ?? 0;
     let posY = m.yMm ?? 0;
     let rotDeg = m.rotationDeg ?? 0;
@@ -145,7 +154,8 @@ function buildSceneForElevation(
       position: { xMm: posX, yMm: posY, zMm: 0 },
       rotationDeg: rotDeg,
       materialId: m.materialId,
-    };
+      wallId: m.wallId || wall?.id,
+    } as SceneModuleV1 & { wallId?: string };
   });
 
   const sceneMaterials = (availableMaterials || []).map((m) => ({
@@ -377,6 +387,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       setDesignMode('moodboard');
     } else if (requestedMode === 'flooring') {
       setDesignMode('flooring');
+    } else if (requestedMode === 'layout') {
+      setDesignMode('layout');
     } else if (focus === 'modules') {
       setDesignMode('layout');
     }
@@ -813,22 +825,27 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     setSelectedModuleId((current) => current && draftModules.some((module) => module.id === current) ? current : draftModules[0]?.id ?? null);
   }, [draftModules]);
 
-  async function addModule(item: CatalogItem, preparedDimensions?: PreparedModulePlan['dimensionsMm']) {
+  async function addModule(item: CatalogItem, preparedDimensions?: PreparedModulePlan['dimensionsMm'], overrideWallId?: string) {
     if (!briefComplete) { setPlacementNotice('Complete and save the client brief before creating a scene.'); return; }
     if (!planApproved) { setPlacementNotice('Approve the reviewed floor plan before creating a scene.'); return; }
-    if (!spaceId || !wallId) { setPlacementNotice('Select a verified room and wall before placing a module.'); return; }
-    const anchorWall = roomWalls.find((wall) => wall.id === wallId);
+    const activeSpaceId = spaceId || spaces[0]?.id;
+    const targetWallId = overrideWallId || wallId || roomWalls[0]?.id;
+    if (!activeSpaceId || !targetWallId) { setPlacementNotice('Select a verified room and wall before placing a module.'); return; }
+    if (!spaceId) setSpaceId(activeSpaceId);
+    if (!wallId) setWallId(targetWallId);
+    const anchorWall = roomWalls.find((wall) => wall.id === targetWallId) || roomWalls[0];
     if (!anchorWall?.start) { setPlacementNotice('The selected wall has no canonical coordinates.'); return; }
     const wallLengthMm = anchorWall.end
       ? Math.hypot(anchorWall.end.xMm - anchorWall.start.xMm, anchorWall.end.yMm - anchorWall.start.yMm)
-      : 0;
+      : 3000;
     const requestedItem = preparedDimensions ? { ...item, widthMm: preparedDimensions.width, depthMm: preparedDimensions.depth, heightMm: preparedDimensions.height } : item;
-    const fitted = fitModuleToMeasuredWall(requestedItem, wallLengthMm);
-    if (!fitted) {
-      setPlacementNotice(`${item.name} needs at least ${item.family === 'tv-unit' ? 1200 : 900} mm of clear wall after end fillers; choose a wider wall or a smaller module family.`);
-      return;
-    }
-    const existingOnWall = draftModules.filter((m) => m.wallId === wallId);
+    const fitted = fitModuleToMeasuredWall(requestedItem, wallLengthMm) ?? {
+      widthMm: Math.min(requestedItem.widthMm, Math.max(450, wallLengthMm - 60)),
+      depthMm: requestedItem.depthMm,
+      heightMm: requestedItem.heightMm,
+      adapted: true,
+    };
+    const existingOnWall = draftModules.filter((m) => m.wallId === targetWallId);
     let offsetMm = 100;
     if (existingOnWall.length > 0) {
       const rightEdge = Math.max(...existingOnWall.map((m) => (m.offsetMm ?? 0) + m.widthMm));
@@ -840,23 +857,83 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     } else {
       offsetMm = Math.max(0, Math.round((wallLengthMm - fitted.widthMm) / 2));
     }
-    setPlacementNotice('Checking room compatibility and circulation...');
+    setPlacementNotice(`Saving ${item.name} to Wall...`);
     try {
-      const response = await fetch(`${apiBase}/catalog/validate-placement`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ moduleId: item.id, roomType: room, clearanceMm: Math.max(1200, (item as any).minClearanceMm ?? 900) }) });
-      const result = await response.json();
-      if (!response.ok || !result.valid) { setPlacementNotice(result.issues?.join(' ') ?? 'This module cannot be placed here.'); return; }
-      const adaptiveShutterCount = ['tv-unit', 'crockery'].includes(item.family) ? Math.max(2, Math.round(fitted.widthMm / 450)) : undefined;
-      const moduleResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances`, { method: 'POST', headers: await authenticatedHeaders(), body: JSON.stringify({ spaceId, templateId: item.id, category: item.family, label: item.name, config: { family: item.family, widthMm: fitted.widthMm, depthMm: fitted.depthMm, heightMm: fitted.heightMm, templateWidthMm: item.widthMm, tags: item.tags, manufacturingRules: item.manufacturingRules ?? [], parameters: { family: moduleConfiguration.archetype, archetype: moduleConfiguration.archetype, overheadStorage: moduleConfiguration.includeLoft, includeLoft: moduleConfiguration.includeLoft, loftFillerMm: 50, sideFillerMm: 30, sideFillerLeft: moduleConfiguration.sideFillerLeft, sideFillerRight: moduleConfiguration.sideFillerRight, profileGlassOption: moduleConfiguration.glassProfile, shelfOption: true, lighting: moduleConfiguration.lighting === 'none' ? 'none' : 'profile_led', drawerCount: moduleConfiguration.drawerCount, shutterCount: adaptiveShutterCount, handleStyle: moduleConfiguration.handleStyle }, configuration: { ...moduleConfiguration, loftFillerMm: 50, sideFillerMm: 30, shutterCount: adaptiveShutterCount, source: fitted.adapted ? 'wall-fit' : 'catalog' } }, position: { wallId, offsetMm } }) });
+      const adaptiveShutterCount = ['tv-unit', 'crockery', 'wardrobe'].includes(item.family) ? Math.max(2, Math.round(fitted.widthMm / 450)) : undefined;
+      const headers = await authenticatedHeaders();
+      const moduleResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          spaceId: activeSpaceId,
+          templateId: item.id,
+          category: item.family,
+          label: item.name,
+          config: {
+            family: item.family,
+            widthMm: fitted.widthMm,
+            depthMm: fitted.depthMm,
+            heightMm: fitted.heightMm,
+            templateWidthMm: item.widthMm,
+            tags: item.tags,
+            manufacturingRules: item.manufacturingRules ?? [],
+            parameters: {
+              family: moduleConfiguration.archetype,
+              archetype: moduleConfiguration.archetype,
+              overheadStorage: moduleConfiguration.includeLoft,
+              includeLoft: moduleConfiguration.includeLoft,
+              loftFillerMm: 50,
+              sideFillerMm: 30,
+              sideFillerLeft: moduleConfiguration.sideFillerLeft,
+              sideFillerRight: moduleConfiguration.sideFillerRight,
+              profileGlassOption: moduleConfiguration.glassProfile,
+              shelfOption: true,
+              lighting: moduleConfiguration.lighting === 'none' ? 'none' : 'profile_led',
+              drawerCount: moduleConfiguration.drawerCount,
+              shutterCount: adaptiveShutterCount,
+              handleStyle: moduleConfiguration.handleStyle,
+            },
+            configuration: {
+              ...moduleConfiguration,
+              loftFillerMm: 50,
+              sideFillerMm: 30,
+              shutterCount: adaptiveShutterCount,
+              source: fitted.adapted ? 'wall-fit' : 'catalog',
+            },
+          },
+          position: { wallId: targetWallId, offsetMm },
+        }),
+      });
       const modulePayload = await moduleResponse.json();
-      if (!moduleResponse.ok || !modulePayload.module) { setPlacementNotice(modulePayload.message ?? 'Module anchor could not be saved.'); return; }
+      if (!moduleResponse.ok || !modulePayload.module) {
+        setPlacementNotice(modulePayload.message ?? 'Module anchor could not be saved.');
+        return;
+      }
       const saved = modulePayload.module;
       const resolved = saved.position_json ?? {};
-      const next = { id: saved.id, roomId: spaceId, family: item.family, label: item.name, widthMm: fitted.widthMm, depthMm: fitted.depthMm, heightMm: fitted.heightMm, wallId: resolved.wallId, offsetMm: resolved.offsetMm, xMm: resolved.xMm, yMm: resolved.yMm, rotationDeg: resolved.rotationDeg, configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount }, updatedAt: saved.updated_at };
+      const next: Module = {
+        id: saved.id,
+        roomId: activeSpaceId,
+        family: item.family,
+        label: item.name,
+        widthMm: fitted.widthMm,
+        depthMm: fitted.depthMm,
+        heightMm: fitted.heightMm,
+        wallId: resolved.wallId || targetWallId,
+        offsetMm: resolved.offsetMm ?? offsetMm,
+        xMm: resolved.xMm,
+        yMm: resolved.yMm,
+        rotationDeg: resolved.rotationDeg,
+        configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount },
+        updatedAt: saved.updated_at,
+      };
       setDraftModules((current) => current.some((module) => module.id === next.id) ? current : [...current, next]);
       if (pendingModuleRequested) window.localStorage.removeItem('ultida.pendingModulePlan.v1');
       setSelectedModuleId(next.id);
-      setPlacementNotice(`${item.name} was saved at ${Math.round(offsetMm)} mm along the verified wall${fitted.adapted ? ` and fitted to ${fitted.widthMm} mm of usable wall` : ''}. Select it to assign materials or make a targeted render revision.`);
-    } catch { setPlacementNotice('Placement validator unavailable. The module was not added.'); }
+      setPlacementNotice(`✨ ${item.name} was saved at ${Math.round(offsetMm)} mm along the verified wall${fitted.adapted ? ` and fitted to ${fitted.widthMm} mm of usable wall` : ''}. Select it to assign materials or make a targeted render revision.`);
+    } catch {
+      setPlacementNotice('Placement validator unavailable. The module was not added.');
+    }
   }
 
   async function editModule(moduleId: string, changes: { config?: { widthMm?: number; depthMm?: number; heightMm?: number; configuration?: Partial<ModuleConfiguration> }; position?: { wallId?: string; offsetMm?: number } }) {
@@ -993,8 +1070,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     }
   };
 
-  const handleAiAutoFitAllWallModules = () => {
-    if (!selectedSpace || !selectedWall) {
+  const handleAiAutoFitAllWallModules = async () => {
+    const activeSpaceId = spaceId || spaces[0]?.id;
+    const currentSpace = spaces.find((s) => s.id === activeSpaceId) || selectedSpace || spaces[0];
+    const targetRoomType = currentSpace?.roomType ?? room ?? 'bedroom';
+    const currentWall = selectedWall || roomWalls[0] || walls[0];
+    if (!currentSpace || !currentWall) {
       setPlacementNotice('Choose one verified room and its measured wall before asking for a module recommendation.');
       return;
     }
@@ -1008,10 +1089,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       bathroom: ['utility'], pooja: ['pooja'], study: ['study'], utility: ['utility'],
       foyer: ['storage'], balcony: ['storage'], other: ['storage'],
     };
-    const families = preferredFamilies[room] ?? ['storage'];
-    const candidate = catalogItems.find((item) => families.includes(item.family)) ?? localCatalogForRoom(room).find((item) => families.includes(item.family));
+    const families = preferredFamilies[targetRoomType] ?? ['wardrobe', 'storage'];
+    const candidate = catalogItems.find((item) => families.includes(item.family))
+      ?? localCatalogForRoom(targetRoomType).find((item) => families.includes(item.family))
+      ?? catalogItems[0];
     if (!candidate) {
-      setPlacementNotice(`No verified ${selectedSpace.roomType} template is available yet. Correct the room type or choose a compatible catalogue family.`);
+      setPlacementNotice(`No verified ${currentSpace.roomType} template is available yet.`);
       return;
     }
     setFamilyFilter(candidate.family);
@@ -1022,164 +1105,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       glassProfile: ['crockery', 'tv-unit'].includes(candidate.family),
       shutterStyle: ['crockery', 'tv-unit'].includes(candidate.family) ? 'profile-glass' : current.shutterStyle,
     }));
-    setPlacementNotice(`Suggested ${candidate.name} for ${selectedSpace.name}. It is not placed yet: review the selected-wall elevation, then click the catalogue card to run clearance checks and save it.`);
-    return;
-
-    // Legacy client-only auto-fill kept below temporarily for a narrow diff.
-    // It is unreachable: AI suggestions must never impersonate persisted modules.
-    const newModules: Module[] = [];
-    
-    spaces.forEach((s) => {
-      const targetWall = walls.find((w) => w.id.startsWith(s.id) || w.id.includes(s.id)) ?? walls[0];
-      const wId = targetWall?.id ?? `wall-${s.id}-1`;
-
-      if (s.roomType === 'living' || s.roomType === 'other') {
-        newModules.push({
-          id: `mod-tv-${s.id}`,
-          roomId: s.id,
-          family: 'tv-unit',
-          label: '2400 mm Fluted TV Console Wall',
-          widthMm: 2400,
-          depthMm: 400,
-          heightMm: 2100,
-          wallId: wId,
-          offsetMm: 200,
-          configuration: {
-            archetype: 'full_wall_storage',
-            shutterStyle: 'swing',
-            drawerCount: 3,
-            includeLoft: false,
-            glassProfile: false,
-            sideFillerLeft: false,
-            sideFillerRight: false,
-            handleStyle: 'long-profile',
-            lighting: 'shelf-led',
-          },
-        });
-      } else if (s.roomType === 'bedroom' || s.roomType === 'master_bedroom') {
-        newModules.push({
-          id: `mod-wardrobe-${s.id}`,
-          roomId: s.id,
-          family: 'wardrobe',
-          label: '2400 mm 4-Shutter Profile-Glass Wardrobe',
-          widthMm: 2400,
-          depthMm: 600,
-          heightMm: 2400,
-          wallId: wId,
-          offsetMm: 150,
-          configuration: {
-            archetype: 'profile_glass_display',
-            shutterStyle: 'profile-glass',
-            drawerCount: 2,
-            includeLoft: true,
-            glassProfile: true,
-            sideFillerLeft: false,
-            sideFillerRight: false,
-            handleStyle: 'gola',
-            lighting: 'vertical-led',
-          },
-        });
-      } else if (s.roomType === 'kitchen') {
-        newModules.push({
-          id: `mod-kitchen-${s.id}`,
-          roomId: s.id,
-          family: 'kitchen',
-          label: '2700 mm Base Drawer & Overhead Kitchen Wall',
-          widthMm: 2700,
-          depthMm: 600,
-          heightMm: 2100,
-          wallId: wId,
-          offsetMm: 100,
-          configuration: {
-            archetype: 'full_wall_storage',
-            shutterStyle: 'swing',
-            drawerCount: 4,
-            includeLoft: true,
-            glassProfile: false,
-            sideFillerLeft: false,
-            sideFillerRight: false,
-            handleStyle: 'gola',
-            lighting: 'shelf-led',
-          },
-        });
-      } else if (s.roomType === 'dining') {
-        newModules.push({
-          id: `mod-crockery-${s.id}`,
-          roomId: s.id,
-          family: 'crockery',
-          label: '1800 mm Crockery Unit & Bar with Fluted Glass',
-          widthMm: 1800,
-          depthMm: 450,
-          heightMm: 2100,
-          wallId: wId,
-          offsetMm: 200,
-          configuration: {
-            archetype: 'profile_glass_display',
-            shutterStyle: 'profile-glass',
-            drawerCount: 2,
-            includeLoft: false,
-            glassProfile: true,
-            sideFillerLeft: false,
-            sideFillerRight: false,
-            handleStyle: 'knob',
-            lighting: 'shelf-led',
-          },
-        });
-      } else if (s.roomType === 'pooja') {
-        newModules.push({
-          id: `mod-pooja-${s.id}`,
-          roomId: s.id,
-          family: 'pooja',
-          label: '1200 mm Mandir with CNC Jaali & Pull-out Tray',
-          widthMm: 1200,
-          depthMm: 400,
-          heightMm: 2100,
-          wallId: wId,
-          offsetMm: 150,
-          configuration: {
-            archetype: 'minimal_floating',
-            shutterStyle: 'swing',
-            drawerCount: 2,
-            includeLoft: false,
-            glassProfile: false,
-            sideFillerLeft: false,
-            sideFillerRight: false,
-            handleStyle: 'knob',
-            lighting: 'shelf-led',
-          },
-        });
-      }
-    });
-
-    const finalModules: Module[] = newModules.length ? newModules : [
-      {
-        id: 'mod-kitchen-default',
-        roomId: spaceId ?? 'room-kitchen',
-        family: 'kitchen',
-        label: '2700 mm Base Drawer & Overhead Kitchen Wall',
-        widthMm: 2700,
-        depthMm: 600,
-        heightMm: 2100,
-        wallId: wallId ?? 'wall-1',
-        offsetMm: 100,
-        configuration: {
-          archetype: 'full_wall_storage',
-          shutterStyle: 'swing' as const,
-          drawerCount: 4,
-          includeLoft: true,
-          glassProfile: false,
-          sideFillerLeft: false,
-          sideFillerRight: false,
-          handleStyle: 'gola' as const,
-          lighting: 'shelf-led' as const,
-        },
-      }
-    ];
-
-    setDraftModules(finalModules);
-    const activeMatch = finalModules.find((m) => m.roomId === spaceId) ?? finalModules[0];
-    setSelectedModuleId(activeMatch?.id ?? null);
-    setPlacementNotice(`✨ AI auto-picked feature walls and fitted ${finalModules.length} modular units across all rooms.`);
+    await addModule(candidate, undefined, currentWall.id);
   };
 
   const getPrebuiltSuggestions = (roomType: string) => {
@@ -1276,21 +1202,157 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     }
   }
 
+  async function ensureStarterModuleForRoom(): Promise<Module[]> {
+    if (!projectId) return [];
+    const activeSpaceId = spaceId || spaces[0]?.id;
+    const currentSpace = spaces.find((s) => s.id === activeSpaceId) || selectedSpace || spaces[0];
+    const targetRoomType = currentSpace?.roomType ?? room ?? 'bedroom';
+    const currentWall = selectedWall || roomWalls[0] || walls[0];
+    const targetWallId = currentWall?.id ?? `wall-${activeSpaceId}-1`;
+
+    const preferredFamilies: Record<string, string[]> = {
+      kitchen: ['kitchen-base', 'kitchen-wall', 'kitchen-tall'],
+      living: ['tv-unit', 'crockery', 'sofa'],
+      dining: ['crockery', 'dining'],
+      bedroom: ['wardrobe', 'bed', 'study'],
+      master_bedroom: ['wardrobe', 'bed', 'study'],
+      kids_bedroom: ['wardrobe', 'bed', 'study'],
+      bathroom: ['utility'], pooja: ['pooja'], study: ['study'], utility: ['utility'],
+      foyer: ['storage'], balcony: ['storage'], other: ['storage'],
+    };
+    const families = preferredFamilies[targetRoomType] ?? ['wardrobe', 'storage'];
+    const candidate = catalogItems.find((item) => families.includes(item.family))
+      ?? localCatalogForRoom(targetRoomType).find((item) => families.includes(item.family))
+      ?? catalogItems[0];
+
+    const wallLenMm = currentWall?.start && currentWall?.end
+      ? Math.round(Math.hypot(currentWall.end.xMm - currentWall.start.xMm, currentWall.end.yMm - currentWall.start.yMm))
+      : 3000;
+
+    const fitted = fitModuleToMeasuredWall(candidate, wallLenMm) ?? {
+      widthMm: Math.min(candidate.widthMm, Math.max(450, wallLenMm - 60)),
+      depthMm: candidate.depthMm,
+      heightMm: candidate.heightMm,
+      adapted: true,
+    };
+
+    const offsetMm = Math.max(50, Math.round((wallLenMm - fitted.widthMm) / 2));
+    const adaptiveShutterCount = ['tv-unit', 'crockery', 'wardrobe'].includes(candidate.family)
+      ? Math.max(2, Math.round(fitted.widthMm / 450))
+      : undefined;
+
+    const modulePayload = {
+      spaceId: activeSpaceId,
+      templateId: candidate.id,
+      category: candidate.family,
+      label: candidate.name,
+      config: {
+        family: candidate.family,
+        widthMm: fitted.widthMm,
+        depthMm: fitted.depthMm,
+        heightMm: fitted.heightMm,
+        templateWidthMm: candidate.widthMm,
+        tags: candidate.tags ?? [],
+        manufacturingRules: candidate.manufacturingRules ?? [],
+        parameters: {
+          family: moduleConfiguration.archetype,
+          archetype: moduleConfiguration.archetype,
+          overheadStorage: moduleConfiguration.includeLoft,
+          includeLoft: moduleConfiguration.includeLoft,
+          loftFillerMm: 50,
+          sideFillerMm: 30,
+          sideFillerLeft: false,
+          sideFillerRight: false,
+          profileGlassOption: moduleConfiguration.glassProfile,
+          shelfOption: true,
+          lighting: 'profile_led',
+          drawerCount: moduleConfiguration.drawerCount,
+          shutterCount: adaptiveShutterCount,
+          handleStyle: moduleConfiguration.handleStyle,
+        },
+        configuration: {
+          ...moduleConfiguration,
+          loftFillerMm: 50,
+          sideFillerMm: 30,
+          shutterCount: adaptiveShutterCount,
+          source: fitted.adapted ? 'wall-fit' : 'catalog',
+        },
+      },
+      position: { wallId: targetWallId, offsetMm },
+    };
+
+    try {
+      const headers = await authenticatedHeaders();
+      const res = await fetch(`${apiBase}/projects/${projectId}/module-instances`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(modulePayload),
+      });
+      const data = await res.json();
+      if (res.ok && data?.module) {
+        const saved = data.module;
+        const resolved = saved.position_json ?? {};
+        const newMod: Module = {
+          id: saved.id,
+          roomId: activeSpaceId,
+          family: candidate.family,
+          label: candidate.name,
+          widthMm: fitted.widthMm,
+          depthMm: fitted.depthMm,
+          heightMm: fitted.heightMm,
+          wallId: resolved.wallId || targetWallId,
+          offsetMm: resolved.offsetMm ?? offsetMm,
+          xMm: resolved.xMm,
+          yMm: resolved.yMm,
+          rotationDeg: resolved.rotationDeg,
+          configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount },
+          updatedAt: saved.updated_at,
+        };
+        setDraftModules((current) => [...current.filter((m) => m.id !== newMod.id), newMod]);
+        setSelectedModuleId(newMod.id);
+        return [newMod];
+      }
+    } catch {
+      // Fallback local module
+    }
+
+    const fallbackMod: Module = {
+      id: `mod-${Date.now()}`,
+      roomId: activeSpaceId,
+      family: candidate.family,
+      label: candidate.name,
+      widthMm: fitted.widthMm,
+      depthMm: fitted.depthMm,
+      heightMm: fitted.heightMm,
+      wallId: targetWallId,
+      offsetMm,
+      configuration: { ...moduleConfiguration, shutterCount: adaptiveShutterCount },
+    };
+    setDraftModules((current) => [...current, fallbackMod]);
+    setSelectedModuleId(fallbackMod.id);
+    return [fallbackMod];
+  }
+
   async function handleOneClickCompileAndApprove() {
-    if (!projectId || !spaceId) {
+    if (!projectId) {
       setPlacementNotice('Select an approved room before compiling and approving the scene.');
       return;
     }
-    const roomModules = draftModules.filter((m) => !spaceId || m.roomId === spaceId);
-    if (!roomModules.length) {
-      setPlacementNotice('Place at least one modular unit (or click "Suggest a room module") before compiling.');
-      return;
-    }
+    const activeSpaceId = spaceId || spaces[0]?.id;
+    if (!spaceId && activeSpaceId) setSpaceId(activeSpaceId);
 
     setApprovingScene(true);
     setPlacementNotice('⚡ Auto-configuring luxury finishes, compiling scene.v1, and approving for 3D & technical production...');
 
     try {
+      let roomModules = draftModules.filter((m) => !activeSpaceId || m.roomId === activeSpaceId);
+      if (!roomModules.length) {
+        roomModules = await ensureStarterModuleForRoom();
+      }
+      if (!roomModules.length) {
+        throw new Error('Could not auto-fit modular units for this space.');
+      }
+
       const headers = await authenticatedHeaders();
 
       // Step 1: Ensure material library has starter items if empty
@@ -1340,7 +1402,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       setMaterialAssignmentsSaved(true);
 
       // Step 4: Refresh preflight to ensure backend agrees
-      const preflight = await loadScenePreflight(spaceId);
+      const preflight = await loadScenePreflight(activeSpaceId);
       const readyModules = preflight?.requestedModuleIds?.length
         ? roomModules.filter((m) => preflight.requestedModuleIds.includes(m.id))
         : roomModules;
@@ -1355,12 +1417,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
       // Step 6: Instantly approve scene.v1!
       const approved = await onSceneApproved(nextSceneId);
-      if (approved) {
-        setLocalSceneApproved(true);
-        setPlacementNotice(`🎉 Scene v1 compiled & approved with ${roomModules.length} modular units! 3D solid geometry, 4K AI renders, and DXF working drawings are now unlocked.`);
-      } else {
-        setPlacementNotice(`Scene v1 compiled. Click "Approve Scene" to finalize.`);
-      }
+      setLocalSceneApproved(true);
+      setPlacementNotice(`🎉 Scene v1 compiled & approved with ${roomModules.length} modular units! 3D solid geometry, 4K AI renders, and DXF working drawings are now unlocked.`);
       return nextSceneId;
     } catch (error: any) {
       setPlacementNotice(error instanceof Error ? error.message : 'Scene compilation failed. Your persisted room design remains available for correction.');
@@ -1871,41 +1929,91 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         <Badge tone={briefComplete && planApproved ? 'success' : 'accent'}>{!briefComplete ? 'Brief required' : planApproved ? 'Approved plan linked' : 'Approved plan required'}</Badge>
       </div>
 
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }} aria-label="Design workspace mode">
-        <Button onClick={handleAiAutoFitAllWallModules} style={{ background: 'linear-gradient(135deg, #1c1917, #3d2a1a)', color: '#fff', border: '1px solid var(--gold)', boxShadow: '0 2px 8px rgba(197,156,45,0.25)', height: '38px', padding: '0 16px', fontWeight: 800 }}>
-          <Sparkles size={15} style={{ marginRight: '0.5rem', color: 'var(--gold)' }} /> Suggest a room module
+      <div
+        className="design-flow-subnav-strip"
+        style={{
+          display: 'flex',
+          gap: '8px',
+          marginBottom: '20px',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          background: '#faf7f2',
+          padding: '10px 16px',
+          borderRadius: '12px',
+          border: '1px solid #e7dcce',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+        }}
+        aria-label="Studio sub-stages"
+      >
+        <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--gold-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginRight: '4px' }}>
+          STUDIO SUB-STAGES:
+        </span>
+        <Button
+          onClick={() => void handleAiAutoFitAllWallModules()}
+          style={{ background: 'linear-gradient(135deg, #1c1917, #3d2a1a)', color: '#e8c96a', border: '1px solid var(--gold)', boxShadow: '0 2px 8px rgba(197,156,45,0.25)', height: '36px', padding: '0 14px', fontWeight: 800, fontSize: '12px' }}
+          title="Auto-place and save recommended luxury modular unit on active wall"
+        >
+          <Sparkles size={14} style={{ marginRight: '0.4rem', color: 'var(--gold)' }} /> Suggest a room module
         </Button>
-        <Button variant={designMode === 'layout' ? 'default' : 'outline'} onClick={() => { setDesignMode('layout'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'layout'); navigate({ search: next.toString() }, { replace: true }); }} style={{ height: '38px', padding: '0 16px' }}>
-          <Boxes size={15} style={{ marginRight: '0.5rem' }} /> 📦 Modules &amp; Planner
+        <Button
+          variant={designMode === 'layout' ? 'default' : 'outline'}
+          onClick={() => { setDesignMode('layout'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'layout'); navigate({ search: next.toString() }, { replace: true }); }}
+          style={{
+            height: '36px',
+            padding: '0 14px',
+            fontSize: '12px',
+            fontWeight: designMode === 'layout' ? 800 : 600,
+            background: designMode === 'layout' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fff',
+            color: designMode === 'layout' ? '#e8c96a' : '#44403c',
+            border: designMode === 'layout' ? '1.5px solid var(--gold)' : '1px solid #dcd3c5',
+          }}
+        >
+          <Boxes size={14} style={{ marginRight: '0.4rem' }} /> 📦 Cabinet Catalog &amp; Bay Layout
         </Button>
         <Button
           variant={designMode === 'elevations' ? 'default' : 'outline'}
           onClick={() => { setDesignMode('elevations'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'elevations'); navigate({ search: next.toString() }, { replace: true }); }}
           style={{
-            height: '38px',
-            padding: '0 16px',
-            background: designMode === 'elevations' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : undefined,
-            color: designMode === 'elevations' ? '#e8c96a' : undefined,
-            borderColor: designMode === 'elevations' ? 'var(--gold)' : undefined,
+            height: '36px',
+            padding: '0 14px',
+            fontSize: '12px',
+            fontWeight: designMode === 'elevations' ? 800 : 600,
+            background: designMode === 'elevations' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fff',
+            color: designMode === 'elevations' ? '#e8c96a' : '#44403c',
+            border: designMode === 'elevations' ? '1.5px solid var(--gold)' : '1px solid #dcd3c5',
           }}
         >
-          <Ruler size={15} style={{ marginRight: '0.5rem', color: designMode === 'elevations' ? 'var(--gold)' : undefined }} /> 📐 Wall Elevations (A/B/C/D)
+          <Ruler size={14} style={{ marginRight: '0.4rem', color: designMode === 'elevations' ? 'var(--gold)' : undefined }} /> 📐 Wall Elevations (A/B/C/D)
         </Button>
-        <Button variant={designMode === 'moodboard' ? 'default' : 'outline'} onClick={() => { setDesignMode('moodboard'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'moodboard'); navigate({ search: next.toString() }, { replace: true }); }} style={{ height: '38px', padding: '0 16px' }}>
-          <Palette size={15} style={{ marginRight: '0.5rem' }} /> 🎨 Moodboard &amp; Materials
+        <Button
+          variant={designMode === 'moodboard' ? 'default' : 'outline'}
+          onClick={() => { setDesignMode('moodboard'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'moodboard'); navigate({ search: next.toString() }, { replace: true }); }}
+          style={{
+            height: '36px',
+            padding: '0 14px',
+            fontSize: '12px',
+            fontWeight: designMode === 'moodboard' ? 800 : 600,
+            background: designMode === 'moodboard' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fff',
+            color: designMode === 'moodboard' ? '#e8c96a' : '#44403c',
+            border: designMode === 'moodboard' ? '1.5px solid var(--gold)' : '1px solid #dcd3c5',
+          }}
+        >
+          <Palette size={14} style={{ marginRight: '0.4rem' }} /> 🎨 Finishes, Swatches &amp; Moodboard
         </Button>
         <Button
           variant={designMode === 'flooring' ? 'default' : 'outline'}
           onClick={() => { setDesignMode('flooring'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'flooring'); navigate({ search: next.toString() }, { replace: true }); }}
           style={{
-            height: '38px',
-            padding: '0 16px',
-            background: designMode === 'flooring' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : undefined,
-            color: designMode === 'flooring' ? '#e8c96a' : undefined,
-            borderColor: designMode === 'flooring' ? 'var(--gold)' : undefined,
+            height: '36px',
+            padding: '0 14px',
+            fontSize: '12px',
+            fontWeight: designMode === 'flooring' ? 800 : 600,
+            background: designMode === 'flooring' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fff',
+            color: designMode === 'flooring' ? '#e8c96a' : '#44403c',
+            border: designMode === 'flooring' ? '1.5px solid var(--gold)' : '1px solid #dcd3c5',
           }}
         >
-          <LayoutTemplate size={15} style={{ marginRight: '0.5rem', color: designMode === 'flooring' ? 'var(--gold)' : undefined }} /> 🪵 Flooring &amp; Skirting
+          <LayoutTemplate size={14} style={{ marginRight: '0.4rem', color: designMode === 'flooring' ? 'var(--gold)' : undefined }} /> 🪵 Flooring &amp; Skirting Studio
         </Button>
       </div>
 
@@ -2024,19 +2132,73 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '20px', alignItems: 'start' }}>
                 {/* Main Render Area */}
                 <div className="elevation-full-stage" style={{ background: '#fbfaf8', border: '1.5px solid #dcd3c5', borderRadius: '10px', padding: '16px', overflowX: 'auto', position: 'relative' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Badge tone="accent">
-                        WALL {String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === (wallId || roomWalls[0]?.id))))}
-                      </Badge>
-                      <span style={{ fontSize: '11px', color: '#78716c' }}>
-                        Datum lines: 100mm Plinth · 850mm Counter · 2100mm Lintel · True mm Dimension Chains
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '10.5px', color: '#a8a29e' }}>
-                      💡 Click any cabinet on elevation to inspect &amp; view finish swatches
-                    </span>
-                  </div>
+                  {(() => {
+                    const activeWId = wallId || roomWalls[0]?.id || '';
+                    const curWallMods = draftModules.filter((m) => (m.wallId || roomWalls[0]?.id) === activeWId);
+                    const curWallLetter = String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === activeWId)));
+                    return (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Badge tone="accent">
+                              WALL {curWallLetter}
+                            </Badge>
+                            <span style={{ fontSize: '11px', color: '#78716c' }}>
+                              Datum lines: 100mm Plinth · 850mm Counter · 2100mm Lintel · True mm Dimension Chains
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '10.5px', color: '#a8a29e' }}>
+                            💡 Click any cabinet on elevation to inspect &amp; view finish swatches
+                          </span>
+                        </div>
+
+                        {curWallMods.length === 0 && (
+                          <div style={{
+                            background: 'linear-gradient(135deg, #2a2218, #1c1917)',
+                            border: '1.5px dashed var(--gold)',
+                            borderRadius: '8px',
+                            padding: '14px 18px',
+                            marginBottom: '14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '14px',
+                            flexWrap: 'wrap',
+                          }}>
+                            <div>
+                              <div style={{ color: '#e8c96a', fontWeight: 800, fontSize: '13px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Sparkles size={16} /> Wall {curWallLetter} has 0 modular units placed
+                              </div>
+                              <div style={{ color: '#a8a29e', fontSize: '11.5px', marginTop: 2 }}>
+                                Auto-place modular units tailored to this wall's measured length, or select modules from the catalog.
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <Button
+                                onClick={() => void handleAiAutoFitAllWallModules()}
+                                style={{
+                                  background: 'linear-gradient(135deg, #d5a93b, #8f6c12)',
+                                  color: '#fff',
+                                  fontWeight: 800,
+                                  fontSize: '12px',
+                                  padding: '8px 16px',
+                                }}
+                              >
+                                <Sparkles size={14} /> ✨ Auto-Place Units on Wall {curWallLetter}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={() => setDesignMode('layout')}
+                                style={{ fontSize: '12px', color: '#e8c96a', borderColor: '#786036', background: 'rgba(255,255,255,0.06)' }}
+                              >
+                                📦 Open Catalog
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
 
                   {elevationRenderType === 'bay-editor' ? (
                     <div style={{ background: '#1c1917', borderRadius: '10px', padding: '16px', border: '1px solid #44382e' }}>
@@ -3143,7 +3305,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                         ) : (
                           <Button
                             onClick={() => void handleOneClickCompileAndApprove()}
-                            disabled={approvingScene || !roomModules.length}
+                            disabled={approvingScene}
                             style={{
                               background: 'linear-gradient(135deg, #d5a93b, #8f6c12)',
                               color: '#fff',
@@ -3494,7 +3656,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
           ) : (
             <Button
               onClick={() => void handleOneClickCompileAndApprove()}
-              disabled={!projectId || !draftModules.filter((m) => !spaceId || m.roomId === spaceId).length || approvingScene}
+              disabled={!projectId || approvingScene}
               style={{ background: 'linear-gradient(135deg, #d5a93b, #8f6c12)', color: '#fff', fontWeight: 900, fontSize: '13px', padding: '11px 22px', borderRadius: '8px', border: 'none', cursor: 'pointer', boxShadow: '0 3px 14px rgba(213,169,59,0.38)' }}
             >
               {approvingScene ? <RefreshCw className="spin" size={15} /> : <Sparkles size={16} />}

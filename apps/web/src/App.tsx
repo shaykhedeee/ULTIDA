@@ -11,7 +11,7 @@
  */
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { X, Plus, ChevronRight, Mail, Lock, Sparkles, Layers, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
 import { getApiBase } from './lib/api-base';
@@ -487,6 +487,10 @@ function PlaceholderScreen({ title, description, icon }: { title: string; descri
 function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMode }: { sessionEmail: string; orgName: string; setSessionEmail: (email: string | null) => void; localDemoMode: boolean }) {
   const { projectId, stage } = useParams<{ projectId: string; stage: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const pathParts = location.pathname.split('/').filter(Boolean);
+  const stageFromPath = pathParts[2] || 'brief';
+  const activeStageId = stage || stageFromPath;
 
   // Project state
   const [projectName, setProjectName] = useState('');
@@ -828,30 +832,32 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const serverStageMap: Record<string, boolean> = serverStages ?? {};
   const useServerStages = Object.keys(serverStageMap).length > 0;
   const stageStatuses: WorkflowStageConfig[] = DEFAULT_WORKFLOW_STAGES.map((s) => {
-    const currentIdx = DEFAULT_WORKFLOW_STAGES.findIndex((x) => x.id === (stage ?? 'brief'));
+    const currentIdx = DEFAULT_WORKFLOW_STAGES.findIndex((x) => x.id === activeStageId);
     const thisIdx = DEFAULT_WORKFLOW_STAGES.findIndex((x) => x.id === s.id);
     const stageKey = s.id;
 
     let status: WorkflowStageConfig['status'] = 'not_started';
-    if (useServerStages) {
+    const isServerDone = Boolean(serverStageMap[stageKey]);
+    if (stageKey === 'brief' && (isServerDone || briefSaved)) status = 'done';
+    else if (stageKey === 'plan' && (isServerDone || planApproved)) status = 'done';
+    else if (stageKey === 'spaces' && (isServerDone || sceneApproved || Boolean(sceneVersionId))) status = 'done';
+    else if (stageKey === activeStageId) status = 'in_progress';
+    else if (stageKey === '3d' && (sceneApproved || Boolean(sceneVersionId))) status = 'not_started';
+    else if (useServerStages) {
       if (serverStageMap[stageKey]) status = 'done';
-      else if (stageKey === (stage ?? 'brief')) status = 'in_progress';
       else if (s.status === 'locked' || thisIdx > currentIdx + 1) status = 'locked';
     } else {
-      if (s.id === 'brief' && briefSaved) status = 'done';
-      else if (s.id === 'plan' && planApproved) status = 'done';
-      else if (stageKey === (stage ?? 'brief')) status = 'in_progress';
-      else if (thisIdx > currentIdx + 1) status = 'locked';
+      if (thisIdx > currentIdx + 1 && !(stageKey === '3d' && (sceneApproved || Boolean(sceneVersionId)))) status = 'locked';
     }
 
     let lockReason: string | undefined;
-    if (s.id === 'plan' && !(useServerStages ? serverStageMap['brief'] : briefSaved)) { status = 'locked'; lockReason = 'Complete brief first'; }
-    if (s.id === 'spaces' && !(useServerStages ? serverStageMap['plan'] : planApproved)) { status = 'locked'; lockReason = 'Approve floor plan first'; }
-    if (s.id === '3d' && !(useServerStages ? serverStageMap['spaces'] : planApproved)) { status = 'locked'; lockReason = 'Configure spaces first'; }
-    if (s.id === 'drawings' && !(useServerStages ? serverStageMap['3d'] : Boolean(sceneVersionId))) { status = 'locked'; lockReason = 'Compile measured scene first'; }
-    if (s.id === 'estimate' && !(useServerStages ? serverStageMap['drawings'] : Boolean(sceneVersionId))) { status = 'locked'; lockReason = 'Review production documents first'; }
-    if (s.id === 'presentation' && !(useServerStages ? serverStageMap['estimate'] : Boolean(sceneVersionId))) { status = 'locked'; lockReason = 'Complete costing first'; }
-    if (s.id === 'production' && !(useServerStages ? serverStageMap['presentation'] : sceneApproved)) { status = 'locked'; lockReason = 'Complete presentation & client approval first'; }
+    if (s.id === 'plan' && !(briefSaved || serverStageMap['brief'])) { status = 'locked'; lockReason = 'Complete brief first'; }
+    if (s.id === 'spaces' && !(planApproved || serverStageMap['plan'])) { status = 'locked'; lockReason = 'Approve floor plan first'; }
+    if (s.id === '3d' && !(sceneApproved || Boolean(sceneVersionId) || serverStageMap['spaces'] || planApproved)) { status = 'locked'; lockReason = 'Configure spaces first'; }
+    if (s.id === 'drawings' && !(sceneApproved || Boolean(sceneVersionId) || serverStageMap['3d'])) { status = 'locked'; lockReason = 'Compile measured scene first'; }
+    if (s.id === 'estimate' && !(Boolean(sceneVersionId) || serverStageMap['drawings'])) { status = 'locked'; lockReason = 'Review production documents first'; }
+    if (s.id === 'presentation' && !(Boolean(sceneVersionId) || serverStageMap['estimate'])) { status = 'locked'; lockReason = 'Complete costing first'; }
+    if (s.id === 'production' && !(sceneApproved || serverStageMap['presentation'])) { status = 'locked'; lockReason = 'Complete presentation & client approval first'; }
     return { ...s, status, lockReason };
   });
 
@@ -1392,7 +1398,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     }
   }
 
-  const currentStage = stage ?? 'brief';
+  const currentStage = activeStageId;
 
   return (
     <Shell
