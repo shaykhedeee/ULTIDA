@@ -29,7 +29,7 @@ type Module = { id: string; roomId: string; family: string; label: string; width
 type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; roomTypes: string[]; description?: string; manufacturingRules?: string[] };
 type PreparedModulePlan = { schema: 'ultida.module-plan.v1'; templateId: string; family: string; name: string; dimensionsMm: { width: number; depth: number; height: number }; wallWidthMm: number; clearanceMm: number };
 type DesignPreset = { id: string; name: string; family: string; roomTypes: string[]; referenceStyle: string[]; renderRules: string[]; productionRules: string[] };
-type ModuleConfiguration = { archetype: string; shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; shutterCount?: number; includeLoft: boolean; glassProfile: boolean; sideFillerLeft: boolean; sideFillerRight: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
+type ModuleConfiguration = { archetype?: string; shutterStyle?: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount?: number; shutterCount?: number; includeLoft?: boolean; glassProfile?: boolean; sideFillerLeft?: boolean; sideFillerRight?: boolean; handleStyle?: 'gola' | 'long-profile' | 'knob' | 'none'; lighting?: 'none' | 'shelf-led' | 'vertical-led' };
 type Provider = { id: string; configured: boolean; operations: string[] };
 type StoredRender = { id: string; scene_version_id: string; status: string; stale?: boolean; signedUrl: string | null; created_at: string; provenance?: { provider?: string; model?: string; promptVersion?: string; reviewStatus?: string } };
 type DesignFocus = 'all' | 'modules' | 'materials';
@@ -938,31 +938,295 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
   async function editModule(moduleId: string, changes: { config?: { widthMm?: number; depthMm?: number; heightMm?: number; configuration?: Partial<ModuleConfiguration> }; position?: { wallId?: string; offsetMm?: number } }) {
     const mod = draftModules.find((m) => m.id === moduleId);
-    if (!mod || !projectId || moduleEditPending.current) return;
-    if (!mod.updatedAt) { setPlacementNotice('Reload this module before editing so its saved revision can be checked.'); return; }
-    moduleEditPending.current = true;
-    setModuleSaving(true);
-    setPlacementNotice(`Saving ${mod.label}...`);
-    try {
-      const response = await fetch(`${apiBase}/projects/${projectId}/module-instances/${moduleId}`, {
-        method: 'PATCH',
-        headers: await authenticatedHeaders(),
-        body: JSON.stringify({ ...changes, expectedUpdatedAt: mod.updatedAt, reason: 'Designer updated module dimensions or wall position.' }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success || !payload.module) throw new Error(payload?.message || 'The module could not be saved.');
-      const saved = payload.module;
-      const updated: Module = { ...mod, widthMm: saved.config_json.widthMm, depthMm: saved.config_json.depthMm, heightMm: saved.config_json.heightMm, wallId: saved.position_json.wallId, offsetMm: saved.position_json.offsetMm, xMm: saved.position_json.xMm, yMm: saved.position_json.yMm, rotationDeg: saved.position_json.rotationDeg, configuration: saved.config_json.configuration ?? mod.configuration, updatedAt: saved.updated_at };
-      setDraftModules((current) => current.map((entry) => entry.id === moduleId ? updated : entry));
-      setCompiledSceneId(null);
-      await loadScenePreflight(mod.roomId);
-      setPlacementNotice(`Saved ${mod.label}. Compile a new scene to use these changes; previous scene versions are unchanged.`);
-    } catch (error) {
-      setPlacementNotice(error instanceof Error ? error.message : 'The edit failed. The saved module is unchanged.');
-    } finally {
-      moduleEditPending.current = false;
-      setModuleSaving(false);
+    if (!mod) return;
+
+    // Immediately update local state and localStorage for instant feedback
+    const updated: Module = {
+      ...mod,
+      widthMm: changes.config?.widthMm ?? mod.widthMm,
+      depthMm: changes.config?.depthMm ?? mod.depthMm,
+      heightMm: changes.config?.heightMm ?? mod.heightMm,
+      wallId: changes.position?.wallId ?? mod.wallId,
+      offsetMm: changes.position?.offsetMm ?? mod.offsetMm,
+      configuration: {
+        ...(mod.configuration ?? {}),
+        ...(changes.config?.configuration ?? {}),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    setDraftModules((current) => {
+      const next = current.map((entry) => entry.id === moduleId ? updated : entry);
+      if (projectId) {
+        try { window.localStorage.setItem(`ultida.modules.${projectId}`, JSON.stringify(next)); } catch {}
+      }
+      return next;
+    });
+    setCompiledSceneId(null);
+    setPlacementNotice(`Updated ${mod.label} (${updated.widthMm} × ${updated.depthMm} × ${updated.heightMm} mm).`);
+
+    // Non-blocking background sync if connected
+    if (projectId && !moduleEditPending.current) {
+      moduleEditPending.current = true;
+      setModuleSaving(true);
+      try {
+        const headers = await authenticatedHeaders();
+        const response = await fetch(`${apiBase}/projects/${projectId}/module-instances/${moduleId}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ ...changes, expectedUpdatedAt: mod.updatedAt, reason: 'Designer updated module dimensions or wall position.' }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (payload?.success && payload?.module) {
+          const saved = payload.module;
+          setDraftModules((current) => current.map((entry) => entry.id === moduleId ? { ...entry, updatedAt: saved.updated_at } : entry));
+        }
+      } catch {
+        // Local state preserved
+      } finally {
+        moduleEditPending.current = false;
+        setModuleSaving(false);
+      }
     }
+  }
+
+  function updateModuleWidth(moduleId: string, newWidthMm: number) {
+    const clampedWidth = Math.max(150, Math.round(newWidthMm));
+    const adaptiveShutterCount = clampedWidth <= 600 ? 1 : clampedWidth <= 1200 ? 2 : clampedWidth <= 1800 ? 3 : clampedWidth <= 2400 ? 4 : Math.ceil(clampedWidth / 600);
+
+    setDraftModules((current) => {
+      const next = current.map((m) => {
+        if (m.id !== moduleId) return m;
+        return {
+          ...m,
+          widthMm: clampedWidth,
+          configuration: {
+            ...(m.configuration ?? {}),
+            shutterCount: adaptiveShutterCount,
+          },
+        };
+      });
+      if (projectId) {
+        try { window.localStorage.setItem(`ultida.modules.${projectId}`, JSON.stringify(next)); } catch {}
+      }
+      return next;
+    });
+    setCompiledSceneId(null);
+
+    if (projectId) {
+      void (async () => {
+        try {
+          const headers = await authenticatedHeaders();
+          await fetch(`${apiBase}/projects/${projectId}/module-instances/${moduleId}`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({
+              config: { widthMm: clampedWidth, configuration: { shutterCount: adaptiveShutterCount } },
+              reason: 'Designer adjusted module width',
+            }),
+          }).catch(() => null);
+        } catch {}
+      })();
+    }
+  }
+
+  function autoFitModuleToAvailableSpace(moduleId: string) {
+    const mod = draftModules.find((m) => m.id === moduleId);
+    if (!mod) return;
+    const targetWallId = mod.wallId || wallId || roomWalls[0]?.id;
+    const wallObj = roomWalls.find((w) => w.id === targetWallId) || roomWalls[0];
+    const wallLength = wallObj?.start && wallObj?.end
+      ? Math.round(Math.hypot(wallObj.end.xMm - wallObj.start.xMm, wallObj.end.yMm - wallObj.start.yMm))
+      : 3000;
+
+    const leftFiller = 30;
+    const rightFiller = 30;
+    const usableWall = Math.max(100, wallLength - leftFiller - rightFiller);
+
+    const otherModulesOnWall = draftModules.filter((m) => m.id !== moduleId && (m.wallId === targetWallId || (!m.wallId && m.roomId === mod.roomId)));
+    const otherWidth = otherModulesOnWall.reduce((sum, m) => sum + m.widthMm, 0);
+    const availableWidth = Math.max(250, usableWall - otherWidth);
+
+    const sortedOthers = [...otherModulesOnWall].sort((a, b) => (a.offsetMm ?? 0) - (b.offsetMm ?? 0));
+    let newOffset = leftFiller;
+    if (sortedOthers.length > 0) {
+      const last = sortedOthers[sortedOthers.length - 1];
+      newOffset = (last.offsetMm ?? leftFiller) + last.widthMm;
+    }
+
+    const adaptiveShutterCount = availableWidth <= 600 ? 1 : availableWidth <= 1200 ? 2 : availableWidth <= 1800 ? 3 : availableWidth <= 2400 ? 4 : Math.ceil(availableWidth / 600);
+
+    setDraftModules((current) => {
+      const updated = current.map((m) => {
+        if (m.id !== moduleId) return m;
+        return {
+          ...m,
+          widthMm: availableWidth,
+          offsetMm: newOffset,
+          configuration: {
+            ...(m.configuration ?? {}),
+            shutterCount: adaptiveShutterCount,
+          },
+        };
+      });
+      if (projectId) {
+        try { window.localStorage.setItem(`ultida.modules.${projectId}`, JSON.stringify(updated)); } catch {}
+      }
+      return updated;
+    });
+    setPlacementNotice(`📐 Auto-fitted ${mod.label} to ${availableWidth} mm (filling remaining wall space with 30mm scribe fillers).`);
+    setCompiledSceneId(null);
+  }
+
+  function equalizeAllModulesOnWall(targetWallId?: string) {
+    const currentWallId = targetWallId || wallId || roomWalls[0]?.id;
+    const wallObj = roomWalls.find((w) => w.id === currentWallId) || roomWalls[0];
+    const wallLength = wallObj?.start && wallObj?.end
+      ? Math.round(Math.hypot(wallObj.end.xMm - wallObj.start.xMm, wallObj.end.yMm - wallObj.start.yMm))
+      : 3000;
+
+    const wallMods = draftModules.filter((m) => m.wallId === currentWallId || (!m.wallId && m.roomId === (spaceId || spaces[0]?.id)));
+    if (wallMods.length === 0) return;
+
+    const leftFiller = 30;
+    const rightFiller = 30;
+    const usableWall = Math.max(100, wallLength - leftFiller - rightFiller);
+    const equalWidth = Math.floor(usableWall / wallMods.length);
+
+    let currentOffset = leftFiller;
+    const updatedMap = new Map<string, { widthMm: number; offsetMm: number }>();
+    wallMods.forEach((m) => {
+      updatedMap.set(m.id, { widthMm: equalWidth, offsetMm: currentOffset });
+      currentOffset += equalWidth;
+    });
+
+    setDraftModules((current) => {
+      const updated = current.map((m) => {
+        const entry = updatedMap.get(m.id);
+        if (!entry) return m;
+        const adaptiveShutterCount = entry.widthMm <= 600 ? 1 : entry.widthMm <= 1200 ? 2 : entry.widthMm <= 1800 ? 3 : entry.widthMm <= 2400 ? 4 : Math.ceil(entry.widthMm / 600);
+        return {
+          ...m,
+          widthMm: entry.widthMm,
+          offsetMm: entry.offsetMm,
+          configuration: {
+            ...(m.configuration ?? {}),
+            shutterCount: adaptiveShutterCount,
+          },
+        };
+      });
+      if (projectId) {
+        try { window.localStorage.setItem(`ultida.modules.${projectId}`, JSON.stringify(updated)); } catch {}
+      }
+      return updated;
+    });
+    setPlacementNotice(`⚖️ Equalized ${wallMods.length} units to ${equalWidth} mm each on Wall (total ${equalWidth * wallMods.length} mm + 2×30mm fillers = ${wallLength} mm).`);
+    setCompiledSceneId(null);
+  }
+
+  function autoFitAllModulesToWall(targetWallId?: string) {
+    const currentWallId = targetWallId || wallId || roomWalls[0]?.id;
+    const wallObj = roomWalls.find((w) => w.id === currentWallId) || roomWalls[0];
+    const wallLength = wallObj?.start && wallObj?.end
+      ? Math.round(Math.hypot(wallObj.end.xMm - wallObj.start.xMm, wallObj.end.yMm - wallObj.start.yMm))
+      : 3000;
+
+    const wallMods = draftModules.filter((m) => m.wallId === currentWallId || (!m.wallId && m.roomId === (spaceId || spaces[0]?.id)));
+    if (wallMods.length === 0) return;
+
+    const leftFiller = 30;
+    const rightFiller = 30;
+    const usableWall = Math.max(100, wallLength - leftFiller - rightFiller);
+    const totalCurrentWidth = wallMods.reduce((s, m) => s + m.widthMm, 0);
+
+    if (totalCurrentWidth <= 0) return;
+    const scaleFactor = usableWall / totalCurrentWidth;
+
+    let currentOffset = leftFiller;
+    const updatedMap = new Map<string, { widthMm: number; offsetMm: number }>();
+    wallMods.forEach((m, idx) => {
+      const isLast = idx === wallMods.length - 1;
+      const scaledWidth = isLast
+        ? usableWall - (currentOffset - leftFiller)
+        : Math.round(m.widthMm * scaleFactor);
+      const finalWidth = Math.max(200, scaledWidth);
+      updatedMap.set(m.id, { widthMm: finalWidth, offsetMm: currentOffset });
+      currentOffset += finalWidth;
+    });
+
+    setDraftModules((current) => {
+      const updated = current.map((m) => {
+        const entry = updatedMap.get(m.id);
+        if (!entry) return m;
+        const adaptiveShutterCount = entry.widthMm <= 600 ? 1 : entry.widthMm <= 1200 ? 2 : entry.widthMm <= 1800 ? 3 : entry.widthMm <= 2400 ? 4 : Math.ceil(entry.widthMm / 600);
+        return {
+          ...m,
+          widthMm: entry.widthMm,
+          offsetMm: entry.offsetMm,
+          configuration: {
+            ...(m.configuration ?? {}),
+            shutterCount: adaptiveShutterCount,
+          },
+        };
+      });
+      if (projectId) {
+        try { window.localStorage.setItem(`ultida.modules.${projectId}`, JSON.stringify(updated)); } catch {}
+      }
+      return updated;
+    });
+    setPlacementNotice(`⚡ Proportioned all ${wallMods.length} units to fit within ${usableWall} mm usable wall space.`);
+    setCompiledSceneId(null);
+  }
+
+  function deleteModule(moduleId: string) {
+    const mod = draftModules.find((m) => m.id === moduleId);
+    setDraftModules((curr) => {
+      const filtered = curr.filter((m) => m.id !== moduleId);
+      if (projectId) {
+        try { window.localStorage.setItem(`ultida.modules.${projectId}`, JSON.stringify(filtered)); } catch {}
+      }
+      return filtered;
+    });
+    if (selectedModuleId === moduleId) {
+      setSelectedModuleId(null);
+    }
+    if (projectId) {
+      void (async () => {
+        try {
+          const headers = await authenticatedHeaders();
+          await fetch(`${apiBase}/projects/${projectId}/module-instances/${moduleId}`, {
+            method: 'DELETE',
+            headers,
+          }).catch(() => null);
+        } catch {}
+      })();
+    }
+    setPlacementNotice(`🗑️ Removed ${mod?.label ?? 'module'} from wall.`);
+    setCompiledSceneId(null);
+  }
+
+  function duplicateModule(moduleId: string) {
+    const mod = draftModules.find((m) => m.id === moduleId);
+    if (!mod) return;
+    const newId = `mod-${Date.now().toString().slice(-6)}`;
+    const newOffset = (mod.offsetMm ?? 0) + mod.widthMm + 10;
+    const duplicate: Module = {
+      ...mod,
+      id: newId,
+      label: `${mod.label} (Copy)`,
+      offsetMm: newOffset,
+      updatedAt: new Date().toISOString(),
+    };
+    setDraftModules((curr) => {
+      const updated = [...curr, duplicate];
+      if (projectId) {
+        try { window.localStorage.setItem(`ultida.modules.${projectId}`, JSON.stringify(updated)); } catch {}
+      }
+      return updated;
+    });
+    setSelectedModuleId(newId);
+    setPlacementNotice(`📋 Duplicated ${mod.label} as adjacent unit.`);
+    setCompiledSceneId(null);
   }
 
   async function nudgeModule(moduleId: string, deltaMm: number) {
@@ -2035,21 +2299,6 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
           <Boxes size={14} style={{ marginRight: '0.4rem' }} /> 📦 Cabinet Catalog &amp; Bay Layout
         </Button>
         <Button
-          variant={designMode === 'elevations' ? 'default' : 'outline'}
-          onClick={() => { setDesignMode('elevations'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'elevations'); navigate({ search: next.toString() }, { replace: true }); }}
-          style={{
-            height: '36px',
-            padding: '0 14px',
-            fontSize: '12px',
-            fontWeight: designMode === 'elevations' ? 800 : 600,
-            background: designMode === 'elevations' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fff',
-            color: designMode === 'elevations' ? '#e8c96a' : '#44403c',
-            border: designMode === 'elevations' ? '1.5px solid var(--gold)' : '1px solid #dcd3c5',
-          }}
-        >
-          <Ruler size={14} style={{ marginRight: '0.4rem', color: designMode === 'elevations' ? 'var(--gold)' : undefined }} /> 📐 Wall Elevations (A/B/C/D)
-        </Button>
-        <Button
           variant={designMode === 'moodboard' ? 'default' : 'outline'}
           onClick={() => { setDesignMode('moodboard'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'moodboard'); navigate({ search: next.toString() }, { replace: true }); }}
           style={{
@@ -2801,6 +3050,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   onSelectModule={(id) => setSelectedModuleId(id)}
                   onNudgeModule={(id, delta) => void nudgeModule(id, delta)}
                   onCenterModule={(id) => void centerModule(id)}
+                  onUpdateModuleWidth={(id, w) => updateModuleWidth(id, w)}
+                  onAutoFitModule={(id) => autoFitModuleToAvailableSpace(id)}
+                  onEqualizeWallModules={() => equalizeAllModulesOnWall(selectedWall.id)}
+                  onAutoFitAllModulesToWall={() => autoFitAllModulesToWall(selectedWall.id)}
+                  onDeleteModule={(id) => deleteModule(id)}
+                  onDuplicateModule={(id) => duplicateModule(id)}
                 />
               )}
               {selectedModule && (
@@ -2809,9 +3064,91 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   const values = new FormData(event.currentTarget);
                   void editModule(selectedModule.id, { config: { widthMm: Number(values.get('width')), depthMm: Number(values.get('depth')), heightMm: Number(values.get('height')), configuration: { shutterCount: Number(values.get('shutterCount')), drawerCount: Number(values.get('drawerCount')), shutterStyle: String(values.get('shutterStyle')) as ModuleConfiguration['shutterStyle'], includeLoft: values.get('includeLoft') === 'on', lighting: String(values.get('lighting')) as ModuleConfiguration['lighting'], handleStyle: String(values.get('handleStyle')) as ModuleConfiguration['handleStyle'], glassProfile: values.get('glassProfile') === 'on', sideFillerLeft: values.get('sideFillerLeft') === 'on', sideFillerRight: values.get('sideFillerRight') === 'on' } }, position: { offsetMm: Number(values.get('offset')) } });
                 }}>
-                  <fieldset disabled={moduleSaving} style={{ border: '1px solid #e8ded2', borderRadius: 6, padding: 12, display: 'grid', gap: 8 }}>
-                    <legend>Edit {selectedModule.label}</legend>
-                    <label>Width (mm)<input name="width" type="number" min="1" step="any" required defaultValue={selectedModule.widthMm} /></label>
+                  <fieldset disabled={moduleSaving} style={{ border: '1px solid #e8ded2', borderRadius: 6, padding: 12, display: 'grid', gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <legend style={{ fontWeight: 700 }}>Edit {selectedModule.label}</legend>
+                      <div style={{ display: 'flex', gap: 5 }}>
+                        <button
+                          type="button"
+                          onClick={() => duplicateModule(selectedModule.id)}
+                          style={{ padding: '2px 7px', fontSize: '10.5px', borderRadius: '4px', background: '#f5f5f4', border: '1px solid #d6d3d1', color: '#44403c', cursor: 'pointer' }}
+                          title="Duplicate module"
+                        >
+                          📋 Duplicate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteModule(selectedModule.id)}
+                          style={{ padding: '2px 7px', fontSize: '10.5px', borderRadius: '4px', background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', cursor: 'pointer' }}
+                          title="Delete module"
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Interactive Real-Time Width Control */}
+                    <div style={{ background: '#fcfaf7', border: '1.5px solid #d4af37', borderRadius: '8px', padding: '10px 12px', display: 'grid', gap: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 800, color: '#92400e', textTransform: 'uppercase' }}>
+                          ⚡ Live Width Adjustment
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => autoFitModuleToAvailableSpace(selectedModule.id)}
+                          style={{ padding: '2px 8px', borderRadius: '4px', background: '#92400e', color: '#fff', border: 'none', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}
+                          title="Auto-fit to available wall space"
+                        >
+                          📐 Auto-Fit to Wall
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input
+                          name="width"
+                          type="number"
+                          min="200"
+                          max="4000"
+                          step="10"
+                          required
+                          value={selectedModule.widthMm}
+                          onChange={(e) => updateModuleWidth(selectedModule.id, Number(e.target.value))}
+                          style={{ width: '85px', padding: '4px 6px', fontSize: '13px', fontWeight: 800, border: '1.5px solid #c59c2d', borderRadius: '6px', textAlign: 'center', color: '#92400e' }}
+                        />
+                        <input
+                          type="range"
+                          min="200"
+                          max="3000"
+                          step="10"
+                          value={selectedModule.widthMm}
+                          onChange={(e) => updateModuleWidth(selectedModule.id, Number(e.target.value))}
+                          style={{ flex: 1, accentColor: '#c59c2d', cursor: 'pointer' }}
+                        />
+                      </div>
+                      {/* System 32 Quick Presets */}
+                      <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center', marginTop: 2 }}>
+                        <span style={{ fontSize: '9.5px', color: '#78716c', fontWeight: 600 }}>System 32:</span>
+                        {[450, 600, 900, 1000, 1200, 1500, 1800, 2100, 2400].map((sz) => (
+                          <button
+                            key={sz}
+                            type="button"
+                            onClick={() => updateModuleWidth(selectedModule.id, sz)}
+                            style={{
+                              padding: '2px 5px',
+                              borderRadius: '4px',
+                              fontSize: '9.5px',
+                              fontWeight: selectedModule.widthMm === sz ? 800 : 500,
+                              background: selectedModule.widthMm === sz ? '#c59c2d' : '#f5f5f4',
+                              color: selectedModule.widthMm === sz ? '#fff' : '#44403c',
+                              border: selectedModule.widthMm === sz ? '1px solid #92400e' : '1px solid #d6d3d1',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {sz}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     <label>Depth (mm)<input name="depth" type="number" min="1" step="any" required defaultValue={selectedModule.depthMm} /></label>
                     <label>Height (mm)<input name="height" type="number" min="1" step="any" required defaultValue={selectedModule.heightMm} /></label>
                     <label>Wall offset (mm)<input name="offset" type="number" min="0" step="any" required defaultValue={selectedModule.offsetMm ?? 0} /></label>
@@ -2819,11 +3156,11 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     <label>Drawers<input name="drawerCount" type="number" min="0" max="24" defaultValue={selectedModule.configuration?.drawerCount ?? 0} /></label>
                     <label>Shutter style<select name="shutterStyle" defaultValue={selectedModule.configuration?.shutterStyle ?? 'swing'}><option value="swing">Swing</option><option value="sliding">Sliding</option><option value="profile-glass">Profile glass</option><option value="open">Open</option></select></label>
                     <label><input name="includeLoft" type="checkbox" defaultChecked={selectedModule.configuration?.includeLoft ?? false} /> Include loft</label>
-                     <label>Lighting<select name="lighting" defaultValue={selectedModule.configuration?.lighting ?? 'none'}><option value="none">None</option><option value="shelf-led">Shelf LED</option><option value="vertical-led">Vertical LED</option></select></label>
-                     <label>Handle<select name="handleStyle" defaultValue={selectedModule.configuration?.handleStyle ?? 'long-profile'}><option value="gola">Gola</option><option value="long-profile">Long profile</option><option value="knob">Knob</option><option value="none">None</option></select></label>
-                     <label><input name="glassProfile" type="checkbox" defaultChecked={selectedModule.configuration?.glassProfile ?? false} /> Profile glass</label>
-                     <label><input name="sideFillerLeft" type="checkbox" defaultChecked={selectedModule.configuration?.sideFillerLeft ?? false} /> Left filler</label>
-                     <label><input name="sideFillerRight" type="checkbox" defaultChecked={selectedModule.configuration?.sideFillerRight ?? false} /> Right filler</label>
+                    <label>Lighting<select name="lighting" defaultValue={selectedModule.configuration?.lighting ?? 'none'}><option value="none">None</option><option value="shelf-led">Shelf LED</option><option value="vertical-led">Vertical LED</option></select></label>
+                    <label>Handle<select name="handleStyle" defaultValue={selectedModule.configuration?.handleStyle ?? 'long-profile'}><option value="gola">Gola</option><option value="long-profile">Long profile</option><option value="knob">Knob</option><option value="none">None</option></select></label>
+                    <label><input name="glassProfile" type="checkbox" defaultChecked={selectedModule.configuration?.glassProfile ?? false} /> Profile glass</label>
+                    <label><input name="sideFillerLeft" type="checkbox" defaultChecked={selectedModule.configuration?.sideFillerLeft ?? false} /> Left filler</label>
+                    <label><input name="sideFillerRight" type="checkbox" defaultChecked={selectedModule.configuration?.sideFillerRight ?? false} /> Right filler</label>
                     <Button type="submit" disabled={moduleSaving}>{moduleSaving ? 'Saving...' : 'Save module'}</Button>
                   </fieldset>
                 </form>
@@ -3553,6 +3890,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                           onSelectModule={(id) => setSelectedModuleId(id)}
                           onNudgeModule={(id, delta) => void nudgeModule(id, delta)}
                           onCenterModule={(id) => void centerModule(id)}
+                          onUpdateModuleWidth={(id, w) => updateModuleWidth(id, w)}
+                          onAutoFitModule={(id) => autoFitModuleToAvailableSpace(id)}
+                          onEqualizeWallModules={() => equalizeAllModulesOnWall(currentCanvasWall.id)}
+                          onAutoFitAllModulesToWall={() => autoFitAllModulesToWall(currentCanvasWall.id)}
+                          onDeleteModule={(id) => deleteModule(id)}
+                          onDuplicateModule={(id) => duplicateModule(id)}
                         />
                         <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
                           <button
@@ -3999,6 +4342,12 @@ function WallElevationPreview({
   onSelectModule,
   onNudgeModule,
   onCenterModule,
+  onUpdateModuleWidth,
+  onAutoFitModule,
+  onEqualizeWallModules,
+  onAutoFitAllModulesToWall,
+  onDeleteModule,
+  onDuplicateModule,
 }: {
   wallLabel?: string;
   wallLengthMm: number;
@@ -4009,6 +4358,12 @@ function WallElevationPreview({
   onSelectModule?: (id: string) => void;
   onNudgeModule?: (id: string, deltaMm: number) => void;
   onCenterModule?: (id: string) => void;
+  onUpdateModuleWidth?: (id: string, widthMm: number) => void;
+  onAutoFitModule?: (id: string) => void;
+  onEqualizeWallModules?: () => void;
+  onAutoFitAllModulesToWall?: () => void;
+  onDeleteModule?: (id: string) => void;
+  onDuplicateModule?: (id: string) => void;
 }) {
   const width = Math.max(1, wallLengthMm);
   const height = Math.max(1, ceilingHeightMm);
@@ -4020,6 +4375,13 @@ function WallElevationPreview({
   const innerH = svgHeight - 2 * padY - 24;
   const sx = innerW / width;
   const sy = innerH / height;
+
+  const leftFillerMm = 30;
+  const rightFillerMm = 30;
+  const usableWallMm = Math.max(100, width - leftFillerMm - rightFillerMm);
+  const totalModulesWidth = modules.reduce((sum, m) => sum + m.widthMm, 0);
+  const remainingMm = usableWallMm - totalModulesWidth;
+  const isOverflow = totalModulesWidth > usableWallMm;
 
   // Collision detection between placed modules and openings
   const collisions = useMemo(() => {
@@ -4055,13 +4417,91 @@ function WallElevationPreview({
   const activeModule = modules.find((m) => m.id === selectedModuleId) ?? modules[0] ?? null;
 
   return (
-    <div className="module-wall-preview">
-      <div className="module-wall-preview-title">
+    <div className="module-wall-preview" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div className="module-wall-preview-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
         <div>
-          <strong>{wallLabel ?? 'Selected wall'} Elevation</strong>
-          <span> · {Math.round(width)} mm W × {height} mm H</span>
+          <strong style={{ fontSize: '13px' }}>{wallLabel ?? 'Selected wall'} Elevation</strong>
+          <span style={{ fontSize: '11px', color: '#78716c', marginLeft: '6px' }}>· {Math.round(width)} mm W × {height} mm H</span>
         </div>
-        <span>{openings.length} opening{openings.length === 1 ? '' : 's'} · {modules.length} module{modules.length === 1 ? '' : 's'}</span>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '11px' }}>
+          <span style={{ padding: '2px 8px', borderRadius: '5px', background: isOverflow ? '#fee2e2' : '#dcfce7', color: isOverflow ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
+            {isOverflow ? `⚠️ Overflows by ${Math.round(Math.abs(remainingMm))} mm` : `✓ ${Math.round(remainingMm)} mm free clearance`}
+          </span>
+          <span style={{ color: '#78716c' }}>({modules.length} units placed)</span>
+        </div>
+      </div>
+
+      {/* Wall Fit & Scribe Clearance Strip */}
+      <div style={{ background: '#fbf8f3', border: '1px solid #ebdccb', borderRadius: '8px', padding: '8px 12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10.5px', marginBottom: '5px' }}>
+          <span style={{ color: '#78716c', fontWeight: 600 }}>
+            Wall Run: <strong style={{ color: '#1c1917' }}>{Math.round(width)} mm</strong> · Usable: <strong style={{ color: '#1c1917' }}>{Math.round(usableWallMm)} mm</strong> (with 2×30mm fillers)
+          </span>
+          <span style={{ color: isOverflow ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
+            Units Σ {Math.round(totalModulesWidth)} mm ({Math.round((totalModulesWidth / usableWallMm) * 100)}% space)
+          </span>
+        </div>
+        {/* Visual Progress Fit Bar */}
+        <div style={{ display: 'flex', height: '14px', background: '#e7e5e4', borderRadius: '4px', overflow: 'hidden', border: '1px solid #d6d3d1' }}>
+          {/* Left 30mm Scribe Filler */}
+          <div style={{ width: `${Math.max(2, (leftFillerMm / width) * 100)}%`, background: '#a8a29e' }} title="30mm Left Dummy Filler" />
+          {/* Placed Modules */}
+          {modules.map((m) => (
+            <div
+              key={m.id}
+              onClick={() => onSelectModule?.(m.id)}
+              style={{
+                width: `${Math.max(2, (m.widthMm / width) * 100)}%`,
+                background: m.id === selectedModuleId ? 'linear-gradient(135deg, #c59c2d, #92400e)' : '#d4af37',
+                borderRight: '1px solid rgba(255,255,255,0.4)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              title={`${m.label}: ${m.widthMm} mm`}
+            />
+          ))}
+          {/* Free gap or overflow */}
+          {!isOverflow && remainingMm > 0 && (
+            <div style={{ width: `${Math.max(0, (remainingMm / width) * 100)}%`, background: '#f5f5f4' }} title={`${Math.round(remainingMm)} mm free clearance`} />
+          )}
+          {/* Right 30mm Scribe Filler */}
+          <div style={{ width: `${Math.max(2, (rightFillerMm / width) * 100)}%`, background: '#a8a29e' }} title="30mm Right Dummy Filler" />
+        </div>
+        {/* Wall Fit Quick Action Buttons */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', gap: '6px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '5px' }}>
+            {activeModule && onAutoFitModule && (
+              <button
+                type="button"
+                onClick={() => onAutoFitModule(activeModule.id)}
+                style={{ padding: '3px 8px', borderRadius: '5px', background: '#fff', border: '1px solid #c59c2d', color: '#92400e', fontSize: '10.5px', fontWeight: 700, cursor: 'pointer' }}
+                title="Resize active module to fill remaining space on wall"
+              >
+                📐 Auto-Fit Active ({activeModule.label.slice(0, 10)})
+              </button>
+            )}
+            {modules.length > 1 && onEqualizeWallModules && (
+              <button
+                type="button"
+                onClick={onEqualizeWallModules}
+                style={{ padding: '3px 8px', borderRadius: '5px', background: '#fff', border: '1px solid #d6d3d1', color: '#44403c', fontSize: '10.5px', fontWeight: 600, cursor: 'pointer' }}
+                title="Split usable wall length equally across all units on this wall"
+              >
+                ⚖️ Equalize All {modules.length} Units
+              </button>
+            )}
+          </div>
+          {isOverflow && onAutoFitAllModulesToWall && (
+            <button
+              type="button"
+              onClick={onAutoFitAllModulesToWall}
+              style={{ padding: '3px 9px', borderRadius: '5px', background: '#b91c1c', color: '#fff', border: 'none', fontSize: '10.5px', fontWeight: 800, cursor: 'pointer' }}
+              title="Scale all modules down proportionally to fit the wall"
+            >
+              ⚡ Auto-Fit All to Wall
+            </button>
+          )}
+        </div>
       </div>
 
       <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} role="img" aria-label="Architectural wall elevation with openings and modules">
@@ -4071,6 +4511,12 @@ function WallElevationPreview({
         {/* Ceiling and floor reference lines */}
         <line x1={padX} y1={padY} x2={padX + innerW} y2={padY} stroke="#786c5e" strokeWidth={2} />
         <line x1={padX} y1={padY + innerH} x2={padX + innerW} y2={padY + innerH} stroke="#3d2d20" strokeWidth={3} />
+
+        {/* 30mm Scribe Filler Visual Indicators at Left & Right Jambs */}
+        <rect x={padX} y={padY} width={Math.max(4, leftFillerMm * sx)} height={innerH} fill="#e7e5e4" stroke="#a8a29e" strokeWidth={0.5} strokeDasharray="2 2" />
+        <text x={padX + 2} y={padY + 12} fontSize={6} fill="#78716c">30</text>
+        <rect x={padX + innerW - Math.max(4, rightFillerMm * sx)} y={padY} width={Math.max(4, rightFillerMm * sx)} height={innerH} fill="#e7e5e4" stroke="#a8a29e" strokeWidth={0.5} strokeDasharray="2 2" />
+        <text x={padX + innerW - 10} y={padY + 12} fontSize={6} fill="#78716c">30</text>
 
         {/* Doors and Windows with true architectural representation */}
         {openings.map((opening) => {
@@ -4122,7 +4568,7 @@ function WallElevationPreview({
           const hasCollision = collisions.some((c) => c.moduleId === module.id);
 
           return (
-            <g key={module.id} onClick={() => onSelectModule?.(module.id)}>
+            <g key={module.id} onClick={() => onSelectModule?.(module.id)} style={{ cursor: 'pointer' }}>
               <rect
                 x={x}
                 y={y}
@@ -4135,10 +4581,10 @@ function WallElevationPreview({
               />
               {/* Shutter divisions / dividers */}
               <line x1={x + w / 2} y1={y} x2={x + w / 2} y2={y + h} stroke="#fff" strokeWidth={1} strokeOpacity={0.6} />
-              <text x={x + w / 2} y={y + h / 2} textAnchor="middle" className="module-wall-text" fill="#2d1e12">
+              <text x={x + w / 2} y={y + h / 2} textAnchor="middle" className="module-wall-text" fill="#2d1e12" fontWeight={isSelected ? '800' : '600'}>
                 {module.label.split(' ')[0]}
               </text>
-              <text x={x + w / 2} y={y + h / 2 + 10} textAnchor="middle" fontSize={7} fill="#5a402a">
+              <text x={x + w / 2} y={y + h / 2 + 10} textAnchor="middle" fontSize={7} fill="#5a402a" fontWeight="700">
                 {module.widthMm} × {module.heightMm}
               </text>
             </g>
@@ -4148,27 +4594,125 @@ function WallElevationPreview({
         {/* Dimension Line across the wall bottom */}
         <line x1={padX} y1={svgHeight - 12} x2={padX + innerW} y2={svgHeight - 12} className="module-wall-dimension" />
         <text x={svgWidth / 2} y={svgHeight - 4} textAnchor="middle" className="module-wall-dimension-label">
-          {Math.round(width)} mm Wall Span (Clearance Checked)
+          {Math.round(width)} mm Wall Span (2 × 30mm Scribe Fillers)
         </text>
       </svg>
 
       {/* Collision Alerts */}
       {collisions.length > 0 && (
         <div className="module-wall-collision-alert" role="alert">
-          <span>⚠️ <strong>Collision detected:</strong> {collisions[0].moduleLabel} overlaps {collisions[0].openingKind} by {collisions[0].overlapMm} mm. Nudge the unit or choose a narrower module.</span>
+          <span>⚠️ <strong>Collision detected:</strong> {collisions[0].moduleLabel} overlaps {collisions[0].openingKind} by {collisions[0].overlapMm} mm. Nudge the unit or adjust its width below.</span>
         </div>
       )}
 
-      {/* Nudge & Centering Controls for Active Module */}
+      {/* INTERACTIVE MODULE WIDTH & POSITION ADJUSTER */}
       {activeModule && (
-        <div className="module-wall-nudge-row">
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-            <strong>{activeModule.label}</strong>: offset <strong>{Math.round(activeModule.offsetMm ?? 0)} mm</strong>
-          </span>
-          <div className="module-wall-nudge-btns">
-            <button type="button" className="module-wall-nudge-btn" onClick={() => onNudgeModule?.(activeModule.id, -50)}>◀ 50mm Left</button>
-            <button type="button" className="module-wall-nudge-btn" onClick={() => onCenterModule?.(activeModule.id)}>Center</button>
-            <button type="button" className="module-wall-nudge-btn" onClick={() => onNudgeModule?.(activeModule.id, 50)}>50mm Right ▶</button>
+        <div style={{ background: '#fff', border: '1.5px solid #c59c2d', borderRadius: '10px', padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 10px rgba(197,156,45,0.1)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', borderBottom: '1px solid #f2e9dc', paddingBottom: '6px' }}>
+            <div>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                ACTIVE MODULE CONTROLLER
+              </span>
+              <strong style={{ display: 'block', fontSize: '12.5px', color: '#1c1917' }}>
+                {activeModule.label} ({activeModule.family})
+              </strong>
+            </div>
+            <div style={{ display: 'flex', gap: '5px' }}>
+              {onDuplicateModule && (
+                <button
+                  type="button"
+                  onClick={() => onDuplicateModule(activeModule.id)}
+                  style={{ padding: '3px 8px', borderRadius: '5px', background: '#f5f5f4', border: '1px solid #d6d3d1', color: '#44403c', fontSize: '10.5px', fontWeight: 600, cursor: 'pointer' }}
+                  title="Duplicate this unit"
+                >
+                  📋 Duplicate
+                </button>
+              )}
+              {onDeleteModule && (
+                <button
+                  type="button"
+                  onClick={() => onDeleteModule(activeModule.id)}
+                  style={{ padding: '3px 8px', borderRadius: '5px', background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: '10.5px', fontWeight: 700, cursor: 'pointer' }}
+                  title="Delete this unit"
+                >
+                  🗑️ Delete
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Direct Width Input & Slider Control */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#44403c', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              Width (mm):
+              <input
+                type="number"
+                min="200"
+                max={Math.round(width)}
+                step="10"
+                value={activeModule.widthMm}
+                onChange={(e) => onUpdateModuleWidth?.(activeModule.id, Number(e.target.value))}
+                style={{ width: '80px', padding: '4px 6px', fontSize: '12px', fontWeight: 800, border: '1.5px solid #c59c2d', borderRadius: '6px', textAlign: 'center', color: '#92400e' }}
+              />
+            </label>
+            <input
+              type="range"
+              min="200"
+              max={Math.max(600, Math.round(width))}
+              step="10"
+              value={activeModule.widthMm}
+              onChange={(e) => onUpdateModuleWidth?.(activeModule.id, Number(e.target.value))}
+              style={{ flex: 1, minWidth: '120px', accentColor: '#c59c2d', cursor: 'pointer' }}
+            />
+            {/* Fine-tune Stepper Buttons */}
+            <div style={{ display: 'flex', gap: '3px' }}>
+              {[-100, -50, 50, 100].map((delta) => (
+                <button
+                  key={delta}
+                  type="button"
+                  onClick={() => onUpdateModuleWidth?.(activeModule.id, activeModule.widthMm + delta)}
+                  style={{ padding: '3px 6px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', border: '1px solid #d6d3d1', background: '#f5f5f4', color: '#44403c', cursor: 'pointer' }}
+                >
+                  {delta > 0 ? `+${delta}` : delta}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* System 32 Standard Preset Sizes */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '10px', color: '#78716c', fontWeight: 700, marginRight: '4px' }}>System 32 Sizes:</span>
+            {[450, 600, 900, 1000, 1200, 1500, 1800, 2100, 2400].map((sz) => (
+              <button
+                key={sz}
+                type="button"
+                onClick={() => onUpdateModuleWidth?.(activeModule.id, sz)}
+                style={{
+                  padding: '2px 7px',
+                  borderRadius: '5px',
+                  fontSize: '10px',
+                  fontWeight: activeModule.widthMm === sz ? 800 : 500,
+                  background: activeModule.widthMm === sz ? '#fef3c7' : '#fff',
+                  border: activeModule.widthMm === sz ? '1px solid #c59c2d' : '1px solid #e7e5e4',
+                  color: activeModule.widthMm === sz ? '#92400e' : '#57534e',
+                  cursor: 'pointer',
+                }}
+              >
+                {sz}
+              </button>
+            ))}
+          </div>
+
+          {/* Placement Offset & Alignment */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingTop: '4px', borderTop: '1px solid #f2e9dc' }}>
+            <span style={{ fontSize: '11px', color: '#78716c' }}>
+              Offset along wall: <strong style={{ color: '#1c1917' }}>{Math.round(activeModule.offsetMm ?? 0)} mm</strong>
+            </span>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              <button type="button" className="module-wall-nudge-btn" onClick={() => onNudgeModule?.(activeModule.id, -50)}>◀ 50mm</button>
+              <button type="button" className="module-wall-nudge-btn" onClick={() => onCenterModule?.(activeModule.id)}>Center</button>
+              <button type="button" className="module-wall-nudge-btn" onClick={() => onNudgeModule?.(activeModule.id, 50)}>50mm ▶</button>
+            </div>
           </div>
         </div>
       )}

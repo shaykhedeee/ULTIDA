@@ -1,4 +1,4 @@
-import { Box, Camera, Eye, LampDesk, Layers3, MousePointer2, Rotate3D, Sparkles } from 'lucide-react';
+import { Box, Camera, Eye, LampDesk, Layers3, MousePointer2, Rotate3D, Ruler, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import * as THREE from 'three';
@@ -2244,6 +2244,37 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                       </span>
                     ))}
                   </div>
+                </div>
+
+                {/* Next Stage: Stage 5 Elevations & Cutlist Hand-off */}
+                <div style={{ marginTop: 10, padding: 12, background: 'linear-gradient(135deg, #1c1917, #2d241e)', borderRadius: 10, border: '1px solid var(--gold)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <small style={{ color: 'var(--gold)', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: 10.5 }}>
+                    NEXT WORKFLOW STAGE · STAGE 5
+                  </small>
+                  <div style={{ color: '#f5f5f4', fontSize: 11.5, lineHeight: 1.4 }}>
+                    3D scene verified. Generate 2D architectural wall elevations, shop drawings dossier &amp; CNC production cutlists.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate(projectId ? `/projects/${projectId}/drawings` : '/drawings')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      background: 'linear-gradient(135deg, #c59c2d, #8f6c12)',
+                      color: '#fff',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      padding: '9px 14px',
+                      borderRadius: 7,
+                      border: 'none',
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 10px rgba(197,156,45,0.35)',
+                    }}
+                  >
+                    <Ruler size={14} /> 📐 Generate Elevations &amp; Cutlist (Stage 5) →
+                  </button>
                 </div>
               </>
             ) : (

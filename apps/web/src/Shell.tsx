@@ -64,7 +64,7 @@ export const DEFAULT_WORKFLOW_STAGES: WorkflowStageConfig[] = [
   { id: 'plan',         label: 'Measured Plan',   path: 'plan',         icon: Compass,  status: 'locked', lockReason: 'Complete project brief first' },
   { id: 'spaces',       label: 'Rooms & Modules', path: 'spaces',       icon: Home,     status: 'locked', lockReason: 'Approve measured plan first' },
   { id: '3d',           label: 'Scene Studio',    path: '3d',           icon: Wand2,    status: 'locked', lockReason: 'Save a room design first' },
-  { id: 'drawings',     label: 'Production Docs', path: 'drawings',     icon: Ruler,    status: 'locked', lockReason: 'Compile a scene first' },
+  { id: 'drawings',     label: 'Elevations & Cutlist', path: 'drawings', icon: Ruler,   status: 'locked', lockReason: 'Compile & view 3D scene first' },
   { id: 'estimate',     label: 'Costing & BOQ',   path: 'estimate',     icon: Receipt,  status: 'locked', lockReason: 'Approve production documents first' },
   { id: 'presentation', label: 'Presentation',    path: 'presentation', icon: Palette,  status: 'locked', lockReason: 'Complete costing first' },
   { id: 'production',   label: 'CAM Production',  path: 'production',   icon: Box,      status: 'locked', lockReason: 'Complete presentation & client approval first' },

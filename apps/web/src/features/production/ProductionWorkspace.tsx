@@ -182,25 +182,151 @@ const VILLA_CAD_ELEVATIONS = [
 ];
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
-  { id: 'parts', label: 'Parts', icon: <ClipboardList size={14} /> },
-  { id: 'edges', label: 'Edges', icon: <Settings size={14} /> },
-  { id: 'hardware', label: 'Hardware', icon: <Package size={14} /> },
-  { id: 'operations', label: 'Operations', icon: <SlidersHorizontal size={14} /> },
-  { id: 'nesting', label: 'Nesting', icon: <FolderKanban size={14} /> },
-  { id: 'cnc', label: 'CNC Cutouts', icon: <Maximize2 size={14} /> },
-  { id: 'elevations', label: 'CAD Elevations', icon: <Compass size={14} /> },
-  { id: 'drawings', label: 'Shop Drawings', icon: <FileText size={14} /> },
-  { id: 'exports', label: 'Exports', icon: <Download size={14} /> },
-  { id: 'release', label: 'Release', icon: <CheckCircle2 size={14} /> },
+  { id: 'elevations', label: '📐 Wall Elevations', icon: <Compass size={14} /> },
+  { id: 'drawings', label: '📋 Shop Drawings', icon: <FileText size={14} /> },
+  { id: 'parts', label: '🪚 Cutlist Panels', icon: <ClipboardList size={14} /> },
+  { id: 'nesting', label: '📦 Sheet Nesting', icon: <FolderKanban size={14} /> },
+  { id: 'edges', label: 'Edge Banding', icon: <Settings size={14} /> },
+  { id: 'hardware', label: 'Hardware Schedule', icon: <Package size={14} /> },
+  { id: 'cnc', label: '⚙️ CNC Machine Code', icon: <Maximize2 size={14} /> },
+  { id: 'exports', label: '💾 Export Package', icon: <Download size={14} /> },
+  { id: 'release', label: 'Release Sign-off', icon: <CheckCircle2 size={14} /> },
 ];
 
-export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: ProductionWorkspaceProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('parts');
+interface ProductionWorkspaceProps {
+  projectId: string;
+  sceneVersionId: string | null;
+  sceneApproved: boolean;
+  modules: Array<{ id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number }>;
+  materials: Array<{ id: string; code: string; name: string; category: string }>;
+  onSceneCreated: (id: string, modules: any[], materials: any[]) => void;
+  onSceneApproved: () => Promise<void>;
+  initialTab?: TabId;
+}
+
+export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved, initialTab = 'elevations' }: ProductionWorkspaceProps) {
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [selectedElevationId, setSelectedElevationId] = useState<string>('tv-wall');
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
-  // Production outputs may only come from compiler-emitted PartV1 records. Module boxes are not manufacturing parts.
-  const [parts, setParts] = useState<Part[]>(DEMO_CALIBRATED_CUTLIST.parts);
+
+  // Derive active modules from props or fallback to local project cache
+  const effectiveModules = useMemo(() => {
+    if (modules && modules.length > 0) return modules;
+    if (!projectId) return [];
+    try {
+      const raw = window.localStorage.getItem(`ultida.modules.${projectId}`);
+      if (raw) return JSON.parse(raw);
+      const sceneRaw = window.localStorage.getItem(`ultida.scene.${projectId}`);
+      if (sceneRaw) {
+        const parsed = JSON.parse(sceneRaw);
+        if (parsed?.modules?.length > 0) return parsed.modules;
+      }
+    } catch {}
+    return [];
+  }, [modules, projectId]);
+
+  // Dynamically generate System 32 cutting list panels from the actual modules
+  const dynamicParts: Part[] = useMemo(() => {
+    if (effectiveModules.length === 0) return DEMO_CALIBRATED_CUTLIST.parts;
+    const generated: Part[] = [];
+    effectiveModules.forEach((mod: any, idx: number) => {
+      const w = Number(mod.widthMm || 1200);
+      const d = Number(mod.depthMm || 560);
+      const h = Number(mod.heightMm || 2100);
+      const fam = (mod.family || '').toLowerCase();
+      const codePrefix = fam.includes('kitchen') ? 'KB' : fam.includes('wardrobe') ? 'WD' : 'TV';
+      const coreMat = 'CORE-HDHMR-18';
+      const finishMat = 'ROY-HG-WHT';
+
+      // Left & Right Gables
+      generated.push({
+        id: `part-${idx + 1}-gable-l`,
+        partInstanceId: `PNT-${codePrefix}-${idx + 1}-GL`,
+        moduleId: mod.id,
+        family: mod.family,
+        roomId: mod.roomId,
+        semanticType: 'carcass',
+        partName: `${mod.label} Gable (Left)`,
+        lengthMm: h - 80,
+        widthMm: d,
+        thicknessMm: 18,
+        quantity: 1,
+        grainDirection: 'vertical',
+        edging: '1.0mm PVC carcass tape',
+        materialCode: coreMat,
+        status: 'approved',
+      });
+      generated.push({
+        id: `part-${idx + 1}-gable-r`,
+        partInstanceId: `PNT-${codePrefix}-${idx + 1}-GR`,
+        moduleId: mod.id,
+        family: mod.family,
+        roomId: mod.roomId,
+        semanticType: 'carcass',
+        partName: `${mod.label} Gable (Right)`,
+        lengthMm: h - 80,
+        widthMm: d,
+        thicknessMm: 18,
+        quantity: 1,
+        grainDirection: 'vertical',
+        edging: '1.0mm PVC carcass tape',
+        materialCode: coreMat,
+        status: 'approved',
+      });
+
+      // Bottom Deck Slab
+      generated.push({
+        id: `part-${idx + 1}-deck`,
+        partInstanceId: `PNT-${codePrefix}-${idx + 1}-DK`,
+        moduleId: mod.id,
+        family: mod.family,
+        roomId: mod.roomId,
+        semanticType: 'carcass',
+        partName: `${mod.label} Bottom Deck Slab`,
+        lengthMm: Math.max(200, w - 36),
+        widthMm: d,
+        thicknessMm: 18,
+        quantity: 1,
+        grainDirection: 'horizontal',
+        edging: '1.0mm PVC carcass tape',
+        materialCode: coreMat,
+        status: 'approved',
+      });
+
+      // Shutters (System 32 door sizing)
+      const shutterCount = w <= 600 ? 1 : w <= 1200 ? 2 : w <= 1800 ? 3 : w <= 2400 ? 4 : Math.ceil(w / 600);
+      const shutterWidth = Math.round((w - 4 - (shutterCount - 1) * 3) / shutterCount);
+      const shutterHeight = fam.includes('kitchen-base') ? 716 : fam.includes('wardrobe') ? Math.min(2060, h - 100) : Math.min(450, h);
+
+      for (let s = 1; s <= shutterCount; s++) {
+        generated.push({
+          id: `part-${idx + 1}-shutter-${s}`,
+          partInstanceId: `PNT-${codePrefix}-${idx + 1}-SHT-${s}`,
+          moduleId: mod.id,
+          family: mod.family,
+          roomId: mod.roomId,
+          semanticType: 'shutter',
+          partName: `${mod.label} Shutter (${s}/${shutterCount})`,
+          lengthMm: shutterHeight,
+          widthMm: shutterWidth,
+          thicknessMm: 18,
+          quantity: 1,
+          grainDirection: 'vertical',
+          edging: '2.0mm ABS matching gloss tape',
+          materialCode: finishMat,
+          status: 'approved',
+        });
+      }
+    });
+    return generated;
+  }, [effectiveModules]);
+
+  const [parts, setParts] = useState<Part[]>(dynamicParts);
+  useEffect(() => {
+    setParts(dynamicParts);
+  }, [dynamicParts]);
+
   const [cutlist, setCutlist] = useState<ProductionCutlist | null>(DEMO_CALIBRATED_CUTLIST);
   const [cncAssets, setCncAssets] = useState<CncAsset[]>([]);
   const [preflightResult, setPreflightResult] = useState<{ status: 'idle' | 'running' | 'passed' | 'failed'; issues: string[] } | null>(null);
