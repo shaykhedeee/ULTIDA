@@ -19,6 +19,8 @@ export interface ShopDrawingOptions {
   internalFinish?: string;
   includeTopView?: boolean;
   selectedModuleId?: string;
+  materialSwatches?: Record<string, string>;
+  activeWallName?: string;
 }
 
 /**

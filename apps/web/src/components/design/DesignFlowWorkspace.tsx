@@ -12,6 +12,9 @@ import { listCatalog, MaterialSlotSchema } from '@ultida/catalog-core';
 import { catalogForRoom } from './catalog-room-filter';
 import { inferRoomType } from '../../features/spaces/SpacesWorkspace';
 import WorkingDrawingsDossier from '../drawings/WorkingDrawingsDossier';
+import WallBayEditor from '../spaces/WallBayEditor';
+import FlooringStudio from '../spaces/FlooringStudio';
+import { type CompositionScheduleV1, type FloorSurfaceV1, type FloorPointV1 } from '@ultida/contracts';
 import {
   generateWallElevationSvg,
   generateArchitecturalShopSheetSvg,
@@ -76,6 +79,17 @@ function fitModuleToMeasuredWall(item: CatalogItem, wallLengthMm: number) {
   const maxWidthMm = item.family === 'tv-unit' ? 4200 : 3600;
   const widthMm = Math.min(maxWidthMm, Math.max(minWidthMm, targetWidthMm));
   return { widthMm, depthMm: item.depthMm, heightMm: item.heightMm, adapted: widthMm !== item.widthMm };
+}
+
+function getWallOrientation(start?: { xMm: number; yMm: number }, end?: { xMm: number; yMm: number }): string {
+  if (!start || !end) return '';
+  const dx = end.xMm - start.xMm;
+  const dy = end.yMm - start.yMm;
+  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+  if (Math.abs(angle) < 45) return 'East';
+  if (angle >= 45 && angle < 135) return 'North';
+  if (Math.abs(angle) >= 135) return 'West';
+  return 'South';
 }
 
 function buildSceneForElevation(
@@ -293,13 +307,32 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const moduleEditPending = useRef(false);
   const [moduleSaving, setModuleSaving] = useState(false);
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
-  const [designMode, setDesignMode] = useState<'layout' | 'elevations' | 'moodboard'>(() => {
+  const [designMode, setDesignMode] = useState<'layout' | 'elevations' | 'moodboard' | 'flooring'>(() => {
     const requestedMode = searchParams.get('mode');
     if (requestedMode === 'elevations' || requestedMode === 'elevation') return 'elevations';
     if (requestedMode === 'moodboard' || requestedMode === 'materials' || focus === 'materials') return 'moodboard';
+    if (requestedMode === 'flooring') return 'flooring';
     return 'layout';
   });
-  const [elevationRenderType, setElevationRenderType] = useState<'elevation' | 'shop-sheet'>('elevation');
+  const [elevationRenderType, setElevationRenderType] = useState<'elevation' | 'shop-sheet' | 'bay-editor'>('elevation');
+  const [compositionSchedules, setCompositionSchedules] = useState<Record<string, CompositionScheduleV1>>(() => {
+    if (!projectId) return {};
+    try {
+      const raw = window.localStorage.getItem(`ultida.compositionSchedules.${projectId}`);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [floorSurfaces, setFloorSurfaces] = useState<Record<string, FloorSurfaceV1>>(() => {
+    if (!projectId) return {};
+    try {
+      const raw = window.localStorage.getItem(`ultida.floorSurfaces.${projectId}`);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const [activePickerSlot, setActivePickerSlot] = useState<string>('shutter');
   const [visualState, setVisualState] = useState('No visual proposal requested');
@@ -342,6 +375,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       setDesignMode('elevations');
     } else if (requestedMode === 'moodboard' || requestedMode === 'materials' || focus === 'materials') {
       setDesignMode('moodboard');
+    } else if (requestedMode === 'flooring') {
+      setDesignMode('flooring');
     } else if (focus === 'modules') {
       setDesignMode('layout');
     }
@@ -373,9 +408,11 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const selectedSpace = spaces.find((space) => space.id === spaceId) ?? null;
   const roomWalls = useMemo(() => {
     const polygon = selectedSpace?.geometry_json?.polygon ?? [];
-    const points = polygon.map((point) => ({ x: Number(point.xMm ?? point.x), y: Number(point.yMm ?? point.y) })).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
-    if (points.length < 3) return [];
-    const tolerance = 300;
+    const points = polygon.map((point: any) => ({ x: Number(point.xMm ?? point.x), y: Number(point.yMm ?? point.y) })).filter((point: any) => Number.isFinite(point.x) && Number.isFinite(point.y));
+    if (points.length < 3) {
+      return walls.filter((w) => (w as any).spaceIds?.includes(spaceId) || w.id.includes(spaceId ?? ''));
+    }
+    const tolerance = 400;
     const distanceToSegment = (point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) => {
       const dx = end.x - start.x;
       const dy = end.y - start.y;
@@ -384,15 +421,69 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
       return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
     };
-    const nearBoundary = (point?: { xMm: number; yMm: number }) => Boolean(point && points.some((start, index) => distanceToSegment({ x: point.xMm, y: point.yMm }, start, points[(index + 1) % points.length]) <= tolerance));
-    const filtered = walls.filter((wall) => nearBoundary(wall.start) && nearBoundary(wall.end));
-    // Never manufacture a client-only wall ID: module persistence validates
-    // anchors against the accepted plan wall collection.
+    const nearBoundary = (point?: { xMm: number; yMm: number }) => Boolean(point && points.some((start: any, index: number) => distanceToSegment({ x: point.xMm, y: point.yMm }, start, points[(index + 1) % points.length]) <= tolerance));
+    let filtered = walls.filter((wall) => nearBoundary(wall.start) && nearBoundary(wall.end));
+    // If no filtered walls matched the boundary tolerance, fall back to polygon edge boundaries
+    if (filtered.length === 0 && points.length >= 3) {
+      filtered = points.map((p: any, i: number) => {
+        const next = points[(i + 1) % points.length];
+        const letter = String.fromCharCode(65 + i);
+        const matchingPlanWall = walls.find((w) => w.start && w.end && distanceToSegment({ x: w.start.xMm, y: w.start.yMm }, p, next) < 500 && distanceToSegment({ x: w.end.xMm, y: w.end.yMm }, p, next) < 500);
+        return matchingPlanWall || {
+          id: `${selectedSpace?.id ?? 'room'}-wall-${letter.toLowerCase()}`,
+          start: { xMm: p.x, yMm: p.y },
+          end: { xMm: next.x, yMm: next.y },
+          name: `Wall ${letter}`,
+        };
+      });
+    }
     return filtered;
-  }, [selectedSpace, walls]);
+  }, [selectedSpace, walls, spaceId]);
   const selectedWall = roomWalls.find((wall) => wall.id === wallId) ?? roomWalls[0] ?? null;
   const selectedWallLengthMm = selectedWall?.start && selectedWall?.end ? Math.hypot(selectedWall.end.xMm - selectedWall.start.xMm, selectedWall.end.yMm - selectedWall.start.yMm) : 0;
   const selectedWallOpenings = openings.filter((opening) => opening.wallId === selectedWall?.id);
+
+  const roomPolygonForFlooring: FloorPointV1[] = useMemo(() => {
+    const polygon = selectedSpace?.geometry_json?.polygon ?? [];
+    const points = polygon
+      .map((p: any) => ({ xMm: Number(p.xMm ?? p.x ?? 0), yMm: Number(p.yMm ?? p.y ?? 0) }))
+      .filter((p) => Number.isFinite(p.xMm) && Number.isFinite(p.yMm));
+    if (points.length >= 3) return points;
+    if (roomWalls.length >= 3) {
+      return roomWalls.map((w) => ({ xMm: w.start?.xMm ?? 0, yMm: w.start?.yMm ?? 0 }));
+    }
+    return [
+      { xMm: 0, yMm: 0 },
+      { xMm: 4800, yMm: 0 },
+      { xMm: 4800, yMm: 3600 },
+      { xMm: 0, yMm: 3600 },
+    ];
+  }, [selectedSpace, roomWalls]);
+
+  const roomAreaSqm = useMemo(() => {
+    if (roomPolygonForFlooring.length >= 3) {
+      let area = 0;
+      for (let i = 0; i < roomPolygonForFlooring.length; i++) {
+        const j = (i + 1) % roomPolygonForFlooring.length;
+        area += roomPolygonForFlooring[i].xMm * roomPolygonForFlooring[j].yMm;
+        area -= roomPolygonForFlooring[j].xMm * roomPolygonForFlooring[i].yMm;
+      }
+      const calculatedSqm = Math.abs(area) / 2 / 1_000_000;
+      if (calculatedSqm > 0.5) return Math.round(calculatedSqm * 100) / 100;
+    }
+    return 18.5;
+  }, [roomPolygonForFlooring]);
+
+  const relevantDoorOpenings = useMemo(() => {
+    return openings
+      .filter((o) => o.kind === 'door' || o.kind === 'passage')
+      .map((o) => ({
+        id: o.id,
+        offsetAlongWallMm: o.offsetAlongWallMm ?? o.offsetMm ?? 300,
+        widthMm: o.widthMm ?? 900,
+      }));
+  }, [openings]);
+
   const elevationScene = useMemo(() => {
     return buildSceneForElevation(projectId, spaceId, roomWalls, openings, draftModules, availableMaterials, isSceneApproved);
   }, [projectId, spaceId, roomWalls, openings, draftModules, availableMaterials, isSceneApproved]);
@@ -851,6 +942,56 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       return false;
     }
   }
+
+  const handleApplyPaletteToAllWallModules = async () => {
+    const currentActiveWallId = wallId || roomWalls[0]?.id;
+    if (!currentActiveWallId || !projectId) return;
+    const wallModules = draftModules.filter((m) => m.wallId === currentActiveWallId);
+    if (!wallModules.length) {
+      setPlacementNotice('No cabinets placed on this wall yet. Place a cabinet or click "Suggest a room module".');
+      return;
+    }
+    setPlacementNotice(`Applying finish palette to all ${wallModules.length} units on Wall...`);
+    try {
+      const headers = await authenticatedHeaders();
+      for (const mod of wallModules) {
+        const assignmentsToSave = [
+          selectedCarcassLaminate.id ? { materialId: selectedCarcassLaminate.id, semanticSlot: 'carcass' as const, targetId: mod.id } : null,
+          selectedShutterLaminate.id ? { materialId: selectedShutterLaminate.id, semanticSlot: 'shutter' as const, targetId: mod.id } : null,
+          selectedHardwareObj.id ? { materialId: selectedHardwareObj.id, semanticSlot: 'hardware' as const, targetId: mod.id } : null,
+        ].filter(Boolean);
+
+        await Promise.all(assignmentsToSave.map((assignment) =>
+          fetch(`${apiBase}/projects/${projectId}/material-assignments`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ ...assignment, targetKind: 'module', moduleInstanceId: mod.id, status: 'draft' }),
+          }).catch(() => null)
+        ));
+
+        setDraftModules((curr) =>
+          curr.map((m) =>
+            m.id === mod.id
+              ? {
+                  ...m,
+                  materialId: selectedShutterLaminate.id || m.materialId,
+                  finishes: {
+                    ...(m.finishes ?? {}),
+                    carcass: selectedCarcassLaminate.id,
+                    shutter: selectedShutterLaminate.id,
+                    hardware: selectedHardwareObj.id,
+                  },
+                }
+              : m
+          )
+        );
+      }
+      setMaterialAssignmentsSaved(true);
+      setPlacementNotice(`✨ Applied Carcass (${selectedCarcassLaminate.name}) & Shutter (${selectedShutterLaminate.name}) to all ${wallModules.length} units on this wall!`);
+    } catch (err: any) {
+      setPlacementNotice(err?.message ?? 'Failed to apply finish schedule.');
+    }
+  };
 
   const handleAiAutoFitAllWallModules = () => {
     if (!selectedSpace || !selectedWall) {
@@ -1734,12 +1875,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         <Button onClick={handleAiAutoFitAllWallModules} style={{ background: 'linear-gradient(135deg, #1c1917, #3d2a1a)', color: '#fff', border: '1px solid var(--gold)', boxShadow: '0 2px 8px rgba(197,156,45,0.25)', height: '38px', padding: '0 16px', fontWeight: 800 }}>
           <Sparkles size={15} style={{ marginRight: '0.5rem', color: 'var(--gold)' }} /> Suggest a room module
         </Button>
-        <Button variant={designMode === 'layout' ? 'default' : 'outline'} onClick={() => setDesignMode('layout')} style={{ height: '38px', padding: '0 16px' }}>
+        <Button variant={designMode === 'layout' ? 'default' : 'outline'} onClick={() => { setDesignMode('layout'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'layout'); navigate({ search: next.toString() }, { replace: true }); }} style={{ height: '38px', padding: '0 16px' }}>
           <Boxes size={15} style={{ marginRight: '0.5rem' }} /> 📦 Modules &amp; Planner
         </Button>
         <Button
           variant={designMode === 'elevations' ? 'default' : 'outline'}
-          onClick={() => setDesignMode('elevations')}
+          onClick={() => { setDesignMode('elevations'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'elevations'); navigate({ search: next.toString() }, { replace: true }); }}
           style={{
             height: '38px',
             padding: '0 16px',
@@ -1750,8 +1891,21 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         >
           <Ruler size={15} style={{ marginRight: '0.5rem', color: designMode === 'elevations' ? 'var(--gold)' : undefined }} /> 📐 Wall Elevations (A/B/C/D)
         </Button>
-        <Button variant={designMode === 'moodboard' ? 'default' : 'outline'} onClick={() => setDesignMode('moodboard')} style={{ height: '38px', padding: '0 16px' }}>
+        <Button variant={designMode === 'moodboard' ? 'default' : 'outline'} onClick={() => { setDesignMode('moodboard'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'moodboard'); navigate({ search: next.toString() }, { replace: true }); }} style={{ height: '38px', padding: '0 16px' }}>
           <Palette size={15} style={{ marginRight: '0.5rem' }} /> 🎨 Moodboard &amp; Materials
+        </Button>
+        <Button
+          variant={designMode === 'flooring' ? 'default' : 'outline'}
+          onClick={() => { setDesignMode('flooring'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'flooring'); navigate({ search: next.toString() }, { replace: true }); }}
+          style={{
+            height: '38px',
+            padding: '0 16px',
+            background: designMode === 'flooring' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : undefined,
+            color: designMode === 'flooring' ? '#e8c96a' : undefined,
+            borderColor: designMode === 'flooring' ? 'var(--gold)' : undefined,
+          }}
+        >
+          <LayoutTemplate size={15} style={{ marginRight: '0.5rem', color: designMode === 'flooring' ? 'var(--gold)' : undefined }} /> 🪵 Flooring &amp; Skirting
         </Button>
       </div>
 
@@ -1801,6 +1955,22 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   >
                     📋 Turnkey Shop Sheet
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setElevationRenderType('bay-editor')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      fontSize: '11.5px',
+                      fontWeight: elevationRenderType === 'bay-editor' ? 800 : 500,
+                      background: elevationRenderType === 'bay-editor' ? '#fff' : 'transparent',
+                      color: elevationRenderType === 'bay-editor' ? '#1c1917' : '#78716c',
+                      border: elevationRenderType === 'bay-editor' ? '1px solid #d6cbba' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🎛️ System 32 Bay Editor
+                  </button>
                 </div>
               </div>
             </CardHeader>
@@ -1814,6 +1984,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     const isWallActive = (wallId || roomWalls[0]?.id) === wall.id;
                     const wallLen = wall.start && wall.end ? Math.round(Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm)) : 3000;
                     const count = draftModules.filter((m) => m.wallId === wall.id).length;
+                    const orientation = getWallOrientation(wall.start, wall.end);
                     return (
                       <button
                         key={wall.id}
@@ -1840,7 +2011,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                         }}
                       >
                         <span>WALL {letter}</span>
-                        <span style={{ fontSize: '11px', opacity: 0.85 }}>({wallLen} mm · {count} unit{count === 1 ? '' : 's'})</span>
+                        <span style={{ fontSize: '11px', opacity: 0.85 }}>({wallLen} mm · {orientation ? orientation + ' · ' : ''}{count} unit{count === 1 ? '' : 's'})</span>
                       </button>
                     );
                   })
@@ -1851,7 +2022,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
               {/* Elevation Stage & Persistent Sidebar Layout */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '20px', alignItems: 'start' }}>
-                {/* Main SVG Render Area */}
+                {/* Main Render Area */}
                 <div className="elevation-full-stage" style={{ background: '#fbfaf8', border: '1.5px solid #dcd3c5', borderRadius: '10px', padding: '16px', overflowX: 'auto', position: 'relative' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1867,14 +2038,258 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     </span>
                   </div>
 
-                  {/* Drawing Core Wall Elevation SVG with Lineage-Aware Picking */}
-                  <DrawingCoreWallElevation
-                    scene={elevationScene}
-                    activeWallId={wallId || roomWalls[0]?.id || ''}
-                    renderType={elevationRenderType}
-                    selectedModuleId={selectedModuleId}
-                    onSelectModule={(id) => setSelectedModuleId(id)}
-                  />
+                  {elevationRenderType === 'bay-editor' ? (
+                    <div style={{ background: '#1c1917', borderRadius: '10px', padding: '16px', border: '1px solid #44382e' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', color: '#fdfbf7' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Badge tone="accent">
+                              WALL {String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === (wallId || roomWalls[0]?.id))))} SYSTEM 32 BAY EDITOR
+                            </Badge>
+                            <strong style={{ fontSize: '13px', color: '#e8c96a' }}>Reconcile Usable Width, Fillers &amp; Keep-Out Openings</strong>
+                          </div>
+                          <small style={{ color: '#a8a29e', fontSize: '11px', display: 'block', marginTop: '2px' }}>
+                            Zero-tolerance System 32 hole line layout. Drag dividers to adjust bay widths or 30mm dummy fillers.
+                          </small>
+                        </div>
+                        <Button
+                          variant="outline"
+                          onClick={() => setElevationRenderType('elevation')}
+                          style={{ fontSize: '11.5px', padding: '6px 12px', color: '#e8c96a', borderColor: '#786036', background: 'rgba(255,255,255,0.06)' }}
+                        >
+                          📐 Return to Elevation View
+                        </Button>
+                      </div>
+                      {(() => {
+                        const currentWallId = wallId || roomWalls[0]?.id || '';
+                        const currentWallObj = roomWalls.find((w) => w.id === currentWallId) || roomWalls[0];
+                        const currentWallLenMm = currentWallObj?.start && currentWallObj?.end
+                          ? Math.round(Math.hypot(currentWallObj.end.xMm - currentWallObj.start.xMm, currentWallObj.end.yMm - currentWallObj.start.yMm))
+                          : 3000;
+                        const currentWallLetter = String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === currentWallId)));
+                        return (
+                          <WallBayEditor
+                            wall={{
+                              id: currentWallId,
+                              lengthMm: currentWallLenMm,
+                              name: `Wall ${currentWallLetter} (${currentWallLenMm} mm)`,
+                              start: currentWallObj?.start,
+                              end: currentWallObj?.end,
+                            }}
+                            openings={openings.filter((op) => op.wallId === currentWallId).map((op) => ({
+                              id: op.id,
+                              wallId: op.wallId,
+                              kind: op.kind ?? 'door',
+                              offsetAlongWallMm: Number(op.offsetAlongWallMm ?? op.offsetMm ?? 0),
+                              widthMm: Number(op.widthMm ?? 900),
+                            }))}
+                            leftClearanceMm={50}
+                            rightClearanceMm={50}
+                            initialSchedule={compositionSchedules[currentWallId] || null}
+                            onScheduleChange={(newSchedule) => {
+                              setCompositionSchedules((prev) => {
+                                const next = { ...prev, [currentWallId]: newSchedule };
+                                if (projectId) {
+                                  try { window.localStorage.setItem(`ultida.compositionSchedules.${projectId}`, JSON.stringify(next)); } catch {}
+                                }
+                                return next;
+                              });
+                            }}
+                            onConfirmSchedule={(confirmedSchedule) => {
+                              setCompositionSchedules((prev) => {
+                                const next = { ...prev, [currentWallId]: confirmedSchedule };
+                                if (projectId) {
+                                  try { window.localStorage.setItem(`ultida.compositionSchedules.${projectId}`, JSON.stringify(next)); } catch {}
+                                }
+                                return next;
+                              });
+                              setPlacementNotice(`✅ Wall ${currentWallLetter} bay schedule confirmed for production!`);
+                            }}
+                          />
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <DrawingCoreWallElevation
+                      scene={elevationScene}
+                      activeWallId={wallId || roomWalls[0]?.id || ''}
+                      renderType={elevationRenderType === 'shop-sheet' ? 'shop-sheet' : 'elevation'}
+                      selectedModuleId={selectedModuleId}
+                      onSelectModule={(id) => setSelectedModuleId(id)}
+                      activeWallName={`WALL ${String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === (wallId || roomWalls[0]?.id))))} (${roomWalls.find((w) => w.id === (wallId || roomWalls[0]?.id))?.start && roomWalls.find((w) => w.id === (wallId || roomWalls[0]?.id))?.end ? Math.round(Math.hypot(roomWalls.find((w) => w.id === (wallId || roomWalls[0]?.id))!.end!.xMm - roomWalls.find((w) => w.id === (wallId || roomWalls[0]?.id))!.start!.xMm, roomWalls.find((w) => w.id === (wallId || roomWalls[0]?.id))!.end!.yMm - roomWalls.find((w) => w.id === (wallId || roomWalls[0]?.id))!.start!.yMm)) : 3000} mm · ${getWallOrientation(roomWalls.find((w) => w.id === (wallId || roomWalls[0]?.id))?.start, roomWalls.find((w) => w.id === (wallId || roomWalls[0]?.id))?.end)})`}
+                    />
+                  )}
+
+                  {/* Interactive Wall Finish & Material Swatch Bar */}
+                  {(() => {
+                    const currentWallId = wallId || roomWalls[0]?.id || '';
+                    const wallModules = draftModules.filter((m) => m.wallId === currentWallId);
+                    const wallLetter = String.fromCharCode(65 + Math.max(0, roomWalls.findIndex((w) => w.id === currentWallId)));
+                    return (
+                      <div style={{
+                        marginTop: '16px',
+                        padding: '14px 18px',
+                        borderRadius: '10px',
+                        background: '#faf8f5',
+                        border: '1px solid #e7dcce',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                          <div>
+                            <small style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '0.1em', color: 'var(--gold-dim)', textTransform: 'uppercase' }}>
+                              WALL {wallLetter} INTERACTIVE FINISH &amp; MATERIAL PALETTE
+                            </small>
+                            <span style={{ fontSize: '11.5px', color: '#57534e', display: 'block', fontWeight: 600 }}>
+                              Active finish schedule for all units on this elevation. Click any swatch card to swap from catalog.
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => void handleApplyPaletteToAllWallModules()}
+                              style={{
+                                padding: '6px 14px',
+                                borderRadius: '7px',
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                background: 'linear-gradient(135deg, #1c1917, #3d2a1a)',
+                                color: '#e8c96a',
+                                border: '1px solid var(--gold)',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                              }}
+                            >
+                              <Sparkles size={13} style={{ color: 'var(--gold)' }} />
+                              <span>Apply Palette to All Wall Cabinets ({wallModules.length})</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}>
+                          {/* Carcass Swatch Card */}
+                          <div
+                            onClick={() => {
+                              setActivePickerSlot('carcass');
+                              setMaterialPickerOpen(true);
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              background: '#fff',
+                              border: '1px solid #e2d7c5',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              transition: 'all 0.15s ease',
+                            }}
+                            title="Click to swap carcass finish"
+                          >
+                            <span style={{ width: 22, height: 22, borderRadius: 5, background: selectedCarcassLaminate.hex || '#654321', border: '1px solid rgba(0,0,0,0.15)', flexShrink: 0 }} />
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <small style={{ fontSize: '9px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase', display: 'block' }}>CARCASS</small>
+                              <strong style={{ fontSize: '11px', color: '#1c1917', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {selectedCarcassLaminate.name || '18mm HDHMR Smoked Oak'}
+                              </strong>
+                            </div>
+                            <span style={{ fontSize: '10px', color: 'var(--gold-dim)' }}>Swap ▾</span>
+                          </div>
+
+                          {/* Shutter Swatch Card */}
+                          <div
+                            onClick={() => {
+                              setActivePickerSlot('shutter');
+                              setMaterialPickerOpen(true);
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              background: '#fff',
+                              border: '1px solid #e2d7c5',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              transition: 'all 0.15s ease',
+                            }}
+                            title="Click to swap shutter / facia finish"
+                          >
+                            <span style={{ width: 22, height: 22, borderRadius: 5, background: selectedShutterLaminate.hex || '#f7f7f2', border: '1px solid rgba(0,0,0,0.15)', flexShrink: 0 }} />
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <small style={{ fontSize: '9px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase', display: 'block' }}>SHUTTER / FACIA</small>
+                              <strong style={{ fontSize: '11px', color: '#1c1917', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {selectedShutterLaminate.name || 'Mirror High-Gloss Acrylic'}
+                              </strong>
+                            </div>
+                            <span style={{ fontSize: '10px', color: 'var(--gold-dim)' }}>Swap ▾</span>
+                          </div>
+
+                          {/* Countertop Swatch Card */}
+                          <div
+                            onClick={() => {
+                              setActivePickerSlot('countertop');
+                              setMaterialPickerOpen(true);
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              background: '#fff',
+                              border: '1px solid #e2d7c5',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              transition: 'all 0.15s ease',
+                            }}
+                            title="Click to swap countertop stone"
+                          >
+                            <span style={{ width: 22, height: 22, borderRadius: 5, background: '#f3ede2', border: '1px solid rgba(0,0,0,0.15)', flexShrink: 0 }} />
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <small style={{ fontSize: '9px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase', display: 'block' }}>COUNTERTOP (40MM)</small>
+                              <strong style={{ fontSize: '11px', color: '#1c1917', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                Calacatta Honed Quartz
+                              </strong>
+                            </div>
+                            <span style={{ fontSize: '10px', color: 'var(--gold-dim)' }}>Swap ▾</span>
+                          </div>
+
+                          {/* Hardware Swatch Card */}
+                          <div
+                            onClick={() => {
+                              setActivePickerSlot('hardware');
+                              setMaterialPickerOpen(true);
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              background: '#fff',
+                              border: '1px solid #e2d7c5',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              transition: 'all 0.15s ease',
+                            }}
+                            title="Click to swap hardware specification"
+                          >
+                            <span style={{ width: 22, height: 22, borderRadius: 5, background: '#a1a1aa', border: '1px solid rgba(0,0,0,0.15)', flexShrink: 0 }} />
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <small style={{ fontSize: '9px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase', display: 'block' }}>HARDWARE</small>
+                              <strong style={{ fontSize: '11px', color: '#1c1917', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {selectedHardwareObj.name || 'Blum Clip-Top Soft-Close'}
+                              </strong>
+                            </div>
+                            <span style={{ fontSize: '10px', color: 'var(--gold-dim)' }}>Swap ▾</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Persistent Sidebar: Selected Cabinet Inspector OR Wall Specification Summary */}
@@ -2070,6 +2485,61 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   })()
                 )}
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : designMode === 'flooring' ? (
+        <div className="flooring-dedicated-view" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
+          <Card style={{ border: '1px solid #dcd3c5', borderRadius: '12px', background: '#fff', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+            <CardHeader style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ede5d8', padding: '16px 20px', background: 'linear-gradient(135deg, #faf7f2, #fff)' }}>
+              <div>
+                <small style={{ color: 'var(--gold-dim)', fontWeight: 800, letterSpacing: '0.08em', fontSize: '10.5px' }}>
+                  FLOORING, GROUT &amp; SKIRTING STUDIO · TAKEOFF ENGINE
+                </small>
+                <h3 style={{ margin: '3px 0 0', fontSize: '18px', fontWeight: 800, color: '#1c1917' }}>
+                  {selectedSpace?.name ?? room.toUpperCase()} · Surface Takeoff &amp; Tile Specification
+                </h3>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <Badge tone="accent">
+                  ROOM: {selectedSpace?.name ?? room.toUpperCase()}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent style={{ padding: '20px' }}>
+              <FlooringStudio
+                roomId={spaceId ?? spaces[0]?.id ?? 'room-default'}
+                roomName={selectedSpace?.name ?? room.toUpperCase()}
+                roomAreaSqm={roomAreaSqm}
+                roomPolygon={roomPolygonForFlooring}
+                doorOpenings={relevantDoorOpenings}
+                initialSurface={floorSurfaces[spaceId ?? spaces[0]?.id ?? 'room-default'] || null}
+                onSurfaceChange={(surface) => {
+                  const currentSpaceKey = spaceId ?? spaces[0]?.id ?? 'room-default';
+                  setFloorSurfaces((prev) => {
+                    const next = { ...prev, [currentSpaceKey]: surface };
+                    if (projectId) {
+                      try { window.localStorage.setItem(`ultida.floorSurfaces.${projectId}`, JSON.stringify(next)); } catch {}
+                    }
+                    return next;
+                  });
+                }}
+                onSave={(surface, quantity) => {
+                  const currentSpaceKey = spaceId ?? spaces[0]?.id ?? 'room-default';
+                  setFloorSurfaces((prev) => {
+                    const next = { ...prev, [currentSpaceKey]: surface };
+                    if (projectId) {
+                      try { window.localStorage.setItem(`ultida.floorSurfaces.${projectId}`, JSON.stringify(next)); } catch {}
+                    }
+                    return next;
+                  });
+                  setPlacementNotice(
+                    quantity
+                      ? `Saved flooring specification for ${selectedSpace?.name ?? room}: ${quantity.totalTileCount} tiles (${quantity.netAreaSqm} m² net with ${quantity.wastagePct}% waste), ${quantity.skirtingLinearM} m skirting.`
+                      : `Saved flooring specification for ${selectedSpace?.name ?? room}.`
+                  );
+                }}
+              />
             </CardContent>
           </Card>
         </div>
@@ -3102,25 +3572,27 @@ function DrawingCoreWallElevation({
   renderType = 'elevation',
   selectedModuleId,
   onSelectModule,
+  activeWallName,
 }: {
   scene: SceneV1;
   activeWallId: string;
   renderType?: 'elevation' | 'shop-sheet';
   selectedModuleId?: string | null;
   onSelectModule?: (id: string) => void;
+  activeWallName?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const svgContent = useMemo(() => {
     try {
       if (renderType === 'shop-sheet') {
-        return generateArchitecturalShopSheetSvg(scene, activeWallId, { selectedModuleId: selectedModuleId ?? undefined });
+        return generateArchitecturalShopSheetSvg(scene, activeWallId, { selectedModuleId: selectedModuleId ?? undefined, activeWallName });
       }
-      return generateWallElevationSvg(scene, activeWallId, { selectedModuleId: selectedModuleId ?? undefined });
+      return generateWallElevationSvg(scene, activeWallId, { selectedModuleId: selectedModuleId ?? undefined, activeWallName });
     } catch (err: any) {
       return `<div style="padding: 24px; color: #dc2626; font-size: 13px;">Elevation generation error: ${err?.message ?? 'Unknown error'}</div>`;
     }
-  }, [scene, activeWallId, renderType, selectedModuleId]);
+  }, [scene, activeWallId, renderType, selectedModuleId, activeWallName]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = (e.target as HTMLElement).closest('[data-module-id]');

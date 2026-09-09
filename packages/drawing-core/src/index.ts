@@ -151,7 +151,10 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
       warnings.push(`Module ${module.id} has invalid dimensions and was skipped.`);
       continue;
     }
-    const nearest = (scene.walls ?? []).map((wall: SceneWallV1) => ({ wall, ...moduleWallPosition(module, wall) })).sort((a: { distance: number }, b: { distance: number }) => a.distance - b.distance)[0];
+    const explicitWall = (module as any).wallId ? (scene.walls ?? []).find((w: SceneWallV1) => w.id === (module as any).wallId) : null;
+    const nearest = explicitWall
+      ? { wall: explicitWall, ...moduleWallPosition(module, explicitWall) }
+      : (scene.walls ?? []).map((wall: SceneWallV1) => ({ wall, ...moduleWallPosition(module, wall) })).sort((a: { distance: number }, b: { distance: number }) => a.distance - b.distance)[0];
     const projected: ProjectedModule = { id: module.id, family: module.family, roomId: module.roomId ?? '', xMm: module.position.xMm, yMm: module.position.yMm, widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm, rotationDeg: module.rotationDeg ?? 0, wallId: nearest?.wall.id, offsetAlongWallMm: nearest?.offset, materialId: module.materialId };
     modules.push(projected);
     const corners = rotatedRectangle(projected.xMm, projected.yMm, projected.widthMm, projected.depthMm, projected.rotationDeg);
@@ -1647,7 +1650,14 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
     const isSelected = options?.selectedModuleId === mod.id;
     const isTall = mod.heightMm > 1800;
     const isBase = mod.heightMm <= 900;
-    const fillColor = isSelected ? '#fef3c7' : isTall ? '#d6e4f7' : isBase ? '#fdf0d0' : '#ddeeff';
+
+    // Resolve assigned material finishes and swatches
+    const matObj = (scene.materials ?? []).find((m) => m.id === mod.materialId)
+      || (options?.materialSwatches && options.materialSwatches[mod.id] ? { id: mod.id, name: options.materialSwatches[mod.id], hex: options.materialSwatches[mod.id] } : undefined);
+    const matHex = (matObj as any)?.hex ?? (matObj as any)?.metadata?.hex ?? (matObj as any)?.metadata?.colourHex;
+
+    const baseFill = matHex || (isTall ? '#d6e4f7' : isBase ? '#fdf0d0' : '#ddeeff');
+    const fillColor = isSelected ? '#fffdf0' : baseFill;
     const strokeColor = isSelected ? '#d97706' : isTall ? MOD_STROKE : isBase ? '#7c5c12' : MOD_STROKE;
     const strokeWidth = isSelected ? '2.8' : '1.8';
 
@@ -1656,7 +1666,7 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
 
     // Outer module rectangle
     moduleSvgElements += `<rect x="${mx}" y="${my}" width="${mw}" height="${mh}"
-      fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill-opacity="0.8"
+      fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill-opacity="${matHex ? '0.88' : '0.8'}"
       data-module-id="${mod.id}" class="elevation-module-rect"/>`;
 
     // Selection badge
@@ -1706,10 +1716,16 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
       moduleSvgElements += `<text x="${mx + mw / 2}" y="${my + mh / 2 + 14}" text-anchor="middle"
         fill="#4b5563" font-size="8.5" font-family="Arial,sans-serif">${Math.round(mod.widthMm)} x ${Math.round(mod.heightMm)} mm</text>`;
 
-      const matObj = (scene.materials ?? []).find((m) => m.id === mod.materialId);
       if (matObj && mw > 70 && mh > 70) {
-        moduleSvgElements += `<text x="${mx + mw / 2}" y="${my + mh / 2 + 27}" text-anchor="middle"
-          fill="#b45309" font-size="8" font-weight="bold" font-family="Arial,sans-serif">Finish: ${matObj.name}</text>`;
+        const chipW = Math.min(mw - 16, 130);
+        const chipH = 18;
+        const chipX = mx + (mw - chipW) / 2;
+        const chipY = my + mh - (mh > plinthPx + 30 ? plinthPx + chipH + 6 : chipH + 6);
+        moduleSvgElements += `<g class="cabinet-finish-chip">
+          <rect x="${chipX}" y="${chipY}" width="${chipW}" height="${chipH}" rx="3" fill="#ffffff" stroke="${strokeColor}" stroke-width="0.8" opacity="0.95"/>
+          <rect x="${chipX + 3}" y="${chipY + 3}" width="12" height="12" rx="2" fill="${matHex || '#d6c7b8'}" stroke="rgba(0,0,0,0.2)" stroke-width="0.5"/>
+          <text x="${chipX + 18}" y="${chipY + 12}" fill="#1e293b" font-size="7.5" font-weight="bold" font-family="Arial,sans-serif">${matObj.name.length > 15 ? matObj.name.slice(0, 14) + '…' : matObj.name}</text>
+        </g>`;
       }
     }
 
@@ -1793,7 +1809,7 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
   <rect width="${svgW}" height="${svgH}" fill="white"/>
 
   <!-- Title block -->
-  <text x="${originX}" y="22" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="${LINE_DARK}">WALL ELEVATION — ${(wallId || 'MAIN').toUpperCase()}</text>
+  <text x="${originX}" y="22" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="${LINE_DARK}">${options?.activeWallName || `WALL ELEVATION — ${(wallId || 'MAIN').toUpperCase()}`}</text>
   <text x="${originX}" y="38" font-family="Arial,sans-serif" font-size="9.5" fill="#64748b">
     ${Math.round(wallLengthMm)} mm × ${wallHeightMm} mm  |  Scale 1:${Math.round(1 / scale * 10) / 10}  |  ULTIDA Architectural Drawing Engine  |  IS 710 / System 32 Standard
   </text>
