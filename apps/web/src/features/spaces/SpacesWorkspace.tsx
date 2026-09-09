@@ -595,8 +595,10 @@ export function SpacesWorkspace() {
       vastuCompliant: vastu.isCompliant,
       vastuScore: vastu.score,
       vastuRemedies: vastu.findings.filter(f => f.status === 'remedy').map(f => f.advice),
-      blockingReasons: [...baseReadiness.blockingReasons, ...vastuBlockingReasons],
-      ready: baseReadiness.ready && vastu.isCompliant,
+      blockingReasons: [...baseReadiness.blockingReasons, ...vastuBlockingReasons,
+        ...(!scaleVerified ? ['Confirm plan scale before room approval.'] : []),
+        ...(needsScaleReview(room, widthMm, depthMm) ? ['Review the measured room boundary before approval.'] : [])],
+      ready: baseReadiness.ready && vastu.isCompliant && scaleVerified && !needsScaleReview(room, widthMm, depthMm),
     };
 
     return {
@@ -612,7 +614,7 @@ export function SpacesWorkspace() {
       furniture,
       scaleReview: needsScaleReview(room, widthMm, depthMm),
     };
-  }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode, roomFurnitureMap, roomVastuMap, selectedRoom, aiProposals]);
+  }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode, scaleVerified, roomFurnitureMap, roomVastuMap, selectedRoom, aiProposals]);
 
   const includedMetrics = useMemo(() => roomMetrics.filter(({ room }) => room.included !== false), [roomMetrics]);
   const overallReadiness = useMemo(() => {
