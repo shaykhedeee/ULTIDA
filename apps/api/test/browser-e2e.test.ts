@@ -33,7 +33,9 @@ test('Browser headless verification of api documentation & status endpoints', as
       path.join(userProfile, '.cache', 'puppeteer', 'chrome', 'win64-146.0.7680.153', 'chrome-win64', 'chrome')
     ];
     const execPath = process.env.PUPPETEER_EXECUTABLE_PATH || possiblePaths.find(p => fs.existsSync(p));
-    const browserRequired = process.env.ULTIDA_REQUIRE_BROWSER_E2E === 'true';
+    // A local .env may enable browser tooling for interactive development.
+    // Only CI can turn this optional smoke check into a release requirement.
+    const browserRequired = process.env.CI === 'true' && process.env.ULTIDA_REQUIRE_BROWSER_E2E === 'true';
     if (!execPath) {
       if (browserRequired) {
         assert.fail('ULTIDA_REQUIRE_BROWSER_E2E=true but PUPPETEER_EXECUTABLE_PATH does not point to an installed browser.');
