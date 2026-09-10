@@ -7,6 +7,7 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { bindPreparedModule } from '../../lib/prepared-module-plan';
 import './projects.css';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -791,7 +792,8 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
 
   function openProject(project: Project) {
     if (placingPreparedModule) {
-      navigate(`/projects/${project.id}/design?pendingModule=1`);
+      if (!bindPreparedModule(window.localStorage, project.id)) { setError('The prepared unit is missing or invalid. Return to the module planner and prepare it again.'); return; }
+      navigate(`/projects/${project.id}/spaces?tab=modules&pendingModule=1`);
       return;
     }
     if (attachingRoomDraft) {

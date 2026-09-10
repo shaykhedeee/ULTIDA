@@ -84,3 +84,17 @@ export function prepareModuleEdit(module: EditableModule, edit: z.infer<typeof M
   if (!compiled.ok) return compiled;
   return { ok: true as const, candidate, partCount: compiled.parts.length };
 }
+
+export function prepareModulePlacement(module: EditableModule, plan: CanonicalPlanModel, roomId: string, neighbours: EditableModule[]) {
+  if (!plan.scale?.verified) return { ok: false as const, code: 'PLAN_SCALE_NOT_CONFIRMED', message: 'Confirm the plan calibration before saving a module placement.' };
+  const room = plan.spaces.find((entry) => entry.id === roomId);
+  if (!room || !room.wallRefs.includes(module.position_json.wallId)) return { ok: false as const, code: 'MODULE_WALL_ROOM_MISMATCH', message: 'Select a measured wall belonging to this room.' };
+  const anchor = resolveModuleWallAnchor(plan.walls, { wallId: module.position_json.wallId, offsetMm: module.position_json.offsetMm, zMm: module.position_json.zMm }, Number(module.config_json.widthMm));
+  if (!anchor.ok) return anchor;
+  const candidate = { ...module, position_json: anchor.anchor };
+  const clearance = validateModuleClearance(candidate, plan, neighbours);
+  if (!clearance.ok) return clearance;
+  const compiled = compileStoredModuleForScene(candidate, plan.walls);
+  if (!compiled.ok) return compiled;
+  return { ok: true as const, candidate, partCount: compiled.parts.length };
+}

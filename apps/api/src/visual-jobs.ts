@@ -37,12 +37,42 @@ function imageExtension(mimeType: string) {
   return 'png';
 }
 
+type CatalogMaterialReference = {
+  id: string;
+  name: string;
+  sourceAsset: string;
+  kind: 'catalog-colour-swatch';
+};
+
+/**
+ * Creates a small, deterministic reference from the selected persisted
+ * catalog material. It is deliberately a colour swatch, not a fabricated
+ * texture or a manufacturing claim. The saved material assignment remains
+ * the source of construction truth.
+ */
+async function catalogMaterialReference(client: SupabaseClient, organizationId: string, materialId: string): Promise<CatalogMaterialReference> {
+  const result = await client.from('material_library_items')
+    .select('id,name,metadata')
+    .eq('id', materialId)
+    .eq('organization_id', organizationId)
+    .single();
+  if (result.error || !result.data) throw new Error('The selected laminate is no longer in this organization library. Save the material again before rendering.');
+  const metadata = result.data.metadata && typeof result.data.metadata === 'object'
+    ? result.data.metadata as Record<string, unknown>
+    : {};
+  const candidate = typeof metadata.colourHex === 'string' ? metadata.colourHex : typeof metadata.colorHex === 'string' ? metadata.colorHex : '#b6a28d';
+  const colour = /^#[0-9a-f]{6}$/i.test(candidate) ? candidate : '#b6a28d';
+  const bytes = await sharp({ create: { width: 256, height: 256, channels: 3, background: colour } }).png().toBuffer();
+  return { id: result.data.id, name: result.data.name, sourceAsset: `data:image/png;base64,${bytes.toString('base64')}`, kind: 'catalog-colour-swatch' };
+}
+
 export function buildSceneExpectation(scene: import('@ultida/scene-core').SceneV1, artifacts: BaseRenderArtifacts): SceneExpectation {
   const camera = scene.cameras[0];
   return {
     wallCount: scene.walls.length,
-    doorCount: scene.openings.filter((opening) => opening.kind === 'door').length,
-    windowCount: scene.openings.filter((opening) => opening.kind === 'window').length,
+    // A view can only verify openings projected inside its saved camera frame.
+    doorCount: artifacts.openingMasks.filter((opening) => opening.kind === 'door').length,
+    windowCount: artifacts.openingMasks.filter((opening) => opening.kind === 'window').length,
     moduleCount: scene.modules.length,
     cabinetDivisions: (scene.moduleParts ?? []).filter((part) => part.semanticType === 'shutter' || part.semanticType === 'drawer').length,
     skirtingCount: artifacts.skirtingMasks.length,
@@ -242,7 +272,7 @@ export async function measureRenderImage(scene: import('@ultida/scene-core').Sce
   }));
   const measuredDoorCount = openingEvidence.filter(({ opening, visible }) => opening.kind === 'door' && visible).length;
   const measuredWindowCount = openingEvidence.filter(({ opening, visible }) => opening.kind === 'window' && visible).length;
-  const expectedOpeningCount = scene.openings.length;
+  const expectedOpeningCount = artifacts.openingMasks.filter((opening) => opening.kind !== 'passage').length;
   return {
     wallEdgesAligned: alignment >= 0.55,
     openingCountMatches: measuredDoorCount + measuredWindowCount === expectedOpeningCount,
@@ -264,8 +294,13 @@ export async function measureRenderImage(scene: import('@ultida/scene-core').Sce
   };
 }
 
-export async function evaluateRenderImageQA(scene: import('@ultida/scene-core').SceneV1, artifacts: BaseRenderArtifacts, image: Buffer | string): Promise<ReturnType<typeof runRenderQA>> {
-  return runRenderQA(buildSceneExpectation(scene, artifacts), await measureRenderImage(scene, artifacts, image), 'strict');
+export async function evaluateRenderImageQA(
+  scene: import('@ultida/scene-core').SceneV1,
+  artifacts: BaseRenderArtifacts,
+  image: Buffer | string,
+  geometryLock: 'strict' | 'moderate' = 'strict',
+): Promise<ReturnType<typeof runRenderQA>> {
+  return runRenderQA(buildSceneExpectation(scene, artifacts), await measureRenderImage(scene, artifacts, image), geometryLock);
 }
 
 /* Legacy synthetic preview removed from the production path.
@@ -409,7 +444,7 @@ async function storeImage(client: SupabaseClient, context: { organizationId: str
     technicalArtifacts: context.technicalArtifacts,
     synthetic: false,
     reviewStatus: 'pending',
-    qaStatus: 'measured_passed',
+    qaStatus: context.renderQa.issues.length ? 'measured_review_required' : 'measured_passed',
     renderQa: context.renderQa,
   };
   const assetPayload: any = { organization_id: context.organizationId, project_id: context.projectId, kind: 'render', storage_path: path, mime_type: mimeType, metadata, created_by: context.actorId ?? null };
@@ -497,7 +532,7 @@ export async function createVisualJob(environment: Record<string, string | undef
     const brief = compileRenderBrief({ scene: context.scene, sceneVersionId: request.sceneVersionId, roomId: request.roomId, style: request.style, quality: request.quality, camera: request.camera });
     const referenceGuidance = await renderReferenceGuidance(client, context.project.organization_id, context.scene, brief.roomId, brief.style);
     const materialSwapInstruction = request.operation === 'material-swap'
-      ? `\nMATERIAL REVISION LOCK: edit only the pixels inside the supplied mask for module ${request.targetModuleId} (${request.targetSemanticSlot ?? 'selected finish'}). Apply material ${request.targetMaterialId ?? 'selected by the studio'}. Do not alter any pixels outside that mask. Preserve the room shell, openings, ceiling, camera, module footprint, shutter count, hardware, lighting, and every unaffected finish.`
+      ? `\nMATERIAL REVISION: use the selected module-region guide to localize the ${request.targetSemanticSlot ?? 'selected finish'} of module ${request.targetModuleId}. Apply only the selected persisted material. Preserve the room shell, openings, sill and head heights, skirting, ceiling, camera, module footprint, shutter count, hardware, lighting, and every unaffected finish. This is a visual revision for QA review; the persisted scene material assignment remains the construction authority.`
       : '';
     const structuredPrompt = `${brief.positivePrompt}${geometryContract.prompt}${referenceGuidance.prompt}${materialSwapInstruction}`;
     const negativePrompt = request.operation === 'material-swap'
@@ -529,6 +564,12 @@ export async function createVisualJob(environment: Record<string, string | undef
     // has no photoreal styling noise, so it is the canonical geometry evidence
     // used to validate the scene before a provider is invoked.
     const deterministicQa = await evaluateRenderImageQA(context.scene, baseArtifacts, baseArtifacts.edgeMap.url);
+    // Edge maps include technical outlines; verify that the actual provider
+    // input also contains visible furniture rather than a foreground wall.
+    const rgbEvidence = await measureRenderImage(context.scene, baseArtifacts, baseArtifacts.rgb.url);
+    if (context.scene.modules.length > 0 && !rgbEvidence.focalModuleVisible) {
+      deterministicQa.issues.push({ kind: 'module_boxes', severity: 'blocking', message: 'The saved camera does not show furniture in the base image. Adjust the camera before generating an AI render.' });
+    }
     const blockingQa = deterministicQa.issues.filter((issue) => issue.severity === 'blocking');
     if (blockingQa.length) {
       const message = `Geometry-locked render QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;
@@ -542,27 +583,35 @@ export async function createVisualJob(environment: Record<string, string | undef
       await client.from('jobs').update({ status: 'failed', error: 'The selected module has no deterministic scene mask. Recompile the scene before requesting a laminate revision.' }).eq('id', job.data.id);
       return { status: 'failed' as const, jobId: job.data.id, code: 'RENDER_TARGET_MASK_UNAVAILABLE', message: 'The selected module has no deterministic scene mask. Recompile the scene before requesting a laminate revision.', retryable: false };
     }
+    const materialReference = request.operation === 'material-swap' && request.targetMaterialId
+      ? await catalogMaterialReference(client, context.project.organization_id, request.targetMaterialId)
+      : null;
+    if (request.operation === 'material-swap' && !materialReference) {
+      await client.from('jobs').update({ status: 'failed', error: 'A persisted selected laminate is required before a material revision can be rendered.' }).eq('id', job.data.id);
+      return { status: 'failed' as const, jobId: job.data.id, code: 'RENDER_MATERIAL_REFERENCE_REQUIRED', message: 'Save a selected laminate from the organization library before requesting a material revision.', retryable: false };
+    }
     const providerRequest: VisualProposalRequest = {
       ...normalizedRequest,
-      sourceAssets: [baseArtifacts.rgb.url],
-      masks: request.operation === 'material-swap'
-        ? [baseArtifacts.edgeMap.url, selectedObjectMask!.url]
-        : [baseArtifacts.edgeMap.url, ...baseArtifacts.objectMasks.map((mask) => mask.url), ...baseArtifacts.materialRegions.map((mask) => mask.url)],
+      sourceAssets: request.operation === 'material-swap'
+        ? [baseArtifacts.rgb.url, materialReference!.sourceAsset]
+        : [baseArtifacts.rgb.url],
+      masks: [],
+      conditioningIntent: 'reference',
       conditioningMaps: {
-        depthMapUrl: baseArtifacts.depth.url,
+        ...(request.operation === 'material-swap' ? {} : { depthMapUrl: baseArtifacts.depth.url }),
         cannyEdgeMapUrl: baseArtifacts.edgeMap.url,
-        materialKeyMapUrl: baseArtifacts.materialRegions[0]?.url,
-        objectMaskUrl: selectedObjectMask?.url ?? baseArtifacts.objectMasks[0]?.url,
+        materialKeyMapUrl: request.operation === 'material-swap' ? selectedObjectMask!.url : baseArtifacts.materialRegions[0]?.url,
       },
-      providerPreference: request.providerPreference?.length
-        ? request.providerPreference
-        : ['cloudflare', 'gemini-nano-banana-2', 'free-image-worker', 'huggingface', 'pollinations'],
+      // FLUX.2 receives ordinary image references, not typed mask controls.
+      // The resulting image is therefore QA-reviewed rather than presented as
+      // pixel-precise evidence of a construction change.
+      providerPreference: ['cloudflare'],
     };
     await client.from('jobs').update({
       status: 'running',
       started_at: new Date().toISOString(),
       input: { ...providerRequest, renderBrief: brief, technicalArtifacts, referenceIds: referenceGuidance.ids },
-      output: { reviewStatus: 'pending', renderQa: deterministicQa, technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, referenceIds: referenceGuidance.ids, materialRevision: request.operation === 'material-swap' ? { targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, maskId: selectedObjectMask?.id } : null },
+      output: { reviewStatus: 'pending', renderQa: deterministicQa, technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, referenceIds: referenceGuidance.ids, materialRevision: request.operation === 'material-swap' ? { targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, maskId: selectedObjectMask?.id, materialReference: materialReference ? { id: materialReference.id, name: materialReference.name, kind: materialReference.kind } : null } : null },
     }).eq('id', job.data.id);
     const result = await gateway.createVisualProposal(providerRequest);
 
@@ -578,7 +627,12 @@ export async function createVisualJob(environment: Record<string, string | undef
     
     if (result.status === 'succeeded') {
       const image = await providerImageBytes(result);
-      const renderQa = await evaluateRenderImageQA(context.scene, baseArtifacts, image.bytes);
+      // The deterministic scene is held to strict geometry QA before a
+      // provider is called. AI pixels are evaluated against the same measured
+      // doors, windows, sill/head, skirting, module and camera evidence, but
+      // deviations remain review findings rather than silently discarding a
+      // usable visual proposal. Construction output still requires the scene.
+      const renderQa = await evaluateRenderImageQA(context.scene, baseArtifacts, image.bytes, 'moderate');
       const blockingQa = renderQa.issues.filter((issue) => issue.severity === 'blocking');
       if (blockingQa.length) {
         const message = `Rendered image QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;
@@ -635,7 +689,7 @@ export async function getVisualJob(environment: Record<string, string | undefine
         const scene = SceneV1Schema.parse(sceneRow.data.scene);
         const baseArtifacts = renderScenePerspectiveArtifacts(scene, { cameraId: job.data.input?.camera?.view === 'elevation' ? undefined : scene.cameras[0]?.id });
         const image = await providerImageBytes({ ...job.data.output, ...polled });
-        const renderQa = await evaluateRenderImageQA(scene, baseArtifacts, image.bytes);
+        const renderQa = await evaluateRenderImageQA(scene, baseArtifacts, image.bytes, 'moderate');
         const blockingQa = renderQa.issues.filter((issue) => issue.severity === 'blocking');
         if (blockingQa.length) {
           const reason = `Rendered image QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;

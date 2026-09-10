@@ -5,12 +5,32 @@ import sys
 import unittest
 
 import cv2
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import wall_tracer  # noqa: E402
 
 
 class WallTracerResolutionTests(unittest.TestCase):
+    def test_opening_width_range_tracks_detection_resolution(self):
+        for edge in (1000, 2400):
+            ratio = edge / 1000
+            walls = [
+                {'id': 'left', 'x1': 100 * ratio, 'x2': 400 * ratio, 'y1': 200 * ratio, 'y2': 200 * ratio},
+                {'id': 'right', 'x1': 490 * ratio, 'x2': 800 * ratio, 'y1': 200 * ratio, 'y2': 200 * ratio},
+            ]
+            openings = wall_tracer.detect_openings(walls, np.zeros((edge, edge), dtype=np.uint8))
+            self.assertEqual(len(openings), 1)
+            self.assertAlmostEqual(openings[0]['approxWidthPx'] / ratio, 90)
+            self.assertEqual(openings[0]['kindHint'], 'unknown', 'A blank gap is not evidence of a door')
+
+    def test_intervening_wall_is_not_reported_as_an_opening(self):
+        walls = [
+            {'id': str(i), 'x1': x1, 'x2': x2, 'y1': 200, 'y2': 200}
+            for i, (x1, x2) in enumerate([(100, 400), (400, 470), (470, 800)])
+        ]
+        self.assertEqual(wall_tracer.detect_openings(walls, np.zeros((1000, 1000), dtype=np.uint8)), [])
+
     def test_high_and_low_resolution_variants_converge(self):
         proof = (
             Path(__file__).resolve().parents[3]
@@ -36,7 +56,9 @@ class WallTracerResolutionTests(unittest.TestCase):
         self.assertEqual(high["sourceImageSize"]["widthPx"], source.shape[1] * 4)
 
         low_length = sum(float(w["lengthPx"]) for w in low["walls"])
-        high_length = sum(float(w["lengthPx"]) for w in high["walls"])
+        # Output coordinates are restored to each source image: compare in the
+        # low-resolution coordinate space, not raw pixels from different scales.
+        high_length = sum(float(w["lengthPx"]) for w in high["walls"]) / 4
         print(
             f"resolution convergence: low={low['wallCount']} walls/{low_length:.1f}px, "
             f"high={high['wallCount']} walls/{high_length:.1f}px"

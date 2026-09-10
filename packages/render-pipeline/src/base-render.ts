@@ -70,6 +70,7 @@ export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width
   const rgb = createBackground(width, height, [239, 237, 231, 255]);
   const edge = createBackground(width, height, [255, 255, 255, 255]);
   const depth = createBackground(width, height, [245, 245, 245, 255]);
+  const depthBuffer = new Float64Array(width * height).fill(Infinity);
   const projection = createProjector(camera.position, camera.target, camera.lensMm, width, height);
   const rendered = primitives
     .map((primitive) => ({ primitive, projected: primitive.faces.map((face) => projectFace(face, projection)) }))
@@ -79,7 +80,7 @@ export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width
   for (const item of rendered) {
     for (const face of item.projected) {
       if (face.length < 3) continue;
-      fillPolygon(rgb, width, height, face, shadeForFace(item.primitive.color, face));
+      fillDepthPolygon(rgb, width, height, face, shadeForFace(item.primitive.color, face), depthBuffer);
       strokePolygon(edge, width, height, face, [45, 45, 45, 255]);
       const shade = depthShade(face);
       fillPolygon(depth, width, height, face, [shade, shade, shade, 255]);
@@ -90,13 +91,13 @@ export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width
   const edgePng = encodePng(width, height, edge);
   const depthPng = encodePng(width, height, depth);
   const modules = rendered.filter((item) => item.primitive.kind === 'module');
-  const objectMasks = modules.map((item) => ({ id: item.primitive.id, ...renderMask(width, height, item.projected) }));
+  const objectMasks = modules.map((item) => ({ id: item.primitive.id, ...renderMask(width, height, item.projected) })).filter((mask) => mask.visiblePixels > 0);
   const openingMasks = scene.openings.map((opening) => ({
     id: opening.id,
     kind: opening.kind,
     ...renderMask(width, height, openingProjectedFaces(scene, opening, projection)),
-  }));
-  const skirtingMasks = rendered.filter((item) => item.primitive.kind === 'skirting').map((item) => ({ id: item.primitive.id, ...renderMask(width, height, item.projected) }));
+  })).filter((mask) => mask.visiblePixels > 0);
+  const skirtingMasks = rendered.filter((item) => item.primitive.kind === 'skirting').map((item) => ({ id: item.primitive.id, ...renderMask(width, height, item.projected) })).filter((mask) => mask.visiblePixels > 0);
   const materialGroups = new Map<string, ProjectedPoint[][]>();
   for (const item of modules) {
     if (!item.primitive.materialId) continue;
@@ -104,7 +105,7 @@ export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width
     faces.push(...item.projected);
     materialGroups.set(item.primitive.materialId, faces);
   }
-  const materialRegions = Array.from(materialGroups.entries()).map(([materialId, faces]) => ({ materialId, ...renderMask(width, height, faces) }));
+  const materialRegions = Array.from(materialGroups.entries()).map(([materialId, faces]) => ({ materialId, ...renderMask(width, height, faces) })).filter((mask) => mask.visiblePixels > 0);
 
   return {
     rgb: { url: dataUri(rgbPng), bytes: rgbPng.length },
@@ -152,6 +153,32 @@ function openingProjectedFaces(scene: SceneV1, opening: SceneV1['openings'][numb
     point(start, opening.sillHeightMm + opening.heightMm),
   ], projection);
   return face.length >= 3 ? [face] : [];
+}
+
+// A primitive-level painter sort cannot order intersecting walls and cabinetry.
+// Triangulate each convex box face and retain the nearest surface per pixel.
+function fillDepthPolygon(buffer: Buffer, width: number, height: number, face: ProjectedPoint[], color: number[], depths: Float64Array) {
+  for (let index = 1; index + 1 < face.length; index += 1) {
+    const [a, b, c] = [face[0]!, face[index]!, face[index + 1]!];
+    const denominator = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+    if (Math.abs(denominator) < 1e-8) continue;
+    const x0 = Math.max(0, Math.floor(Math.min(a.x, b.x, c.x)));
+    const x1 = Math.min(width - 1, Math.ceil(Math.max(a.x, b.x, c.x)));
+    const y0 = Math.max(0, Math.floor(Math.min(a.y, b.y, c.y)));
+    const y1 = Math.min(height - 1, Math.ceil(Math.max(a.y, b.y, c.y)));
+    for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) {
+      const u = ((b.y - c.y) * (x + 0.5 - c.x) + (c.x - b.x) * (y + 0.5 - c.y)) / denominator;
+      const v = ((c.y - a.y) * (x + 0.5 - c.x) + (a.x - c.x) * (y + 0.5 - c.y)) / denominator;
+      const w = 1 - u - v;
+      if (u < -1e-8 || v < -1e-8 || w < -1e-8) continue;
+      if (!pointIsInsidePolygon(x + 0.5, y + 0.5, face)) continue;
+      const depth = 1 / (u / a.depth + v / b.depth + w / c.depth);
+      const pixel = y * width + x;
+      if (depth >= depths[pixel]!) continue;
+      depths[pixel] = depth;
+      for (let channel = 0; channel < 4; channel += 1) buffer[pixel * 4 + channel] = color[channel]!;
+    }
+  }
 }
 
 function createBackground(width: number, height: number, color: [number, number, number, number]) {
@@ -316,7 +343,9 @@ function renderMask(width: number, height: number, faces: ProjectedPoint[][]) {
   const mask = Buffer.alloc(width * height * 4);
   for (const face of faces) if (face.length >= 3) fillPolygon(mask, width, height, face, [255, 255, 255, 255]);
   const png = encodePng(width, height, mask);
-  return { url: dataUri(png), bytes: png.length };
+  let visiblePixels = 0;
+  for (let offset = 3; offset < mask.length; offset += 4) if (mask[offset]! > 127) visiblePixels += 1;
+  return { url: dataUri(png), bytes: png.length, visiblePixels };
 }
 
 function colorForId(value: string): [number, number, number, number] {

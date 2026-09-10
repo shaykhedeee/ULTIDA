@@ -44,6 +44,8 @@ test('generateArchitecturalShopSheetSvg renders full external elevation with car
     laminateA: 'VIRGO MICA-6344 SF',
     laminateB: 'VIRGO MICA-1409 SHG',
     carcassCoreMaterial: 'PLYWOOD - BWP-710 GRADE',
+    measurementStatus: 'measured',
+    provenance: 'Approved site measurement survey S-11',
   });
 
   // Basic SVG assertions
@@ -52,7 +54,9 @@ test('generateArchitecturalShopSheetSvg renders full external elevation with car
 
   // Header Banner
   assert.ok(svg.includes('KITCHEN WALL-A EXTERNAL:'));
-  assert.ok(svg.includes('IS 710 / SYSTEM 32 MANUFACTURING SPECIFICATION'));
+  assert.ok(svg.includes('MEASURED GEOMETRY'));
+  assert.ok(svg.includes('Approved site measurement survey S-11'));
+  assert.ok(svg.includes('UNITS: MM'));
 
   // Top View Plan
   assert.ok(svg.includes('TOP VIEW'));
@@ -83,6 +87,18 @@ test('generateArchitecturalShopSheetSvg renders full external elevation with car
   assert.ok(svg.includes('MR.SACHIN &amp; MRS.SAMMITHA') || svg.includes('MR.SACHIN'));
   assert.ok(svg.includes('B-307, SAMSUDHI'));
   assert.ok(svg.includes('APPROVED FOR PRODUCTION'));
+  assert.ok(svg.includes('WALL wall-a'));
+  assert.ok(svg.includes('UNITS: MM · DO NOT SCALE'));
+  assert.ok(svg.includes('PROVENANCE: Approved site measurement survey S-11'));
+});
+
+test('generateArchitecturalShopSheetSvg marks unverified geometry as non-construction data', () => {
+  const svg = generateArchitecturalShopSheetSvg(sampleKitchenScene, 'wall-a');
+
+  assert.ok(svg.includes('NOT FOR CONSTRUCTION — REVIEW REQUIRED'));
+  assert.ok(svg.includes('UNVERIFIED GEOMETRY · DO NOT SCALE DRAWING'));
+  assert.ok(svg.includes('CLIENT NOT ASSIGNED'));
+  assert.ok(svg.includes('FINISH TO BE CONFIRMED'));
 });
 
 test('generateArchitecturalShopSheetSvg renders internal joinery section with System 32 and shelf notations', () => {

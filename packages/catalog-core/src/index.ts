@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { LaminateMaterialVersions } from '@ultida/material-core';
+export { LaminateMaterialVersions } from '@ultida/material-core';
 
 export const RoomTypeSchema = z.enum(['kitchen', 'living', 'bedroom', 'master_bedroom', 'kids_bedroom', 'bathroom', 'dining', 'study', 'pooja', 'utility', 'foyer', 'balcony', 'other']);
 export const ModuleFamilySchema = z.enum(['kitchen-base', 'kitchen-wall', 'kitchen-tall', 'kitchen-corner', 'wardrobe', 'tv-unit', 'crockery', 'pooja', 'sofa', 'bed', 'study', 'utility', 'dining', 'false-ceiling', 'storage', 'feature-wall', 'lighting', 'freestanding-lighting', 'rug']);
@@ -61,6 +63,11 @@ export function getCatalogDigitalTwin(module: Pick<CatalogModule, 'id' | 'sku'>)
 // Curated masterclass materials palette: high-gloss acrylics, super-matte anti-fingerprint,
 // textured synchronized woodgrains, architectural fluted panels, and certified base ply cores.
 export const CuratedLaminateCatalog = [
+  ...LaminateMaterialVersions.map((material) => ({
+    ...material, brand: material.supplier, family: material.grainDirection === 'lengthwise' ? 'woodgrain' : 'solid',
+    colourHex: '', budgetTier: 'standard', edgeBand: { thicknessMm: 0.8, material: 'Matching edge to be specified', status: 'required' },
+    suitableFor: ['kitchen', 'wardrobe', 'tv-unit', 'crockery', 'study', 'utility', 'bed'],
+  })),
   // ─── HIGH-GLOSS & ACRYLIC ───
   { id: 'royale-acrylic-gloss-white', brand: 'Royale Touche', name: 'Mirror High-Gloss Pure White Acrylic (1.2mm)', family: 'solid', finish: 'glossy', colourHex: '#FFFFFF', thicknessMm: 1.2, budgetTier: 'luxury', edgeBand: { thicknessMm: 2, material: 'ABS', status: 'required' }, suitableFor: ['kitchen', 'wardrobe', 'utility'] },
   { id: 'royale-acrylic-gloss-cashmere', brand: 'Royale Touche', name: 'Ultra High-Gloss Cashmere Acrylic (1.0mm)', family: 'solid', finish: 'glossy', colourHex: '#E3DAC9', thicknessMm: 1.0, budgetTier: 'luxury', edgeBand: { thicknessMm: 2, material: 'ABS', status: 'required' }, suitableFor: ['kitchen', 'wardrobe', 'tv-unit', 'bed'] },

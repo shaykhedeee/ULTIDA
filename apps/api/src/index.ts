@@ -31,12 +31,13 @@ import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { AURA_TOOLS, listAuraTools, planAuraMessage, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
-import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateProductionDossierPdf, generateSketchUpRubyScript, nestPanels2D, PdfWriter, type ProductionDossierSpecV1 } from '@ultida/drawing-core';
+import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProductionWorkbookXlsx, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateProductionDossierPdf, generateSketchUpRubyScript, nestPanels2D, PdfWriter, type ProductionDossierSpecV1 } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
 import { compileSceneV1, reconcileBays, reconcileSceneBays, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
-import { ModuleEditSchema, prepareModuleEdit, validateModuleClearance } from './module-edit.js';
+import { ModuleEditSchema, prepareModuleEdit, prepareModulePlacement, validateModuleClearance } from './module-edit.js';
 import { compileStoredModuleForScene } from './scene-module-parts.js';
+import { invalidateModuleOutputs } from './module-output-invalidation.js';
 import { evaluateVastuCompliance, generateCandidates } from '@ultida/layout-core';
 import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord } from './reference-retrieval.js';
 import { getDeploymentIdentity, isPreviewWriteAllowed } from './deployment-identity.js';
@@ -651,14 +652,14 @@ async function readApprovedProductionScene(request: express.Request) {
   return (await readApprovedProductionContext(request)).snapshot;
 }
 
-export async function buildDossierSpecFromContext(request: express.Request, scene: SceneV1, snapshot: any): Promise<ProductionDossierSpecV1> {
+export async function buildDossierSpecFromContext(request: express.Request, scene: SceneV1, snapshot: ReturnType<typeof buildProductionSnapshot>): Promise<ProductionDossierSpecV1> {
   const projectId = String(request.params.projectId);
   const client = getRequestSupabaseClient(request);
-  let projectName = 'SHARMA LUXURY RESIDENCE (3BHK)';
-  let clientName = 'MR. ROHIT & MRS. ANANYA SHARMA';
-  let location = 'Pali Hill, Bandra West, Mumbai 400050';
-  let designerName = 'MUSKAN PAREEK';
-  let factoryManager = 'VIKRAM SINGH';
+  let projectName = 'PROJECT NAME TO BE CONFIRMED';
+  let clientName = 'CLIENT TO BE CONFIRMED';
+  let location = 'SITE LOCATION TO BE CONFIRMED';
+  let designerName = 'DESIGNER TO BE CONFIRMED';
+  let factoryManager = 'FACTORY MANAGER TO BE CONFIRMED';
 
   try {
     const projResult = await client.from('projects').select('*').eq('id', projectId).maybeSingle();
@@ -679,8 +680,11 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
     }
   } catch {}
 
-  const boq = generateProjectBOQ(scene);
   const edgeSummary = calculateEdgeBandingSummary(snapshot.parts);
+  const rules = snapshot.fabricationRules;
+  const nesting = nestPanels2D(snapshot.parts, rules.sheetWidthMm, rules.sheetHeightMm, rules.kerfMm, rules.trimMm);
+  const stockAreaSqm = nesting.sheets.reduce((total, sheet) => total + sheet.sheetWidthMm * sheet.sheetHeightMm / 1_000_000, 0);
+  const usedAreaSqm = nesting.sheets.reduce((total, sheet) => total + sheet.usedAreaSqm, 0);
   const roomNames = new Map(scene.rooms.map((room) => [room.id, room.name]));
   const flooring = buildFlooringQuantities(scene.floors.flatMap((floor) => floor.surfaces ?? [])).map((quantity) => ({
     ...quantity,
@@ -693,7 +697,7 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
       name: projectName,
       clientName,
       location,
-      phone: '+91 98201 44521 / +91 98203 11842',
+      phone: undefined,
       designerName,
       factoryManager,
       date: new Date().toISOString().split('T')[0],
@@ -701,22 +705,18 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
       status: (scene.metadata?.status as any) || 'approved',
     },
     brief: {
-      lifestyleBrief: briefData?.lifestyle || 'Client envisions a modern luxury residence with clean architectural lines, concealed joinery, and warm organic textures. Conforms to System 32 joinery standard and IS 710 Boiling Water Proof (BWP) / Action TESA HDHMR substrates.',
-      roomsScope: [
-        { name: 'Modular Kitchen & Utility Suite', areaSqm: 14.8, areaSqFt: 159.3, modulesCount: 6, scopeSummary: 'L-Shaped Counter + Breakfast Island + 4-Door Pantry with Blum Aventos Lifts' },
-        { name: 'Master Bedroom Suite', areaSqm: 24.5, areaSqFt: 263.7, modulesCount: 5, scopeSummary: '4-Door Floor-to-Ceiling Wardrobe + Integrated Bay Seating + Vanity Dresser' },
-        { name: 'Kids Bedroom Suite', areaSqm: 18.2, areaSqFt: 195.9, modulesCount: 4, scopeSummary: '3-Door Sliding Wardrobe with Bronze Fluted Glass + Ergonomic Study Return' },
-        { name: 'Living & Dining Lounge', areaSqm: 38.4, areaSqFt: 413.3, modulesCount: 5, scopeSummary: '3200mm Floating TV Console + Fluted CNC Mandir + 2100mm Crockery Bar' },
-        { name: 'Master Washroom Suite', areaSqm: 6.5, areaSqFt: 70.0, modulesCount: 2, scopeSummary: '1200mm Floating Vanity with Concealed Cistern Box + LED Capsule Mirror' },
-      ],
-      appliances: [
-        { name: 'Kitchen Hob', brand: 'Bosch Serie 6', model: '4-Burner Glass Top (Built-in)', dimensionsMm: '780×510mm', status: 'client_provided' },
-        { name: 'Kitchen Chimney', brand: 'Faber Primus Plus', model: '90cm Filterless Auto-Clean', dimensionsMm: '900×500mm', status: 'studio_supplied' },
-        { name: 'Built-in Microwave', brand: 'Hafele Diamond Line', model: '28L Convection Microwave', dimensionsMm: '595×388mm', status: 'studio_supplied' },
-        { name: 'Dishwasher', brand: 'Bosch Serie 4', model: '14 Place Settings Free-standing', dimensionsMm: '600×845mm', status: 'client_provided' },
-      ],
+      lifestyleBrief: typeof briefData?.lifestyle === 'string' ? briefData.lifestyle : 'No approved project brief has been recorded for this scene.',
+      roomsScope: scene.rooms.map((room) => {
+        const modules = scene.modules.filter((module) => module.roomId === room.id);
+        const areaSqm = Math.abs(room.boundary.slice(0, -1).reduce((sum, point, index) => {
+          const next = room.boundary[index + 1] ?? room.boundary[0];
+          return sum + point.xMm * next.yMm - next.xMm * point.yMm;
+        }, 0)) / 2 / 1_000_000;
+        return { name: room.name, areaSqm, areaSqFt: areaSqm * 10.7639, modulesCount: modules.length, scopeSummary: modules.length ? modules.map((module) => module.family).join(', ') : 'No modular units placed' };
+      }),
+      appliances: Array.isArray(briefData?.appliances) ? briefData.appliances.filter((item: any) => item && typeof item.name === 'string').map((item: any) => ({ name: item.name, brand: typeof item.brand === 'string' ? item.brand : undefined, model: typeof item.model === 'string' ? item.model : undefined, dimensionsMm: typeof item.dimensionsMm === 'string' ? item.dimensionsMm : undefined, status: ['client_provided', 'studio_supplied', 'provisional'].includes(item.status) ? item.status : 'provisional' })) : [],
     },
-    elevations: [], // Defaults generate authentic kitchen, master-bed, and living/dining sheets
+    elevations: [],
     finishes: {
       coreSubstrates: [],
       surfaceFinishes: [],
@@ -726,25 +726,16 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
     },
     bom: {
       boardNesting: {
-        sheets18mm: boq.summary.plywoodSheets18mm || 18,
-        sheets8mm: boq.summary.mdfSheets8mm || 7,
-        sheetsLaminate: boq.summary.laminateSheets || 12,
-        totalAreaSqm: 48.2,
-        totalAreaSqFt: 518.8,
-        nestingYieldPct: 87.4,
-        stockSheetSizeMm: '2440 × 1220 mm',
+        sheets18mm: nesting.sheets.filter((sheet) => sheet.thicknessMm === 18).length,
+        sheets8mm: nesting.sheets.filter((sheet) => sheet.thicknessMm === 8).length,
+        sheetsLaminate: 0,
+        totalAreaSqm: snapshot.parts.reduce((total: number, part: any) => total + (part.lengthMm * part.widthMm * part.quantity) / 1_000_000, 0),
+        totalAreaSqFt: snapshot.parts.reduce((total: number, part: any) => total + (part.lengthMm * part.widthMm * part.quantity) / 1_000_000, 0) * 10.7639,
+        nestingYieldPct: stockAreaSqm ? Math.round(usedAreaSqm / stockAreaSqm * 1000) / 10 : 0,
+        stockSheetSizeMm: `${rules.sheetWidthMm} × ${rules.sheetHeightMm} mm`,
       },
-      edgeBandingSummary: edgeSummary.length ? edgeSummary : [
-        { tapeType: '2.0mm ABS (Shutters)', totalMeters: 142.5 },
-        { tapeType: '0.8mm PVC (Carcass)', totalMeters: 318.0 },
-      ],
-      hardwareTotals: snapshot.hardware.length ? snapshot.hardware : [
-        { name: 'Blum Clip-top 110° Soft-close Hinges', category: 'hinge', quantity: 48, unit: 'pcs' },
-        { name: 'Hettich InnoTech Atira 500mm Runners', category: 'slide', quantity: 14, unit: 'sets' },
-        { name: 'Blum Aventos HK-S Bi-fold Lifts', category: 'lift', quantity: 4, unit: 'sets' },
-        { name: 'Champagne Gola Profile Handle', category: 'handle', quantity: 18.5, unit: 'meters' },
-        { name: 'Minifix & Expanding Cam Locks', category: 'fastener', quantity: 120, unit: 'sets' },
-      ],
+      edgeBandingSummary: edgeSummary,
+      hardwareTotals: snapshot.hardware,
       flooring,
       cutlistParts: snapshot.parts.map((p: any) => ({
         partName: p.partName,
@@ -757,40 +748,7 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
         grain: p.grainDirection || 'none',
       })),
     },
-    boq: {
-      lineItems: boq.items.map((it) => ({
-        category: it.category,
-        description: it.description,
-        qty: it.quantity,
-        unit: it.unit,
-        rateInr: it.rateInr,
-        amountInr: it.totalInr,
-      })),
-      subtotalInr: boq.subtotalInr,
-      gstRatePct: 18,
-      taxInr: boq.taxInr,
-      totalInr: boq.totalInr,
-      milestones: [
-        { stage: 'Stage 1: Design Booking Advance', pct: 10, amountInr: Math.round(boq.totalInr * 0.1), trigger: 'Upon 3D design brief approval & laser site survey' },
-        { stage: 'Stage 2: Production Release Sign-Off', pct: 40, amountInr: Math.round(boq.totalInr * 0.4), trigger: 'Upon signing of this complete architectural dossier & CNC release' },
-        { stage: 'Stage 3: Factory Dispatch Readiness', pct: 40, amountInr: Math.round(boq.totalInr * 0.4), trigger: 'Upon manufacturing completion & factory quality audit' },
-        { stage: 'Stage 4: Handover & Sign-off', pct: 10, amountInr: Math.round(boq.totalInr * 0.1), trigger: 'Upon site installation & 10-point checklist completion' },
-      ],
-    },
-    checklist: {
-      items: [
-        { check: '1. Civil Plaster & 90° Wall Corners', tolerance: '±2mm laser square', status: 'VERIFIED_READY', inspectedBy: 'Lead Architect' },
-        { check: '2. Flooring & Skirting Level', tolerance: 'FFL verified flat', status: 'VERIFIED_READY', inspectedBy: 'Site Supervisor' },
-        { check: '3. False Ceiling Level & Clearances', tolerance: '+2700mm datum', status: 'VERIFIED_READY', inspectedBy: 'Lead Architect' },
-        { check: '4. Chimney Duct & Core Cutting', tolerance: '150mm Ø at +2250mm FFL', status: 'VERIFIED_READY', inspectedBy: 'MEP Engineer' },
-        { check: '5. Plumbing Inlets & Drainage Outlets', tolerance: 'Pressure tested', status: 'VERIFIED_READY', inspectedBy: 'Plumbing Lead' },
-        { check: '6. Electrical Conduit & LED Drivers', tolerance: 'Concealed at +1100mm', status: 'VERIFIED_READY', inspectedBy: 'Electrical Lead' },
-        { check: '7. Wall Moisture Content Test', tolerance: '< 12% moisture meter', status: 'VERIFIED_READY', inspectedBy: 'Quality Auditor' },
-        { check: '8. Lift & Staircase Access Verification', tolerance: '2440mm sheet passage', status: 'VERIFIED_READY', inspectedBy: 'Logistics Lead' },
-        { check: '9. Power Supply for Power Tools', tolerance: 'Dedicated 16A continuous', status: 'VERIFIED_READY', inspectedBy: 'Site Supervisor' },
-        { check: '10. Site Security & Lock & Key', tolerance: 'Weatherproof & lockable', status: 'VERIFIED_READY', inspectedBy: 'Client / PM' },
-      ],
-    },
+    checklist: { items: [] },
   };
 }
 
@@ -873,11 +831,26 @@ app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/nesting.svg'
   }
 });
 
-app.post('/api/production/boq', (request, response) => {
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/cutlist.xlsx', requireProjectUser, async (request, response) => {
+  try {
+    const snapshot = await readApprovedProductionScene(request);
+    const workbook = generateProductionWorkbookXlsx(snapshot, {
+      provenance: `Project ${request.params.projectId} · approved scene ${request.params.sceneVersionId}`,
+    });
+    response.setHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    response.setHeader('content-disposition', `attachment; filename="ultida-${request.params.sceneVersionId}-production-cutlist.xlsx"`);
+    return response.send(workbook);
+  } catch (err: any) {
+    return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_WORKBOOK_FAILED', message: err?.message });
+  }
+});
+
+app.post('/api/production/boq', requireProjectUser, (request, response) => {
   try {
     const { projectId, sceneVersionId, scene, customRates } = request.body ?? {};
     if (!projectId || !scene) return response.status(400).json({ success: false, code: 'INVALID_BOQ_REQUEST', message: 'projectId and scene are required.' });
     const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
+    if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before generating a commercial BOQ.' });
     assertSceneBayReconciliation(normalized);
     const boq = generateProjectBOQ(normalized, customRates);
     return response.status(200).json({ success: true, boq });
@@ -886,11 +859,12 @@ app.post('/api/production/boq', (request, response) => {
   }
 });
 
-app.post('/api/production/boq.csv', (request, response) => {
+app.post('/api/production/boq.csv', requireProjectUser, (request, response) => {
   try {
     const { projectId, scene, customRates } = request.body ?? {};
     if (!projectId || !scene) return response.status(400).json({ success: false, code: 'INVALID_BOQ_REQUEST', message: 'projectId and scene are required.' });
     const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
+    if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before generating a commercial BOQ.' });
     assertSceneBayReconciliation(normalized);
     const boq = generateProjectBOQ(normalized, customRates);
     response.setHeader('content-type', 'text/csv');
@@ -1951,7 +1925,7 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
     return response.status(422).json({ success: false, code: 'MODULE_DIMENSIONS_INVALID', message: 'Module width, depth, and height must be positive millimetre values.' });
   }
   const client = getRequestSupabaseClient(request);
-  const space = await client.from('spaces').select('id,project_id,organization_id,floor_plan_version_id').eq('id', spaceId).eq('project_id', request.params.projectId).single();
+  const space = await client.from('spaces').select('id,space_id,project_id,organization_id,floor_plan_version_id').eq('id', spaceId).eq('project_id', request.params.projectId).single();
   if (space.error || !space.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected room does not belong to this project.' });
   const activePlan = await client.from('floor_plan_versions').select('id,canonical_model').eq('project_id', request.params.projectId).eq('active_version', true).eq('status', 'approved').maybeSingle();
   if (activePlan.error || !activePlan.data) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'Approve the plan before placing modules.' });
@@ -1962,7 +1936,7 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
   if (!resolvedAnchor.ok) return response.status(422).json({ success: false, code: resolvedAnchor.code, message: resolvedAnchor.message });
   const existingOnWall = await client.from('module_instances').select('*').eq('project_id', request.params.projectId).eq('space_id', spaceId).in('status', ['validated', 'approved']);
   if (existingOnWall.error) return response.status(500).json({ success: false, code: 'MODULE_COLLISION_LOOKUP_FAILED', message: existingOnWall.error.message });
-  const clearance = validateModuleClearance({ id: '', space_id: spaceId, category, config_json: config, position_json: resolvedAnchor.anchor }, plan.data, existingOnWall.data ?? []);
+  const clearance = prepareModulePlacement({ id: crypto.randomUUID(), space_id: spaceId, template_id: templateId, category, config_json: config, position_json: resolvedAnchor.anchor }, plan.data, space.data.space_id, existingOnWall.data ?? []);
   if (!clearance.ok) return response.status(422).json({ success: false, code: clearance.code, message: clearance.message });
   let resolvedLayoutId = typeof layoutId === 'string' ? layoutId : null;
   if (resolvedLayoutId) {
@@ -1976,6 +1950,7 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
     resolvedLayoutId = layout.data.id;
   }
   const row = {
+    id: clearance.candidate.id,
     organization_id: space.data.organization_id,
     project_id: request.params.projectId,
     space_id: spaceId,
@@ -1986,11 +1961,14 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
     config_json: { ...config, spaceId, floorPlanVersionId: activePlan.data.id },
     position_json: resolvedAnchor.anchor,
     status: 'validated',
+    validation_json: { partCount: clearance.partCount, sceneRecompileRequired: true },
     created_by: authReq.ultidaUser!.id,
   };
+  const invalidationError = await invalidateModuleOutputs(client, String(request.params.projectId));
+  if (invalidationError) return response.status(503).json({ success: false, code: 'MODULE_OUTPUT_INVALIDATION_FAILED', message: invalidationError });
   const created = await client.from('module_instances').insert(row).select('*').single();
   if (created.error) return response.status(500).json({ success: false, code: 'MODULE_INSTANCE_CREATE_FAILED', message: created.error.message });
-  return response.status(201).json({ success: true, module: created.data });
+  return response.status(201).json({ success: true, module: created.data, sceneRecompileRequired: true });
 });
 
 app.patch('/api/projects/:projectId/module-instances/:moduleId', requireProjectUser, async (request, response) => {
@@ -2021,6 +1999,8 @@ app.patch('/api/projects/:projectId/module-instances/:moduleId', requireProjectU
   if (!edit.ok) return response.status(422).json({ success: false, code: edit.code, message: edit.message });
   const actorId = (request as import('./api-auth.js').AuthenticatedRequest).ultidaUser!.id;
   const updatedAt = new Date(Math.max(Date.now(), Date.parse(current.data.updated_at) + 1)).toISOString();
+  const invalidationError = await invalidateModuleOutputs(client, projectId);
+  if (invalidationError) return response.status(503).json({ success: false, code: 'MODULE_OUTPUT_INVALIDATION_FAILED', message: invalidationError });
   const updated = await client.from('module_instances').update({
     config_json: edit.candidate.config_json, position_json: edit.candidate.position_json,
     status: 'validated', updated_at: updatedAt,
@@ -2092,7 +2072,9 @@ app.post('/api/projects/:projectId/material-library/starter', requireProjectUser
     grain_direction: item.family === 'woodgrain' ? 'follow_part' : 'none',
     thickness_mm: item.thicknessMm,
     availability: 'available',
-    metadata: { family: item.family, suitableFor: item.suitableFor, edgeBand: item.edgeBand, colourHex: item.colourHex, source: 'ultida-curated-starter', requiresSupplierConfirmation: true },
+    metadata: { family: item.family, suitableFor: item.suitableFor, edgeBand: item.edgeBand, colourHex: item.colourHex, source: 'ultida-curated-starter', requiresSupplierConfirmation: true,
+      ...('swatchUrl' in item ? { swatchUrl: item.swatchUrl, materialVersionId: item.id, supplierCode: item.supplierCode, sourceUrl: item.sourceUrl, allowedSlots: item.allowedSlots, pbr: item.pbr } : {}),
+    },
     created_by: authReq.ultidaUser!.id,
   }));
   const inserted = await client.from('material_library_items').upsert(rows, { onConflict: 'organization_id,code', ignoreDuplicates: true }).select('*');

@@ -521,6 +521,16 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [sceneApproved, setSceneApproved] = useState(false);
   const [layoutApproved, setLayoutApproved] = useState(false);
 
+  useEffect(() => {
+    const invalidate = (event: Event) => {
+      if ((event as CustomEvent<{ projectId: string }>).detail?.projectId !== projectId) return;
+      setSceneVersionId(null);
+      setSceneApproved(false);
+    };
+    window.addEventListener('ultida:design-changed', invalidate);
+    return () => window.removeEventListener('ultida:design-changed', invalidate);
+  }, [projectId]);
+
   // Brief & layout
   const [brief, setBrief] = useState<ClientBrief>(emptyBrief);
   const [briefSaved, setBriefSaved] = useState(false);

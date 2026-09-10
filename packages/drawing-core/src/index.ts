@@ -5,6 +5,7 @@ export * from './scene-types.js';
 export * from './elevation-sheet.js';
 export * from './pdf-writer.js';
 export * from './production-dossier-pdf.js';
+export * from './production-workbook.js';
 import { generateArchitecturalShopSheetSvg, type ShopDrawingOptions } from './shop-drawing-renderer.js';
 
 export const ULTIDA_DRAWING_STANDARD_V1 = {
@@ -1190,188 +1191,31 @@ export function generateProductionNestingSvg(snapshot: ProductionSnapshotV1) {
 }
 
 export function generateFullProductionCutlist(scene: SceneV1) {
-  const parts: CutlistPart[] = [];
-  const hardware: HardwareItem[] = [];
-  const fillers: any[] = [];
-
-  let totalPanelArea18mm = 0;
-  let totalPanelArea8mm = 0;
-
-  for (const module of scene.modules ?? []) {
-    const w = module.widthMm;
-    const d = module.depthMm;
-    const h = module.heightMm;
-
-    // Side Panels (L1 = front edge, L2 = back edge)
-    const sideEdge: EdgeSchedule = { l1Mm: h, l2Mm: 0, w1Mm: d, w2Mm: 0, tapeType: '0.8mm PVC' };
-    parts.push({
-      id: `${module.id}-left`,
-      moduleId: module.id,
-      family: module.family,
-      partName: 'side-panel-left',
-      lengthMm: h,
-      widthMm: d,
-      thicknessMm: 18,
-      edging: 'front_only',
-      edgeSchedule: sideEdge,
-      grainDirection: 'vertical',
-      materialCode: '18mm-plywood',
-      quantity: 1,
-      status: 'review_required'
-    });
-    parts.push({
-      id: `${module.id}-right`,
-      moduleId: module.id,
-      family: module.family,
-      partName: 'side-panel-right',
-      lengthMm: h,
-      widthMm: d,
-      thicknessMm: 18,
-      edging: 'front_only',
-      edgeSchedule: sideEdge,
-      grainDirection: 'vertical',
-      materialCode: '18mm-plywood',
-      quantity: 1,
-      status: 'review_required'
-    });
-    totalPanelArea18mm += h * d * 2;
-
-    // Top & Bottom Panels
-    const innerWidth = w - 36;
-    const topBottomEdge: EdgeSchedule = { l1Mm: innerWidth, l2Mm: 0, w1Mm: 0, w2Mm: 0, tapeType: '0.8mm PVC' };
-    parts.push({
-      id: `${module.id}-top`,
-      moduleId: module.id,
-      family: module.family,
-      partName: 'top-panel',
-      lengthMm: innerWidth,
-      widthMm: d,
-      thicknessMm: 18,
-      edging: 'front_only',
-      edgeSchedule: topBottomEdge,
-      grainDirection: 'horizontal',
-      materialCode: '18mm-plywood',
-      quantity: 1,
-      status: 'review_required'
-    });
-    parts.push({
-      id: `${module.id}-bottom`,
-      moduleId: module.id,
-      family: module.family,
-      partName: 'bottom-panel',
-      lengthMm: innerWidth,
-      widthMm: d,
-      thicknessMm: 18,
-      edging: 'front_only',
-      edgeSchedule: topBottomEdge,
-      grainDirection: 'horizontal',
-      materialCode: '18mm-plywood',
-      quantity: 1,
-      status: 'review_required'
-    });
-    totalPanelArea18mm += innerWidth * d * 2;
-
-    // Back Panel (8mm MDF)
-    const maxBackWidth = 1180;
-    const backBays = w > maxBackWidth ? Math.ceil(w / maxBackWidth) : 1;
-    const bayBackWidth = Math.floor(w / backBays);
-    for (let b = 0; b < backBays; b++) {
-      const actualWidth = b === backBays - 1 ? w - bayBackWidth * (backBays - 1) : bayBackWidth;
-      parts.push({
-        id: backBays > 1 ? `${module.id}-back-${b + 1}` : `${module.id}-back`,
-        moduleId: module.id,
-        family: module.family,
-        partName: backBays > 1 ? `back-panel-${b + 1}` : 'back-panel',
-        lengthMm: h,
-        widthMm: actualWidth,
-        thicknessMm: 8,
-        edging: 'none',
-        grainDirection: 'none',
-        materialCode: '8mm-mdf',
-        quantity: 1,
-        status: 'review_required'
-      });
-    }
-    totalPanelArea8mm += h * w;
-
-    // Door/Shutter Panels
-    if (['wardrobe', 'kitchen', 'cabinet', 'tv-unit'].includes(module.family)) {
-      const doorCount = w > 1200 ? Math.max(2, Math.ceil(w / 600)) : (w >= 900 ? 2 : 1);
-      const doorWidth = Math.round(w / doorCount) - 4;
-      const doorHeight = h - 6;
-      const doorEdge: EdgeSchedule = { l1Mm: doorHeight, l2Mm: doorHeight, w1Mm: doorWidth, w2Mm: doorWidth, tapeType: '2.0mm PVC' };
-
-      for (let i = 0; i < doorCount; i++) {
-        parts.push({
-          id: `${module.id}-door-${i + 1}`,
-          moduleId: module.id,
-          family: module.family,
-          partName: `door-shutter-${i + 1}`,
-          lengthMm: doorHeight,
-          widthMm: doorWidth,
-          thicknessMm: 18,
-          edging: 'all_sides',
-          edgeSchedule: doorEdge,
-          grainDirection: 'vertical',
-          materialCode: '18mm-plywood',
-          quantity: 1,
-          status: 'review_required'
-        });
-        totalPanelArea18mm += doorHeight * doorWidth;
-      }
-
-      // Add hinges: 2 hinges per door, or 4 if tall wardrobe door
-      const hingesPerDoor = doorHeight > 1200 ? 4 : 2;
-      const totalHinges = doorCount * hingesPerDoor;
-      const existingHinges = hardware.find((item) => item.name === 'Auto-close hinge');
-      if (existingHinges) {
-        existingHinges.quantity += totalHinges;
-      } else {
-        hardware.push({ name: 'Auto-close hinge', category: 'hinge', quantity: totalHinges, unit: 'pcs' });
-      }
-
-      // Add Handles
-      const existingHandles = hardware.find((item) => item.name === 'Stainless steel handle');
-      if (existingHandles) {
-        existingHandles.quantity += doorCount;
-      } else {
-        hardware.push({ name: 'Stainless steel handle', category: 'handle', quantity: doorCount, unit: 'pcs' });
-      }
-
-      // Add Minifix & Dowels per carcass
-      const existingMinifix = hardware.find((item) => item.name === 'Minifix & Cam Lock set');
-      if (existingMinifix) {
-        existingMinifix.quantity += 12;
-      } else {
-        hardware.push({ name: 'Minifix & Cam Lock set', category: 'fastener', quantity: 12, unit: 'sets' });
-      }
-      const existingDowels = hardware.find((item) => item.name === 'Wooden dowel 8x30mm');
-      if (existingDowels) {
-        existingDowels.quantity += 16;
-      } else {
-        hardware.push({ name: 'Wooden dowel 8x30mm', category: 'fastener', quantity: 16, unit: 'pcs' });
-      }
-    }
-  }
-
-  // Calculate 2D sheet nesting
-  const { sheets, updatedParts } = nestPanels2D(parts);
-  const edgeBandingSummary = calculateEdgeBandingSummary(updatedParts);
-
-  const sheetArea = 2440 * 1220; // 2,976,800 sq mm
-  const nesting: NestingResult = {
-    plywoodSheets18mm: sheets.filter((s) => s.thicknessMm === 18).length || Math.max(1, Math.ceil(totalPanelArea18mm / (sheetArea * 0.8))),
-    mdfSheets8mm: sheets.filter((s) => s.thicknessMm === 8).length || Math.max(1, Math.ceil(totalPanelArea8mm / (sheetArea * 0.85))),
-    wastageFactor: 0.18,
-    sheets,
-    edgeBandingSummary,
-    totalAreaSqm18mm: Math.round((totalPanelArea18mm / 1_000_000) * 100) / 100,
-    totalAreaSqm8mm: Math.round((totalPanelArea8mm / 1_000_000) * 100) / 100,
+  const snapshot = buildProductionSnapshot(scene);
+  const { sheets, updatedParts } = nestPanels2D(
+    snapshot.parts,
+    snapshot.fabricationRules.sheetWidthMm,
+    snapshot.fabricationRules.sheetHeightMm,
+    snapshot.fabricationRules.kerfMm,
+    snapshot.fabricationRules.trimMm,
+  );
+  const byThickness = (thicknessMm: number) => sheets.filter((sheet) => sheet.thicknessMm === thicknessMm).length;
+  const totalArea = (parts: CutlistPart[]) => parts.reduce((sum, part) => sum + (part.lengthMm * part.widthMm * part.quantity) / 1_000_000, 0);
+  return {
+    parts: updatedParts,
+    hardware: snapshot.hardware,
+    fillers: [],
+    nesting: {
+      plywoodSheets18mm: byThickness(18),
+      mdfSheets8mm: byThickness(8),
+      wastageFactor: 0,
+      sheets,
+      edgeBandingSummary: calculateEdgeBandingSummary(updatedParts),
+      totalAreaSqm18mm: totalArea(updatedParts.filter((part) => part.thicknessMm >= 16)),
+      totalAreaSqm8mm: totalArea(updatedParts.filter((part) => part.thicknessMm < 16)),
+    },
   };
-
-  return { parts: updatedParts, hardware, fillers, nesting };
 }
-
 export type BOQLineItem = {
   category: 'board' | 'laminate' | 'edging' | 'hardware' | 'finish' | 'labor';
   description: string;
@@ -1398,19 +1242,10 @@ export type ProjectBOQResult = {
 
 export function generateProjectBOQ(scene: SceneV1, customRates?: Record<string, number>): ProjectBOQResult {
   const cutlist = generateFullProductionCutlist(scene);
-  const defaultRates: Record<string, number> = {
-    'plywood_18mm': 2200,   // ₹2,200 per 8x4 sheet
-    'mdf_8mm': 850,         // ₹850 per 8x4 sheet
-    'laminate_sheet': 1200, // ₹1,200 per sheet
-    'edge_tape_meter': 25,  // ₹25 per meter
-    'hinge_pc': 180,        // ₹180 per soft-close hinge
-    'handle_pc': 250,       // ₹250 per handle
-    'minifix_set': 35,      // ₹35 per set
-    'dowel_pc': 3,          // ₹3 per dowel
-    'hardware_default': 50,
-    'paint_sqm': 450        // ₹450 per sqm
-  };
-  const rates = { ...defaultRates, ...(customRates || {}) };
+  // Quantities are compiler-derived; commercial rates need explicit project
+  // approval. A zero rate is intentionally visible rather than guessed.
+  const rates: Record<string, number> = { ...(customRates || {}) };
+  const rate = (key: string) => Number.isFinite(rates[key]) && rates[key] >= 0 ? rates[key] : 0;
 
   const items: BOQLineItem[] = [];
 
@@ -1420,8 +1255,8 @@ export function generateProjectBOQ(scene: SceneV1, customRates?: Record<string, 
     description: '18mm HDMR / BWP Commercial Plywood Sheet (8ft x 4ft / 2440x1220mm)',
     quantity: sheets18,
     unit: 'sheet',
-    rateInr: rates['plywood_18mm'],
-    totalInr: sheets18 * rates['plywood_18mm']
+    rateInr: rate('plywood_18mm'),
+    totalInr: sheets18 * rate('plywood_18mm')
   });
 
   const sheets8 = cutlist.nesting.mdfSheets8mm;
@@ -1430,18 +1265,18 @@ export function generateProjectBOQ(scene: SceneV1, customRates?: Record<string, 
     description: '8mm Backing MDF Board Sheet (8ft x 4ft / 2440x1220mm)',
     quantity: sheets8,
     unit: 'sheet',
-    rateInr: rates['mdf_8mm'],
-    totalInr: sheets8 * rates['mdf_8mm']
+    rateInr: rate('mdf_8mm'),
+    totalInr: sheets8 * rate('mdf_8mm')
   });
 
-  const laminateCount = Math.max(1, Math.ceil(cutlist.nesting.totalAreaSqm18mm / 2.8));
+  const laminateCount = 0;
   items.push({
     category: 'laminate',
     description: '1.0mm Decorative High-Pressure Laminate Sheet',
     quantity: laminateCount,
     unit: 'sheet',
-    rateInr: rates['laminate_sheet'],
-    totalInr: laminateCount * rates['laminate_sheet']
+    rateInr: rate('laminate_sheet'),
+    totalInr: laminateCount * rate('laminate_sheet')
   });
 
   const totalEdgeMeters = cutlist.nesting.edgeBandingSummary.reduce((sum, item) => sum + item.totalMeters, 0);
@@ -1450,8 +1285,8 @@ export function generateProjectBOQ(scene: SceneV1, customRates?: Record<string, 
     description: 'PVC Edge Banding Tape (0.8mm & 2.0mm mixed)',
     quantity: Math.ceil(totalEdgeMeters),
     unit: 'meter',
-    rateInr: rates['edge_tape_meter'],
-    totalInr: Math.ceil(totalEdgeMeters) * rates['edge_tape_meter']
+    rateInr: rate('edge_tape_meter'),
+    totalInr: Math.ceil(totalEdgeMeters) * rate('edge_tape_meter')
   });
 
   let totalHardwarePcs = 0;
@@ -1466,26 +1301,18 @@ export function generateProjectBOQ(scene: SceneV1, customRates?: Record<string, 
       : hw.name.toLowerCase().includes('dowel')
       ? 'dowel_pc'
       : 'hardware_default';
-    const rate = rates[rateKey] || rates['hardware_default'];
+    const hardwareRate = rate(rateKey);
     items.push({
       category: 'hardware',
       description: `${hw.name} (${hw.unit})`,
       quantity: hw.quantity,
       unit: hw.unit === 'pcs' ? 'pcs' : hw.unit === 'sets' ? 'set' : 'pcs',
-      rateInr: rate,
-      totalInr: hw.quantity * rate
+      rateInr: hardwareRate,
+      totalInr: hw.quantity * hardwareRate
     });
   }
 
-  const paintAreaSqm = Math.round(cutlist.nesting.totalAreaSqm18mm * 1.2);
-  items.push({
-    category: 'finish',
-    description: 'Internal Surface Spray Painting / Polish Finish',
-    quantity: paintAreaSqm,
-    unit: 'sqm',
-    rateInr: rates['paint_sqm'],
-    totalInr: paintAreaSqm * rates['paint_sqm']
-  });
+  const paintAreaSqm = 0;
 
   const subtotalInr = items.reduce((sum, item) => sum + item.totalInr, 0);
   const taxInr = Math.round(subtotalInr * 0.18);

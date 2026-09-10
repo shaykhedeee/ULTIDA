@@ -4,3 +4,5 @@ export type MaterialPanel = { lengthMm: number; widthMm: number; quantity: numbe
 export function panelAreaSqm(panel: MaterialPanel) { return (panel.lengthMm * panel.widthMm * panel.quantity) / 1_000_000; }
 export function edgeLengthM(lengthMm: number, widthMm: number, quantity = 1) { return ((2 * (lengthMm + widthMm)) * quantity) / 1000; }
 export function calculateMaterialCost(material: MaterialSpec, quantity: number) { if (!Number.isFinite(quantity) || quantity < 0) throw new Error('Material quantity must be non-negative.'); return Math.round(material.rateInr * quantity * 100) / 100; }
+
+export { LaminateMaterialVersions, type MaterialVersionV1 } from './laminates.js';

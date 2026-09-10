@@ -24,26 +24,19 @@ const slots: Array<{ id: MaterialSlot; label: string }> = [
 const defaultSwatch = '#b6a28d';
 const materialColor = (material: Material) => material.metadata?.colourHex ?? material.metadata?.colorHex ?? defaultSwatch;
 
-const DEFAULT_MINIMAL_LAMINATES: Material[] = [
-  { id: 'mat-gloss-1', name: 'Mirror High-Gloss Pure White Acrylic', code: 'ROY-HG-WHT', category: 'laminate', finish: 'High-Gloss Acrylic', thickness_mm: 1.2, supplier: 'Royale Touche', metadata: { colorHex: '#FFFFFF' } },
-  { id: 'mat-gloss-2', name: 'Ultra High-Gloss Cashmere Acrylic', code: 'ROY-HG-CSH', category: 'laminate', finish: 'Ultra-Gloss Acrylic', thickness_mm: 1.0, supplier: 'Royale Touche', metadata: { colorHex: '#E3DAC9' } },
-  { id: 'mat-matte-1', name: 'Zero-G Anti-Fingerprint Sandstone Matte', code: 'MER-ZG-SND', category: 'laminate', finish: 'Soft-Touch Matte', thickness_mm: 1.0, supplier: 'Merino', metadata: { colorHex: '#C9B59B' } },
-  { id: 'mat-matte-2', name: 'Deep Nero Ingo Super-Matte', code: 'FNX-SM-NERO', category: 'laminate', finish: 'Super-Matte', thickness_mm: 1.0, supplier: 'Fenix NTM', metadata: { colorHex: '#18181B' } },
-  { id: 'mat-wood-1', name: 'Smoked Crown Walnut Veneer', code: 'CBX-WG-WLN', category: 'laminate', finish: 'Natural Grain', thickness_mm: 1.0, supplier: 'Cubex', metadata: { colorHex: '#654230' } },
-  { id: 'mat-wood-2', name: 'Natural Dune Oak Textured', code: 'VRG-WG-OAK', category: 'laminate', finish: 'Textured Woodgrain', thickness_mm: 0.8, supplier: 'Virgo', metadata: { colorHex: '#A77B5B' } },
-];
-
 export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, semanticSlot = 'shutter', currentLaminate = 'Unknown', onConfirmCatalogSwap, onPreviewCatalogSwap }: Props) {
-  const [materials, setMaterials] = useState<Material[]>(DEFAULT_MINIMAL_LAMINATES);
-  const [materialId, setMaterialId] = useState(DEFAULT_MINIMAL_LAMINATES[0].id);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [materialId, setMaterialId] = useState('');
   const [targetSlot, setTargetSlot] = useState<MaterialSlot>(semanticSlot);
   const [pending, setPending] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
   useEffect(() => setTargetSlot(semanticSlot), [semanticSlot]);
   useEffect(() => {
     if (!projectId) return;
     let active = true;
+    setLoading(true);
     void (async () => {
       try {
         const session = await supabase?.auth.getSession();
@@ -52,20 +45,26 @@ export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, seman
         const payload = await response.json();
         if (!active) return;
         if (!response.ok) return;
-        const next = Array.isArray(payload.materials) && payload.materials.length ? payload.materials as Material[] : DEFAULT_MINIMAL_LAMINATES;
+        let next = Array.isArray(payload.materials) ? payload.materials as Material[] : [];
+        if (!next.length) {
+          const starter = await fetch(`${apiBase}/projects/${projectId}/material-library/starter`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+          const starterPayload = await starter.json().catch(() => null);
+          if (!starter.ok || !Array.isArray(starterPayload?.materials)) throw new Error('The organization material library could not be initialized.');
+          next = starterPayload.materials as Material[];
+        }
         setMaterials(next);
         const firstLaminate = next.find((item) => item.category === 'laminate') ?? next[0];
-        setMaterialId((current) => current || firstLaminate?.id || '');
-      } catch { /* use default minimal */ }
+        setMaterialId((current) => next.some((item) => item.id === current) ? current : firstLaminate?.id || '');
+      } catch { if (active) setMessage('Material library is unavailable. No finish change can be saved until it loads.'); }
+      finally { if (active) setLoading(false); }
     })();
     return () => { active = false; };
   }, [projectId]);
 
   const laminates = useMemo(() => {
-    const list = materials.filter((item) => item.category === 'laminate');
-    return list.length ? list : DEFAULT_MINIMAL_LAMINATES;
+    return materials.filter((item) => item.category === 'laminate');
   }, [materials]);
-  const selected = materials.find((item) => item.id === materialId) ?? DEFAULT_MINIMAL_LAMINATES.find((item) => item.id === materialId) ?? DEFAULT_MINIMAL_LAMINATES[0];
+  const selected = materials.find((item) => item.id === materialId);
   if (!entityId) return <div className="material-swap-panel"><p>Select an exact placed module before changing a laminate.</p></div>;
 
   const applyCatalogSwap = async (preview = false) => {
@@ -91,20 +90,21 @@ export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, seman
 
   return <div className="material-swap-panel">
     <div className="material-section">
-      <div className="material-swap-heading"><Layers3 size={15} /><div><h4>Targeted laminate swap</h4><small>Only the chosen module mask is sent for editing. Room geometry remains locked.</small></div></div>
+      <div className="material-swap-heading"><Layers3 size={15} /><div><h4>Targeted laminate swap</h4><small>The approved room, catalog swatch, measured edges, and selected-module region guide the visual revision. The saved scene assignment remains the construction authority.</small></div></div>
       <span className="material-slot-label">Apply to this component group</span>
       <div className="material-slot-grid">{slots.map((slot) => <button key={slot.id} type="button" className={targetSlot === slot.id ? 'active' : ''} disabled={pending} onClick={() => setTargetSlot(slot.id)}>{slot.label}</button>)}</div>
       <span className="material-slot-label">Laminate palette</span>
       <div className="laminate-swatch-grid">
-        {(laminates.length ? laminates : materials).map((material) => <button key={material.id} type="button" aria-pressed={materialId === material.id} className={materialId === material.id ? 'selected' : ''} disabled={pending} onClick={() => setMaterialId(material.id)}>
+        {laminates.map((material) => <button key={material.id} type="button" aria-pressed={materialId === material.id} className={materialId === material.id ? 'selected' : ''} disabled={pending || loading} onClick={() => setMaterialId(material.id)}>
           <span className="laminate-swatch" style={{ background: materialColor(material) }} />
           <span>{material.name}</span><small>{material.brand ?? material.supplier ?? 'Studio'} · {material.thickness_mm ?? '—'} mm</small>
         </button>)}
       </div>
+      {!loading && !laminates.length && <p role="status">No saved laminate is available yet. The organization starter library must finish loading before a finish can be changed.</p>}
       {selected && <div className="laminate-spec"><CheckCircle2 size={14} /><span><strong>{selected.name}</strong> · {selected.finish ?? 'finish to confirm'} · {selected.thickness_mm ?? '—'} mm laminate · {selected.metadata?.edgeBand?.thicknessMm ?? '—'} mm {selected.metadata?.edgeBand?.material ?? 'edge band'} · grain {selected.grain_direction ?? 'none'}</span></div>}
       <div className="material-swap-actions">
-        <button type="button" disabled={pending || !projectId || !selected || !moduleInstanceId} onClick={() => void applyCatalogSwap()}><RefreshCcw size={14} /> {pending ? 'Saving…' : 'Save component material'}</button>
-        <button type="button" className="primary" disabled={pending || !projectId || !selected || !moduleInstanceId} onClick={() => void applyCatalogSwap(true)}><Wand2 size={14} /> {pending ? 'Preparing…' : 'Generate locked preview'}</button>
+        <button type="button" disabled={pending || loading || !projectId || !selected || !moduleInstanceId} onClick={() => void applyCatalogSwap()}><RefreshCcw size={14} /> {pending ? 'Saving…' : 'Save component material'}</button>
+        <button type="button" className="primary" disabled={pending || loading || !projectId || !selected || !moduleInstanceId} onClick={() => void applyCatalogSwap(true)}><Wand2 size={14} /> {pending ? 'Preparing…' : 'Generate QA-reviewed preview'}</button>
       </div>
       <p role="status">{message || `Current visual label: ${currentLaminate}`}</p>
     </div>

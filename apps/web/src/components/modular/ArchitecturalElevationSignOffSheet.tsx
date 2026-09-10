@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Layers, Sparkles, CheckCircle2, ShieldCheck, Ruler, Palette, FileText } from 'lucide-react';
-import { formatDualMm } from '@ultida/drawing-core';
+import { formatDualMm } from '@ultida/drawing-core/browser';
 
 export interface ModularSignOffModule {
   id: string;

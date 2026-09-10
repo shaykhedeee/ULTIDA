@@ -71,3 +71,45 @@ test('Walk-in dressing island compiles ultra-clear glass top reveal and velvet j
 test('COMPILER_REGISTRY contains island compiler', () => {
   assert.ok(typeof COMPILER_REGISTRY.island === 'function');
 });
+
+for (const islandType of ['kitchen', 'dressing']) {
+  for (const [width, depth, height] of [[600, 600, 600], [1800, 900, 850], [3600, 1200, 1100]]) {
+    test(`${islandType} island ${width}×${depth}×${height}: every part fits the declared finished envelope`, () => {
+      const result = compileIsland({ templateVersionId: 'island-test', wall: { widthMm: 4000, heightMm: 2700, depthMm: 150 },
+        parameters: { islandType, totalWidthMm: width, totalDepthMm: depth, totalHeightMm: height, drawerCount: 3 } });
+      assert.equal(result.valid, true, result.blockingViolations.join(' '));
+      for (const part of result.parts) {
+        for (const [axis, dimension, limit] of [['xMm', 'widthMm', width], ['yMm', 'depthMm', depth], ['zMm', 'heightMm', height]] as const) {
+          assert.ok(Number.isFinite(part.size[dimension]) && part.size[dimension] > 0, `${part.id}: positive ${dimension}`);
+          assert.ok(part.transform[axis] >= -0.001 && part.transform[axis] + part.size[dimension] <= limit + 0.001, `${part.id}: ${axis} outside ${limit}`);
+        }
+      }
+      if (islandType === 'kitchen') {
+        const legs = result.parts.filter((part) => part.id.includes('waterfall-'));
+        assert.equal(legs.length, 2);
+        for (const leg of legs) {
+          assert.equal(leg.meta.bom.widthMm, leg.size.heightMm);
+          assert.equal(leg.meta.bom.lengthMm, leg.size.depthMm);
+          assert.equal(leg.meta.bom.thicknessMm, leg.size.widthMm);
+        }
+        const left = result.parts.find((part) => part.id.endsWith('carcass-left'))!;
+        assert.equal(left.transform.xMm, 40);
+      }
+    });
+  }
+}
+
+test('island rejects malformed dimensions and unbounded drawer loops before emitting parts', () => {
+  const defaults = { totalWidthMm: 1800, totalDepthMm: 900, totalHeightMm: 850 };
+  for (const overrides of [
+    { totalWidthMm: NaN }, { totalHeightMm: Infinity }, { totalDepthMm: 0 },
+    { overhangMm: 950 }, { overhangMm: NaN }, { overhangMm: -1 },
+    { islandType: 'dressing', drawerCount: Infinity }, { islandType: 'dressing', drawerCount: 2.5 },
+    { islandType: 'dressing', drawerCount: 100000 }, { totalWidthMm: 4500 },
+  ]) {
+    const result = compileIsland({ templateVersionId: 'island-test', wall: { widthMm: 4000, heightMm: 2700, depthMm: 150 }, parameters: { ...defaults, ...overrides } });
+    assert.equal(result.valid, false, JSON.stringify(overrides));
+    assert.equal(result.parts.length, 0);
+    assert.ok(result.blockingViolations.length);
+  }
+});

@@ -498,6 +498,11 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
   }));
   const firstRoom = rooms[0];
   const cameraCenter = firstRoom ? polygonCenter(firstRoom.boundary) : { xMm: 0, yMm: 0 };
+  const focalModule = modules.find((module) => module.roomId === firstRoom?.id);
+  const focalAngle = (focalModule?.rotationDeg ?? 0) * Math.PI / 180;
+  const cameraTarget = focalModule
+    ? { xMm: focalModule.position.xMm + Math.cos(focalAngle) * focalModule.widthMm / 2, yMm: Math.max(600, (focalModule.position.zMm ?? 0) + focalModule.heightMm / 2), zMm: focalModule.position.yMm + Math.sin(focalAngle) * focalModule.widthMm / 2 }
+    : { xMm: cameraCenter.xMm, yMm: 1200, zMm: cameraCenter.yMm + 1000 };
   const compositions = (input.compositionSchedules ?? []).map((candidate, index) => {
     const parsedSchedule = CompositionScheduleV1Schema.safeParse(candidate);
     if (!parsedSchedule.success) throw new SceneCompilationError([{ code: 'COMPOSITION_CONTRACT_INVALID', message: `Composition schedule ${index + 1} does not satisfy the bay schedule contract.` }]);
@@ -556,7 +561,8 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
       compositions,
       materials: input.materials ?? [],
       lighting: combinedLighting,
-    cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: cameraCenter.xMm, yMm: cameraCenter.yMm - 1800, zMm: 1500 }, target: { xMm: cameraCenter.xMm, yMm: cameraCenter.yMm, zMm: 1200 }, lensMm: 35 }],
+    // Cameras use renderer Y-up coordinates; plan Y becomes camera Z.
+    cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: cameraCenter.xMm, yMm: 1500, zMm: cameraCenter.yMm }, target: cameraTarget, lensMm: 24 }],
     constraints: [],
     unresolvedDetections: [],
     metadata: { branch: 'main', status: 'draft', changeReason: input.changeReason ?? 'Compiled from approved plan.v1', schemaVersion: 'scene.v1', designVersion: input.designVersion },

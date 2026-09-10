@@ -18,6 +18,11 @@ export interface ShopDrawingOptions {
   laminateB?: string;
   internalFinish?: string;
   includeTopView?: boolean;
+  /** Human-readable evidence source for the dimensions shown on this sheet. */
+  provenance?: string;
+  /** A drawing is production-ready only after its source geometry is approved. */
+  measurementStatus?: 'measured' | 'derived' | 'reference' | 'unverified';
+  revision?: string;
   selectedModuleId?: string;
   materialSwatches?: Record<string, string>;
   activeWallName?: string;
@@ -62,17 +67,24 @@ export function generateArchitecturalShopSheetSvg(
     : `WALL ELEVATION — ${(wall?.id || 'MAIN').toUpperCase()} ${viewMode.toUpperCase()}:`;
 
   const unitTitle = options.unitTitle || inferredTitle;
-  const clientName = options.clientName || 'MR.SACHIN & MRS.SAMMITHA';
-  const projectName = options.projectName || 'B-307, SAMSUDHI';
-  const designerName = options.designerName || 'MUSKAN PAREEK';
-  const checkedBy = options.checkedBy || 'RAKESH';
-  const coreMaterial = options.carcassCoreMaterial || (family.includes('kitchen') ? 'PLYWOOD - BWP-710 GRADE' : 'PLYWOOD - MR-303 GRADE');
+  const clientName = options.clientName || 'CLIENT NOT ASSIGNED';
+  const projectName = options.projectName || `PROJECT ${scene.projectId}`;
+  const designerName = options.designerName || 'UNASSIGNED';
+  const checkedBy = options.checkedBy || 'PENDING';
+  const coreMaterial = options.carcassCoreMaterial || 'MATERIAL TO BE CONFIRMED';
   const baseDepthMm = options.baseDepthMm || (family.includes('kitchen') ? 560 : family.includes('wardrobe') ? 580 : 430);
   const wallDepthMm = options.wallDepthMm || (family.includes('kitchen') ? 300 : 280);
   const loftDepthMm = options.loftDepthMm || (family.includes('kitchen') ? 450 : baseDepthMm);
-  const laminateA = options.laminateA || 'VIRGO MICA-6344 SF';
-  const laminateB = options.laminateB || 'VIRGO MICA-1409 SHG';
-  const internalFinish = options.internalFinish || 'FABRIC';
+  const laminateA = options.laminateA || 'FINISH TO BE CONFIRMED';
+  const laminateB = options.laminateB || 'FINISH TO BE CONFIRMED';
+  const internalFinish = options.internalFinish || 'FINISH TO BE CONFIRMED';
+  const measurementStatus = options.measurementStatus ?? 'unverified';
+  const provenance = options.provenance || `Scene ${scene.metadata.designVersion} · floor plan ${scene.floorPlanVersionId}`;
+  const revision = options.revision || scene.metadata.designVersion;
+  const constructionReady = (scene.metadata.status === 'approved' || scene.metadata.status === 'locked') && measurementStatus !== 'unverified';
+  const approvalLabel = constructionReady ? 'APPROVED FOR PRODUCTION' : 'NOT FOR CONSTRUCTION — REVIEW REQUIRED';
+  const approvalFill = constructionReady ? '#ecfdf5' : '#fef2f2';
+  const approvalText = constructionReady ? '#047857' : '#b91c1c';
 
   // Canvas layout (1200 x 750 px standard architectural sheet)
   const sheetW = 1200;
@@ -568,9 +580,9 @@ export function generateArchitecturalShopSheetSvg(
       <text x="${legendX + 8}" y="${legendY + 498}" font-size="7" font-weight="bold" fill="#334155">CHKD</text>
       <text x="${legendX + 116}" y="${legendY + 498}" font-size="7" font-weight="bold" fill="#0f172a">${checkedBy}</text>
 
-      <rect x="${legendX}" y="${legendY + 505}" width="${legendWidth}" height="22" fill="#fffbeb" stroke="${DARK_STROKE}" stroke-width="0.8"/>
-      <text x="${legendX + legendWidth / 2}" y="${legendY + 520}" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#b45309" letter-spacing="1">
-        APPROVED FOR PRODUCTION
+      <rect x="${legendX}" y="${legendY + 505}" width="${legendWidth}" height="22" fill="${approvalFill}" stroke="${DARK_STROKE}" stroke-width="0.8"/>
+      <text x="${legendX + legendWidth / 2}" y="${legendY + 520}" text-anchor="middle" font-size="6.6" font-weight="bold" fill="${approvalText}" letter-spacing="0.4">
+        ${approvalLabel}
       </text>
 
       <!-- Studio Address -->
@@ -578,11 +590,15 @@ export function generateArchitecturalShopSheetSvg(
         ULTIDA ARCHITECTURAL STUDIO · BENGALURU
       </text>
       <text x="${legendX + legendWidth / 2}" y="${legendY + 557}" text-anchor="middle" font-size="5.5" fill="#94a3b8">
-        SULIKUNTE RD, SARJAPUR, BENGALURU, KARNATAKA 562125
+        REV ${revision} · SCENE ${scene.metadata.designVersion} · UNITS: MM
+      </text>
+
+      <text x="${legendX + legendWidth / 2}" y="${legendY + 568}" text-anchor="middle" font-size="5.4" fill="#94a3b8">
+        ${measurementStatus.toUpperCase()} GEOMETRY · DO NOT SCALE DRAWING
       </text>
 
       <!-- Finish Swatch Chips (A & B) -->
-      <g transform="translate(${legendX + 25}, ${legendY + 575})">
+      <g transform="translate(${legendX + 25}, ${legendY + 580})">
         <!-- Chip A -->
         <rect x="0" y="0" width="105" height="38" fill="#d4a373" stroke="${DARK_STROKE}" stroke-width="0.8" rx="2"/>
         <text x="6" y="14" fill="#ffffff" font-size="8" font-weight="bold">A</text>
@@ -621,7 +637,7 @@ export function generateArchitecturalShopSheetSvg(
     ${unitTitle}
   </text>
   <text x="${sheetW - 24}" y="22" text-anchor="end" fill="#ffedd5" font-family="Arial,sans-serif" font-size="9.5" font-weight="bold">
-    IS 710 / SYSTEM 32 MANUFACTURING SPECIFICATION · SHEET 1 OF 1
+    WALL ${wall?.id || 'UNASSIGNED'} · REV ${revision} · UNITS: MM · DO NOT SCALE
   </text>
 
   <!-- Outer Architectural Border Frame -->
@@ -660,5 +676,10 @@ export function generateArchitecturalShopSheetSvg(
 
   <!-- Right Specification Matrix & Title Block -->
   ${legendSvg}
+
+  <!-- Geometry provenance is carried on every sheet, independent of render imagery. -->
+  <text x="28" y="${sheetH - 10}" fill="#64748b" font-family="Arial,sans-serif" font-size="5.5">
+    PROVENANCE: ${provenance.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')} · IMAGE RENDERS ARE VISUAL REFERENCES ONLY.
+  </text>
 </svg>`;
 }

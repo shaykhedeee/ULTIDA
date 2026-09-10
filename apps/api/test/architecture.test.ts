@@ -115,7 +115,7 @@ test('ComfyUI receives the locked scene image before a geometry-conditioned work
   }) as typeof fetch;
   try {
     const gateway = createProviderGateway({ COMFYUI_BASE_URL: 'http://comfy.test', COMFYUI_WORKFLOW_JSON: '{"1":{"inputs":{"image":"{{sourceImage}}","text":"{{prompt}}"}}}' });
-    const result = await gateway.createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['data:image/png;base64,aW1hZ2U='], referenceAssets: [], masks: [], operation: 'material-swap', style: 'warm contemporary', structuredPrompt: 'approved facts', negativePrompt: 'no geometry changes', promptVersion: PROMPT_VERSIONS.renderDirector, quality: 'review', providerPreference: ['comfyui'] });
+    const result = await gateway.createVisualProposal({ projectId: 'project-qa', sceneVersionId: '00000000-0000-4000-8000-000000000001', roomId: 'room-kitchen', sourceAssets: ['data:image/png;base64,aW1hZ2U='], referenceAssets: [], masks: [], operation: 'generate', style: 'warm contemporary', structuredPrompt: 'approved facts', negativePrompt: 'no geometry changes', promptVersion: PROMPT_VERSIONS.renderDirector, quality: 'review', providerPreference: ['comfyui'] });
     assert.equal(result.status, 'queued');
     assert.equal('provider' in result ? result.provider : null, 'comfyui');
     assert.deepEqual(calls, ['http://comfy.test/upload/image', 'http://comfy.test/prompt']);

@@ -149,18 +149,9 @@ export function inferRoomType(rawType: unknown, roomName: unknown, areaSqm?: num
     ? areaSqm
     : (polygon && polygon.length >= 3 ? polyArea(polygon) : 0);
 
-  if (area > 0) {
-    if (area >= 22) return 'living';
-    if (area >= 15) return 'master_bedroom';
-    if (area >= 10.5) return 'bedroom';
-    if (area >= 7) return 'kitchen';
-    if (area >= 5) return 'dining';
-    if (area >= 3.2) return 'study';
-    if (area >= 1.8) return 'pooja';
-    if (area > 0) return 'bathroom';
-  }
-
-  return 'living';
+  // Area cannot establish use: a 12m² room may be a kitchen, bedroom or office.
+  // Keep the explicit room-type picker as the confirmation step.
+  return 'other';
 }
 
 function needsScaleReview(room: PlanRoom, widthMm: number, depthMm: number) {
@@ -395,6 +386,7 @@ export function SpacesWorkspace() {
 
   // AI Layout Detection state
   const [aiProposals, setAiProposals] = useState<AiFurnitureProposal[]>([]);
+  const [aiProposalRoomId, setAiProposalRoomId] = useState<string | null>(null);
   const [aiDetecting, setAiDetecting] = useState(false);
   const [showAiProposalsOnCanvas, setShowAiProposalsOnCanvas] = useState(true);
 
@@ -405,6 +397,19 @@ export function SpacesWorkspace() {
   const [catalogFitFilter, setCatalogFitFilter] = useState<'all' | 'fits'>('all');
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+  useEffect(() => {
+    if (!projectId || !aiProposalRoomId || !aiProposals.length) return;
+    try {
+      const key = `ultida.room-proposals.${projectId}`;
+      const stored = JSON.parse(window.localStorage.getItem(key) ?? '[]');
+      const others = Array.isArray(stored) ? stored.filter((entry: any) => entry.roomId !== aiProposalRoomId) : [];
+      window.localStorage.setItem(key, JSON.stringify([...others, ...aiProposals.map((p) => ({
+        id: p.id, roomId: aiProposalRoomId, templateId: p.moduleId, family: p.category, label: p.name,
+        widthMm: p.dimensionsMm.width, depthMm: p.dimensionsMm.depth, heightMm: p.dimensionsMm.height, wallId: p.wallId,
+      }))]));
+    } catch { setSaveState('The browser could not retain these proposals. Save the room before leaving.'); }
+  }, [projectId, aiProposalRoomId, aiProposals]);
+  useEffect(() => { if (aiProposalRoomId !== selectedRoom) setAiProposals([]); }, [selectedRoom, aiProposalRoomId]);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
   const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'modules' | 'flooring' | 'brief' | 'scene'>(() => {
     const tab = searchParams.get('tab');
@@ -518,21 +523,6 @@ export function SpacesWorkspace() {
     return () => { live = false; };
   }, [projectId, reloadKey]);
 
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem('ultida.pendingModulePlan.v1');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.name) {
-          setSaveState(`Loaded modular template "${parsed.name}" (${parsed.dimensionsMm?.width ?? 0}×${parsed.dimensionsMm?.height ?? 0}mm) for active space.`);
-          window.localStorage.removeItem('ultida.pendingModulePlan.v1');
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
   // ── History helpers (undo/redo) ──
   function snapshot() { setHistory(h => [...h, { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm }]); setFuture([]); }
   function undo() { setHistory(h => { if (!h.length) return h; const prev = h[h.length - 1]; const cur = { rooms, walls, openings, columns, beams, services, annotations, ceilingHeightMm }; setFuture(f => [cur, ...f]); setRooms(prev.rooms); setWalls(prev.walls); setOpenings(prev.openings); setColumns(prev.columns); setBeams(prev.beams); setServices(prev.services); setAnnotations(prev.annotations); setCeilingHeightMm(prev.ceilingHeightMm); return h.slice(0, -1); }); }
@@ -639,16 +629,9 @@ export function SpacesWorkspace() {
     const b = bbox(room.polygon);
     const rawW = b.maxX - b.minX;
     const rawD = b.maxY - b.minY;
-    const isHabitable = ['living', 'bedroom', 'master_bedroom', 'kids_bedroom', 'dining', 'kitchen'].includes(room.roomType);
-    let widthMm = rawW;
-    let depthMm = rawD;
-    if (isHabitable && rawD > 0 && rawW / rawD > 4.2 && rawD < 1800) {
-      const minDepth = room.roomType === 'living' ? 3800 : room.roomType.includes('bed') ? 3200 : 2600;
-      depthMm = room.areaSqm > 10 ? Math.max(minDepth, Math.round((room.areaSqm * 1e6) / rawW)) : minDepth;
-    }
-    const effectiveAreaSqm = (widthMm !== rawW || depthMm !== rawD)
-      ? Number(((widthMm * depthMm) / 1e6).toFixed(1))
-      : room.areaSqm;
+    const widthMm = rawW;
+    const depthMm = rawD;
+    const effectiveAreaSqm = polyArea(room.polygon);
     const roomWalls = wallsForRoom(room);
     const roomOpenings = openings.filter(o => roomWalls.some(w => w.id === o.wallId));
     const roomCols = columns.filter(c => c.position.xMm >= b.minX && c.position.xMm <= b.maxX && c.position.yMm >= b.minY && c.position.yMm <= b.maxY);
@@ -675,8 +658,10 @@ export function SpacesWorkspace() {
       vastuCompliant: vastu.isCompliant,
       vastuScore: vastu.score,
       vastuRemedies: vastu.findings.filter(f => f.status === 'remedy').map(f => f.advice),
-      blockingReasons: [...baseReadiness.blockingReasons, ...vastuBlockingReasons],
-      ready: baseReadiness.ready && vastu.isCompliant,
+      blockingReasons: [...baseReadiness.blockingReasons, ...vastuBlockingReasons,
+        ...(!scaleVerified ? ['Confirm plan scale before room approval.'] : []),
+        ...(needsScaleReview(room, widthMm, depthMm) ? ['Review the measured room boundary before approval.'] : [])],
+      ready: baseReadiness.ready && vastu.isCompliant && scaleVerified && !needsScaleReview(room, widthMm, depthMm),
     };
 
     return {
@@ -692,7 +677,7 @@ export function SpacesWorkspace() {
       furniture,
       scaleReview: needsScaleReview(room, widthMm, depthMm),
     };
-  }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode, roomFurnitureMap, roomVastuMap, selectedRoom, aiProposals]);
+  }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode, scaleVerified, roomFurnitureMap, roomVastuMap, selectedRoom, aiProposals]);
 
   const includedMetrics = useMemo(() => roomMetrics.filter(({ room }) => room.included !== false), [roomMetrics]);
   const overallReadiness = useMemo(() => {
@@ -704,21 +689,23 @@ export function SpacesWorkspace() {
   const sourceDimensionsMm = useMemo(() => {
     const rawWidth = sourceMeta?.widthPx ?? (sourceMeta as any)?.sourceWidth ?? 1000;
     const rawHeight = sourceMeta?.heightPx ?? (sourceMeta as any)?.sourceHeight ?? 850;
-    const mmPerPx = sourceMeta?.mmPerPixel ?? (scaleVerified ? 15 : 15);
+    // Never invent a pixel calibration. Until the plan is explicitly calibrated,
+    // the measured vector geometry remains the only trusted coordinate source.
+    const mmPerPx = scaleVerified && Number.isFinite(sourceMeta?.mmPerPixel) && sourceMeta!.mmPerPixel! > 0 ? sourceMeta!.mmPerPixel : undefined;
 
     const allPts = [
       ...rooms.flatMap(r => r.polygon),
       ...walls.flatMap(w => [w.start, w.end]),
     ];
     if (!allPts.length) {
-      return { minX: 0, minY: 0, widthMm: rawWidth * mmPerPx, heightMm: rawHeight * mmPerPx };
+      return { minX: 0, minY: 0, widthMm: mmPerPx ? rawWidth * mmPerPx : 1000, heightMm: mmPerPx ? rawHeight * mmPerPx : 850 };
     }
     const b = bbox(allPts);
-    const widthMm = Math.max(rawWidth * mmPerPx, b.maxX);
-    const heightMm = Math.max(rawHeight * mmPerPx, b.maxY);
+    const widthMm = mmPerPx ? rawWidth * mmPerPx : b.maxX - b.minX;
+    const heightMm = mmPerPx ? rawHeight * mmPerPx : b.maxY - b.minY;
     return {
-      minX: Math.min(0, b.minX),
-      minY: Math.min(0, b.minY),
+      minX: mmPerPx ? 0 : b.minX,
+      minY: mmPerPx ? 0 : b.minY,
       widthMm,
       heightMm,
     };
@@ -748,8 +735,13 @@ export function SpacesWorkspace() {
   const pxToMm = (x: number, y: number): Pt => ({ xMm: (x - 30) / view.scale + view.minX, yMm: (y - 30) / view.scale + view.minY });
 
   function svgPoint(e: React.MouseEvent) {
-    const svg = svgRef.current!; const rect = svg.getBoundingClientRect();
-    return pxToMm(e.clientX - rect.left, e.clientY - rect.top);
+    const svg = svgRef.current!;
+    const matrix = svg.getScreenCTM();
+    if (!matrix) throw new Error('The plan canvas is not ready for editing.');
+    const point = svg.createSVGPoint();
+    point.x = e.clientX; point.y = e.clientY;
+    const local = point.matrixTransform(matrix.inverse());
+    return pxToMm(local.x, local.y);
   }
 
   const sel = roomMetrics.find(m => m.room.id === selectedRoom);
@@ -1054,6 +1046,7 @@ export function SpacesWorkspace() {
       }
 
       setAiProposals(proposals);
+      setAiProposalRoomId(room.id);
       setAiDetecting(false);
 
       // Immediately sync to roomFurnitureMap so the 2D SVG canvas and Vastu analyzer visually update
@@ -1084,33 +1077,7 @@ export function SpacesWorkspace() {
       const newVastu = evaluateVastuCompliance({ widthMm: width, lengthMm: depth }, stagerItems);
       setRoomVastuMap(prev => ({ ...prev, [room.id]: newVastu }));
 
-      // Also persist to localStorage for immediate forward compatibility with modules/elevation stage
-      if (projectId && proposals.length > 0) {
-        try {
-          const existingKey = `ultida.modules.${projectId}`;
-          const raw = window.localStorage.getItem(existingKey);
-          const currentMods: any[] = raw ? JSON.parse(raw) : [];
-          const updatedMods = [
-            ...currentMods.filter((m: any) => m.roomId !== room.id),
-            ...proposals.map(p => ({
-              id: p.id,
-              roomId: room.id,
-              family: p.category,
-              label: p.name,
-              widthMm: p.dimensionsMm.width,
-              depthMm: p.dimensionsMm.depth,
-              heightMm: p.dimensionsMm.height,
-              wallId: p.wallId,
-              offsetMm: 150,
-              configuration: { archetype: p.category },
-              updatedAt: new Date().toISOString()
-            }))
-          ];
-          window.localStorage.setItem(existingKey, JSON.stringify(updatedMods));
-        } catch {}
-      }
-
-      setSaveState(`AI detected ${proposals.length} furniture placements for ${room.name} with live wall anchors & dimensions.`);
+      setSaveState(`Prepared ${proposals.length} furniture suggestions for ${room.name}. Review dimensions and place a catalog module in the next step to save it.`);
     }, 450);
   };
 
@@ -1256,9 +1223,9 @@ export function SpacesWorkspace() {
 
       return {
         ...room,
-        requiredFurniture: Array.from(new Set(categories.length ? categories : ['tv_unit', 'sofa'])),
+        requiredFurniture: Array.from(new Set(categories)),
         wallRoles,
-        verificationStatus: 'verified',
+        verificationStatus: 'unverified',
         floorFinish: room.floorFinish || (room.roomType === 'living' ? 'French Light Oak Herringbone' : room.roomType === 'kitchen' ? 'Roman Travertine' : 'Calacatta Gold'),
       };
     });
@@ -1496,6 +1463,11 @@ export function SpacesWorkspace() {
   }
 
   async function persistRoom(room: PlanRoom, verificationStatus = room.verificationStatus) {
+    const bounds = bbox(room.polygon);
+    if (verificationStatus === 'verified' && (!scaleVerified || needsScaleReview(room, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY))) {
+      setSaveState('Confirm scale and review this room boundary in Floor Plan before approving its measurements.');
+      return;
+    }
     if (!supabase || !projectId) return;
     if (room.spaceRecordId && !room.requiredFurniture.length) {
       setSaveState('Choose at least one required modular category before saving this room.');
@@ -1775,6 +1747,7 @@ export function SpacesWorkspace() {
     }
 
     setAiProposals(proposals);
+    setAiProposalRoomId(room.id);
     setSaveState(`Selected & Applied ${candidateType.toUpperCase()} layout to ${room.name}. Room is approved & verified.`);
 
     try {
@@ -2124,7 +2097,7 @@ export function SpacesWorkspace() {
                   title="Auto-detect rooms, assign wall roles, place doors/windows, and verify all spaces"
                   aria-label="AI Auto-Enhance Entire Plan"
                 >
-                  <Sparkles size={13} /> AI Auto-Enhance Entire Plan
+                  <Sparkles size={13} /> Suggest room finishes
                 </button>
                 <button
                   type="button"
@@ -2175,6 +2148,14 @@ export function SpacesWorkspace() {
                 <button key={t} className={`tool-btn ${(tool === t || (t === 'column' && tool === 'add_column') || (t === 'service' && tool === 'add_service') || (t === 'wall' && tool === 'draw_wall') || (t === 'beam' && tool === 'draw_beam') || (t === 'door' && tool === 'add_door') || (t === 'window' && tool === 'add_window')) ? 'active' : ''}`} onClick={() => activateCanvasTool(t)}>{label}</button>
               ))}</div></div>)}
               {tool !== 'select' && <button type="button" className="tool-cancel" onClick={() => activateCanvasTool('cancel_tool')}>Cancel active tool</button>}
+            </div>
+            <div className="plan-trust-strip" role="status">
+              <span className={scaleVerified ? 'trust-ok' : 'trust-review'}>{scaleVerified ? '✓ Scale confirmed' : 'Scale not confirmed'}</span>
+              <span>{rooms.length} rooms</span>
+              <span>{walls.length} measured walls</span>
+              <span>{openings.filter((opening) => opening.kind === 'door').length} doors</span>
+              <span>{openings.filter((opening) => opening.kind === 'window').length} windows</span>
+              {!scaleVerified && <span className="trust-hint">Calibrate the plan before dimension chains or production exports.</span>}
             </div>
 
             {annotationDialogOpen && (
@@ -2256,7 +2237,7 @@ export function SpacesWorkspace() {
               </defs>
 
               {/* Floor plan backdrop image overlay - precisely registered in world mm coordinates */}
-              {showPlanOverlay && planPreviewUrl && (
+              {showPlanOverlay && planPreviewUrl && scaleVerified && Number(sourceMeta?.mmPerPixel) > 0 && (
                 <image
                   href={planPreviewUrl}
                   x={toPx({ xMm: sourceDimensionsMm.minX, yMm: sourceDimensionsMm.minY }).x}
@@ -2366,11 +2347,14 @@ export function SpacesWorkspace() {
                 if (!w) return null;
                 const a = toPx(w.start), b = toPx(w.end);
                 const length = wallLen(w) || 1;
-                const centerOffset = Math.max(0, Math.min(length, Number(o.offsetAlongWallMm ?? 0)));
+                const widthMm = Number(o.widthMm);
+                const startOffset = Number(o.offsetAlongWallMm);
+                if (!Number.isFinite(widthMm) || widthMm <= 0 || !Number.isFinite(startOffset) || startOffset < 0 || startOffset + widthMm > length + 0.5) return null;
+                const centerOffset = startOffset;
                 const t = centerOffset / length;
                 const px = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
                 const isDoor = o.kind === 'door';
-                const openingWidthPx = Math.max(14, (o.widthMm || (isDoor ? 900 : 1200)) * view.scale);
+                const openingWidthPx = widthMm * view.scale;
 
                 // Wall direction angle
                 const angle = Math.atan2(b.y - a.y, b.x - a.x);
@@ -2383,6 +2367,8 @@ export function SpacesWorkspace() {
                   const leafEndY = px.y + perpY * leafLength;
                   return (
                     <g key={o.id} className="arch-door-opening">
+                      <title>{`Door · ${widthMm} mm · offset ${startOffset} mm`}</title>
+                      <line x1={px.x} y1={px.y} x2={px.x + Math.cos(angle) * leafLength} y2={px.y + Math.sin(angle) * leafLength} stroke="#fffaf2" strokeWidth={8} />
                       {/* Door Jamb Ticks */}
                       <circle cx={px.x} cy={px.y} r={3} fill="#c97b2c" stroke="#fff" strokeWidth={1} />
                       {/* Door Leaf Open at 90° */}
@@ -2400,14 +2386,14 @@ export function SpacesWorkspace() {
                 }
 
                 // Window with Double-Line Glazing
-                const halfW = openingWidthPx / 2;
-                const wx1 = px.x - Math.cos(angle) * halfW;
-                const wy1 = px.y - Math.sin(angle) * halfW;
-                const wx2 = px.x + Math.cos(angle) * halfW;
-                const wy2 = px.y + Math.sin(angle) * halfW;
+                const wx1 = px.x;
+                const wy1 = px.y;
+                const wx2 = px.x + Math.cos(angle) * openingWidthPx;
+                const wy2 = px.y + Math.sin(angle) * openingWidthPx;
 
                 return (
                   <g key={o.id} className="arch-window-opening">
+                    <title>{`Window · ${widthMm} mm · offset ${startOffset} mm`}</title>
                     {/* Window Opening Cutout Backing */}
                     <line x1={wx1} y1={wy1} x2={wx2} y2={wy2} stroke="#fff" strokeWidth={8} strokeLinecap="square" />
                     {/* Outer Glazing Line */}

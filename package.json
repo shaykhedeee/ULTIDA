@@ -15,6 +15,7 @@
     "build:cloudflare-worker": "npm run build --workspace=@ultida/cloudflare-ai-worker",
     "deploy:cloudflare-worker": "wrangler deploy --config apps/cloudflare-ai-worker/wrangler.toml",
     "check": "node scripts/check.mjs",
+    "test:providers": "node --test packages/provider-gateway/test/conditioning-safety.test.mjs",
     "test": "node scripts/test.mjs",
     "test:drawing": "node scripts/test.mjs drawing",
     "test:api": "node scripts/test.mjs api",
@@ -23,7 +24,7 @@
     "test:aura": "node scripts/test.mjs aura",
     "preflight": "node scripts/preflight.mjs",
     "validate:reliability": "node scripts/validate-reliability.mjs",
-    "reliability": "npm run validate:reliability && npm run preflight && npm run check && npm run build && npm run test:drawing && npm run test:api && npm run test:aura && npm run test:render && npm run test:rooms",
+    "reliability": "npm run validate:reliability && npm run preflight && npm run check && npm run build && npm run test:drawing && npm run test:api && npm run test:aura && npm run test:render && npm run test:providers && npm run test:rooms",
     "scan:secrets": "node scripts/scan-secrets.mjs",
     "verify:supabase": "node scripts/verify-supabase.mjs"
   },
