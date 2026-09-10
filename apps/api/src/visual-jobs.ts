@@ -294,8 +294,13 @@ export async function measureRenderImage(scene: import('@ultida/scene-core').Sce
   };
 }
 
-export async function evaluateRenderImageQA(scene: import('@ultida/scene-core').SceneV1, artifacts: BaseRenderArtifacts, image: Buffer | string): Promise<ReturnType<typeof runRenderQA>> {
-  return runRenderQA(buildSceneExpectation(scene, artifacts), await measureRenderImage(scene, artifacts, image), 'strict');
+export async function evaluateRenderImageQA(
+  scene: import('@ultida/scene-core').SceneV1,
+  artifacts: BaseRenderArtifacts,
+  image: Buffer | string,
+  geometryLock: 'strict' | 'moderate' = 'strict',
+): Promise<ReturnType<typeof runRenderQA>> {
+  return runRenderQA(buildSceneExpectation(scene, artifacts), await measureRenderImage(scene, artifacts, image), geometryLock);
 }
 
 /* Legacy synthetic preview removed from the production path.
@@ -439,7 +444,7 @@ async function storeImage(client: SupabaseClient, context: { organizationId: str
     technicalArtifacts: context.technicalArtifacts,
     synthetic: false,
     reviewStatus: 'pending',
-    qaStatus: 'measured_passed',
+    qaStatus: context.renderQa.issues.length ? 'measured_review_required' : 'measured_passed',
     renderQa: context.renderQa,
   };
   const assetPayload: any = { organization_id: context.organizationId, project_id: context.projectId, kind: 'render', storage_path: path, mime_type: mimeType, metadata, created_by: context.actorId ?? null };
@@ -622,7 +627,12 @@ export async function createVisualJob(environment: Record<string, string | undef
     
     if (result.status === 'succeeded') {
       const image = await providerImageBytes(result);
-      const renderQa = await evaluateRenderImageQA(context.scene, baseArtifacts, image.bytes);
+      // The deterministic scene is held to strict geometry QA before a
+      // provider is called. AI pixels are evaluated against the same measured
+      // doors, windows, sill/head, skirting, module and camera evidence, but
+      // deviations remain review findings rather than silently discarding a
+      // usable visual proposal. Construction output still requires the scene.
+      const renderQa = await evaluateRenderImageQA(context.scene, baseArtifacts, image.bytes, 'moderate');
       const blockingQa = renderQa.issues.filter((issue) => issue.severity === 'blocking');
       if (blockingQa.length) {
         const message = `Rendered image QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;
@@ -679,7 +689,7 @@ export async function getVisualJob(environment: Record<string, string | undefine
         const scene = SceneV1Schema.parse(sceneRow.data.scene);
         const baseArtifacts = renderScenePerspectiveArtifacts(scene, { cameraId: job.data.input?.camera?.view === 'elevation' ? undefined : scene.cameras[0]?.id });
         const image = await providerImageBytes({ ...job.data.output, ...polled });
-        const renderQa = await evaluateRenderImageQA(scene, baseArtifacts, image.bytes);
+        const renderQa = await evaluateRenderImageQA(scene, baseArtifacts, image.bytes, 'moderate');
         const blockingQa = renderQa.issues.filter((issue) => issue.severity === 'blocking');
         if (blockingQa.length) {
           const reason = `Rendered image QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;

@@ -35,3 +35,14 @@ test('live render QA accepts the deterministic edge raster that produced its tec
   const qa = await evaluateRenderImageQA(SCENE, artifacts, artifacts.edgeMap.url);
   assert.equal(qa.issues.filter((issue) => issue.severity === 'blocking').length, 0, JSON.stringify(qa));
 });
+
+test('AI visual proposals retain geometry QA evidence as review warnings instead of being silently discarded', async () => {
+  const artifacts = renderScenePerspectiveArtifacts(SCENE, { width: 160, height: 120 });
+  const alteredWithoutDoorEvidence = await sharp({
+    create: { width: 160, height: 120, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } },
+  }).png().toBuffer();
+
+  const qa = await evaluateRenderImageQA(SCENE, artifacts, alteredWithoutDoorEvidence, 'moderate');
+  assert.ok(qa.issues.some((issue) => issue.message === 'Door count mismatch: expected 1, found 0.' && issue.severity === 'warning'));
+  assert.equal(qa.issues.filter((issue) => issue.severity === 'blocking').length, 0, JSON.stringify(qa));
+});
