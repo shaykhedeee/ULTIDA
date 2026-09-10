@@ -322,3 +322,4 @@
 /* The dark Visual Studio needs explicit foreground colors on provider states. */
 .visual-studio-panel .provider-status{padding:7px 9px;border:1px solid #50483e;border-radius:6px;background:#171513;color:#ece6dc!important}
 .visual-studio-panel .provider-readiness{margin:0;padding:9px 10px;border:1px solid #426950;border-radius:8px;background:#14281b;color:#d7f4df!important;font-size:11px;line-height:1.4}
+.visual-studio-panel .room-setup-recovery-dark{border-color:#6d593e;background:#2a241d;color:#f5ead8!important}.visual-studio-panel .room-setup-recovery-dark strong,.visual-studio-panel .room-setup-recovery-dark span{color:inherit!important}.visual-studio-panel .room-setup-recovery-dark .ui-button{border-color:#8b7554;background:#211e1a;color:#f5ead8!important}

@@ -292,6 +292,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const pendingModuleRequested = searchParams.get('pendingModule') === '1';
   const [room, setRoom] = useState('kitchen');
   const [spaces, setSpaces] = useState<Array<{ id: string; space_id?: string; name: string; roomType: string; geometry_json?: { polygon?: Array<{ xMm?: number; yMm?: number; x?: number; y?: number }> } }>>([]);
+  const [spacesLoadState, setSpacesLoadState] = useState<'idle' | 'loading' | 'ready' | 'empty' | 'error' | 'blocked'>('idle');
+  const [spacesReloadKey, setSpacesReloadKey] = useState(0);
   const [walls, setWalls] = useState<Array<{ id: string; start?: { xMm: number; yMm: number }; end?: { xMm: number; yMm: number } }>>([]);
   const [openings, setOpenings] = useState<Array<{ id: string; wallId?: string; kind?: string; widthMm?: number; heightMm?: number; sillHeightMm?: number; offsetAlongWallMm?: number; offsetMm?: number }>>([]);
   const [spaceId, setSpaceId] = useState<string | null>(null);
@@ -596,9 +598,13 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   }
 
   useEffect(() => {
-    if (!projectId || !planApproved) return;
+    if (!projectId || !planApproved) {
+      setSpacesLoadState('blocked');
+      return;
+    }
     void (async () => {
       try {
+        setSpacesLoadState('loading');
         const headers = await authenticatedHeaders();
         const [spaceResponse, planResponse] = await Promise.all([
           fetch(`${apiBase}/projects/${projectId}/spaces`, { headers }),
@@ -606,6 +612,9 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         ]);
         const spacePayload = await spaceResponse.json();
         const planPayload = await planResponse.json();
+        if (!spaceResponse.ok || !planResponse.ok) {
+          throw new Error(spacePayload?.message ?? planPayload?.message ?? 'The persisted room design could not be loaded.');
+        }
         // `/spaces` returns database rows (`room_type`), while this workspace
         // uses the UI contract (`roomType`). Normalize at this boundary so
         // catalogue filtering, wall placement, and rendering share one room.
@@ -628,11 +637,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         setSpaceId(nextSpace?.id ?? null);
         setWallId((current) => requestedWallId && nextWalls.some((wall: any) => wall.id === requestedWallId) ? requestedWallId : current && nextWalls.some((wall: any) => wall.id === current) ? current : nextWalls[0]?.id ?? null);
         if (nextSpace?.roomType) setRoom(nextSpace.roomType);
+        setSpacesLoadState(nextSpaces.length ? 'ready' : 'empty');
       } catch {
-        setSpaces([]); setWalls([]); setOpenings([]); setSpaceId(null); setWallId(null);
+        setSpaces([]); setWalls([]); setOpenings([]); setSpaceId(null); setWallId(null); setSpacesLoadState('error');
       }
     })();
-  }, [projectId, planApproved, requestedSpaceId, requestedWallId]);
+  }, [projectId, planApproved, requestedSpaceId, requestedWallId, spacesReloadKey]);
 
   useEffect(() => {
     setFamilyFilter('all');
@@ -1547,6 +1557,16 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     {spaces.map((space) => <option key={space.id} value={space.id}>{space.name} · {space.roomType}</option>)}
                   </select>
                 </label>
+                {!spaces.length && (
+                  <div className="room-setup-recovery room-setup-recovery-dark" role="status">
+                    <strong>Choose a saved room before generating.</strong>
+                    <span>Return to Room Setup to save the room boundary and requirements from the approved plan.</span>
+                    <div>
+                      <Button type="button" variant="outline" onClick={() => navigate(`/projects/${projectId}/spaces`)} disabled={!projectId}>Open Room Setup</Button>
+                      <Button type="button" variant="outline" onClick={() => setSpacesReloadKey((value) => value + 1)} disabled={spacesLoadState === 'loading'}>Refresh rooms</Button>
+                    </div>
+                  </div>
+                )}
                 <p className="visual-selection-note">
                   {selectedModule
                     ? `Selected module: ${selectedModule.label}. Material previews remain locked to this module and its room.`
@@ -2516,6 +2536,16 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               <h3>{selectedSpace ? `${selectedSpace.name} modules` : 'Select a room'}</h3>
             </CardHeader>
             <CardContent>
+              {!spaces.length && (
+                <div className="room-setup-recovery" role="status">
+                  <strong>{spacesLoadState === 'loading' ? 'Loading saved rooms…' : spacesLoadState === 'error' ? 'Room setup could not be loaded' : 'Finish room setup before placing modules'}</strong>
+                  <span>Modules, wall clearances, renders and production exports must use a saved room from the approved plan.</span>
+                  <div>
+                    <Button type="button" onClick={() => navigate(`/projects/${projectId}/spaces`)} disabled={!projectId}>Open Room Setup</Button>
+                    <Button type="button" variant="outline" onClick={() => setSpacesReloadKey((value) => value + 1)} disabled={spacesLoadState === 'loading'}>{spacesLoadState === 'loading' ? 'Loading…' : 'Refresh rooms'}</Button>
+                  </div>
+                </div>
+              )}
               <label>
                 Place in
                 <select value={spaceId ?? ''} onChange={(event) => { const next = spaces.find((item) => item.id === event.target.value); setSpaceId(event.target.value); if (next) setRoom(next.roomType); }}>
