@@ -2544,6 +2544,21 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
           <Boxes size={14} style={{ marginRight: '0.4rem' }} /> 📦 Cabinet Catalog &amp; Bay Layout
         </Button>
         <Button
+          variant={designMode === 'elevations' ? 'default' : 'outline'}
+          onClick={() => { setDesignMode('elevations'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'elevations'); navigate({ search: next.toString() }, { replace: true }); }}
+          style={{
+            height: '36px',
+            padding: '0 14px',
+            fontSize: '12px',
+            fontWeight: designMode === 'elevations' ? 800 : 600,
+            background: designMode === 'elevations' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fff',
+            color: designMode === 'elevations' ? '#e8c96a' : '#44403c',
+            border: designMode === 'elevations' ? '1.5px solid var(--gold)' : '1px solid #dcd3c5',
+          }}
+        >
+          <Ruler size={14} style={{ marginRight: '0.4rem', color: designMode === 'elevations' ? 'var(--gold)' : undefined }} /> 📐 Architectural Wall Elevations &amp; System 32
+        </Button>
+        <Button
           variant={designMode === 'moodboard' ? 'default' : 'outline'}
           onClick={() => { setDesignMode('moodboard'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'moodboard'); navigate({ search: next.toString() }, { replace: true }); }}
           style={{
@@ -3036,6 +3051,156 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                           </button>
                         </CardHeader>
                         <CardContent style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          {/* Interactive Dimensions & System 32 Presets */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase' }}>
+                                Width &amp; System 32 Grid
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => autoFitModuleToAvailableSpace(inspectedMod.id)}
+                                style={{
+                                  padding: '2px 7px',
+                                  borderRadius: '4px',
+                                  background: '#fff',
+                                  border: '1px solid #c59c2d',
+                                  color: '#92400e',
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                }}
+                                title="Auto-fit unit to remaining wall span"
+                              >
+                                📐 Auto-Fit Wall
+                              </button>
+                            </div>
+
+                            {/* Direct Width Input & Range Slider */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <label style={{ fontSize: '11px', fontWeight: 700, color: '#44403c', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <input
+                                  type="number"
+                                  min="200"
+                                  max="3600"
+                                  step="10"
+                                  value={inspectedMod.widthMm}
+                                  onChange={(e) => updateModuleWidth(inspectedMod.id, Number(e.target.value))}
+                                  style={{
+                                    width: '74px',
+                                    padding: '4px 6px',
+                                    fontSize: '12px',
+                                    fontWeight: 800,
+                                    border: '1.5px solid #c59c2d',
+                                    borderRadius: '6px',
+                                    textAlign: 'center',
+                                    color: '#92400e',
+                                  }}
+                                />
+                                mm W
+                              </label>
+                              <input
+                                type="range"
+                                min="200"
+                                max="3000"
+                                step="10"
+                                value={inspectedMod.widthMm}
+                                onChange={(e) => updateModuleWidth(inspectedMod.id, Number(e.target.value))}
+                                style={{ flex: 1, accentColor: '#c59c2d', cursor: 'pointer' }}
+                              />
+                            </div>
+
+                            {/* Fine-tune Steppers */}
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              {[-100, -50, 50, 100].map((delta) => (
+                                <button
+                                  key={delta}
+                                  type="button"
+                                  onClick={() => updateModuleWidth(inspectedMod.id, inspectedMod.widthMm + delta)}
+                                  style={{
+                                    flex: 1,
+                                    padding: '3px 4px',
+                                    fontSize: '10px',
+                                    fontWeight: 700,
+                                    borderRadius: '4px',
+                                    border: '1px solid #d6d3d1',
+                                    background: '#f5f5f4',
+                                    color: '#44403c',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  {delta > 0 ? `+${delta}` : delta}
+                                </button>
+                              ))}
+                            </div>
+
+                            {/* System 32 Standard Preset Chips */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '9.5px', color: '#78716c', fontWeight: 700 }}>System 32:</span>
+                              {[450, 600, 900, 1000, 1200, 1500, 1800, 2100, 2400].map((sz) => (
+                                <button
+                                  key={sz}
+                                  type="button"
+                                  onClick={() => updateModuleWidth(inspectedMod.id, sz)}
+                                  style={{
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    fontSize: '9.5px',
+                                    fontWeight: inspectedMod.widthMm === sz ? 800 : 500,
+                                    background: inspectedMod.widthMm === sz ? '#fef3c7' : '#fff',
+                                    border: inspectedMod.widthMm === sz ? '1px solid #c59c2d' : '1px solid #e7dcce',
+                                    color: inspectedMod.widthMm === sz ? '#92400e' : '#57534e',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  {sz}
+                                </button>
+                              ))}
+                            </div>
+
+                            {/* Height & Depth Parametric Inputs */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
+                              <label style={{ fontSize: '10.5px', fontWeight: 600, color: '#57534e', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                Height (mm):
+                                <input
+                                  type="number"
+                                  min="300"
+                                  max="3000"
+                                  step="10"
+                                  value={inspectedMod.heightMm}
+                                  onChange={(e) => void editModule(inspectedMod.id, { config: { heightMm: Number(e.target.value) } })}
+                                  style={{
+                                    padding: '4px 6px',
+                                    fontSize: '11.5px',
+                                    fontWeight: 700,
+                                    border: '1px solid #d6d3d1',
+                                    borderRadius: '5px',
+                                    color: '#1c1917',
+                                  }}
+                                />
+                              </label>
+                              <label style={{ fontSize: '10.5px', fontWeight: 600, color: '#57534e', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                Depth (mm):
+                                <input
+                                  type="number"
+                                  min="200"
+                                  max="1200"
+                                  step="10"
+                                  value={inspectedMod.depthMm}
+                                  onChange={(e) => void editModule(inspectedMod.id, { config: { depthMm: Number(e.target.value) } })}
+                                  style={{
+                                    padding: '4px 6px',
+                                    fontSize: '11.5px',
+                                    fontWeight: 700,
+                                    border: '1px solid #d6d3d1',
+                                    borderRadius: '5px',
+                                    color: '#1c1917',
+                                  }}
+                                />
+                              </label>
+                            </div>
+                          </div>
+
                           {/* Nudge & Centering Quick Actions */}
                           <div>
                             <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>

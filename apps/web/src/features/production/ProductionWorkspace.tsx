@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FolderKanban, Package, AlertTriangle, CheckCircle2, Download, ChevronLeft, ChevronRight, Maximize2, PanelRightClose, ClipboardList, Settings, SlidersHorizontal, FileText, Compass, Sparkles, ExternalLink } from 'lucide-react';
-import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
+import { useNavigate } from 'react-router-dom';
+import { FolderKanban, Package, AlertTriangle, CheckCircle2, Download, ChevronLeft, ChevronRight, Maximize2, PanelRightClose, ClipboardList, Settings, SlidersHorizontal, FileText, Compass, Sparkles, ExternalLink, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Badge, Button, Card, CardContent, CardHeader, WorkflowDock } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import WorkingDrawingsDossier from '../../components/drawings/WorkingDrawingsDossier';
@@ -205,6 +206,7 @@ interface ProductionWorkspaceProps {
 }
 
 export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved, initialTab = 'elevations' }: ProductionWorkspaceProps) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [selectedElevationId, setSelectedElevationId] = useState<string>('tv-wall');
   const [leftCollapsed, setLeftCollapsed] = useState(false);
@@ -861,6 +863,32 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
           </div>
         )}
       </div>
+      <WorkflowDock
+        currentStageIndex={activeTab === 'release' ? 7 : 5}
+        stageTitle={activeTab === 'release' ? 'Production Release & CAM Export' : 'Architectural Elevations & Cutlists'}
+        stageSummary={activeTab === 'release'
+          ? 'Final approval, CNC post-processing, and fabrication pack release'
+          : 'System 32 CAD elevations · Panel cutting lists · Nesting sheets · Edge banding schedules'}
+        beaconTone={activeTab === 'release' ? 'success' : 'gold'}
+        prevAction={{
+          label: 'Back to 3D Scene',
+          icon: <ArrowLeft size={14} />,
+          onClick: () => {
+            if (projectId) navigate(`/projects/${projectId}/visualize`);
+          },
+        }}
+        nextAction={{
+          label: activeTab === 'release' ? 'Commercial Estimate' : 'Production Release',
+          icon: <ArrowRight size={14} />,
+          onClick: () => {
+            if (activeTab === 'release') {
+              if (projectId) navigate(`/projects/${projectId}/estimate`);
+            } else {
+              setActiveTab('release');
+            }
+          },
+        }}
+      />
     </div>
   );
 }

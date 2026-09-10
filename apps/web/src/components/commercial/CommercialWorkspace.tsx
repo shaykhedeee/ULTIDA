@@ -1,7 +1,7 @@
-import { Calculator, ChevronRight, CircleAlert, FileText, LockKeyhole } from 'lucide-react';
+import { Calculator, ChevronRight, CircleAlert, FileText, LockKeyhole, ArrowLeft, ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
+import { Badge, Card, CardContent, CardHeader, WorkflowDock } from '../ui/primitives';
 import { getSupabaseBrowserClient } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 
@@ -326,89 +326,27 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
         </Card>
       </div>
 
-      {/* Sleek Fixed Bottom Stage Progression Bar */}
-      <div
-        style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          zIndex: 90,
-          height: 54,
-          padding: '0 24px',
-          background: 'rgba(20, 18, 16, 0.94)',
-          backdropFilter: 'blur(16px)',
-          borderTop: '1px solid rgba(197, 156, 45, 0.3)',
-          boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 16,
+      {/* Bottom Stage Progression */}
+      <WorkflowDock
+        currentStageIndex={6}
+        stageTitle="Commercial Turnkey BOM & Pricing"
+        stageSummary="BOM calculated · Ready for Client Presentation or Technical Drawings"
+        beaconTone="gold"
+        prevAction={{
+          label: 'Drawings & Cutlists',
+          icon: <ArrowLeft size={14} />,
+          onClick: () => {
+            if (projectId) navigate(`/projects/${projectId}/drawings`);
+          },
         }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#c59c2d', boxShadow: '0 0 8px #c59c2d' }} />
-          <div>
-            <strong style={{ color: '#fff', fontSize: 12.5, display: 'inline', marginRight: 8 }}>
-              Stage 6 of 8: Commercial Turnkey BOM &amp; Pricing
-            </strong>
-            <span style={{ color: '#a8a29e', fontSize: 11.5 }}>
-              • BOM calculated • Ready for Client Presentation or Technical Drawings.
-            </span>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
-            type="button"
-            onClick={() => {
-              if (projectId) {
-                navigate(`/projects/${projectId}/drawings`);
-              }
-            }}
-            style={{
-              background: '#2b2622',
-              color: '#e7e5e4',
-              border: '1px solid #44403c',
-              borderRadius: 7,
-              padding: '6px 14px',
-              fontWeight: 600,
-              fontSize: 12,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 34,
-            }}
-          >
-            Drawings &amp; Cutlists
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (projectId) {
-                navigate(`/projects/${projectId}/presentation`);
-              }
-            }}
-            style={{
-              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
-              color: '#1c1917',
-              border: 0,
-              borderRadius: 7,
-              padding: '6px 16px',
-              fontWeight: 800,
-              fontSize: 12.5,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 34,
-              boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
-            }}
-          >
-            Client Presentation &amp; Delivery <ChevronRight size={14} />
-          </button>
-        </div>
-      </div>
+        nextAction={{
+          label: 'Client Presentation & Delivery',
+          icon: <ArrowRight size={14} />,
+          onClick: () => {
+            if (projectId) navigate(`/projects/${projectId}/presentation`);
+          },
+        }}
+      />
     </section>
   );
 }

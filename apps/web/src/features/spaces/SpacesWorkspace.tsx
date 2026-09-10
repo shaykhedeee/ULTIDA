@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Badge, Button } from '../../components/ui/primitives';
+import { Badge, Button, WorkflowDock } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
 import {
   computeUsableWallLength, computeSpaceReadiness, polygonsOverlap,
@@ -1119,8 +1119,114 @@ export function SpacesWorkspace() {
     void applyLayoutCandidateToScene(room, 'balanced');
   };
 
+  const detectDoorsAndWindows = (): PlanOpening[] => {
+    snapshot();
+    const newOpenings: PlanOpening[] = [...openings];
+    const existingWallIds = new Set(newOpenings.map(o => o.wallId));
+
+    // Calculate layout-wide bounding box to distinguish exterior perimeter from interior partitions
+    const allPts: Pt[] = rooms.flatMap(r => r.polygon ?? []).concat(walls.flatMap(w => [w.start, w.end]));
+    const layoutBbox = allPts.length ? bbox(allPts) : { minX: 0, minY: 0, maxX: 10000, maxY: 10000 };
+    const perimeterTol = 400; // mm from layout boundary
+
+    // For each room, ensure doors and windows
+    rooms.forEach((room) => {
+      const rWalls = wallsForRoom(room);
+      if (!rWalls.length) return;
+
+      // 1. Identify entrance / partition wall for doors
+      let doorPlaced = false;
+      for (const w of rWalls) {
+        const len = wallLen(w);
+        if (len < 1200) continue; // Wall too short for door + clearance
+
+        const isOuterWall = (
+          Math.min(Math.abs(w.start.xMm - layoutBbox.minX), Math.abs(w.end.xMm - layoutBbox.minX)) < perimeterTol ||
+          Math.min(Math.abs(w.start.xMm - layoutBbox.maxX), Math.abs(w.end.xMm - layoutBbox.maxX)) < perimeterTol ||
+          Math.min(Math.abs(w.start.yMm - layoutBbox.minY), Math.abs(w.end.yMm - layoutBbox.minY)) < perimeterTol ||
+          Math.min(Math.abs(w.start.yMm - layoutBbox.maxY), Math.abs(w.end.yMm - layoutBbox.maxY)) < perimeterTol
+        );
+
+        // Place door on interior partition wall
+        if (!isOuterWall && !doorPlaced && !existingWallIds.has(w.id)) {
+          const doorWidth = room.roomType === 'living' ? 1000 : 900;
+          const offset = Math.min(len - doorWidth - 150, Math.max(150, Math.round(len * 0.25)));
+          newOpenings.push({
+            id: entityId(),
+            wallId: w.id,
+            kind: 'door',
+            offsetAlongWallMm: offset,
+            widthMm: doorWidth,
+            heightMm: 2100,
+            sillHeightMm: 0,
+          });
+          existingWallIds.add(w.id);
+          doorPlaced = true;
+          break;
+        }
+      }
+
+      // If no internal door was placed (e.g. living room main entry), place on first suitable wall
+      if (!doorPlaced) {
+        const candidateWall = rWalls.find(w => wallLen(w) >= 1200 && !newOpenings.some(o => o.wallId === w.id && o.kind === 'door'));
+        if (candidateWall) {
+          const len = wallLen(candidateWall);
+          const doorWidth = room.roomType === 'living' ? 1000 : 900;
+          newOpenings.push({
+            id: entityId(),
+            wallId: candidateWall.id,
+            kind: 'door',
+            offsetAlongWallMm: Math.max(150, Math.min(len - doorWidth - 150, 250)),
+            widthMm: doorWidth,
+            heightMm: 2100,
+            sillHeightMm: 0,
+          });
+          existingWallIds.add(candidateWall.id);
+        }
+      }
+
+      // 2. Identify exterior wall for architectural window
+      if (room.roomType !== 'pooja') {
+        const outerWalls = rWalls.filter(w => {
+          const len = wallLen(w);
+          if (len < 1600) return false;
+          return (
+            Math.min(Math.abs(w.start.xMm - layoutBbox.minX), Math.abs(w.end.xMm - layoutBbox.minX)) < perimeterTol ||
+            Math.min(Math.abs(w.start.xMm - layoutBbox.maxX), Math.abs(w.end.xMm - layoutBbox.maxX)) < perimeterTol ||
+            Math.min(Math.abs(w.start.yMm - layoutBbox.minY), Math.abs(w.end.yMm - layoutBbox.minY)) < perimeterTol ||
+            Math.min(Math.abs(w.start.yMm - layoutBbox.maxY), Math.abs(w.end.yMm - layoutBbox.maxY)) < perimeterTol
+          );
+        });
+
+        const windowWall = outerWalls.find(w => !newOpenings.some(o => o.wallId === w.id)) || rWalls.find(w => wallLen(w) >= 2000 && !newOpenings.some(o => o.wallId === w.id));
+        if (windowWall) {
+          const wLen = wallLen(windowWall);
+          const winWidth = room.roomType === 'living' ? 1800 : room.roomType === 'kitchen' ? 1200 : 1500;
+          if (wLen >= winWidth + 400) {
+            newOpenings.push({
+              id: entityId(),
+              wallId: windowWall.id,
+              kind: 'window',
+              offsetAlongWallMm: Math.round((wLen - winWidth) / 2),
+              widthMm: winWidth,
+              heightMm: 1200,
+              sillHeightMm: 900,
+            });
+            existingWallIds.add(windowWall.id);
+          }
+        }
+      }
+    });
+
+    setOpenings(newOpenings);
+    setSaveState(`✨ AI detected & placed ${newOpenings.length} architectural doors and windows on room boundaries.`);
+    return newOpenings;
+  };
+
   const autoEnhanceAllRoomsAndFloorplan = () => {
     snapshot();
+    const detectedOpenings = detectDoorsAndWindows();
+
     const updatedRooms: PlanRoom[] = rooms.map((room) => {
       const rWalls = wallsForRoom(room);
       const wallRoles = { ...(room.wallRoles ?? {}) };
@@ -1159,7 +1265,7 @@ export function SpacesWorkspace() {
 
     setRooms(updatedRooms);
     setCanvasRenderMode('3d_isometric');
-    setSaveState('AI enhanced all rooms, assigned wall roles, and verified all spaces for 3D layout.');
+    setSaveState(`AI enhanced all ${updatedRooms.length} rooms, placed ${detectedOpenings.length} doors & windows, and verified all spaces for 3D layout.`);
     void saveGeometryVersion(updatedRooms);
 
     // Apply layout candidates to scene for all rooms
@@ -1167,7 +1273,7 @@ export function SpacesWorkspace() {
       for (const r of updatedRooms) {
         await applyLayoutCandidateToScene(r, 'balanced').catch(() => null);
       }
-      setSaveState('All 8 spaces verified with modular units and synced to 3D Scene.');
+      setSaveState('All spaces verified with doors, windows, and modular units synced to 3D Scene.');
     })();
   };
 
@@ -2039,8 +2145,29 @@ export function SpacesWorkspace() {
                     cursor: 'pointer',
                     boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
                   }}
+                  title="Auto-detect rooms, assign wall roles, place doors/windows, and verify all spaces"
                 >
                   <Sparkles size={13} /> AI Auto-Enhance Entire Plan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => detectDoorsAndWindows()}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 13px',
+                    background: '#1c1917',
+                    color: '#e8c96a',
+                    border: '1px solid #786036',
+                    borderRadius: 7,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                  title="Detect and place architectural doors on partition walls and windows on exterior perimeter walls"
+                >
+                  🚪 Detect Doors &amp; Windows
                 </button>
                 <div className="canvas-mode-toggle" role="group" aria-label="Floor plan view mode">
                   <button type="button" className={`canvas-mode-btn ${canvasRenderMode === '2d' ? 'active' : ''}`} onClick={() => setCanvasRenderMode('2d')}>
@@ -2696,25 +2823,74 @@ export function SpacesWorkspace() {
                         </div>
                         {/* 2D Technical Elevation Blueprint Vector */}
                         <div className="wep-canvas-box">
-                          <svg viewBox="0 0 320 120" className="wep-elevation-svg">
-                            <defs>
-                              <pattern id="wep-grid" width="10" height="10" patternUnits="userSpaceOnUse">
-                                <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#2a333d" strokeWidth="0.5" />
-                              </pattern>
-                            </defs>
-                            <rect width="320" height="120" fill="#0f1419" />
-                            <rect x="20" y="15" width="280" height="90" fill="url(#wep-grid)" stroke="#4a5a6a" strokeWidth="1.5" />
-                            {/* Base Zone (0-850mm) */}
-                            <rect x="20" y="75" width="280" height="30" fill="#1b242e" opacity="0.7" stroke="#3b4856" strokeDasharray="3 3" />
-                            <text x="25" y="95" fill="#7a8d9f" fontSize="7" fontWeight="bold">BASE ZONE (850mm)</text>
-                            {/* Counter / Dado Zone (850-1450mm) */}
-                            <rect x="20" y="55" width="280" height="20" fill="#141c24" opacity="0.5" />
-                            <text x="25" y="68" fill="#586b7d" fontSize="6">DADO / CLEARANCE (600mm)</text>
-                            {/* Wall Unit Zone (1450-2170mm) */}
-                            <rect x="20" y="27" width="280" height="28" fill="#222e3a" opacity="0.8" stroke="#485c70" />
-                            <text x="25" y="45" fill="#9ab0c5" fontSize="7" fontWeight="bold">WALL UNIT / LOFT (1450-2700mm)</text>
-                            <line x1="20" y1="105" x2="300" y2="105" stroke="#d4af37" strokeWidth="2" />
-                          </svg>
+                          {(() => {
+                            const curWall = walls.find(w => w.id === selectedWall) || roomBoundaryWalls(sel.room).find(w => w.id === selectedWall);
+                            const wLen = curWall ? Math.round(wallLen(curWall)) : Math.round(sel.widthMm || 3000);
+                            const wallOpenings = openings.filter(o => o.wallId === selectedWall);
+                            return (
+                              <svg viewBox="0 0 320 120" className="wep-elevation-svg">
+                                <defs>
+                                  <pattern id="wep-grid" width="10" height="10" patternUnits="userSpaceOnUse">
+                                    <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#2a333d" strokeWidth="0.5" />
+                                  </pattern>
+                                </defs>
+                                <rect width="320" height="120" fill="#0f1419" />
+                                <rect x="20" y="15" width="280" height="90" fill="url(#wep-grid)" stroke="#4a5a6a" strokeWidth="1.5" />
+                                {/* Base Zone (0-850mm) */}
+                                <rect x="20" y="75" width="280" height="30" fill="#1b242e" opacity="0.7" stroke="#3b4856" strokeDasharray="3 3" />
+                                <text x="25" y="95" fill="#7a8d9f" fontSize="7" fontWeight="bold">BASE ZONE (850mm)</text>
+                                {/* Counter / Dado Zone (850-1450mm) */}
+                                <rect x="20" y="55" width="280" height="20" fill="#141c24" opacity="0.5" />
+                                <text x="25" y="68" fill="#586b7d" fontSize="6">DADO / CLEARANCE (600mm)</text>
+                                {/* Wall Unit Zone (1450-2170mm) */}
+                                <rect x="20" y="27" width="280" height="28" fill="#222e3a" opacity="0.8" stroke="#485c70" />
+                                <text x="25" y="45" fill="#9ab0c5" fontSize="7" fontWeight="bold">WALL UNIT / LOFT (1450-2700mm)</text>
+                                <line x1="20" y1="105" x2="300" y2="105" stroke="#d4af37" strokeWidth="2" />
+
+                                {/* Render Wall Openings (Doors / Windows) accurately on elevation */}
+                                {wallOpenings.map(op => {
+                                  const isDoor = op.kind === 'door';
+                                  const opW = Number(op.widthMm || (isDoor ? 900 : 1200));
+                                  const opH = Number(op.heightMm || (isDoor ? 2100 : 1200));
+                                  const sillH = Number(op.sillHeightMm ?? (isDoor ? 0 : 900));
+                                  const svgScaleX = 280 / Math.max(1000, wLen);
+                                  const svgScaleY = 90 / (sel.room.ceilingHeightMm ?? ceilingHeightMm ?? 2700);
+                                  const opX = 20 + Math.min(280 - 15, Math.max(0, (op.offsetAlongWallMm || 150) * svgScaleX));
+                                  const opDrawW = Math.min(280 - (opX - 20), Math.max(14, opW * svgScaleX));
+                                  const opDrawH = Math.max(14, opH * svgScaleY);
+                                  const opY = 105 - (sillH * svgScaleY) - opDrawH;
+                                  return (
+                                    <g key={op.id}>
+                                      <rect
+                                        x={opX}
+                                        y={opY}
+                                        width={opDrawW}
+                                        height={opDrawH}
+                                        fill={isDoor ? '#78350f' : '#0369a1'}
+                                        fillOpacity={0.4}
+                                        stroke={isDoor ? '#ea580c' : '#38bdf8'}
+                                        strokeWidth={1.5}
+                                      />
+                                      {/* Window sill board or door swing */}
+                                      {!isDoor && (
+                                        <line x1={opX - 2} y1={opY + opDrawH} x2={opX + opDrawW + 2} y2={opY + opDrawH} stroke="#38bdf8" strokeWidth={2} />
+                                      )}
+                                      <text
+                                        x={opX + opDrawW / 2}
+                                        y={opY + opDrawH / 2 + 3}
+                                        textAnchor="middle"
+                                        fill="#ffffff"
+                                        fontSize={6}
+                                        fontWeight="bold"
+                                      >
+                                        {op.kind.toUpperCase()}
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+                              </svg>
+                            );
+                          })()}
                         </div>
 
                         <div className="wep-feature-actions">
@@ -3618,23 +3794,22 @@ export function SpacesWorkspace() {
         );
       })()}
 
-      <div className="spaces-stage-dock" role="navigation" aria-label="Room design progression">
-        <div className="spaces-stage-dock-copy">
-          <span className="spaces-stage-dock-dot" aria-hidden="true" />
-          <span>
-            <strong>Stage 3 · Rooms &amp; 2D Layout</strong>
-            <small>{rooms.filter((r) => r.included !== false).length} configured spaces · Next: Design Library modules &amp; elevations</small>
-          </span>
-        </div>
-        <div className="spaces-stage-dock-actions">
-          <button type="button" className="spaces-stage-dock-back" onClick={() => navigate(`/projects/${projectId}/plan`)}>
-            <ArrowLeft size={13} /> Measured Plan
-          </button>
-          <button type="button" className="spaces-stage-dock-next" onClick={() => navigate(`/projects/${projectId}/spaces?tab=modules${selectedRoom ? `&roomId=${selectedRoom}` : ''}${selectedWall ? `&wallId=${selectedWall}` : ''}`)}>
-            Configure Modules <ArrowRight size={14} />
-          </button>
-        </div>
-      </div>
+      <WorkflowDock
+        currentStageIndex={3}
+        totalStages={8}
+        stageTitle="Rooms &amp; 2D Space Layout"
+        stageSummary={`${rooms.filter((r) => r.included !== false).length} configured spaces • Next: Design Library modules, Wall A/B/C/D elevations & System 32.`}
+        prevAction={{
+          label: 'Measured Plan',
+          icon: <ArrowLeft size={13} />,
+          onClick: () => navigate(`/projects/${projectId}/plan`),
+        }}
+        nextAction={{
+          label: 'Configure Modules & Elevations',
+          icon: <ArrowRight size={14} />,
+          onClick: () => navigate(`/projects/${projectId}/spaces?tab=modules${selectedRoom ? `&roomId=${selectedRoom}` : ''}${selectedWall ? `&wallId=${selectedWall}` : ''}`),
+        }}
+      />
     </div>
   );
 }

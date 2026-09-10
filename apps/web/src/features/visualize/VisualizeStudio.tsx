@@ -20,6 +20,7 @@ import { useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import InteractiveRenderViewer, { type MatchedObject } from '../../components/visual/InteractiveRenderViewer';
+import { WorkflowDock } from '../../components/ui/primitives';
 import './visualize-studio.css';
 
 type VisualizeTab = 'review' | 'render' | 'laminate' | 'interactive' | 'compare';
@@ -581,66 +582,27 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
       {/* Active Panel Viewport */}
       <div className="visualize-panel">{panels[active]}</div>
 
-      {/* Bottom Stage Progression Bar */}
-      <div style={{ marginTop: 20, padding: '14px 20px', background: '#1c1917', borderRadius: 12, border: '1px solid #332d29', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <strong style={{ color: '#fff', fontSize: 13, display: 'block' }}>
-            Step 4 of 8: 3D Scene Studio &amp; Visual Intelligence
-          </strong>
-          <small style={{ color: '#a8a29e', fontSize: 11 }}>
-            Geometry-locked Three.js WebGL viewport, AI spatial object scans, and deterministic seed-locked A/B comparisons.
-          </small>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button
-            type="button"
-            onClick={() => {
-              if (projectId) {
-                navigate(`/projects/${projectId}/spaces?tab=modules`);
-              }
-            }}
-            style={{
-              background: '#2b2622',
-              color: '#e7e5e4',
-              border: '1px solid #44403c',
-              borderRadius: 8,
-              padding: '9px 16px',
-              fontWeight: 600,
-              fontSize: 13,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <ArrowLeft size={15} /> Back to Rooms &amp; Bay Layout
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (projectId) {
-                navigate(`/projects/${projectId}/drawings`);
-              }
-            }}
-            style={{
-              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
-              color: '#1c1917',
-              border: 0,
-              borderRadius: 8,
-              padding: '9px 18px',
-              fontWeight: 800,
-              fontSize: 13,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            Proceed to Production Drawings &amp; CAD <ArrowRight size={15} />
-          </button>
-        </div>
-      </div>
+      {/* Bottom Stage Progression */}
+      <WorkflowDock
+        currentStageIndex={4}
+        stageTitle="3D Scene Studio & Visual Intelligence"
+        stageSummary="Geometry-locked WebGL viewport · AI spatial object scans · Deterministic seed-locked A/B comparisons"
+        beaconTone="gold"
+        prevAction={{
+          label: 'Back to Rooms & Bay Layout',
+          icon: <ArrowLeft size={14} />,
+          onClick: () => {
+            if (projectId) navigate(`/projects/${projectId}/spaces?tab=modules`);
+          },
+        }}
+        nextAction={{
+          label: 'Proceed to Production Drawings & CAD',
+          icon: <ArrowRight size={14} />,
+          onClick: () => {
+            if (projectId) navigate(`/projects/${projectId}/drawings`);
+          },
+        }}
+      />
     </section>
   );
 }
-

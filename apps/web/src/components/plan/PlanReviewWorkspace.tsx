@@ -18,7 +18,7 @@ import {
   crossCheckCalibrationDimensions,
   type CalibrationCrossCheckDiscrepancy,
 } from '@ultida/plan-core';
-import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
+import { Badge, Button, Card, CardContent, CardHeader, WorkflowDock } from '../ui/primitives';
 import { createFreshPlanCalibrationState, requireConfirmedScale } from './plan-calibration';
 import './plan-review.css';
 
@@ -1273,24 +1273,74 @@ export function PlanReviewWorkspace({
       });
     });
 
-    const generatedDoors: PlanElement[] = [];
+    const generatedOpenings: PlanElement[] = [];
     const livingRoom = generatedRooms.find((r) => r.roomType === 'living') ?? generatedRooms[0];
-    if (livingRoom) {
-      generatedDoors.push({
+    if (livingRoom && livingRoom.geometry.x !== undefined && livingRoom.geometry.y !== undefined) {
+      generatedOpenings.push({
         id: `door-main-${Date.now()}`,
         kind: 'door',
         label: 'Main Entrance Door (1000mm)',
         confidence: 1,
         status: 'accepted',
         color: '#059669',
-        geometry: { x: livingRoom.geometry.x! + 40, y: livingRoom.geometry.y!, width: 28 },
+        geometry: { x: livingRoom.geometry.x + 30, y: livingRoom.geometry.y, width: 28 },
         widthMm: 1000,
         heightMm: 2100,
         note: 'Main Entrance with opening swing',
       });
     }
 
-    commitElements((prev) => [...prev.filter((e) => e.status !== 'rejected'), ...generatedRooms, ...generatedWalls, ...generatedDoors]);
+    // Place entrance doors & exterior windows for each room
+    generatedRooms.forEach((room, rIdx) => {
+      const gx = room.geometry.x ?? 0;
+      const gy = room.geometry.y ?? 0;
+      const gw = room.geometry.width ?? 100;
+      const gh = room.geometry.height ?? 80;
+
+      // Room entrance door (if not main living door)
+      if (room !== livingRoom) {
+        generatedOpenings.push({
+          id: `door-${room.id}-${Date.now()}-${rIdx}`,
+          kind: 'door',
+          label: `${room.label} Door (900mm)`,
+          confidence: 0.98,
+          status: 'accepted',
+          color: '#059669',
+          geometry: { x: gx + 20, y: gy + gh, width: 24 },
+          widthMm: 900,
+          heightMm: 2100,
+          note: `${room.label} entry door with 90° clearance swing`,
+        });
+      }
+
+      // Exterior window
+      if (room.roomType !== 'pooja') {
+        const isOuterTop = gy === minY;
+        const isOuterBottom = gy + gh === minY + totalHeight;
+        const isOuterLeft = gx === minX;
+        const isOuterRight = gx + gw === minX + totalWidth;
+
+        if (isOuterTop || isOuterBottom || isOuterLeft || isOuterRight) {
+          const winX = isOuterLeft ? gx : isOuterRight ? gx + gw : gx + Math.round(gw / 2);
+          const winY = isOuterTop ? gy : isOuterBottom ? gy + gh : gy + Math.round(gh / 2);
+          const winWidthMm = room.roomType === 'living' ? 1800 : 1200;
+          generatedOpenings.push({
+            id: `win-${room.id}-${Date.now()}-${rIdx}`,
+            kind: 'window',
+            label: `${room.label} Window (${winWidthMm}mm)`,
+            confidence: 0.96,
+            status: 'accepted',
+            color: '#0284c7',
+            geometry: { x: winX, y: winY, width: 34 },
+            widthMm: winWidthMm,
+            heightMm: 1200,
+            note: 'Double-glazed exterior window with 900mm sill datum',
+          });
+        }
+      }
+    });
+
+    commitElements((prev) => [...prev.filter((e) => e.status !== 'rejected'), ...generatedRooms, ...generatedWalls, ...generatedOpenings]);
     setSketchStrokes([]);
     setCurrentStroke([]);
     setActiveTool('select');
@@ -3211,91 +3261,31 @@ export function PlanReviewWorkspace({
         </div>
       </div>
 
-      {/* Sleek Fixed Bottom Stage Progression Bar */}
-      <div
-        style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          zIndex: 90,
-          height: 54,
-          padding: '0 24px',
-          background: 'rgba(20, 18, 16, 0.94)',
-          backdropFilter: 'blur(16px)',
-          borderTop: '1px solid rgba(197, 156, 45, 0.3)',
-          boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 16,
+      {/* Unified Workflow Dock */}
+      <WorkflowDock
+        currentStageIndex={2}
+        totalStages={8}
+        stageTitle="Measured Plan Analysis &amp; Vector Calibration"
+        stageSummary="Review architectural boundary walls, calibrate metric scale, and verify door/window openings before proceeding to Rooms."
+        prevAction={{
+          label: 'Back to Brief',
+          icon: <ArrowLeft size={13} />,
+          onClick: () => navigate(-1),
         }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#c59c2d', boxShadow: '0 0 8px #c59c2d' }} />
-          <div>
-            <strong style={{ color: '#fff', fontSize: 12.5, display: 'inline', marginRight: 8 }}>
-              Stage 2 of 8: Floor Plan Analysis &amp; Vector Calibration
-            </strong>
-            <span style={{ color: '#a8a29e', fontSize: 11.5 }}>
-              • Review architectural walls and room boundaries, then proceed to Spaces.
-            </span>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
-            type="button"
-            onClick={() => {
-              navigate(-1);
-            }}
-            style={{
-              background: '#2b2622',
-              color: '#e7e5e4',
-              border: '1px solid #44403c',
-              borderRadius: 7,
-              padding: '6px 14px',
-              fontWeight: 600,
-              fontSize: 12,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 34,
-            }}
-          >
-            <ArrowLeft size={13} /> Back to Brief
-          </button>
-          <button
-            type="button"
-            onClick={async () => {
-              try {
-                await handleApprovePlan();
-              } catch {
-                const pathname = window.location.pathname;
-                const projectPrefix = pathname.split('/plan')[0];
-                navigate(`${projectPrefix}/spaces`);
-              }
-            }}
-            style={{
-              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
-              color: '#1c1917',
-              border: 0,
-              borderRadius: 7,
-              padding: '6px 16px',
-              fontWeight: 800,
-              fontSize: 12.5,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 34,
-              boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
-            }}
-          >
-            Proceed to Step 3: Spaces <ArrowRight size={14} />
-          </button>
-        </div>
-      </div>
+        nextAction={{
+          label: 'Proceed to Step 3: Spaces',
+          icon: <ArrowRight size={14} />,
+          onClick: async () => {
+            try {
+              await handleApprovePlan();
+            } catch {
+              const pathname = window.location.pathname;
+              const projectPrefix = pathname.split('/plan')[0];
+              navigate(`${projectPrefix}/spaces`);
+            }
+          },
+        }}
+      />
     </div>
   );
 }

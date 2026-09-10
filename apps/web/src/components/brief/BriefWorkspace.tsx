@@ -1,7 +1,7 @@
 import { Check, Download, FileUp, Save, Sparkles, Upload, ArrowRight } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
+import { Badge, Button, Card, CardContent, CardHeader, WorkflowDock } from '../ui/primitives';
 import type { ClientBrief } from '../../features/project-types';
 export type { ClientBrief } from '../../features/project-types';
 
@@ -235,65 +235,27 @@ export function BriefWorkspace({ projectId, initialBrief, fileName, status, onSa
         </Card>
       </div>
 
-      {/* Bottom Stage Progression Bar */}
-      <div style={{ marginTop: 24, padding: '16px 20px', background: '#1c1917', borderRadius: 12, border: '1px solid #332d29', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <strong style={{ color: '#fff', fontSize: 13, display: 'block' }}>
-            Step 1 of 8: Client Intake &amp; Project Brief
-          </strong>
-          <small style={{ color: '#a8a29e', fontSize: 11 }}>
-            Complete the design style, property details, and budget requirements, then proceed to floor plan analysis and vector calibration.
-          </small>
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={() => {
-              if (projectId) {
-                navigate(`/projects/${projectId}/3d?tab=render`);
-              }
-            }}
-            style={{
-              background: '#2b2622',
-              color: '#e7e5e4',
-              border: '1px solid #44403c',
-              borderRadius: 8,
-              padding: '10px 18px',
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <Sparkles size={15} color="#c59c2d" /> Skip to 3D &amp; AI Render
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (projectId) {
-                navigate(`/projects/${projectId}/plan`);
-              }
-            }}
-            style={{
-              background: 'linear-gradient(135deg, #c59c2d, #a88220)',
-              color: '#1c1917',
-              border: 0,
-              borderRadius: 8,
-              padding: '10px 18px',
-              fontWeight: 800,
-              fontSize: 13,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            Continue to Step 2: Floor Plan <ArrowRight size={15} />
-          </button>
-        </div>
-      </div>
+      {/* Unified Workflow Dock */}
+      <WorkflowDock
+        currentStageIndex={1}
+        totalStages={8}
+        stageTitle="Client Intake &amp; Project Brief"
+        stageSummary="Complete design direction, property details, and budget requirements, then proceed to floor plan vector calibration."
+        secondaryAction={{
+          label: 'Skip to 3D & AI Render',
+          icon: <Sparkles size={13} style={{ color: '#c59c2d' }} />,
+          onClick: () => {
+            if (projectId) navigate(`/projects/${projectId}/3d?tab=render`);
+          },
+        }}
+        nextAction={{
+          label: 'Proceed to Step 2: Floor Plan',
+          icon: <ArrowRight size={14} />,
+          onClick: () => {
+            if (projectId) navigate(`/projects/${projectId}/plan`);
+          },
+        }}
+      />
     </section>
   );
 }
