@@ -563,10 +563,13 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
       </header>
 
       {/* 5-Tab Navigation Header */}
-      <nav aria-label="Visualize stages">
+      <nav aria-label="Visualize stages" role="tablist">
         {tabs.map(({ id, label, icon: Icon, help }) => (
           <button
             key={id}
+            type="button"
+            role="tab"
+            aria-selected={active === id}
             className={active === id ? 'active' : ''}
             onClick={() => select(id)}
           >

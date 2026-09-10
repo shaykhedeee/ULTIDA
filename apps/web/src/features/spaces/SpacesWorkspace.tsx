@@ -1846,8 +1846,8 @@ export function SpacesWorkspace() {
         </div>
         <div className="page-header-actions">
           <div className="history-btns">
-            <button className="icon-btn" onClick={undo} title="Undo"><Undo2 size={15} /></button>
-            <button className="icon-btn" onClick={redo} title="Redo"><Redo2 size={15} /></button>
+            <button className="icon-btn" onClick={undo} type="button" aria-label="Undo"><Undo2 size={15} /></button>
+            <button className="icon-btn" onClick={redo} type="button" aria-label="Redo"><Redo2 size={15} /></button>
           </div>
           <button type="button" className="btn-secondary workspace-action" onClick={() => setShowDesignLibrary(true)} title="Browse authentic modular units and finishes in Design Library"><BookOpen size={14} /> Design Library</button>
           <button type="button" className="btn-secondary workspace-action" disabled={!sel} onClick={() => sel && detectAiLayout(sel.room)} title="Auto-detect optimal furniture layout and wall roles using AI"><Wand2 size={14} /> AI Auto-Layout</button>
@@ -1863,7 +1863,7 @@ export function SpacesWorkspace() {
           <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--gold-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
             🏛️ Storey Level:
           </span>
-          <div style={{ display: 'inline-flex', gap: 6 }}>
+          <div style={{ display: 'inline-flex', gap: 6 }} role="group" aria-label="Storey level selection">
             {[
               { id: 'level-ground', label: 'Ground Floor (0.0m)', badge: 'Rooms & Atrium' },
               { id: 'level-first', label: 'First Floor (+3.3m)', badge: 'Mezzanine Void & Balustrades' },
@@ -1872,20 +1872,9 @@ export function SpacesWorkspace() {
               <button
                 key={lvl.id}
                 type="button"
+                className="storey-btn"
+                aria-pressed={activeStoreyId === lvl.id}
                 onClick={() => setActiveStoreyId(lvl.id)}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: 8,
-                  border: activeStoreyId === lvl.id ? '1.5px solid var(--gold)' : '1px solid #e7e5e4',
-                  background: activeStoreyId === lvl.id ? '#fff' : 'transparent',
-                  color: activeStoreyId === lvl.id ? 'var(--gold-dim)' : '#57534e',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
               >
                 <span>{lvl.label}</span>
                 <small style={{ fontSize: 10, opacity: 0.75, fontWeight: 500 }}>({lvl.badge})</small>
@@ -2130,42 +2119,19 @@ export function SpacesWorkspace() {
               <div className="canvas-focus-actions">
                 <button
                   type="button"
+                  className="btn-gold-action"
                   onClick={autoEnhanceAllRoomsAndFloorplan}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 14px',
-                    background: 'linear-gradient(135deg, #c59c2d, #8f6c12)',
-                    color: '#fff',
-                    border: 0,
-                    borderRadius: 7,
-                    fontSize: 12.5,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
-                  }}
                   title="Auto-detect rooms, assign wall roles, place doors/windows, and verify all spaces"
+                  aria-label="AI Auto-Enhance Entire Plan"
                 >
                   <Sparkles size={13} /> AI Auto-Enhance Entire Plan
                 </button>
                 <button
                   type="button"
+                  className="btn-dark-action"
                   onClick={() => detectDoorsAndWindows()}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 13px',
-                    background: '#1c1917',
-                    color: '#e8c96a',
-                    border: '1px solid #786036',
-                    borderRadius: 7,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
                   title="Detect and place architectural doors on partition walls and windows on exterior perimeter walls"
+                  aria-label="Detect Doors and Windows"
                 >
                   🚪 Detect Doors &amp; Windows
                 </button>
@@ -2183,8 +2149,21 @@ export function SpacesWorkspace() {
                 <button type="button" className="btn-primary btn-sm" onClick={() => setShowFloorPlanRenderModal(true)}>
                   <Sparkles size={13} /> 3D Plan Render
                 </button>
-                <button type="button" className={canvasFocus === 'room' ? 'active' : ''} disabled={!selectedRoom} onClick={() => setCanvasFocus('room')}>Fit room</button>
-                <button type="button" className={canvasFocus === 'plan' ? 'active' : ''} onClick={() => setCanvasFocus('plan')}>Fit full plan</button>
+                <button
+                  type="button"
+                  className={`canvas-fit-btn${canvasFocus === 'room' ? ' active' : ''}`}
+                  disabled={!selectedRoom}
+                  onClick={() => setCanvasFocus('room')}
+                  aria-label="Fit selected room to view"
+                  title="Zoom canvas to selected room"
+                >Fit room</button>
+                <button
+                  type="button"
+                  className={`canvas-fit-btn${canvasFocus === 'plan' ? ' active' : ''}`}
+                  onClick={() => setCanvasFocus('plan')}
+                  aria-label="Fit full floor plan to view"
+                  title="Zoom canvas to show full floor plan"
+                >Fit full plan</button>
               </div>
             </div>
             <div className="toolbar" aria-label="Canvas tools">
@@ -2235,7 +2214,7 @@ export function SpacesWorkspace() {
                 />
               </div>
             ) : (
-              <svg ref={svgRef} className="plan-canvas" viewBox={`0 0 ${view.w} ${view.h}`} onClick={onCanvasClick} onMouseMove={(event) => { if (tool === 'draw_room' && roomDraftStart) setRoomDraftCurrent(svgPoint(event)); }}>
+              <svg ref={svgRef} className="plan-canvas" role="img" aria-label="Interactive 2D floor plan canvas" viewBox={`0 0 ${view.w} ${view.h}`} onClick={onCanvasClick} onMouseMove={(event) => { if (tool === 'draw_room' && roomDraftStart) setRoomDraftCurrent(svgPoint(event)); }}>
               <defs>
                 <pattern id="floor-marble" width="40" height="40" patternUnits="userSpaceOnUse">
                   <rect width="40" height="40" fill="#f2ede4" />
@@ -2531,14 +2510,14 @@ export function SpacesWorkspace() {
                   </div>
                 </div>
 
-                <div className="space-panel-tabs" role="tablist" aria-label="Room configuration">
-                  <button type="button" className={spacePanel === 'candidates' ? 'active' : ''} onClick={() => setSpacePanel('candidates')}>Candidates</button>
-                  <button type="button" className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>AI Architect (10Y)</button>
-                  <button type="button" className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>Geometry</button>
-                  <button type="button" className={spacePanel === 'modules' ? 'active' : ''} onClick={() => setSpacePanel('modules')}>Bays &amp; Modules</button>
-                  <button type="button" className={spacePanel === 'flooring' ? 'active' : ''} onClick={() => setSpacePanel('flooring')}>Flooring &amp; Skirting</button>
-                  <button type="button" className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>Design brief</button>
-                  <button type="button" className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>Scene setup</button>
+                <div className="space-panel-tabs" role="tablist" aria-label="Room configuration panels">
+                  <button type="button" role="tab" aria-selected={spacePanel === 'candidates'} onClick={() => setSpacePanel('candidates')}>Candidates</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'advisor'} onClick={() => setSpacePanel('advisor')}>AI Architect (10Y)</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'geometry'} onClick={() => setSpacePanel('geometry')}>Geometry</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'modules'} onClick={() => setSpacePanel('modules')}>Bays &amp; Modules</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'flooring'} onClick={() => setSpacePanel('flooring')}>Flooring &amp; Skirting</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'brief'} onClick={() => setSpacePanel('brief')}>Design brief</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'scene'} onClick={() => setSpacePanel('scene')}>Scene setup</button>
                 </div>
 
                 {spacePanel === 'candidates' && (

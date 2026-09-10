@@ -656,8 +656,11 @@
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.12s ease;
 }
+.btn-chip:hover { border-color: var(--gold); color: var(--gold-dim); transform: translateY(-1px); }
+.btn-chip:active { transform: translateY(0); }
+.btn-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(197,156,45,0.35); }
 .btn-chip.active {
   background: rgba(184, 138, 67, 0.14);
   border-color: var(--gold);
@@ -690,6 +693,149 @@
 .btn-full {
   width: 100%;
 }
+
+/* ── Gold gradient action button (replaces inline style on AI Auto-Enhance) ── */
+.btn-gold-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  min-height: 34px;
+  background: linear-gradient(135deg, #c59c2d, #8f6c12);
+  color: #fff;
+  border: 0;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(197,156,45,0.30);
+  transition: opacity 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+.btn-gold-action:hover { opacity: 0.88; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(197,156,45,0.40); }
+.btn-gold-action:active { transform: translateY(0); }
+.btn-gold-action:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(197,156,45,0.45); }
+.btn-gold-action:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Dark canvas action button (replaces inline style on Detect Doors & Windows) ── */
+.btn-dark-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 13px;
+  min-height: 34px;
+  background: #1c1917;
+  color: #e8c96a;
+  border: 1px solid #786036;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+.btn-dark-action:hover { background: #2b2118; border-color: #c59c2d; transform: translateY(-1px); }
+.btn-dark-action:active { transform: translateY(0); }
+.btn-dark-action:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(197,156,45,0.4); }
+
+/* ── Storey level navigation pill buttons ── */
+.storey-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid #e7e5e4;
+  background: transparent;
+  color: #57534e;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.storey-btn:hover { border-color: var(--gold); color: var(--gold-dim); background: #fffdf9; }
+.storey-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(197,156,45,0.35); }
+.storey-btn[aria-pressed="true"] {
+  border: 1.5px solid var(--gold);
+  background: #fff;
+  color: var(--gold-dim);
+}
+
+/* ── Canvas fit-to-view buttons ── */
+.canvas-fit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.canvas-fit-btn:hover { border-color: var(--gold); color: var(--gold-dim); }
+.canvas-fit-btn.active { border-color: var(--gold); background: rgba(197,156,45,0.12); color: var(--gold-dim); }
+.canvas-fit-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(197,156,45,0.35); }
+.canvas-fit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Space panel sub-tabs — full a11y role=tab support ── */
+.space-panel-tabs [role="tab"] {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  transition: background 0.15s, color 0.15s;
+}
+.space-panel-tabs [role="tab"]:hover { color: var(--text-secondary); background: rgba(255,255,255,0.6); }
+.space-panel-tabs [role="tab"][aria-selected="true"] {
+  background: var(--surface);
+  color: var(--text-secondary);
+  box-shadow: 0 1px 2px rgba(0,0,0,.08);
+}
+.space-panel-tabs [role="tab"]:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(197,156,45,0.35); }
+
+/* ── icon-btn hover/focus ── */
+.icon-btn:hover { border-color: var(--gold); color: var(--gold-dim); }
+.icon-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(197,156,45,0.35); }
+
+/* ── Room action row vastu toggle ── */
+.room-vastu-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  min-height: 30px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.room-vastu-toggle-btn.btn-comp {
+  border: 1px solid #badcc4;
+  background: #f2fbf5;
+  color: #2e9e4f;
+}
+.room-vastu-toggle-btn.btn-comp:hover { border-color: #2e9e4f; background: #e5f7ec; }
+.room-vastu-toggle-btn.btn-viol {
+  border: 1px solid #f5c989;
+  background: #fff8e8;
+  color: #92400e;
+}
+.room-vastu-toggle-btn.btn-viol:hover { border-color: #d97706; background: #fef3c7; }
+.room-vastu-toggle-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(197,156,45,0.35); }
 
 /* ── AI Layout Proposals Banner & Cards ── */
 .ai-proposals-banner {
