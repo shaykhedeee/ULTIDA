@@ -1934,46 +1934,46 @@ export function SpacesWorkspace() {
                 </div>
                 <strong>{prop.name}</strong>
                 <p className="ai-prop-rationale">{prop.rationale}</p>
-                <div className="ai-prop-dims-editor" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                  <label style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 2, color: 'var(--text-muted)' }}>
+                <div className="ai-dims-editor">
+                  <label className="ai-dims-label">
                     W:
                     <input
                       type="number"
+                      className="ai-dims-input"
                       value={prop.dimensionsMm.width}
-                      style={{ width: 55, padding: '2px 4px', fontSize: 10, borderRadius: 4, border: '1px solid var(--line)', background: '#fff' }}
                       onChange={(e) => {
                         const val = parseInt(e.target.value, 10) || 100;
                         setAiProposals(ps => ps.map(p => p.id === prop.id ? { ...p, dimensionsMm: { ...p.dimensionsMm, width: val } } : p));
                       }}
                     />
                   </label>
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>×</span>
-                  <label style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 2, color: 'var(--text-muted)' }}>
+                  <span className="ai-dims-sep">×</span>
+                  <label className="ai-dims-label">
                     D:
                     <input
                       type="number"
+                      className="ai-dims-input"
                       value={prop.dimensionsMm.depth}
-                      style={{ width: 55, padding: '2px 4px', fontSize: 10, borderRadius: 4, border: '1px solid var(--line)', background: '#fff' }}
                       onChange={(e) => {
                         const val = parseInt(e.target.value, 10) || 100;
                         setAiProposals(ps => ps.map(p => p.id === prop.id ? { ...p, dimensionsMm: { ...p.dimensionsMm, depth: val } } : p));
                       }}
                     />
                   </label>
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>×</span>
-                  <label style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 2, color: 'var(--text-muted)' }}>
+                  <span className="ai-dims-sep">×</span>
+                  <label className="ai-dims-label">
                     H:
                     <input
                       type="number"
+                      className="ai-dims-input"
                       value={prop.dimensionsMm.height}
-                      style={{ width: 55, padding: '2px 4px', fontSize: 10, borderRadius: 4, border: '1px solid var(--line)', background: '#fff' }}
                       onChange={(e) => {
                         const val = parseInt(e.target.value, 10) || 100;
                         setAiProposals(ps => ps.map(p => p.id === prop.id ? { ...p, dimensionsMm: { ...p.dimensionsMm, height: val } } : p));
                       }}
                     />
                   </label>
-                  <span style={{ fontSize: 9, color: 'var(--gold-dim)', fontWeight: 700 }}>mm</span>
+                  <span className="ai-dims-unit">mm</span>
                 </div>
               </div>
             ))}
@@ -2023,11 +2023,11 @@ export function SpacesWorkspace() {
                     </select>
                   </div>
                   <div className="rc-dims">
-                    <strong style={{ color: 'var(--brown-dark)' }}>{Math.round(widthMm)} × {Math.round(depthMm)} mm</strong>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}> ({mmToFeetInches(widthMm)} × {mmToFeetInches(depthMm)}) • {(effectiveAreaSqm ?? room.areaSqm).toFixed(1)} m²</span>
+                    <strong className="rc-dims-value">{Math.round(widthMm)} × {Math.round(depthMm)} mm</strong>
+                    <span className="rc-dims-meta"> ({mmToFeetInches(widthMm)} × {mmToFeetInches(depthMm)}) • {(effectiveAreaSqm ?? room.areaSqm).toFixed(1)} m²</span>
                   </div>
-                  <div className="rc-row"><span>Ceiling ↕</span><strong>{room.ceilingHeightMm ?? ceilingHeightMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(room.ceilingHeightMm ?? ceilingHeightMm)})</small></strong></div>
-                  <div className="rc-row"><span>Usable wall</span><strong>{usable.usableWallMm} mm <small style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({mmToFeetInches(usable.usableWallMm)})</small></strong></div>
+                  <div className="rc-row"><span>Ceiling ↕</span><strong>{room.ceilingHeightMm ?? ceilingHeightMm} mm <small className="rc-row-muted">({mmToFeetInches(room.ceilingHeightMm ?? ceilingHeightMm)})</small></strong></div>
+                  <div className="rc-row"><span>Usable wall</span><strong>{usable.usableWallMm} mm <small className="rc-row-muted">({mmToFeetInches(usable.usableWallMm)})</small></strong></div>
 
                   {/* Readiness & Vastu Checklist Row */}
                   <div className="rc-readiness-checklist">

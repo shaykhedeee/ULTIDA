@@ -486,7 +486,18 @@
 @media (min-width: 1440px) {
   .spaces-layout {
     grid-template-columns: 310px minmax(0, 1fr) 420px;
+    grid-template-areas:
+      "rooms canvas props"
+      "rooms canvas props"
+      "rooms context context";
     gap: 16px;
+  }
+  .props-region {
+    grid-area: props;
+    position: sticky;
+    top: 16px;
+    max-height: calc(100dvh - 80px);
+    overflow-y: auto;
   }
   .plan-canvas {
     min-height: 640px;
@@ -1861,3 +1872,424 @@
   cursor: pointer;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   SPACES STUDIO — COMPREHENSIVE UI CONSISTENCY PASS
+   Luxury architectural palette · consistent token usage
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Region title: unified gold-dot accent across all 3 columns ── */
+.region-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 800;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.region-title::before {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--gold-light, #e8c96a), var(--gold, #c59c2d));
+  flex-shrink: 0;
+}
+
+/* ── Room card readiness chips ── */
+.rc-readiness-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 2px;
+}
+.rc-chk-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.rc-chk-chip.pass {
+  background: #ecfdf5;
+  color: #059669;
+  border-color: #a7f3d0;
+}
+.rc-chk-chip.fail {
+  background: #fff8e8;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+.rc-chk-chip.remedy {
+  background: #fff7ed;
+  color: #c05621;
+  border-color: #fed7aa;
+}
+
+/* ── Vastu remedy alert below room card ── */
+.rc-vastu-remedy-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 7px 10px;
+  background: rgba(245, 158, 11, 0.07);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-left: 3px solid #f59e0b;
+  border-radius: 0 6px 6px 0;
+  font-size: 10.5px;
+  color: #92400e;
+  line-height: 1.4;
+}
+.rc-vastu-remedy-alert svg { flex-shrink: 0; margin-top: 1px; color: #d97706; }
+
+/* ── Room dims — replace inline styles ── */
+.rc-dims-value {
+  color: var(--brown-dark, #3d2b1f);
+  font-weight: 800;
+}
+.rc-dims-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.rc-row-muted {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* ── Candidate card grid layout ── */
+.candidates-grid-v2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+@media (min-width: 1200px) {
+  .candidates-grid-v2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ── Candidate score badge variant when active/applied ── */
+.cand-score.active-applied {
+  background: rgba(197, 156, 45, 0.14);
+  color: var(--gold-dim, #8a6d1e);
+  border-color: rgba(197, 156, 45, 0.4);
+}
+
+/* ── Space panel tabs: stronger active indicator ── */
+.space-panel-tabs [role="tab"] {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 5px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.space-panel-tabs [role="tab"]:hover {
+  background: rgba(197, 156, 45, 0.08);
+  color: var(--text-secondary);
+}
+.space-panel-tabs [role="tab"][aria-selected="true"] {
+  background: var(--surface, #fff);
+  color: var(--gold-dim, #8a6d1e);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), inset 0 -2px 0 var(--gold, #c59c2d);
+  font-weight: 900;
+}
+.space-panel-tabs [role="tab"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(197, 156, 45, 0.45), inset 0 -2px 0 var(--gold, #c59c2d);
+}
+
+/* ── Canvas focus bar: elevated ── */
+.canvas-focus-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold, #c59c2d);
+  border-radius: 0 10px 10px 0;
+  background: linear-gradient(90deg, rgba(197, 156, 45, 0.06) 0%, rgba(255, 253, 249, 0.6) 100%);
+}
+.canvas-focus-bar strong {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+.canvas-focus-bar span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Canvas fit buttons: elevated chip style ── */
+.canvas-fit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.canvas-fit-btn:hover {
+  border-color: var(--gold);
+  background: rgba(197, 156, 45, 0.06);
+  color: var(--gold-dim);
+}
+.canvas-fit-btn.active {
+  border-color: var(--gold);
+  background: rgba(197, 156, 45, 0.12);
+  color: var(--gold-dim);
+  box-shadow: inset 0 0 0 1px rgba(197, 156, 45, 0.2);
+}
+.canvas-fit-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.35);
+}
+
+/* ── Toolbar: visual group separators ── */
+.tool-group + .tool-group {
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+.tool-btn {
+  min-height: 32px;
+}
+
+/* ── AI Dims Editor (replaces all inline styles on W×D×H inputs) ── */
+.ai-dims-editor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  flex-wrap: wrap;
+}
+.ai-dims-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.ai-dims-input {
+  width: 56px;
+  padding: 3px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--surface, #fff);
+  color: var(--text-secondary);
+  text-align: center;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ai-dims-input:focus {
+  outline: none;
+  border-color: var(--gold, #c59c2d);
+  box-shadow: 0 0 0 2px rgba(197, 156, 45, 0.18);
+}
+.ai-dims-sep {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+  user-select: none;
+}
+.ai-dims-unit {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--gold-dim, #8a6d1e);
+  letter-spacing: 0.04em;
+}
+
+/* ── Props panel: section dividers for visual hierarchy ── */
+.props-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.props-section:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+.props-section-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+/* ── Room card action row: elevated buttons ── */
+.room-quick-approve {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  min-height: 32px;
+  border: 1px solid rgba(197, 156, 45, 0.35);
+  border-radius: 8px;
+  background: #fffdf9;
+  color: var(--gold-dim);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.room-quick-approve:hover {
+  border-color: var(--gold);
+  background: rgba(197, 156, 45, 0.08);
+  transform: translateY(-1px);
+}
+.room-quick-approve.ready {
+  border-color: #6ee7b7;
+  background: #f0fdf4;
+  color: #059669;
+}
+.room-quick-approve.ready:hover {
+  background: #dcfce7;
+}
+
+/* ── storey level nav: pill buttons ── */
+.storey-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.storey-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold-dim);
+  background: rgba(197, 156, 45, 0.06);
+}
+.storey-btn[aria-pressed="true"] {
+  background: rgba(197, 156, 45, 0.12);
+  border-color: var(--gold);
+  color: var(--gold-dim);
+  font-weight: 800;
+  box-shadow: 0 2px 8px rgba(197, 156, 45, 0.18);
+}
+.storey-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.35);
+}
+
+/* ── Canvas action buttons (gold + dark variants) ── */
+.btn-gold-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  width: 100%;
+  border-radius: 9px;
+  border: 1px solid var(--gold, #c59c2d);
+  background: linear-gradient(135deg, #d4aa3b 0%, #c59c2d 50%, #a07c1e 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  box-shadow: 0 3px 10px rgba(197, 156, 45, 0.3);
+}
+.btn-gold-action:hover:not(:disabled) {
+  background: linear-gradient(135deg, #dfb840 0%, #d4aa3b 50%, #b08830 100%);
+  box-shadow: 0 6px 18px rgba(197, 156, 45, 0.45);
+  transform: translateY(-2px);
+}
+.btn-gold-action:active { transform: translateY(0); }
+.btn-gold-action:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.45); }
+.btn-gold-action:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-dark-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  width: 100%;
+  border-radius: 9px;
+  border: 1px solid rgba(197, 156, 45, 0.35);
+  background: linear-gradient(135deg, #2b1d14, #1a110a);
+  color: #e8c96a;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+}
+.btn-dark-action:hover:not(:disabled) {
+  background: linear-gradient(135deg, #3d2b1f, #23180e);
+  border-color: rgba(197, 156, 45, 0.6);
+  color: #f0d87c;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px);
+}
+.btn-dark-action:active { transform: translateY(0); }
+.btn-dark-action:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.4); }
+.btn-dark-action:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Icon buttons: consistent size + hover ── */
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+}
+.icon-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold-dim);
+  background: rgba(197, 156, 45, 0.06);
+}
+.icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.35);
+}
