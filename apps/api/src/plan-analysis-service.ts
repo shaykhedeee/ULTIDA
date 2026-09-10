@@ -241,12 +241,16 @@ async function runOcr(pngPath: string): Promise<string> {
 
 /** Build a normalized PNG raster buffer for CV/OCR from an image input. */
 export async function rasterizeImage(buffer: Buffer, mimeType: string): Promise<{ png: Buffer; width: number; height: number }> {
-  const image = sharp(buffer, { failOn: 'none' });
+  // Match the canonical tracer's 2400px working reference. The previous
+  // 1600px cap discarded small door-swing arcs and window rails before CV
+  // could normalize them, and ignoring EXIF rotation made phone captures
+  // disagree with the vision pass.
+  const image = sharp(buffer, { failOn: 'none' }).rotate();
   const meta = await image.metadata();
   const width = meta.width ?? 1000;
   const height = meta.height ?? 1000;
   const longest = Math.max(width, height);
-  const resize = longest > 1600 ? { width: Math.round((width / longest) * 1600), height: Math.round((height / longest) * 1600) } : undefined;
+  const resize = longest > 2400 ? { width: Math.round((width / longest) * 2400), height: Math.round((height / longest) * 2400) } : undefined;
   const png = await image
     .resize(resize)
     .png()
