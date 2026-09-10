@@ -102,6 +102,62 @@ export function BriefWorkspace({ projectId, initialBrief, fileName, status, onSa
 
   return (
     <section className="brief-workspace">
+      {/* Fast Track to 3D & AI Render Banner */}
+      <div
+        className="quick-start-3d-banner"
+        style={{
+          background: 'linear-gradient(135deg, #2a221b 0%, #1c1815 100%)',
+          border: '1px solid rgba(197, 156, 45, 0.45)',
+          borderRadius: 12,
+          padding: '14px 20px',
+          marginBottom: 20,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ background: 'rgba(197, 156, 45, 0.2)', padding: 8, borderRadius: 8, color: '#eab308' }}>
+            <Sparkles size={20} />
+          </div>
+          <div>
+            <h4 style={{ margin: 0, color: '#f5f5f4', fontSize: 14, fontWeight: 800 }}>
+              ⚡ Fast Track: Instant 3D Scene &amp; Photorealistic AI Render
+            </h4>
+            <p style={{ margin: '2px 0 0', color: '#a8a29e', fontSize: 12 }}>
+              Ready-to-render modular suite is preloaded. Jump straight into the 3D scene and generate photorealistic interior proposals immediately.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (projectId) {
+              navigate(`/projects/${projectId}/3d?tab=render`);
+            }
+          }}
+          style={{
+            background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+            color: '#1c1917',
+            border: 0,
+            borderRadius: 8,
+            padding: '10px 20px',
+            fontWeight: 800,
+            fontSize: 13,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            boxShadow: '0 2px 10px rgba(197, 156, 45, 0.35)',
+          }}
+        >
+          <Sparkles size={15} /> Jump to 3D &amp; AI Render <ArrowRight size={15} />
+        </button>
+      </div>
+
       <div className="workspace-heading">
         <div>
           <small>CLIENT BRIEF / PROJECT CONTEXT</small>
@@ -189,7 +245,30 @@ export function BriefWorkspace({ projectId, initialBrief, fileName, status, onSa
             Complete the design style, property details, and budget requirements, then proceed to floor plan analysis and vector calibration.
           </small>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (projectId) {
+                navigate(`/projects/${projectId}/3d?tab=render`);
+              }
+            }}
+            style={{
+              background: '#2b2622',
+              color: '#e7e5e4',
+              border: '1px solid #44403c',
+              borderRadius: 8,
+              padding: '10px 18px',
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Sparkles size={15} color="#c59c2d" /> Skip to 3D &amp; AI Render
+          </button>
           <button
             type="button"
             onClick={() => {

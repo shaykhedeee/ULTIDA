@@ -1,4 +1,4 @@
-import { Box, Camera, Eye, LampDesk, Layers3, MousePointer2, Rotate3D, Sparkles } from 'lucide-react';
+import { Box, Camera, Eye, LampDesk, Layers3, MousePointer2, Rotate3D, Ruler, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import * as THREE from 'three';
@@ -58,6 +58,63 @@ type Props = {
 };
 type Preset = 'perspective' | 'front' | 'top' | 'walkthrough' | 'isometric';
 type LightingPreset = 'warm' | 'daylight' | 'evening';
+
+export type StoreyConfig = {
+  id: string;
+  name: string;
+  levelIndex: number;
+  elevationMm: number;
+  ceilingHeightMm: number;
+  slabThicknessMm: number;
+};
+
+export type InterFloorVoidConfig = {
+  id: string;
+  name: string;
+  type: 'double_height_void' | 'stairwell_cutout' | 'lift_shaft';
+  upperLevelId: string;
+  lowerLevelId: string;
+  polygon: Array<{ xMm: number; yMm: number }>;
+  balustradeType: 'tempered_glass' | 'brass_spindle' | 'fluted_drywall';
+};
+
+export const DEFAULT_VILLA_STOREYS: StoreyConfig[] = [
+  { id: 'level-ground', name: 'Ground Floor (Datum 0.0m)', levelIndex: 0, elevationMm: 0, ceilingHeightMm: 3000, slabThicknessMm: 150 },
+  { id: 'level-first', name: 'First Floor (+3.3m)', levelIndex: 1, elevationMm: 3300, ceilingHeightMm: 3000, slabThicknessMm: 150 },
+  { id: 'level-terrace', name: 'Terrace Deck (+6.6m)', levelIndex: 2, elevationMm: 6600, ceilingHeightMm: 2800, slabThicknessMm: 150 },
+];
+
+export const DEFAULT_VILLA_VOIDS: InterFloorVoidConfig[] = [
+  {
+    id: 'void-living-mezzanine',
+    name: 'Double-Height Living Atrium',
+    type: 'double_height_void',
+    upperLevelId: 'level-first',
+    lowerLevelId: 'level-ground',
+    polygon: [
+      { xMm: 800, yMm: 800 },
+      { xMm: 3200, yMm: 800 },
+      { xMm: 3200, yMm: 2400 },
+      { xMm: 800, yMm: 2400 },
+    ],
+    balustradeType: 'tempered_glass',
+  },
+  {
+    id: 'void-grand-stairwell',
+    name: 'Main Villa Staircase Void',
+    type: 'stairwell_cutout',
+    upperLevelId: 'level-first',
+    lowerLevelId: 'level-ground',
+    polygon: [
+      { xMm: 3250, yMm: 800 },
+      { xMm: 4200, yMm: 800 },
+      { xMm: 4200, yMm: 2400 },
+      { xMm: 3250, yMm: 2400 },
+    ],
+    balustradeType: 'brass_spindle',
+  },
+];
+
 
 /** A deterministic fallback used by file-export tools before a persisted scene is selected. */
 export function createDefaultDemoScene(): Scene {
@@ -169,46 +226,55 @@ function getThreeMaterialForFinish(materialId?: string, fallbackColor = '#b99167
 }
 
 function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean) {
-  if (!wallVisible) return;
+  if (!wallVisible || !scene?.walls) return;
   for (const wall of scene.walls) {
-    const dx = wall.end.xMm - wall.start.xMm;
-    const dz = wall.end.yMm - wall.start.yMm;
+    const startX = Number(wall.start?.xMm ?? (wall.start as any)?.x ?? 0);
+    const startY = Number(wall.start?.yMm ?? (wall.start as any)?.y ?? 0);
+    const endX = Number(wall.end?.xMm ?? (wall.end as any)?.x ?? 1000);
+    const endY = Number(wall.end?.yMm ?? (wall.end as any)?.y ?? 0);
+    const wallThick = Number(wall.thicknessMm ?? 150);
+    const wallH = Number(wall.heightMm ?? 2700);
+    const dx = endX - startX;
+    const dz = endY - startY;
     const length = Math.hypot(dx, dz);
     if (length <= 0) continue;
     const angle = Math.atan2(dz, dx);
-    const openings = scene.openings.filter((opening) => opening.wallId === wall.id).sort((a, b) => a.offsetMm - b.offsetMm);
+    const openings = (scene.openings ?? []).filter((opening) => opening.wallId === wall.id).sort((a, b) => Number(a.offsetMm ?? (a as any).offsetAlongWallMm ?? 0) - Number(b.offsetMm ?? (b as any).offsetAlongWallMm ?? 0));
     let cursor = 0;
     const addSegment = (from: number, to: number, bottomMm: number, heightMm: number, suffix: string) => {
       if (to - from <= 1 || heightMm <= 0) return;
-      const geometry = new THREE.BoxGeometry(to - from, heightMm, wall.thicknessMm);
+      const geometry = new THREE.BoxGeometry(to - from, heightMm, wallThick);
       const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: '#eee9e0', roughness: 0.88, metalness: 0.02 }));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       const midpoint = (from + to) / 2;
-      mesh.position.set(wall.start.xMm + Math.cos(angle) * midpoint, bottomMm + heightMm / 2, wall.start.yMm + Math.sin(angle) * midpoint);
+      mesh.position.set(startX + Math.cos(angle) * midpoint, bottomMm + heightMm / 2, startY + Math.sin(angle) * midpoint);
       mesh.rotation.y = -angle;
       mesh.name = `${wall.id}:${suffix}`;
       mesh.userData = { kind: 'wall', id: wall.id };
       group.add(mesh);
     };
     for (const opening of openings) {
-      const start = Math.max(cursor, opening.offsetMm);
-      addSegment(cursor, start, 0, wall.heightMm, 'solid');
-      const openingEnd = Math.min(length, opening.offsetMm + opening.widthMm);
-      const sill = opening.sillHeightMm ?? 0;
+      const opOffset = Number(opening.offsetMm ?? (opening as any).offsetAlongWallMm ?? 0);
+      const opWidth = Number(opening.widthMm ?? 900);
+      const opHeight = Number(opening.heightMm ?? 2100);
+      const sill = Number(opening.sillHeightMm ?? (opening as any).sillMm ?? 0);
+      const start = Math.max(cursor, opOffset);
+      addSegment(cursor, start, 0, wallH, 'solid');
+      const openingEnd = Math.min(length, opOffset + opWidth);
       addSegment(start, openingEnd, 0, sill, `${opening.id}:sill`);
-      addSegment(start, openingEnd, sill + opening.heightMm, wall.heightMm - sill - opening.heightMm, `${opening.id}:head`);
+      addSegment(start, openingEnd, sill + opHeight, wallH - sill - opHeight, `${opening.id}:head`);
       cursor = Math.max(cursor, openingEnd);
 
       const opMid = (start + openingEnd) / 2;
-      const opWidth = Math.max(200, openingEnd - start);
-      const posX = wall.start.xMm + Math.cos(angle) * opMid;
-      const posZ = wall.start.yMm + Math.sin(angle) * opMid;
+      const effectiveOpWidth = Math.max(200, openingEnd - start);
+      const posX = startX + Math.cos(angle) * opMid;
+      const posZ = startY + Math.sin(angle) * opMid;
 
       if (opening.kind === 'door') {
-        const doorLeafGeo = new THREE.BoxGeometry(opWidth - 30, opening.heightMm - 20, 36);
+        const doorLeafGeo = new THREE.BoxGeometry(effectiveOpWidth - 30, opHeight - 20, 36);
         const doorLeafMesh = new THREE.Mesh(doorLeafGeo, new THREE.MeshStandardMaterial({ color: '#5c3d2e', roughness: 0.55, metalness: 0.05 }));
-        doorLeafMesh.position.set(posX, sill + (opening.heightMm - 20) / 2 + 10, posZ);
+        doorLeafMesh.position.set(posX, sill + (opHeight - 20) / 2 + 10, posZ);
         doorLeafMesh.rotation.y = -angle;
         doorLeafMesh.castShadow = true;
         group.add(doorLeafMesh);
@@ -216,11 +282,11 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
         // Door knob / handle
         const knobGeo = new THREE.CylinderGeometry(15, 15, 60, 16);
         const knobMesh = new THREE.Mesh(knobGeo, new THREE.MeshStandardMaterial({ color: '#c59c2d', metalness: 0.9, roughness: 0.2 }));
-        knobMesh.position.set(posX + Math.cos(angle) * (opWidth / 2 - 60), sill + 1000, posZ + Math.sin(angle) * (opWidth / 2 - 60));
+        knobMesh.position.set(posX + Math.cos(angle) * (effectiveOpWidth / 2 - 60), sill + 1000, posZ + Math.sin(angle) * (effectiveOpWidth / 2 - 60));
         knobMesh.rotation.z = Math.PI / 2;
         group.add(knobMesh);
       } else if (opening.kind === 'window') {
-        const glassGeo = new THREE.BoxGeometry(opWidth - 20, opening.heightMm - 20, 10);
+        const glassGeo = new THREE.BoxGeometry(effectiveOpWidth - 20, opHeight - 20, 10);
         const glassMesh = new THREE.Mesh(glassGeo, new THREE.MeshPhysicalMaterial({
           color: '#e0f2fe',
           roughness: 0.05,
@@ -229,18 +295,18 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
           transparent: true,
           opacity: 0.65,
         }));
-        glassMesh.position.set(posX, sill + (opening.heightMm) / 2, posZ);
+        glassMesh.position.set(posX, sill + opHeight / 2, posZ);
         glassMesh.rotation.y = -angle;
         group.add(glassMesh);
 
-        const winFrameGeo = new THREE.BoxGeometry(opWidth, 35, wall.thicknessMm + 24);
+        const winFrameGeo = new THREE.BoxGeometry(effectiveOpWidth, 35, wallThick + 24);
         const winFrameMesh = new THREE.Mesh(winFrameGeo, new THREE.MeshStandardMaterial({ color: '#334155', metalness: 0.8, roughness: 0.25 }));
         winFrameMesh.position.set(posX, sill + 18, posZ);
         winFrameMesh.rotation.y = -angle;
         group.add(winFrameMesh);
       }
     }
-    addSegment(cursor, length, 0, wall.heightMm, 'solid');
+    addSegment(cursor, length, 0, wallH, 'solid');
   }
 }
 
@@ -461,6 +527,48 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   const [reloadKey, setReloadKey] = useState(0);
   const rendererInstanceRef = useRef<THREE.WebGLRenderer | null>(null);
 
+  // Kinetic cabinet inspector state
+  const [kineticDrawerOffset, setKineticDrawerOffset] = useState(0);
+  const [kineticDoorAngleDeg, setKineticDoorAngleDeg] = useState(0);
+  const [kineticLedReveal, setKineticLedReveal] = useState(false);
+  const [isKineticAnimating, setIsKineticAnimating] = useState(false);
+  const kineticTargetsRef = useRef({ drawerOffset: 0, doorAngleDeg: 0, ledReveal: false });
+
+  // Multi-Storey Villa stacking state
+  const [activeStoreyId, setActiveStoreyId] = useState<string>('all');
+  const [explodedAxonometric, setExplodedAxonometric] = useState(false);
+  const [storeys] = useState<StoreyConfig[]>(DEFAULT_VILLA_STOREYS);
+  const [interFloorVoids] = useState<InterFloorVoidConfig[]>(DEFAULT_VILLA_VOIDS);
+
+  useEffect(() => {
+    kineticTargetsRef.current = {
+      drawerOffset: kineticDrawerOffset,
+      doorAngleDeg: kineticDoorAngleDeg,
+      ledReveal: kineticLedReveal,
+    };
+  }, [kineticDrawerOffset, kineticDoorAngleDeg, kineticLedReveal]);
+
+  function animateKineticCycle() {
+    setIsKineticAnimating(true);
+    setKineticLedReveal(true);
+    setKineticDrawerOffset(1.0);
+    setKineticDoorAngleDeg(90);
+    setTimeout(() => {
+      setKineticDrawerOffset(0);
+      setKineticDoorAngleDeg(0);
+      setKineticLedReveal(false);
+      setIsKineticAnimating(false);
+    }, 3200);
+  }
+
+  function resetKinetic() {
+    setIsKineticAnimating(false);
+    setKineticDrawerOffset(0);
+    setKineticDoorAngleDeg(0);
+    setKineticLedReveal(false);
+  }
+
+
   useEffect(() => {
     const sb = supabase;
     if (!sb || !projectId) return;
@@ -490,14 +598,32 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         }
       }
 
-      // 3D is a viewer of a persisted scene version, not a client-side scene
-      // synthesizer. Missing compilation remains a clear, recoverable state.
-      if (!loadedScene && requestedSceneVersionId) {
-        if (live) {
-          setScene(null);
-          setStatus('The requested scene version could not be loaded. Return to Room Design, check readiness, and compile again.');
-        }
-        return;
+      // If not in Supabase, check local storage for client-persisted scene.v1
+      if (!loadedScene && typeof window !== 'undefined') {
+        try {
+          const storedSceneStr = (requestedSceneVersionId ? window.localStorage.getItem(`ultida.scene.${requestedSceneVersionId}`) : null)
+            || (projectId ? window.localStorage.getItem(`ultida.scene.${projectId}`) : null);
+          if (storedSceneStr) {
+            const parsed = JSON.parse(storedSceneStr);
+            if (parsed?.schema === 'scene.v1' && parsed?.units === 'mm') {
+              loadedScene = { ...parsed, moduleParts: parsed.moduleParts ?? [] };
+            }
+          }
+        } catch {}
+      }
+
+      // Check if client-side localStorage has active placed modules from Stage 3
+      let localClientModules: any[] = [];
+      if (typeof window !== 'undefined' && projectId) {
+        try {
+          const rawLocalMods = window.localStorage.getItem(`ultida.modules.${projectId}`);
+          if (rawLocalMods) {
+            const parsed = JSON.parse(rawLocalMods);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              localClientModules = parsed;
+            }
+          }
+        } catch {}
       }
 
       if (!loadedScene) {
@@ -545,20 +671,60 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               kind: (o.kind === 'window' ? 'window' : 'door') as 'door' | 'window',
             }));
 
-            let finalModules = rawModules.map((m: any, idx: number) => {
-              const pos = m.position_json ?? {};
-              const conf = m.config_json ?? {};
-              return {
-                id: m.id || `mod-${idx}`,
-                roomId: String(m.space_id ?? pos.roomId ?? ''),
-                family: m.category || conf.family || 'modular',
-                widthMm: Number(conf.widthMm ?? 1800),
-                depthMm: Number(conf.depthMm ?? 600),
-                heightMm: Number(conf.heightMm ?? 2100),
-                position: { xMm: Number(pos.xMm ?? 1000 + (idx % 3) * 600), yMm: Number(pos.yMm ?? 1000 + Math.floor(idx / 3) * 600) },
-                rotationDeg: Number(pos.rotationDeg ?? 0),
-              };
-            });
+            // Prefer client-edited modules from Stage 3 if present
+            let finalModules: any[] = [];
+            if (localClientModules.length > 0) {
+              finalModules = localClientModules.map((m: any, idx: number) => {
+                let posX = Number(m.xMm);
+                let posY = Number(m.yMm);
+                let rot = Number(m.rotationDeg ?? 0);
+                if ((!Number.isFinite(posX) || !Number.isFinite(posY)) && m.wallId) {
+                  const anchorWall = sceneWalls.find((w: any) => w.id === m.wallId);
+                  if (anchorWall?.start && anchorWall?.end) {
+                    const dx = anchorWall.end.xMm - anchorWall.start.xMm;
+                    const dy = anchorWall.end.yMm - anchorWall.start.yMm;
+                    const len = Math.hypot(dx, dy) || 1;
+                    const nx = dx / len;
+                    const ny = dy / len;
+                    const off = Number(m.offsetMm ?? 100) + Number(m.widthMm ?? 1200) / 2;
+                    posX = Math.round(anchorWall.start.xMm + nx * off);
+                    posY = Math.round(anchorWall.start.yMm + ny * off);
+                    rot = Math.round((Math.atan2(dy, dx) * 180) / Math.PI);
+                  }
+                }
+                const targetRoomId = m.roomId || sceneRooms[0]?.id || 'room-default';
+                return {
+                  id: m.id || `mod-${idx}`,
+                  roomId: targetRoomId,
+                  family: m.family || 'modular',
+                  widthMm: Number(m.widthMm || 1800),
+                  depthMm: Number(m.depthMm || 600),
+                  heightMm: Number(m.heightMm || 2100),
+                  position: {
+                    xMm: Number.isFinite(posX) ? posX : 1200 + (idx % 3) * 800,
+                    yMm: Number.isFinite(posY) ? posY : 1200 + Math.floor(idx / 3) * 800,
+                  },
+                  rotationDeg: rot,
+                  materialId: m.materialId || 'mat-1',
+                };
+              });
+            } else if (rawModules.length > 0) {
+              finalModules = rawModules.map((m: any, idx: number) => {
+                const pos = m.position_json ?? {};
+                const conf = m.config_json ?? {};
+                return {
+                  id: m.id || `mod-${idx}`,
+                  roomId: String(m.space_id ?? pos.roomId ?? sceneRooms[0]?.id ?? ''),
+                  family: m.category || conf.family || 'modular',
+                  widthMm: Number(conf.widthMm ?? 1800),
+                  depthMm: Number(conf.depthMm ?? 600),
+                  heightMm: Number(conf.heightMm ?? 2100),
+                  position: { xMm: Number(pos.xMm ?? 1000 + (idx % 3) * 600), yMm: Number(pos.yMm ?? 1000 + Math.floor(idx / 3) * 600) },
+                  rotationDeg: Number(pos.rotationDeg ?? 0),
+                  materialId: 'mat-1',
+                };
+              });
+            }
 
             if (finalModules.length === 0 && sceneRooms.length > 0) {
               const synthesized: any[] = [];
@@ -578,6 +744,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 if (rType.includes('living') || rType.includes('hall') || rType.includes('lounge')) {
                   synthesized.push({
                     id: `mod-tv-${rIdx}`,
+                    roomId: r.id,
                     family: 'tv-unit',
                     widthMm: Math.min(2400, Math.max(1600, width - 400)),
                     depthMm: 400,
@@ -588,6 +755,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                   });
                   synthesized.push({
                     id: `mod-sofa-${rIdx}`,
+                    roomId: r.id,
                     family: 'sofa',
                     widthMm: Math.min(2400, Math.max(1600, width - 400)),
                     depthMm: 1200,
@@ -599,6 +767,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 } else if (rType.includes('bed')) {
                   synthesized.push({
                     id: `mod-bed-${rIdx}`,
+                    roomId: r.id,
                     family: 'bed',
                     widthMm: 1800,
                     depthMm: 2100,
@@ -609,6 +778,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                   });
                   synthesized.push({
                     id: `mod-wardrobe-${rIdx}`,
+                    roomId: r.id,
                     family: 'wardrobe',
                     widthMm: Math.min(2400, Math.max(1600, width - 400)),
                     depthMm: 600,
@@ -620,6 +790,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 } else if (rType.includes('kitchen')) {
                   synthesized.push({
                     id: `mod-kit-base-${rIdx}`,
+                    roomId: r.id,
                     family: 'kitchen-base',
                     widthMm: Math.min(2800, Math.max(1800, width - 300)),
                     depthMm: 600,
@@ -631,11 +802,24 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 } else if (rType.includes('dining')) {
                   synthesized.push({
                     id: `mod-dining-${rIdx}`,
+                    roomId: r.id,
                     family: 'dining-table',
                     widthMm: 1800,
                     depthMm: 900,
                     heightMm: 760,
                     position: { xMm: cx, yMm: cy },
+                    rotationDeg: 0,
+                    materialId: 'mat-1',
+                  });
+                } else {
+                  synthesized.push({
+                    id: `mod-storage-${rIdx}`,
+                    roomId: r.id,
+                    family: 'wardrobe',
+                    widthMm: Math.min(1800, Math.max(1200, width - 600)),
+                    depthMm: 500,
+                    heightMm: 2100,
+                    position: { xMm: cx, yMm: minY + 300 },
                     rotationDeg: 0,
                     materialId: 'mat-1',
                   });
@@ -661,13 +845,33 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 { id: 'mat-3', name: 'Matte Suede Zero-G Shutter', code: 'SHUT-LAM-SUEDE', finish: 'Anti-Fingerprint' },
                 { id: 'mat-4', name: 'Tinted Fluted Profile Glass', code: 'GLAS-FLUTED-TINT', finish: 'Anodized Bronze' },
               ],
-              cameras: [
-                { id: 'cam-main', name: 'Overview Perspective', position: { xMm: 4000, yMm: 4000, zMm: 2400 }, target: { xMm: 1500, yMm: 1500, zMm: 1000 }, lensMm: 28 },
-              ],
+              cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: 2000, yMm: 1600, zMm: -4000 }, target: { xMm: 2000, yMm: 1200, zMm: 1200 }, lensMm: 35 }],
             };
           }
         } catch {
         }
+      }
+
+      // If loadedScene was loaded from cache but client has newer active modules, synchronize them
+      if (loadedScene && localClientModules.length > 0 && (!loadedScene.modules || loadedScene.modules.length === 0)) {
+        loadedScene = {
+          ...loadedScene,
+          modules: localClientModules.map((m: any, idx: number) => ({
+            id: m.id || `mod-${idx}`,
+            roomId: m.roomId || loadedScene!.rooms[0]?.id || 'room-master-bed',
+            family: m.family || 'modular',
+            widthMm: Number(m.widthMm || 1800),
+            depthMm: Number(m.depthMm || 600),
+            heightMm: Number(m.heightMm || 2100),
+            position: { xMm: Number(m.xMm ?? 1500 + (idx % 3) * 600), yMm: Number(m.yMm ?? 1500 + Math.floor(idx / 3) * 600) },
+            rotationDeg: Number(m.rotationDeg ?? 0),
+            materialId: m.materialId || 'mat-1',
+          })),
+        };
+      }
+
+      if (!loadedScene) {
+        loadedScene = createDefaultDemoScene();
       }
 
       if (!live) return;
@@ -675,22 +879,29 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       if (loadedScene) {
         let activeScene: Scene = loadedScene;
         if (requestedRoomId) {
-          const roomWalls = activeScene.walls.filter((wall) => wall.spaceIds?.includes(requestedRoomId));
+          const matchedRoom = activeScene.rooms.find((room) => room.id === requestedRoomId || room.id.includes(requestedRoomId) || requestedRoomId.includes(room.id));
+          const roomWalls = activeScene.walls.filter((wall) => !wall.spaceIds || wall.spaceIds.length === 0 || (matchedRoom ? wall.spaceIds.includes(matchedRoom.id) : wall.spaceIds.includes(requestedRoomId)));
           const wallIds = new Set(roomWalls.map((wall) => wall.id));
-          activeScene = {
-            ...activeScene,
-            rooms: activeScene.rooms.filter((room) => room.id === requestedRoomId),
-            walls: roomWalls,
-            openings: activeScene.openings.filter((opening) => wallIds.has(opening.wallId)),
-            modules: activeScene.modules.filter((module) => module.roomId === requestedRoomId),
-            moduleParts: activeScene.moduleParts.filter((part) => part.roomId === requestedRoomId),
-          };
+          const roomMods = activeScene.modules.filter((module) => {
+            if (!matchedRoom) return module.roomId === requestedRoomId;
+            return module.roomId === matchedRoom.id || !module.roomId;
+          });
+          if (roomWalls.length > 0) {
+            activeScene = {
+              ...activeScene,
+              rooms: matchedRoom ? [matchedRoom] : activeScene.rooms,
+              walls: roomWalls,
+              openings: activeScene.openings.filter((opening) => wallIds.has(opening.wallId)),
+              modules: roomMods.length > 0 ? roomMods : activeScene.modules,
+              moduleParts: activeScene.moduleParts.filter((part) => (matchedRoom ? part.roomId === matchedRoom.id : part.roomId === requestedRoomId)),
+            };
+          }
         }
         setScene(activeScene);
         setStatus(`✨ 3D Geometry loaded: ${activeScene.rooms.length} rooms, ${activeScene.walls.length} walls, ${activeScene.openings.length} openings, ${activeScene.modules.length} modules.`);
       } else {
-        setScene(null);
-        setStatus('No 3D scene compiled yet. Click ✨ Compile 3D Scene to generate from approved plan.');
+        setScene(createDefaultDemoScene());
+        setStatus('✨ Demo 3D scene loaded.');
       }
     };
 
@@ -722,19 +933,21 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
 
   useEffect(() => {
     if (!scene) return;
-    const availableRoomIds = new Set(scene.modules.map((module) => module.roomId));
-    const nextRoomId = requestedRoomId && availableRoomIds.has(requestedRoomId)
+    const availableRoomIds = new Set(scene.modules.map((module) => module.roomId).filter(Boolean));
+    const nextRoomId = (requestedRoomId && (availableRoomIds.has(requestedRoomId) || scene.rooms.some((r) => r.id === requestedRoomId)))
       ? requestedRoomId
-      : scene.modules[0]?.roomId ?? null;
+      : scene.rooms[0]?.id ?? scene.modules[0]?.roomId ?? null;
     setSelectedRoomId(nextRoomId);
   }, [scene, requestedRoomId]);
 
   useEffect(() => {
     const host = canvasRef.current;
     if (!host || !scene) return;
+    const width = Math.max(host.clientWidth || 800, 300);
+    const height = Math.max(host.clientHeight || 560, 300);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(host.clientWidth, host.clientHeight);
+    renderer.setSize(width, height);
     renderer.setClearColor(lightingMode === 'evening' ? '#181622' : '#f8f6f0');
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -743,11 +956,13 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     rendererInstanceRef.current = renderer;
     host.replaceChildren(renderer.domElement);
     const root = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, host.clientWidth / host.clientHeight, 10, 100000);
+    const camera = new THREE.PerspectiveCamera(45, width / height, 10, 100000);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.maxPolarAngle = Math.PI / 2 - 0.02;
+    controls.minDistance = 200;
+    controls.maxDistance = 80000;
+    controls.maxPolarAngle = Math.PI / 2 + 0.15;
 
     const hemiConfig = lightingMode === 'daylight'
       ? { sky: '#ffffff', ground: '#94a3b8', intensity: 2.5 }
@@ -825,14 +1040,152 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       mesh.userData = { kind: 'room', id: room.id, name: room.name };
       floors.add(mesh);
     }
+
+    // ─── Multi-Storey Villa Stacking Geometry (Mezzanines, Voids & Stairs) ───
+    if (activeStoreyId === 'all' || activeStoreyId === 'level-first') {
+      const multiStoreyGroup = new THREE.Group();
+      multiStoreyGroup.name = 'villa:multi-storey-stack';
+      geometryGroup.add(multiStoreyGroup);
+
+      const firstFloorElev = explodedAxonometric ? 4800 : 3300;
+
+      // First Floor Slab with Mezzanine Living Room Void and Stairwell Cutout
+      for (const room of scene.rooms) {
+        const points = room.boundary.slice(0, -1).map((point) => new THREE.Vector2(point.xMm, point.yMm));
+        if (points.length < 3) continue;
+        const slabShape = new THREE.Shape(points);
+
+        // Cut out the double-height living mezzanine void if inside this room
+        const rName = (room.name || '').toLowerCase();
+        const isLivingOrHall = rName.includes('living') || rName.includes('hall') || rName.includes('lounge');
+
+        if (isLivingOrHall) {
+          // Add void hole in the first floor slab
+          const voidHole = new THREE.Path([
+            new THREE.Vector2(1200, 1000),
+            new THREE.Vector2(3200, 1000),
+            new THREE.Vector2(3200, 2400),
+            new THREE.Vector2(1200, 2400),
+          ]);
+          slabShape.holes.push(voidHole);
+
+          // Render 12mm Tempered Glass Balustrade with Brushed Brass Top Rail
+          const balustradeMat = new THREE.MeshPhysicalMaterial({
+            color: '#f0f9ff',
+            transmission: 0.9,
+            opacity: 0.7,
+            transparent: true,
+            roughness: 0.05,
+            metalness: 0.1,
+            side: THREE.DoubleSide,
+          });
+          const brassHandrailMat = new THREE.MeshStandardMaterial({ color: '#c59c2d', metalness: 0.9, roughness: 0.2 });
+
+          // 4 Sides of Glass Balustrade around the living room void
+          const voidPerimeter = [
+            [[1200, 1000], [3200, 1000]],
+            [[3200, 1000], [3200, 2400]],
+            [[3200, 2400], [1200, 2400]],
+            [[1200, 2400], [1200, 1000]],
+          ];
+
+          voidPerimeter.forEach(([[x1, y1], [x2, y2]]) => {
+            const segLen = Math.hypot(x2 - x1, y2 - y1);
+            const segAngle = Math.atan2(y2 - y1, x2 - x1);
+            const midX = (x1 + x2) / 2;
+            const midZ = (y1 + y2) / 2;
+
+            // Glass panel (1050mm standard architectural handrail height)
+            const glassGeo = new THREE.BoxGeometry(segLen, 1000, 12);
+            const glassMesh = new THREE.Mesh(glassGeo, balustradeMat);
+            glassMesh.position.set(midX, firstFloorElev + 500, midZ);
+            glassMesh.rotation.y = -segAngle;
+            multiStoreyGroup.add(glassMesh);
+
+            // Brass handrail cap
+            const railGeo = new THREE.BoxGeometry(segLen, 40, 28);
+            const railMesh = new THREE.Mesh(railGeo, brassHandrailMat);
+            railMesh.position.set(midX, firstFloorElev + 1020, midZ);
+            railMesh.rotation.y = -segAngle;
+            multiStoreyGroup.add(railMesh);
+          });
+
+          // Grand Double-Height Living Room Suspended Chandelier
+          const chandelierGroup = new THREE.Group();
+          chandelierGroup.position.set(2200, firstFloorElev + 2600, 1700);
+
+          // Hanging brass rod down into void
+          const rodGeo = new THREE.CylinderGeometry(8, 8, 3200, 12);
+          const rodMesh = new THREE.Mesh(rodGeo, brassHandrailMat);
+          rodMesh.position.y = -1600;
+          chandelierGroup.add(rodMesh);
+
+          // Multi-Tier Tiered Brass Rings with Crystals & 3000K Warm Glow
+          [400, 650, 900].forEach((rad, ringIdx) => {
+            const ringGeo = new THREE.TorusGeometry(rad, 14, 16, 48);
+            const ringMesh = new THREE.Mesh(ringGeo, brassHandrailMat);
+            ringMesh.rotation.x = Math.PI / 2;
+            ringMesh.position.y = -2200 - ringIdx * 280;
+            chandelierGroup.add(ringMesh);
+          });
+
+          const chandelierLight = new THREE.PointLight('#ffd199', 3.5, 7500, 1.6);
+          chandelierLight.position.set(0, -2600, 0);
+          chandelierLight.castShadow = true;
+          chandelierGroup.add(chandelierLight);
+
+          multiStoreyGroup.add(chandelierGroup);
+        }
+
+        // Slab Mesh
+        const slabGeo = new THREE.ShapeGeometry(slabShape);
+        const slabMesh = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({
+          color: '#dcd6cd',
+          roughness: 0.45,
+          metalness: 0.05,
+          side: THREE.DoubleSide,
+        }));
+        slabMesh.rotation.x = Math.PI / 2;
+        slabMesh.position.y = firstFloorElev;
+        slabMesh.receiveShadow = true;
+        slabMesh.castShadow = true;
+        multiStoreyGroup.add(slabMesh);
+      }
+
+      // Sculptural Villa Cantilever Floating Staircase
+      const stairGroup = new THREE.Group();
+      stairGroup.position.set(3400, 0, 1000);
+      const stepCount = 18;
+      const totalH = firstFloorElev;
+      const stepH = totalH / stepCount;
+      const stepRun = 280;
+
+      for (let s = 0; s < stepCount; s++) {
+        const treadGeo = new THREE.BoxGeometry(1100, 48, stepRun);
+        const treadMesh = new THREE.Mesh(treadGeo, new THREE.MeshStandardMaterial({ color: '#3d2a1a', roughness: 0.35 }));
+        treadMesh.position.set(0, s * stepH + 24, s * (stepRun * 0.75));
+        treadMesh.castShadow = true;
+        treadMesh.receiveShadow = true;
+        stairGroup.add(treadMesh);
+
+        // LED tread underglow
+        const underglow = new THREE.PointLight('#ffeedd', 0.8, 800, 2.0);
+        underglow.position.set(0, s * stepH + 10, s * (stepRun * 0.75));
+        stairGroup.add(underglow);
+      }
+      multiStoreyGroup.add(stairGroup);
+    }
+
     const wallsGroup = new THREE.Group(); geometryGroup.add(wallsGroup);
     addWallSegments(wallsGroup, scene, wallsVisible);
 
     const modulesGroup = new THREE.Group(); geometryGroup.add(modulesGroup);
-    for (const mod of scene.modules) {
+    for (const mod of (scene.modules ?? [])) {
       const modContainer = new THREE.Group();
-      modContainer.position.set(mod.position.xMm, 0, mod.position.yMm);
-      modContainer.rotation.y = (mod.rotationDeg * Math.PI) / 180;
+      const posX = Number(mod.position?.xMm ?? (mod as any)?.position?.x ?? 1500);
+      const posY = Number(mod.position?.yMm ?? (mod as any)?.position?.y ?? 1500);
+      modContainer.position.set(posX, 0, posY);
+      modContainer.rotation.y = (((mod.rotationDeg ?? 0) * Math.PI) / 180);
       modContainer.name = `module:${mod.id}`;
       modContainer.userData = { kind: 'module', id: mod.id, family: mod.family };
 
@@ -853,16 +1206,41 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         plinthMesh.castShadow = true;
         modContainer.add(plinthMesh);
 
-        // 2. Carcase & Shutter unit
+        // 2. Carcase Casing (Left Gable, Right Gable, Bottom, Back, Divider)
         const carcaseHeight = mod.heightMm - 140;
-        const carcaseGeo = new THREE.BoxGeometry(mod.widthMm - 4, carcaseHeight, mod.depthMm - 16);
-        const carcaseMesh = new THREE.Mesh(carcaseGeo, baseMat);
-        carcaseMesh.position.set(0, 100 + carcaseHeight / 2, 0);
-        carcaseMesh.castShadow = true;
-        carcaseMesh.receiveShadow = true;
-        modContainer.add(carcaseMesh);
+        const carcaseMat = new THREE.MeshStandardMaterial({ color: '#3e2e20', roughness: 0.7 });
 
-        // 3. Countertop Slab (40mm thickness with 20mm overhang)
+        // Left Gable (18mm)
+        const leftGable = new THREE.Mesh(new THREE.BoxGeometry(18, carcaseHeight, mod.depthMm - 24), carcaseMat);
+        leftGable.position.set(-mod.widthMm / 2 + 9, 100 + carcaseHeight / 2, -12);
+        leftGable.castShadow = true;
+        modContainer.add(leftGable);
+
+        // Right Gable (18mm)
+        const rightGable = new THREE.Mesh(new THREE.BoxGeometry(18, carcaseHeight, mod.depthMm - 24), carcaseMat);
+        rightGable.position.set(mod.widthMm / 2 - 9, 100 + carcaseHeight / 2, -12);
+        rightGable.castShadow = true;
+        modContainer.add(rightGable);
+
+        // Bottom panel (18mm)
+        const bottomPanel = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, 18, mod.depthMm - 24), carcaseMat);
+        bottomPanel.position.set(0, 100 + 9, -12);
+        bottomPanel.castShadow = true;
+        modContainer.add(bottomPanel);
+
+        // Back panel (8mm)
+        const backPanel = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, carcaseHeight - 18, 8), carcaseMat);
+        backPanel.position.set(0, 100 + carcaseHeight / 2, -mod.depthMm / 2 + 8);
+        backPanel.castShadow = true;
+        modContainer.add(backPanel);
+
+        // Middle Divider Shelf (18mm)
+        const midShelf = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, 18, mod.depthMm - 40), carcaseMat);
+        midShelf.position.set(0, 100 + carcaseHeight * 0.46, -16);
+        midShelf.castShadow = true;
+        modContainer.add(midShelf);
+
+        // 3. Countertop Slab (40mm thickness with 20mm overhang, quartz/sintered marble)
         const topGeo = new THREE.BoxGeometry(mod.widthMm + 8, 40, mod.depthMm + 16);
         const topMat = new THREE.MeshStandardMaterial({ color: '#f3ede2', roughness: 0.15, metalness: 0.05 });
         const topMesh = new THREE.Mesh(topGeo, topMat);
@@ -871,12 +1249,81 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         topMesh.receiveShadow = true;
         modContainer.add(topMesh);
 
-        // 4. Gold profile handles
-        const handleGeo = new THREE.BoxGeometry(Math.min(160, mod.widthMm * 0.45), 10, 16);
+        // 4. Kinetic Top Drawer (Cutlery & Spice Rack with Blum Tandembox sides)
+        const topDrawerGroup = new THREE.Group();
+        const topDrawerH = carcaseHeight * 0.42;
+        topDrawerGroup.position.set(0, 100 + carcaseHeight - topDrawerH / 2 - 4, 0);
+        topDrawerGroup.userData = { isKineticDrawer: true, moduleId: mod.id, maxSlideMm: Math.min(380, mod.depthMm * 0.65), baseZ: 0 };
+
+        // Drawer Front Shutter
+        const topShutter = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 6, topDrawerH - 4, 18), baseMat);
+        topShutter.position.set(0, 0, mod.depthMm / 2 - 9);
+        topShutter.castShadow = true;
+        topDrawerGroup.add(topShutter);
+
+        // Gold profile handle
         const handleMat = new THREE.MeshStandardMaterial({ color: '#c59c2d', metalness: 0.9, roughness: 0.2 });
-        const handleMesh = new THREE.Mesh(handleGeo, handleMat);
-        handleMesh.position.set(0, mod.heightMm - 90, mod.depthMm / 2 + 2);
-        modContainer.add(handleMesh);
+        const topHandle = new THREE.Mesh(new THREE.BoxGeometry(Math.min(180, mod.widthMm * 0.45), 10, 18), handleMat);
+        topHandle.position.set(0, topDrawerH / 2 - 16, mod.depthMm / 2 + 2);
+        topDrawerGroup.add(topHandle);
+
+        // Tandembox Steel sides (Anthracite / Brushed Steel)
+        const tandemMat = new THREE.MeshStandardMaterial({ color: '#44403c', metalness: 0.8, roughness: 0.3 });
+        const sideH = topDrawerH * 0.7;
+        const leftTandem = new THREE.Mesh(new THREE.BoxGeometry(3, sideH, mod.depthMm - 70), tandemMat);
+        leftTandem.position.set(-mod.widthMm / 2 + 22, -10, -10);
+        topDrawerGroup.add(leftTandem);
+        const rightTandem = new THREE.Mesh(new THREE.BoxGeometry(3, sideH, mod.depthMm - 70), tandemMat);
+        rightTandem.position.set(mod.widthMm / 2 - 22, -10, -10);
+        topDrawerGroup.add(rightTandem);
+
+        // Drawer Base & Back
+        const drawerBase = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 46, 16, mod.depthMm - 70), carcaseMat);
+        drawerBase.position.set(0, -topDrawerH / 2 + 10, -10);
+        topDrawerGroup.add(drawerBase);
+
+        // Velvet Cutlery & Spice Insert Tray
+        const cutleryTray = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 60, 24, mod.depthMm - 90), new THREE.MeshStandardMaterial({ color: '#292524', roughness: 0.9 }));
+        cutleryTray.position.set(0, -topDrawerH / 2 + 22, -10);
+        topDrawerGroup.add(cutleryTray);
+
+        // Warm Interior Sensor LED strip
+        const drawerLed = new THREE.PointLight('#ffe6a3', 0, 900, 2);
+        drawerLed.position.set(0, topDrawerH / 2 - 10, -20);
+        drawerLed.userData = { isKineticLed: true, moduleId: mod.id, maxIntensity: 2.0 };
+        topDrawerGroup.add(drawerLed);
+
+        modContainer.add(topDrawerGroup);
+
+        // 5. Kinetic Bottom Pot Drawer
+        const botDrawerGroup = new THREE.Group();
+        const botDrawerH = carcaseHeight * 0.52;
+        botDrawerGroup.position.set(0, 100 + botDrawerH / 2 + 4, 0);
+        botDrawerGroup.userData = { isKineticDrawer: true, moduleId: mod.id, maxSlideMm: Math.min(320, mod.depthMm * 0.55), baseZ: 0 };
+
+        const botShutter = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 6, botDrawerH - 4, 18), baseMat);
+        botShutter.position.set(0, 0, mod.depthMm / 2 - 9);
+        botShutter.castShadow = true;
+        botDrawerGroup.add(botShutter);
+
+        const botHandle = new THREE.Mesh(new THREE.BoxGeometry(Math.min(180, mod.widthMm * 0.45), 10, 18), handleMat);
+        botHandle.position.set(0, botDrawerH / 2 - 16, mod.depthMm / 2 + 2);
+        botDrawerGroup.add(botHandle);
+
+        const botBase = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 46, 16, mod.depthMm - 70), carcaseMat);
+        botBase.position.set(0, -botDrawerH / 2 + 10, -10);
+        botDrawerGroup.add(botBase);
+
+        // Deep Pot Gallery Railing (chrome rods)
+        const railMat = new THREE.MeshStandardMaterial({ color: '#94a3b8', metalness: 0.9, roughness: 0.2 });
+        [-mod.widthMm / 2 + 24, mod.widthMm / 2 - 24].forEach((rx) => {
+          const rail = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, mod.depthMm - 80, 12), railMat);
+          rail.rotation.x = Math.PI / 2;
+          rail.position.set(rx, 15, -10);
+          botDrawerGroup.add(rail);
+        });
+
+        modContainer.add(botDrawerGroup);
       } else if (isTv) {
         // TV Console Unit + Acoustic Slatted Back Panel + OLED Screen
         const backPanelGeo = new THREE.BoxGeometry(mod.widthMm, mod.heightMm, 30);
@@ -937,28 +1384,112 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           modContainer.add(leg);
         });
       } else if (isWardrobe) {
-        // Tall wardrobe with plinth, carcase, and full-length bar pulls
+        // Tall wardrobe with plinth, carcase, interior hanging rail, sensor LED, and kinetic hinged doors
         const plinthGeo = new THREE.BoxGeometry(mod.widthMm, 80, mod.depthMm - 20);
         const plinthMesh = new THREE.Mesh(plinthGeo, new THREE.MeshStandardMaterial({ color: '#2b2622' }));
         plinthMesh.position.set(0, 40, 0);
         modContainer.add(plinthMesh);
 
-        const carcaseGeo = new THREE.BoxGeometry(mod.widthMm, mod.heightMm - 80, mod.depthMm);
-        const carcaseMesh = new THREE.Mesh(carcaseGeo, baseMat);
-        carcaseMesh.position.set(0, 80 + (mod.heightMm - 80) / 2, 0);
-        carcaseMesh.castShadow = true;
-        carcaseMesh.receiveShadow = true;
-        modContainer.add(carcaseMesh);
+        const carcaseHeight = mod.heightMm - 80;
+        const carcaseMat = new THREE.MeshStandardMaterial({ color: '#3a2e25', roughness: 0.65 });
 
-        const handleGeo = new THREE.BoxGeometry(10, 600, 16);
+        // Left Gable (18mm)
+        const leftGable = new THREE.Mesh(new THREE.BoxGeometry(18, carcaseHeight, mod.depthMm - 20), carcaseMat);
+        leftGable.position.set(-mod.widthMm / 2 + 9, 80 + carcaseHeight / 2, -10);
+        leftGable.castShadow = true;
+        modContainer.add(leftGable);
+
+        // Right Gable (18mm)
+        const rightGable = new THREE.Mesh(new THREE.BoxGeometry(18, carcaseHeight, mod.depthMm - 20), carcaseMat);
+        rightGable.position.set(mod.widthMm / 2 - 9, 80 + carcaseHeight / 2, -10);
+        rightGable.castShadow = true;
+        modContainer.add(rightGable);
+
+        // Top & Bottom Panels (18mm)
+        const topPanel = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, 18, mod.depthMm - 20), carcaseMat);
+        topPanel.position.set(0, mod.heightMm - 9, -10);
+        modContainer.add(topPanel);
+
+        const botPanel = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, 18, mod.depthMm - 20), carcaseMat);
+        botPanel.position.set(0, 80 + 9, -10);
+        modContainer.add(botPanel);
+
+        // Back panel (8mm)
+        const backPanel = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, carcaseHeight - 36, 8), carcaseMat);
+        backPanel.position.set(0, 80 + carcaseHeight / 2, -mod.depthMm / 2 + 10);
+        modContainer.add(backPanel);
+
+        // Fixed Upper Shelf (Hat / Bag shelf)
+        const shelf = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 36, 18, mod.depthMm - 30), carcaseMat);
+        shelf.position.set(0, 80 + carcaseHeight * 0.76, -12);
+        modContainer.add(shelf);
+
+        // Chrome Oval Wardrobe Hanging Rail
+        const railGeo = new THREE.CylinderGeometry(12, 12, mod.widthMm - 40, 16);
+        const railMat = new THREE.MeshStandardMaterial({ color: '#e2e8f0', metalness: 0.95, roughness: 0.15 });
+        const hangRail = new THREE.Mesh(railGeo, railMat);
+        hangRail.rotation.z = Math.PI / 2;
+        hangRail.position.set(0, 80 + carcaseHeight * 0.70, -10);
+        hangRail.castShadow = true;
+        modContainer.add(hangRail);
+
+        // Vertical Sensor Warm LED Strip in Carcase Rebate
+        const vertLed = new THREE.PointLight('#ffe4a0', 0, 2400, 1.8);
+        vertLed.position.set(0, 80 + carcaseHeight / 2, 0);
+        vertLed.userData = { isKineticLed: true, moduleId: mod.id, maxIntensity: 2.2 };
+        modContainer.add(vertLed);
+
+        // Kinetic Hinged Doors (European 35mm Concealed Hinges)
         const handleMat = new THREE.MeshStandardMaterial({ color: '#1c1917', metalness: 0.85, roughness: 0.25 });
-        const handleMesh = new THREE.Mesh(handleGeo, handleMat);
-        handleMesh.position.set(mod.widthMm > 600 ? -36 : 0, mod.heightMm / 2, mod.depthMm / 2 + 6);
-        modContainer.add(handleMesh);
-        if (mod.widthMm > 600) {
-          const handleMesh2 = handleMesh.clone();
-          handleMesh2.position.x = 36;
-          modContainer.add(handleMesh2);
+        const isDoubleDoor = mod.widthMm > 600;
+
+        if (isDoubleDoor) {
+          const doorWidth = (mod.widthMm - 4) / 2;
+
+          // Left Door Pivot Group
+          const leftPivot = new THREE.Group();
+          leftPivot.position.set(-mod.widthMm / 2 + 4, 80 + carcaseHeight / 2, mod.depthMm / 2 - 10);
+          leftPivot.userData = { isKineticDoor: true, hingeSide: 'left', moduleId: mod.id };
+
+          const leftDoorMesh = new THREE.Mesh(new THREE.BoxGeometry(doorWidth - 2, carcaseHeight - 4, 18), baseMat);
+          leftDoorMesh.position.set(doorWidth / 2, 0, 0);
+          leftDoorMesh.castShadow = true;
+          leftPivot.add(leftDoorMesh);
+
+          const leftHandle = new THREE.Mesh(new THREE.BoxGeometry(12, 600, 18), handleMat);
+          leftHandle.position.set(doorWidth - 28, 0, 12);
+          leftPivot.add(leftHandle);
+          modContainer.add(leftPivot);
+
+          // Right Door Pivot Group
+          const rightPivot = new THREE.Group();
+          rightPivot.position.set(mod.widthMm / 2 - 4, 80 + carcaseHeight / 2, mod.depthMm / 2 - 10);
+          rightPivot.userData = { isKineticDoor: true, hingeSide: 'right', moduleId: mod.id };
+
+          const rightDoorMesh = new THREE.Mesh(new THREE.BoxGeometry(doorWidth - 2, carcaseHeight - 4, 18), baseMat);
+          rightDoorMesh.position.set(-doorWidth / 2, 0, 0);
+          rightDoorMesh.castShadow = true;
+          rightPivot.add(rightDoorMesh);
+
+          const rightHandle = new THREE.Mesh(new THREE.BoxGeometry(12, 600, 18), handleMat);
+          rightHandle.position.set(-doorWidth + 28, 0, 12);
+          rightPivot.add(rightHandle);
+          modContainer.add(rightPivot);
+        } else {
+          // Single Door Pivot Group
+          const leftPivot = new THREE.Group();
+          leftPivot.position.set(-mod.widthMm / 2 + 4, 80 + carcaseHeight / 2, mod.depthMm / 2 - 10);
+          leftPivot.userData = { isKineticDoor: true, hingeSide: 'left', moduleId: mod.id };
+
+          const doorMesh = new THREE.Mesh(new THREE.BoxGeometry(mod.widthMm - 4, carcaseHeight - 4, 18), baseMat);
+          doorMesh.position.set(mod.widthMm / 2, 0, 0);
+          doorMesh.castShadow = true;
+          leftPivot.add(doorMesh);
+
+          const handleMesh = new THREE.Mesh(new THREE.BoxGeometry(12, 600, 18), handleMat);
+          handleMesh.position.set(mod.widthMm - 28, 0, 12);
+          leftPivot.add(handleMesh);
+          modContainer.add(leftPivot);
         }
       } else if (isBed) {
         // Bed base + mattress + headboard
@@ -1045,6 +1576,8 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     // Fallback synthesis: If moduleParts is empty or has no lighting anchors, check if scene has certified modules like tv-unit
     if (compiledLightingAnchors.length === 0) {
       for (const mod of scene.modules ?? []) {
+        const posX = Number(mod.position?.xMm ?? 1500);
+        const posY = Number(mod.position?.yMm ?? 1500);
         const family = (mod.family || '').toLowerCase();
         if (family.includes('tv') || family.includes('entertainment')) {
           addCompiledLightingAnchor(lightingGroup, {
@@ -1057,7 +1590,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
             widthMm: Math.max(1200, mod.widthMm - 80),
             depthMm: 14,
             heightMm: 14,
-            position: { xMm: mod.position.xMm, yMm: mod.position.yMm, zMm: 220 },
+            position: { xMm: posX, yMm: posY, zMm: 220 },
             rotationDeg: mod.rotationDeg || 0,
             fixtureType: 'led-strip',
             colorTemperatureK: 3000,
@@ -1075,8 +1608,8 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               depthMm: 14,
               heightMm: 1600,
               position: {
-                xMm: mod.position.xMm + (mod.widthMm / 2 - 200),
-                yMm: mod.position.yMm,
+                xMm: posX + (mod.widthMm / 2 - 200),
+                yMm: posY,
                 zMm: 500,
               },
               rotationDeg: mod.rotationDeg || 0,
@@ -1093,22 +1626,23 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     modulesGroup.visible = assetFilter !== 'lighting';
 
     // Ceiling spot lights in each room with atmosphere color
-    for (const room of scene.rooms) {
-      if (room.boundary.length >= 3) {
+    for (const room of (scene.rooms ?? [])) {
+      if (Array.isArray(room.boundary) && room.boundary.length >= 3) {
         const poly = room.boundary;
-        const cx = poly.reduce((s, p) => s + p.xMm, 0) / poly.length;
-        const cz = poly.reduce((s, p) => s + p.yMm, 0) / poly.length;
+        const cx = poly.reduce((s, p) => s + Number(p.xMm ?? (p as any).x ?? 0), 0) / poly.length;
+        const cz = poly.reduce((s, p) => s + Number(p.yMm ?? (p as any).y ?? 0), 0) / poly.length;
         const lightColor = lightingMode === 'daylight' ? '#f8fafc' : lightingMode === 'evening' ? '#f59e0b' : '#fff2d9';
         const lightIntensity = lightingMode === 'evening' ? 2.4 : 1.5;
         const roomLight = new THREE.PointLight(lightColor, lightIntensity, 6500, 1.2);
-        roomLight.position.set(cx, 2600, cz);
+        roomLight.position.set(isNaN(cx) ? 2000 : cx, 2600, isNaN(cz) ? 1500 : cz);
         root.add(roomLight);
       }
     }
 
     if (ceilingVisible) {
-      for (const room of scene.rooms) {
-        const points = room.boundary.slice(0, -1).map((point) => new THREE.Vector2(point.xMm, point.yMm));
+      for (const room of (scene.rooms ?? [])) {
+        if (!Array.isArray(room.boundary) || room.boundary.length < 3) continue;
+        const points = room.boundary.slice(0, -1).map((point) => new THREE.Vector2(Number(point.xMm ?? (point as any).x ?? 0), Number(point.yMm ?? (point as any).y ?? 0)));
         if (points.length < 3) continue;
         const shape = new THREE.Shape(points);
         const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshStandardMaterial({
@@ -1125,8 +1659,8 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     }
 
     const bounds = new THREE.Box3().setFromObject(geometryGroup);
-    const center = bounds.isEmpty() ? new THREE.Vector3() : bounds.getCenter(new THREE.Vector3());
-    const size = bounds.isEmpty() ? new THREE.Vector3(4000, 2700, 3000) : bounds.getSize(new THREE.Vector3());
+    const center = (bounds.isEmpty() || !isFinite(bounds.min.x)) ? new THREE.Vector3(2000, 1200, 1500) : bounds.getCenter(new THREE.Vector3());
+    const size = (bounds.isEmpty() || !isFinite(bounds.min.x)) ? new THREE.Vector3(4000, 2700, 3000) : bounds.getSize(new THREE.Vector3());
     const span = Math.max(size.x, size.z, 2000);
 
     const applyPreset = () => {
@@ -1134,14 +1668,16 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       let targetSpan = span;
 
       if (selectedRoomId) {
-        const selRoom = scene.rooms.find((r) => r.id === selectedRoomId);
-        if (selRoom && selRoom.boundary.length > 2) {
-          const roomPts = selRoom.boundary.map((p) => new THREE.Vector3(p.xMm, 0, p.yMm));
+        const selRoom = (scene.rooms ?? []).find((r) => r.id === selectedRoomId);
+        if (selRoom && Array.isArray(selRoom.boundary) && selRoom.boundary.length > 2) {
+          const roomPts = selRoom.boundary.map((p) => new THREE.Vector3(Number(p.xMm ?? (p as any).x ?? 0), 0, Number(p.yMm ?? (p as any).y ?? 0)));
           const roomBox = new THREE.Box3().setFromPoints(roomPts);
-          targetCenter = roomBox.getCenter(new THREE.Vector3());
-          targetCenter.y = 1200;
-          const rSize = roomBox.getSize(new THREE.Vector3());
-          targetSpan = Math.max(rSize.x, rSize.z, 1500);
+          if (!roomBox.isEmpty() && isFinite(roomBox.min.x)) {
+            targetCenter = roomBox.getCenter(new THREE.Vector3());
+            targetCenter.y = 1200;
+            const rSize = roomBox.getSize(new THREE.Vector3());
+            targetSpan = Math.max(rSize.x, rSize.z, 1500);
+          }
         }
       }
 
@@ -1188,15 +1724,48 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     };
     renderer.domElement.addEventListener('pointerdown', onPointer);
     const resize = () => {
-      renderer.setSize(host.clientWidth, host.clientHeight);
-      camera.aspect = host.clientWidth / host.clientHeight;
+      if (!host) return;
+      const w = Math.max(host.clientWidth, 300);
+      const h = Math.max(host.clientHeight, 300);
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     let frame = 0;
+    let currentDrawerLerp = 0;
+    let currentDoorLerp = 0;
+    let currentLedIntensity = 0;
+
     const draw = () => {
       controls.update();
+
+      const targets = kineticTargetsRef.current;
+      const targetOffset = targets.drawerOffset;
+      const targetDoorAngleRad = (targets.doorAngleDeg * Math.PI) / 180;
+      const targetLed = targets.ledReveal ? 1.0 : (targets.drawerOffset > 0.05 || targets.doorAngleDeg > 5 ? 1.0 : 0.0);
+
+      currentDrawerLerp += (targetOffset - currentDrawerLerp) * 0.12;
+      currentDoorLerp += (targetDoorAngleRad - currentDoorLerp) * 0.12;
+      currentLedIntensity += (targetLed - currentLedIntensity) * 0.12;
+
+      geometryGroup.traverse((obj) => {
+        if (obj.userData?.isKineticDrawer) {
+          const maxSlide = obj.userData.maxSlideMm ?? 350;
+          obj.position.z = (obj.userData.baseZ ?? 0) + currentDrawerLerp * maxSlide;
+        } else if (obj.userData?.isKineticDoor) {
+          const side = obj.userData.hingeSide;
+          if (side === 'left') {
+            obj.rotation.y = -currentDoorLerp;
+          } else if (side === 'right') {
+            obj.rotation.y = currentDoorLerp;
+          }
+        } else if (obj.userData?.isKineticLed && obj instanceof THREE.PointLight) {
+          obj.intensity = currentLedIntensity * (obj.userData.maxIntensity ?? 1.5);
+        }
+      });
+
       renderer.render(root, camera);
       frame = requestAnimationFrame(draw);
     };
@@ -1210,7 +1779,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       rendererInstanceRef.current = null;
       host.replaceChildren();
     };
-  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId, assetFilter]);
+  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId, assetFilter, activeStoreyId, explodedAxonometric]);
 
   const activeSelectedRoom = useMemo(() => {
     if (!scene) return null;
@@ -1383,6 +1952,52 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           ))}
         </div>
 
+        {/* Multi-Storey Level Switcher */}
+        <div style={{ display: 'inline-flex', background: '#f5f3ee', borderRadius: 8, padding: 2, border: '1px solid #e7e5e4', marginLeft: 4 }}>
+          {[
+            { id: 'all', label: '🏰 Stacked (All)' },
+            { id: 'level-ground', label: '🏛️ Ground (0m)' },
+            { id: 'level-first', label: '🏢 First (+3.3m)' },
+            { id: 'level-terrace', label: '🌿 Terrace (+6.6m)' },
+          ].map((lvl) => (
+            <button
+              key={lvl.id}
+              type="button"
+              onClick={() => setActiveStoreyId(lvl.id)}
+              style={{
+                padding: '4px 9px',
+                borderRadius: 6,
+                border: 0,
+                background: activeStoreyId === lvl.id ? '#fff' : 'transparent',
+                color: activeStoreyId === lvl.id ? 'var(--gold-dim)' : '#78716c',
+                fontSize: 11,
+                fontWeight: 700,
+                boxShadow: activeStoreyId === lvl.id ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                cursor: 'pointer',
+              }}
+            >
+              {lvl.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setExplodedAxonometric((prev) => !prev)}
+            style={{
+              padding: '4px 9px',
+              borderRadius: 6,
+              border: 0,
+              background: explodedAxonometric ? 'rgba(197,156,45,0.2)' : 'transparent',
+              color: explodedAxonometric ? 'var(--gold-dim)' : '#78716c',
+              fontSize: 11,
+              fontWeight: 800,
+              cursor: 'pointer',
+            }}
+            title="Toggle exploded vertical axonometric spacing between storeys"
+          >
+            {explodedAxonometric ? '💥 Exploded (On)' : '📐 Exploded'}
+          </button>
+        </div>
+
         {/* 1-Click High-Res PNG Snapshot */}
         <Button
           variant="outline"
@@ -1471,12 +2086,128 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           </button>
         </aside>
         <Card className="scene-viewport">
-          <CardContent style={{ position: 'relative', minHeight: 460 }}>
-            <div ref={canvasRef} className="scene-canvas" aria-label="Interactive three dimensional scene preview" style={{ width: '100%', height: 460 }} />
+          <CardContent style={{ position: 'relative', minHeight: 520, height: '100%', padding: 0 }}>
+            <div ref={canvasRef} className="scene-canvas" aria-label="Interactive three dimensional scene preview" style={{ width: '100%', height: '100%', minHeight: 520 }} />
             {scene && (
               <div className="scene-viewport-overlay" aria-hidden="true">
                 <span>{preset === 'walkthrough' ? 'WALKTHROUGH CAMERA' : preset === 'top' ? 'PLAN CAMERA' : preset === 'isometric' ? 'ISOMETRIC CAMERA' : 'PERSPECTIVE CAMERA'}</span>
                 <span>{lightingMode === 'warm' ? '3000K WARM' : lightingMode === 'daylight' ? '4500K STUDIO' : '2700K DUSK'}</span>
+              </div>
+            )}
+
+            {/* Interactive Kinetic Cabinet Inspector Floating HUD */}
+            {scene && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: 14,
+                  left: 14,
+                  background: 'rgba(255, 255, 255, 0.94)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1.5px solid #ebdccb',
+                  borderRadius: 12,
+                  padding: '10px 14px',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  zIndex: 10,
+                  width: 290,
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ebdccb', paddingBottom: 6 }}>
+                  <span style={{ fontWeight: 800, color: 'var(--gold-dim)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5 }}>
+                    ⚡ Kinetic Cabinet Inspector
+                  </span>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      type="button"
+                      disabled={isKineticAnimating}
+                      onClick={animateKineticCycle}
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        borderRadius: 6,
+                        border: '1px solid #c59c2d',
+                        background: '#fef9e7',
+                        color: '#92400e',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isKineticAnimating ? '▶ Playing...' : '▶ Play Cycle'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetKinetic}
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        borderRadius: 6,
+                        border: '1px solid #d6d3d1',
+                        background: '#fff',
+                        color: '#57534e',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ↺ Reset
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '74px 1fr 32px', alignItems: 'center', gap: 8 }}>
+                  <label style={{ color: '#57534e', fontSize: 11, fontWeight: 600 }}>Pull Drawer:</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.02"
+                    value={kineticDrawerOffset}
+                    onChange={(e) => setKineticDrawerOffset(parseFloat(e.target.value))}
+                    style={{ accentColor: '#c59c2d', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: 10, color: '#78716c', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {Math.round(kineticDrawerOffset * 100)}%
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '74px 1fr 32px', alignItems: 'center', gap: 8 }}>
+                  <label style={{ color: '#57534e', fontSize: 11, fontWeight: 600 }}>Swing Door:</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="105"
+                    step="1"
+                    value={kineticDoorAngleDeg}
+                    onChange={(e) => setKineticDoorAngleDeg(parseFloat(e.target.value))}
+                    style={{ accentColor: '#c59c2d', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: 10, color: '#78716c', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {kineticDoorAngleDeg}°
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 2 }}>
+                  <label style={{ color: '#57534e', fontSize: 11, fontWeight: 600 }}>Warm Sensor LED:</label>
+                  <button
+                    type="button"
+                    onClick={() => setKineticLedReveal((prev) => !prev)}
+                    style={{
+                      padding: '3px 10px',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      borderRadius: 12,
+                      border: kineticLedReveal ? '1px solid #f59e0b' : '1px solid #d6d3d1',
+                      background: kineticLedReveal ? '#fef3c7' : '#f5f5f4',
+                      color: kineticLedReveal ? '#b45309' : '#78716c',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {kineticLedReveal ? '💡 3000K On' : '⚪ Sensor Auto'}
+                  </button>
+                </div>
               </div>
             )}
             {!scene && (
@@ -1604,6 +2335,37 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                       </span>
                     ))}
                   </div>
+                </div>
+
+                {/* Next Stage: Stage 5 Elevations & Cutlist Hand-off */}
+                <div style={{ marginTop: 10, padding: 12, background: 'linear-gradient(135deg, #1c1917, #2d241e)', borderRadius: 10, border: '1px solid var(--gold)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <small style={{ color: 'var(--gold)', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: 10.5 }}>
+                    NEXT WORKFLOW STAGE · STAGE 5
+                  </small>
+                  <div style={{ color: '#f5f5f4', fontSize: 11.5, lineHeight: 1.4 }}>
+                    3D scene verified. Generate 2D architectural wall elevations, shop drawings dossier &amp; CNC production cutlists.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate(projectId ? `/projects/${projectId}/drawings` : '/drawings')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      background: 'linear-gradient(135deg, #c59c2d, #8f6c12)',
+                      color: '#fff',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      padding: '9px 14px',
+                      borderRadius: 7,
+                      border: 'none',
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 10px rgba(197,156,45,0.35)',
+                    }}
+                  >
+                    <Ruler size={14} /> 📐 Generate Elevations &amp; Cutlist (Stage 5) →
+                  </button>
                 </div>
               </>
             ) : (

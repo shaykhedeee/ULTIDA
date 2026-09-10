@@ -5,6 +5,12 @@ export {
   type CanonicalPlanModel,
   formatDualDimension,
   parseFeetInchesToMm,
+  StoreyLevelSchema,
+  type StoreyLevel,
+  InterFloorVoidSchema,
+  type InterFloorVoid,
+  BalustradeTypeSchema,
+  type BalustradeType,
 } from './plan-schema.js';
 
 // Fixtures are source evidence (for example a visible toilet, sink, stove or

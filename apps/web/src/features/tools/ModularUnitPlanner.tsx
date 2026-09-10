@@ -1,8 +1,9 @@
-import { Box, CheckCircle2, Clipboard, Download, FilePlus2, Loader2, Search, SlidersHorizontal, TriangleAlert, Layers, Sparkles } from 'lucide-react';
+import { Box, CheckCircle2, Clipboard, Download, FilePlus2, Loader2, Search, SlidersHorizontal, TriangleAlert, Layers, Sparkles, Cpu, Code, Eye, Copy, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ModulePreview } from '../../components/library/ModulePreview';
 import ModularCabinetBuilder from '../../components/modular/ModularCabinetBuilder';
+import { compileCabinetCncPackage, generateHomagWoodWopMpr, generateBiesseCix, type CncPanel, type CabinetCncPackage } from '@ultida/catalog-core';
 import './modular-unit-planner.css';
 import { supabase } from '../../lib/supabase';
 
@@ -111,6 +112,10 @@ export function ModularUnitPlanner() {
   const [width, setWidth] = useState(0); const [depth, setDepth] = useState(0); const [height, setHeight] = useState(0);
   const [wallWidth, setWallWidth] = useState(3000); const [clearance, setClearance] = useState(900);
   const [status, setStatus] = useState('Loading the ULTIDA modular library…');
+  const [cncModalOpen, setCncModalOpen] = useState(false);
+  const [cncFormat, setCncFormat] = useState<'mpr' | 'cix'>('mpr');
+  const [cncPanelIndex, setCncPanelIndex] = useState(0);
+  const [copiedCnc, setCopiedCnc] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -162,6 +167,47 @@ export function ModularUnitPlanner() {
     const link = document.createElement('a'); link.href = url; link.download = `${selected.id}-initial-design.json`; link.click(); URL.revokeObjectURL(url);
     setStatus('Initial Design specification downloaded. It is not a fabrication release until placed and verified in a project.');
   }
+
+  const currentCncPackage = useMemo(() => {
+    if (!selected) return null;
+    const w = width || selected.widthMm;
+    const d = depth || selected.depthMm;
+    const h = height || selected.heightMm;
+    return compileCabinetCncPackage(selected.name, selected.sku, w, d, h);
+  }, [selected, width, depth, height]);
+
+  function downloadWoodWopMpr(panelIndex?: number) {
+    if (!currentCncPackage) return;
+    const targetPanels = panelIndex !== undefined ? [currentCncPackage.panels[panelIndex]] : currentCncPackage.panels;
+    targetPanels.forEach((p) => {
+      const code = generateHomagWoodWopMpr(p);
+      const blob = new Blob([code], { type: 'text/plain;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${p.sku || p.panelId}.mpr`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+    setStatus(`Exported Homag WoodWOP (.mpr) machine files for ${currentCncPackage.cabinetName}.`);
+  }
+
+  function downloadBiesseCix(panelIndex?: number) {
+    if (!currentCncPackage) return;
+    const targetPanels = panelIndex !== undefined ? [currentCncPackage.panels[panelIndex]] : currentCncPackage.panels;
+    targetPanels.forEach((p) => {
+      const code = generateBiesseCix(p);
+      const blob = new Blob([code], { type: 'text/plain;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${p.sku || p.panelId}.cix`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+    setStatus(`Exported Biesse bSolid (.cix) machine files for ${currentCncPackage.cabinetName}.`);
+  }
+
   const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [availableProjects, setAvailableProjects] = useState<Array<{ id: string; name: string; client_name?: string; updated_at?: string }>>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
@@ -325,6 +371,27 @@ export function ModularUnitPlanner() {
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'linear-gradient(135deg, #059669, #047857)', color: '#fff', border: 0, borderRadius: 7, fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
             >
               <Download size={14} /> Download design brief (.csv)
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadWoodWopMpr()}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'linear-gradient(135deg, #ea580c, #c2410c)', color: '#fff', border: 0, borderRadius: 7, fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
+            >
+              <Cpu size={14} /> Homag WoodWOP (.mpr)
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadBiesseCix()}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', color: '#fff', border: 0, borderRadius: 7, fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
+            >
+              <Cpu size={14} /> Biesse bSolid (.cix)
+            </button>
+            <button
+              type="button"
+              onClick={() => setCncModalOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: '#1e293b', color: '#38bdf8', border: '1px solid #475569', borderRadius: 7, fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
+            >
+              <Code size={14} /> CNC Code Preview
             </button>
           </div>
         </div>
@@ -577,6 +644,137 @@ export function ModularUnitPlanner() {
             >
               Cancel
             </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* CNC Machine Code Preview Modal */}
+    {cncModalOpen && currentCncPackage && (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(5px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24
+      }}>
+        <div style={{
+          background: '#090d16', border: '1px solid #1e293b', borderRadius: 14, width: '100%', maxWidth: 880,
+          maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.6)'
+        }}>
+          {/* Modal Header */}
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0b1324' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ padding: '6px 10px', borderRadius: 8, background: cncFormat === 'mpr' ? '#ea580c' : '#7c3aed', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+                {cncFormat === 'mpr' ? 'HOMAG WoodWOP (.mpr)' : 'BIESSE bSolid (.cix)'}
+              </div>
+              <div>
+                <strong style={{ color: '#f8fafc', fontSize: 15, display: 'block' }}>{currentCncPackage.cabinetName} ({currentCncPackage.sku})</strong>
+                <small style={{ color: '#94a3b8', fontSize: 11 }}>Industrial CAM Post-Processor · System 32 Grid &amp; Hinge Cup Bores</small>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCncModalOpen(false)}
+              style={{ background: 'transparent', border: 0, color: '#94a3b8', cursor: 'pointer', padding: 4 }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Modal Controls & Panel Selector */}
+          <div style={{ padding: '12px 20px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#070a12', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => setCncFormat('mpr')}
+                style={{
+                  padding: '5px 12px', borderRadius: 6, border: 0, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  background: cncFormat === 'mpr' ? '#ea580c' : '#1e293b', color: '#fff'
+                }}
+              >
+                Homag WoodWOP
+              </button>
+              <button
+                type="button"
+                onClick={() => setCncFormat('cix')}
+                style={{
+                  padding: '5px 12px', borderRadius: 6, border: 0, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  background: cncFormat === 'cix' ? '#7c3aed' : '#1e293b', color: '#fff'
+                }}
+              >
+                Biesse bSolid
+              </button>
+            </div>
+
+            {/* Component Panel Switcher */}
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', maxWidth: '60%' }}>
+              {currentCncPackage.panels.map((p, idx) => (
+                <button
+                  key={p.panelId}
+                  type="button"
+                  onClick={() => setCncPanelIndex(idx)}
+                  style={{
+                    padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    background: cncPanelIndex === idx ? '#38bdf8' : '#1e293b',
+                    color: cncPanelIndex === idx ? '#000' : '#cbd5e1',
+                    border: '1px solid ' + (cncPanelIndex === idx ? '#38bdf8' : '#334155'),
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {p.panelName}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Code Viewer */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: 20, background: '#020617', fontFamily: 'monospace', fontSize: 12, color: '#38bdf8', lineHeight: 1.6 }}>
+            {(() => {
+              const panel = currentCncPackage.panels[cncPanelIndex] || currentCncPackage.panels[0];
+              const code = cncFormat === 'mpr' ? generateHomagWoodWopMpr(panel) : generateBiesseCix(panel);
+              return (
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {code}
+                </pre>
+              );
+            })()}
+          </div>
+
+          {/* Modal Footer */}
+          <div style={{ padding: '14px 20px', borderTop: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0b1324' }}>
+            <span style={{ color: '#94a3b8', fontSize: 12 }}>
+              Panel: <strong style={{ color: '#f8fafc' }}>{currentCncPackage.panels[cncPanelIndex]?.panelName}</strong> ({currentCncPackage.panels[cncPanelIndex]?.lengthMm} × {currentCncPackage.panels[cncPanelIndex]?.widthMm} × {currentCncPackage.panels[cncPanelIndex]?.thicknessMm} mm)
+            </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const panel = currentCncPackage.panels[cncPanelIndex] || currentCncPackage.panels[0];
+                  const code = cncFormat === 'mpr' ? generateHomagWoodWopMpr(panel) : generateBiesseCix(panel);
+                  void navigator.clipboard.writeText(code);
+                  setCopiedCnc(true);
+                  setTimeout(() => setCopiedCnc(false), 2000);
+                }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 6,
+                  background: '#1e293b', border: '1px solid #334155', color: '#f8fafc', fontSize: 12, fontWeight: 700, cursor: 'pointer'
+                }}
+              >
+                <Copy size={13} /> {copiedCnc ? 'Copied to Clipboard!' : 'Copy Code'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (cncFormat === 'mpr') downloadWoodWopMpr(cncPanelIndex);
+                  else downloadBiesseCix(cncPanelIndex);
+                }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 6,
+                  background: cncFormat === 'mpr' ? 'linear-gradient(135deg, #ea580c, #c2410c)' : 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                  border: 0, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer'
+                }}
+              >
+                <Download size={13} /> Download Active Panel File (.{cncFormat})
+              </button>
+            </div>
           </div>
         </div>
       </div>

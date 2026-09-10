@@ -61,13 +61,13 @@ const TOOL_NAV = [
 // ─── Default workflow stages ──────────────────────────────────────
 export const DEFAULT_WORKFLOW_STAGES: WorkflowStageConfig[] = [
   { id: 'brief',        label: 'Project Brief',   path: 'brief',        icon: BookOpen, status: 'not_started' },
-  { id: 'plan',         label: 'Measured Plan',   path: 'plan',         icon: Compass,  status: 'locked', lockReason: 'Complete project brief first' },
-  { id: 'spaces',       label: 'Rooms & Modules', path: 'spaces',       icon: Home,     status: 'locked', lockReason: 'Approve measured plan first' },
-  { id: '3d',           label: 'Scene Studio',    path: '3d',           icon: Wand2,    status: 'locked', lockReason: 'Save a room design first' },
-  { id: 'drawings',     label: 'Production Docs', path: 'drawings',     icon: Ruler,    status: 'locked', lockReason: 'Compile a scene first' },
-  { id: 'estimate',     label: 'Costing & BOQ',   path: 'estimate',     icon: Receipt,  status: 'locked', lockReason: 'Approve production documents first' },
-  { id: 'presentation', label: 'Presentation',    path: 'presentation', icon: Palette,  status: 'locked', lockReason: 'Complete costing first' },
-  { id: 'production',   label: 'CAM Production',  path: 'production',   icon: Box,      status: 'locked', lockReason: 'Complete presentation & client approval first' },
+  { id: 'plan',         label: 'Measured Plan',   path: 'plan',         icon: Compass,  status: 'not_started' },
+  { id: 'spaces',       label: 'Rooms & Modules', path: 'spaces',       icon: Home,     status: 'not_started' },
+  { id: '3d',           label: 'Scene Studio',    path: '3d',           icon: Wand2,    status: 'not_started' },
+  { id: 'drawings',     label: 'Elevations & Cutlist', path: 'drawings', icon: Ruler,   status: 'not_started' },
+  { id: 'estimate',     label: 'Costing & BOQ',   path: 'estimate',     icon: Receipt,  status: 'not_started' },
+  { id: 'presentation', label: 'Presentation',    path: 'presentation', icon: Palette,  status: 'not_started' },
+  { id: 'production',   label: 'CAM Production',  path: 'production',   icon: Box,      status: 'not_started' },
 ];
 
 // ─── Stage status icon ─────────────────────────────────────────────
@@ -312,6 +312,31 @@ export function Shell({
               <span className="ai-btn-text">AURA AI</span>
             </Link>
 
+            {inProject && projectId && (
+              <button
+                type="button"
+                onClick={() => navigate(`/projects/${projectId}/3d?tab=render`)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '5px 12px',
+                  background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+                  color: '#1c1917',
+                  border: 0,
+                  borderRadius: 7,
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(197, 156, 45, 0.3)',
+                }}
+                title="Jump directly to 3D Scene & AI Render"
+              >
+                <Sparkles size={13} />
+                <span>3D &amp; AI Render</span>
+              </button>
+            )}
+
             {!inProject && onNewProject && (
               <button
                 onClick={onNewProject}
@@ -389,27 +414,24 @@ export function Shell({
               {nextStage ? (
                 <button
                   type="button"
-                  disabled={nextStage.status === 'locked'}
                   onClick={() => {
-                    if (nextStage.status !== 'locked') {
-                      navigate(`/projects/${projectId}/${nextStage.path}`);
-                    }
+                    navigate(`/projects/${projectId}/${nextStage.path}`);
                   }}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 6,
                     padding: '6px 16px',
-                    background: nextStage.status === 'locked' ? '#24211e' : 'linear-gradient(135deg, #10b981, #059669)',
-                    border: nextStage.status === 'locked' ? '1px solid #3d3731' : '0',
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    border: '0',
                     borderRadius: 7,
-                    color: nextStage.status === 'locked' ? '#78716c' : '#000',
+                    color: '#000',
                     fontSize: '12px',
                     fontWeight: 800,
-                    cursor: nextStage.status === 'locked' ? 'not-allowed' : 'pointer',
-                    boxShadow: nextStage.status === 'locked' ? 'none' : '0 2px 8px rgba(16, 185, 129, 0.25)',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)',
                   }}
-                  title={nextStage.status === 'locked' ? (nextStage.lockReason ?? 'Stage locked') : `Proceed to next stage: ${nextStage.label}`}
+                  title={`Proceed to next stage: ${nextStage.label}`}
                 >
                   Next: {nextStage.label} <ArrowRight size={13} />
                 </button>

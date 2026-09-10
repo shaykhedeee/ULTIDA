@@ -464,6 +464,7 @@ export function PlanReviewWorkspace({
   const [ceilingHeightMm, setCeilingHeightMm] = useState<number | null>(2700);
   const [geometryMode, setGeometryMode] = useState<GeometryMode>('initial_design');
   const [planWorkspaceMode, setPlanWorkspaceMode] = useState<'extract' | 'clean' | 'propose'>('clean');
+  const [activeStoreyId, setActiveStoreyId] = useState<string>('level-ground');
   const [toolStart, setToolStart] = useState<Point | null>(null);
   const [pointerPoint, setPointerPoint] = useState<Point | null>(null);
   const [sketchStrokes, setSketchStrokes] = useState<Array<Point[]>>([]);
@@ -1916,6 +1917,52 @@ export function PlanReviewWorkspace({
                 <FileDown size={14} /> Download plan DXF
               </button>
             )}
+          </div>
+        </div>
+
+        {/* Multi-Storey Villa Level Ribbon */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: '#1c242e', border: '1px solid #2a3746', borderRadius: 8, margin: '10px 0 6px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--gold, #d4af37)', display: 'flex', alignItems: 'center', gap: 5 }}>
+              🏛️ Storey Level:
+            </span>
+            <div style={{ display: 'inline-flex', gap: 6 }}>
+              {[
+                { id: 'level-ground', label: 'Ground Floor (Datum 0.0m)', badge: 'Rooms & Atrium' },
+                { id: 'level-first', label: 'First Floor (+3.3m)', badge: 'Mezzanine & Stairs' },
+                { id: 'level-terrace', label: 'Terrace Deck (+6.6m)', badge: 'Sky Deck' },
+              ].map((lvl) => (
+                <button
+                  key={lvl.id}
+                  type="button"
+                  onClick={() => setActiveStoreyId(lvl.id)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: 6,
+                    border: activeStoreyId === lvl.id ? '1px solid var(--gold, #d4af37)' : '1px solid #334155',
+                    background: activeStoreyId === lvl.id ? '#253040' : 'transparent',
+                    color: activeStoreyId === lvl.id ? 'var(--gold, #d4af37)' : '#94a3b8',
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                  }}
+                >
+                  <span>{lvl.label}</span>
+                  <small style={{ fontSize: 9.5, opacity: 0.75, fontWeight: 500 }}>({lvl.badge})</small>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, fontSize: 10.5 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(212,175,55,0.15)', color: '#e8c96a', padding: '2px 7px', borderRadius: 4, fontWeight: 700 }}>
+              ✨ Double-Height Living Atrium
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#1e293b', color: '#94a3b8', padding: '2px 7px', borderRadius: 4, fontWeight: 700 }}>
+              🪜 Cantilever Floating Stairs
+            </span>
           </div>
         </div>
         {status && <p role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '6px 0 0' }}>{status}</p>}

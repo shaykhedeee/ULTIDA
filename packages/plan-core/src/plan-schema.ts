@@ -85,6 +85,7 @@ export const PlanSpaceSchema = z.object({
   openingRefs: z.array(z.string()).default([]),
   confidence: z.number().min(0).max(1).optional(),
   verification: VerificationStateSchema.default('unverified'),
+  storeyId: z.string().optional(),
 });
 
 export const PlanWallSchema = z.object({
@@ -101,6 +102,7 @@ export const PlanWallSchema = z.object({
   wallType: WallTypeSchema.optional(),
   verification: VerificationStateSchema.default('unverified'),
   confidence: z.number().min(0).max(1).optional(),
+  storeyId: z.string().optional(),
 });
 
 export const DoorOpeningSchema = z.object({
@@ -165,6 +167,39 @@ export const AnnotationSchema = z.object({
   kind: z.enum(['note','dimension','room_label','warn']).default('note'),
 });
 
+export const StoreyLevelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  levelIndex: z.number().int(),
+  elevationMm: z.number(),
+  ceilingHeightMm: z.number().positive().default(3000),
+  slabThicknessMm: z.number().positive().default(150),
+  isDefault: z.boolean().optional(),
+});
+export type StoreyLevel = z.infer<typeof StoreyLevelSchema>;
+
+export const BalustradeTypeSchema = z.enum(['tempered_glass', 'brass_spindle', 'fluted_drywall', 'stainless_cable', 'none']);
+export type BalustradeType = z.infer<typeof BalustradeTypeSchema>;
+
+export const InterFloorVoidSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  type: z.enum(['stairwell_cutout', 'double_height_void', 'lift_shaft']),
+  upperLevelId: z.string().min(1),
+  lowerLevelId: z.string().min(1),
+  polygon: z.array(z.object({ xMm: z.number(), yMm: z.number() })),
+  balustradeType: BalustradeTypeSchema.default('tempered_glass'),
+  voidHeightMm: z.number().positive().optional(),
+  stairFlightDetails: z.object({
+    treadRunMm: z.number().positive().default(280),
+    riserHeightMm: z.number().positive().default(165),
+    stepCount: z.number().int().positive().default(18),
+    flightWidthMm: z.number().positive().default(1100),
+    handrailType: z.string().default('brass_cap_glass'),
+  }).optional(),
+});
+export type InterFloorVoid = z.infer<typeof InterFloorVoidSchema>;
+
 export const CanonicalPlanModelSchema = z.object({
   schemaVersion: z.literal('plan.v1'),
   // The approval mode is part of the canonical version, not a browser-only
@@ -184,6 +219,8 @@ export const CanonicalPlanModelSchema = z.object({
   annotations: z.array(AnnotationSchema).default([]),
   issues: z.array(IssueActionSchema).default([]),
   assumptions: z.array(z.string()).default([]),
+  storeys: z.array(StoreyLevelSchema).default([]),
+  interFloorVoids: z.array(InterFloorVoidSchema).default([]),
   validation: PlanValidationSchema,
   approval: ApprovalMetaSchema.optional(),
 });

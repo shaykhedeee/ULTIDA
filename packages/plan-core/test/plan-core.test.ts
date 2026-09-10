@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { parsePlanIntake, validateCanonicalPlan } from '../dist/index.js';
+import { parsePlanIntake, validateCanonicalPlan, CanonicalPlanModelSchema } from '../dist/index.js';
 
 const fixture = (name: string) => {
   const path = new URL(`./fixtures/${name}`, import.meta.url);
@@ -95,3 +95,34 @@ test('unauthorized workflow-status must still return structured stage payload fr
   assert.strictEqual(status.valid, false);
   assert.ok(status.issues.some((issue: { code: string }) => issue.code === 'UNSUPPORTED_GEOMETRY'));
 });
+
+test('canonical plan model parses multi-storey levels and inter-floor voids', () => {
+  const base = fixture('approved-plan.json');
+  const multiStoreyPlan = {
+    ...base,
+    storeys: [
+      { id: 'level-ground', name: 'Ground Floor', levelIndex: 0, elevationMm: 0, ceilingHeightMm: 3000, slabThicknessMm: 150, isDefault: true },
+      { id: 'level-first', name: 'First Floor', levelIndex: 1, elevationMm: 3300, ceilingHeightMm: 3000, slabThicknessMm: 150 },
+    ],
+    interFloorVoids: [
+      {
+        id: 'void-living-atrium',
+        name: 'Double-Height Living Atrium',
+        type: 'double_height_void',
+        upperLevelId: 'level-first',
+        lowerLevelId: 'level-ground',
+        polygon: [{ xMm: 1000, yMm: 1000 }, { xMm: 3500, yMm: 1000 }, { xMm: 3500, yMm: 3000 }, { xMm: 1000, yMm: 3000 }],
+        balustradeType: 'tempered_glass',
+        voidHeightMm: 3300,
+      },
+    ],
+  };
+
+  const parsed = CanonicalPlanModelSchema.parse(multiStoreyPlan);
+  assert.strictEqual(parsed.storeys.length, 2);
+  assert.strictEqual(parsed.storeys[1].elevationMm, 3300);
+  assert.strictEqual(parsed.interFloorVoids.length, 1);
+  assert.strictEqual(parsed.interFloorVoids[0].type, 'double_height_void');
+  assert.strictEqual(parsed.interFloorVoids[0].balustradeType, 'tempered_glass');
+});
+
