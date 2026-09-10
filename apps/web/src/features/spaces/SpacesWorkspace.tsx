@@ -1561,6 +1561,10 @@ export function SpacesWorkspace() {
         setSaveState(payload?.message ?? 'The module could not be placed. Check the approved room layout and measured wall clearance.');
         return;
       }
+      // The API has invalidated downstream artifacts. Mirror that durable
+      // change in the app shell so no screen can keep presenting an older
+      // scene version as if it still represented this room.
+      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
       const wall = walls.find((candidate) => candidate.id === activeCatalogWall.id);
       const length = wall ? wallLen(wall) : activeCatalogWall.lengthMm;
       const direction = wall && length > 0
