@@ -319,7 +319,7 @@ function supplementSparseVisionProposals(
       });
     }
   }
-  for (const opening of (cv as CvTraceResult & { openings?: Array<{ approxCenterPx: { x: number; y: number }; approxWidthPx: number; kindHint?: 'door' | 'window' | 'unknown'; confidence?: number; note?: string }> }).openings ?? []) {
+  for (const opening of cv.openings ?? []) {
       // An unclassified gap remains review evidence; it must never silently
       // become a door merely because the compact proposal format uses 0/1.
       if (opening.kindHint === 'unknown' || matchesExistingOpening(opening)) continue;
