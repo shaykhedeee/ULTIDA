@@ -287,3 +287,26 @@
 }
 
 
+.room-proposal-picker {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--border, #ded6c9);
+  border-radius: 10px;
+}
+.room-proposal-picker legend { padding: 0 6px; font-weight: 600; }
+.room-proposal-picker button {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #ded6c9);
+  border-radius: 8px;
+  background: var(--surface, #fffdf9);
+  color: inherit;
+  cursor: pointer;
+}
+.room-proposal-picker button[aria-pressed="true"] { border-color: #a67c25; background: #faf2df; }
+.room-proposal-picker button:focus-visible { outline: 2px solid #a67c25; outline-offset: 2px; }

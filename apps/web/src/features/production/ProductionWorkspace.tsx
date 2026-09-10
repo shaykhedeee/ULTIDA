@@ -15,6 +15,7 @@ type ProductionCutlist = { parts: Part[]; hardware: HardwareItem[]; warnings: st
 type CncAsset = { id: string; name: string; sourceSceneId: string; modulePartId: string; svgUrl: string; dxfUrl: string; dimensionsMm: { width: number; height: number }; material: string; layer: 'CUT' | 'ENGRAVE' | 'POCKET' | 'DRILL' | 'REFERENCE'; validationStatus: 'pending' | 'passed' | 'failed'; preflightIssues: string[] };
 
 interface ProductionWorkspaceProps {
+  initialTab?: TabId | 'elevations';
   projectId: string;
   sceneVersionId: string | null;
   sceneApproved: boolean;
@@ -36,8 +37,9 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'release', label: 'Release', icon: <CheckCircle2 size={14} /> },
 ];
 
-export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: ProductionWorkspaceProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('parts');
+export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved, initialTab = 'parts' }: ProductionWorkspaceProps) {
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab === 'elevations' ? 'drawings' : initialTab);
+  useEffect(() => { setActiveTab(initialTab === 'elevations' ? 'drawings' : initialTab); }, [initialTab]);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   // Production outputs may only come from compiler-emitted PartV1 records. Module boxes are not manufacturing parts.

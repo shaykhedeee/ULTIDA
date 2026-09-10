@@ -15,7 +15,8 @@ test('compiles approved canonical geometry without inventing walls or rooms', ()
   const scene = compileSceneV1({ projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan });
   assert.equal(scene.rooms.length, 1);
   assert.equal(scene.walls[0].heightMm, 2700);
-  assert.equal(scene.cameras[0].lensMm, 35);
+  assert.equal(scene.cameras[0].lensMm, 24);
+  assert.equal(scene.cameras[0].position.yMm, 1500, 'Camera height uses the renderer Y-up axis');
   assert.deepEqual(scene.moduleParts, []);
 });
 

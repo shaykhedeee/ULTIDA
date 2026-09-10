@@ -149,18 +149,9 @@ export function inferRoomType(rawType: unknown, roomName: unknown, areaSqm?: num
     ? areaSqm
     : (polygon && polygon.length >= 3 ? polyArea(polygon) : 0);
 
-  if (area > 0) {
-    if (area >= 22) return 'living';
-    if (area >= 15) return 'master_bedroom';
-    if (area >= 10.5) return 'bedroom';
-    if (area >= 7) return 'kitchen';
-    if (area >= 5) return 'dining';
-    if (area >= 3.2) return 'study';
-    if (area >= 1.8) return 'pooja';
-    if (area > 0) return 'bathroom';
-  }
-
-  return 'living';
+  // Area cannot establish use: a 12m² room may be a kitchen, bedroom or office.
+  // Keep the explicit room-type picker as the confirmation step.
+  return 'other';
 }
 
 function needsScaleReview(room: PlanRoom, widthMm: number, depthMm: number) {
@@ -395,6 +386,7 @@ export function SpacesWorkspace() {
 
   // AI Layout Detection state
   const [aiProposals, setAiProposals] = useState<AiFurnitureProposal[]>([]);
+  const [aiProposalRoomId, setAiProposalRoomId] = useState<string | null>(null);
   const [aiDetecting, setAiDetecting] = useState(false);
   const [showAiProposalsOnCanvas, setShowAiProposalsOnCanvas] = useState(true);
 
@@ -405,6 +397,19 @@ export function SpacesWorkspace() {
   const [catalogFitFilter, setCatalogFitFilter] = useState<'all' | 'fits'>('all');
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+  useEffect(() => {
+    if (!projectId || !aiProposalRoomId || !aiProposals.length) return;
+    try {
+      const key = `ultida.room-proposals.${projectId}`;
+      const stored = JSON.parse(window.localStorage.getItem(key) ?? '[]');
+      const others = Array.isArray(stored) ? stored.filter((entry: any) => entry.roomId !== aiProposalRoomId) : [];
+      window.localStorage.setItem(key, JSON.stringify([...others, ...aiProposals.map((p) => ({
+        id: p.id, roomId: aiProposalRoomId, templateId: p.moduleId, family: p.category, label: p.name,
+        widthMm: p.dimensionsMm.width, depthMm: p.dimensionsMm.depth, heightMm: p.dimensionsMm.height, wallId: p.wallId,
+      }))]));
+    } catch { setSaveState('The browser could not retain these proposals. Save the room before leaving.'); }
+  }, [projectId, aiProposalRoomId, aiProposals]);
+  useEffect(() => { if (aiProposalRoomId !== selectedRoom) setAiProposals([]); }, [selectedRoom, aiProposalRoomId]);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
   const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'modules' | 'flooring' | 'brief' | 'scene'>(() => {
     const tab = searchParams.get('tab');
@@ -1041,6 +1046,7 @@ export function SpacesWorkspace() {
       }
 
       setAiProposals(proposals);
+      setAiProposalRoomId(room.id);
       setAiDetecting(false);
 
       // Immediately sync to roomFurnitureMap so the 2D SVG canvas and Vastu analyzer visually update
@@ -1071,33 +1077,7 @@ export function SpacesWorkspace() {
       const newVastu = evaluateVastuCompliance({ widthMm: width, lengthMm: depth }, stagerItems);
       setRoomVastuMap(prev => ({ ...prev, [room.id]: newVastu }));
 
-      // Also persist to localStorage for immediate forward compatibility with modules/elevation stage
-      if (projectId && proposals.length > 0) {
-        try {
-          const existingKey = `ultida.modules.${projectId}`;
-          const raw = window.localStorage.getItem(existingKey);
-          const currentMods: any[] = raw ? JSON.parse(raw) : [];
-          const updatedMods = [
-            ...currentMods.filter((m: any) => m.roomId !== room.id),
-            ...proposals.map(p => ({
-              id: p.id,
-              roomId: room.id,
-              family: p.category,
-              label: p.name,
-              widthMm: p.dimensionsMm.width,
-              depthMm: p.dimensionsMm.depth,
-              heightMm: p.dimensionsMm.height,
-              wallId: p.wallId,
-              offsetMm: 150,
-              configuration: { archetype: p.category },
-              updatedAt: new Date().toISOString()
-            }))
-          ];
-          window.localStorage.setItem(existingKey, JSON.stringify(updatedMods));
-        } catch {}
-      }
-
-      setSaveState(`AI detected ${proposals.length} furniture placements for ${room.name} with live wall anchors & dimensions.`);
+      setSaveState(`Prepared ${proposals.length} furniture suggestions for ${room.name}. Review dimensions and place a catalog module in the next step to save it.`);
     }, 450);
   };
 
@@ -1655,6 +1635,7 @@ export function SpacesWorkspace() {
     }
 
     setAiProposals(proposals);
+    setAiProposalRoomId(room.id);
     setSaveState(`Selected & Applied ${candidateType.toUpperCase()} layout to ${room.name}. Room is approved & verified.`);
 
     try {

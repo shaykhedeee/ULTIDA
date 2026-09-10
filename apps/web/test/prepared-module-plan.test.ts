@@ -1,8 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PREPARED_MODULE_KEY, readPreparedModule, bindPreparedModule, completePreparedModule } from '../src/lib/prepared-module-plan.ts';
+import { readRoomProposals } from '../src/lib/room-proposals.ts';
 
 const proposal = { schema: 'ultida.module-plan.v1', templateId: 'kit-island-waterfall-1800', name: 'Island', family: 'kitchen-base', dimensionsMm: { width: 1725, depth: 925, height: 875 }, wallWidthMm: 4000, clearanceMm: 900 };
+test('room requests retain exact custom sizes and remain isolated by room and project', () => {
+  const store = storage();
+  const request = { id: 'request-a', roomId: 'kitchen', label: 'Island', family: 'kitchen-base', widthMm: 1725, depthMm: 925, heightMm: 875 };
+  store.setItem('ultida.room-proposals.project-a', JSON.stringify([request, { ...request, id: 'request-b', roomId: 'bedroom' }, { ...request, id: 'invalid', widthMm: -1 }]));
+  assert.deepEqual(readRoomProposals(store, 'project-a', 'kitchen'), [request]);
+  assert.equal(readRoomProposals(store, 'project-b', 'kitchen').length, 0);
+  assert.equal(readRoomProposals(store, 'project-a', 'living').length, 0);
+});
 function storage() {
   const data = new Map<string, string>([[PREPARED_MODULE_KEY, JSON.stringify(proposal)]]);
   return { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); }, removeItem: (key: string) => { data.delete(key); } };

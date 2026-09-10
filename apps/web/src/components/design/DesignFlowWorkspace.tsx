@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase';
 import MaterialSwapPanel from './MaterialSwapPanel';
 import { getApiBase } from '../../lib/api-base';
 import { readPreparedModule, completePreparedModule, type PreparedModulePlan } from '../../lib/prepared-module-plan';
+import { readRoomProposals, type RoomModuleProposal } from '../../lib/room-proposals';
 import './visual-studio.css';
 import { ModulePreview } from '../library/ModulePreview';
 import { listCatalog, MaterialSlotSchema } from '@ultida/catalog-core';
@@ -23,7 +24,7 @@ import {
   type SceneWallV1,
   type SceneOpeningV1,
   type SceneModuleV1,
-} from '@ultida/drawing-core';
+} from '@ultida/drawing-core/browser';
 
 type Stage = 'Design' | 'Visualize' | 'Document';
 type Module = { id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number; wallId?: string; offsetMm?: number; xMm?: number; yMm?: number; rotationDeg?: number; configuration?: ModuleConfiguration; updatedAt?: string; materialId?: string; finishes?: Record<string, string> };
@@ -286,10 +287,11 @@ const CURATED_MINIMAL_FINISHES = [
 export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const requestedSpaceId = searchParams.get('spaceId');
+  const requestedSpaceId = searchParams.get('spaceId') || searchParams.get('roomId');
+  const requestedWallId = searchParams.get('wallId');
   const pendingModuleRequested = searchParams.get('pendingModule') === '1';
   const [room, setRoom] = useState('kitchen');
-  const [spaces, setSpaces] = useState<Array<{ id: string; name: string; roomType: string; geometry_json?: { polygon?: Array<{ xMm?: number; yMm?: number; x?: number; y?: number }> } }>>([]);
+  const [spaces, setSpaces] = useState<Array<{ id: string; space_id?: string; name: string; roomType: string; geometry_json?: { polygon?: Array<{ xMm?: number; yMm?: number; x?: number; y?: number }> } }>>([]);
   const [walls, setWalls] = useState<Array<{ id: string; start?: { xMm: number; yMm: number }; end?: { xMm: number; yMm: number } }>>([]);
   const [openings, setOpenings] = useState<Array<{ id: string; wallId?: string; kind?: string; widthMm?: number; heightMm?: number; sillHeightMm?: number; offsetAlongWallMm?: number; offsetMm?: number }>>([]);
   const [spaceId, setSpaceId] = useState<string | null>(null);
@@ -297,6 +299,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [catalogQuery, setCatalogQuery] = useState('');
   const [familyFilter, setFamilyFilter] = useState('all');
+  const [roomProposals, setRoomProposals] = useState<RoomModuleProposal[]>([]);
+  const [activeRoomProposal, setActiveRoomProposal] = useState<RoomModuleProposal | null>(null);
   const visibleCatalogItems = catalogForRoom(catalogItems, room).filter((item) => familyFilter === 'all' || item.family === familyFilter).filter((item) => {
     const search = catalogQuery.trim().toLowerCase();
     return !search || [item.name, item.family, item.description, ...item.tags].filter(Boolean).join(' ').toLowerCase().includes(search);
@@ -407,6 +411,10 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   // returned by the persistence API can receive finishes or enter scene.v1.
   const selectedModule = draftModules.find((module) => module.id === selectedModuleId) ?? draftModules[0] ?? null;
   const selectedSpace = spaces.find((space) => space.id === spaceId) ?? null;
+  useEffect(() => {
+    setActiveRoomProposal(null);
+    setRoomProposals(projectId && selectedSpace ? readRoomProposals(window.localStorage, projectId, selectedSpace.space_id ?? selectedSpace.id) : []);
+  }, [projectId, selectedSpace]);
   const roomWalls = useMemo(() => {
     const polygon = selectedSpace?.geometry_json?.polygon ?? [];
     const points = polygon.map((point: any) => ({ x: Number(point.xMm ?? point.x), y: Number(point.yMm ?? point.y) })).filter((point: any) => Number.isFinite(point.x) && Number.isFinite(point.y));
@@ -423,22 +431,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
     };
     const nearBoundary = (point?: { xMm: number; yMm: number }) => Boolean(point && points.some((start: any, index: number) => distanceToSegment({ x: point.xMm, y: point.yMm }, start, points[(index + 1) % points.length]) <= tolerance));
-    let filtered = walls.filter((wall) => nearBoundary(wall.start) && nearBoundary(wall.end));
-    // If no filtered walls matched the boundary tolerance, fall back to polygon edge boundaries
-    if (filtered.length === 0 && points.length >= 3) {
-      filtered = points.map((p: any, i: number) => {
-        const next = points[(i + 1) % points.length];
-        const letter = String.fromCharCode(65 + i);
-        const matchingPlanWall = walls.find((w) => w.start && w.end && distanceToSegment({ x: w.start.xMm, y: w.start.yMm }, p, next) < 500 && distanceToSegment({ x: w.end.xMm, y: w.end.yMm }, p, next) < 500);
-        return matchingPlanWall || {
-          id: `${selectedSpace?.id ?? 'room'}-wall-${letter.toLowerCase()}`,
-          start: { xMm: p.x, yMm: p.y },
-          end: { xMm: next.x, yMm: next.y },
-          name: `Wall ${letter}`,
-        };
-      });
-    }
-    return filtered;
+    // Placement must reference persisted plan walls, never invented polygon-edge IDs.
+    return walls.filter((wall) => nearBoundary(wall.start) && nearBoundary(wall.end));
   }, [selectedSpace, walls, spaceId]);
   const selectedWall = roomWalls.find((wall) => wall.id === wallId) ?? roomWalls[0] ?? null;
   const selectedWallLengthMm = selectedWall?.start && selectedWall?.end ? Math.hypot(selectedWall.end.xMm - selectedWall.start.xMm, selectedWall.end.yMm - selectedWall.start.yMm) : 0;
@@ -677,17 +671,17 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         setSpaces(nextSpaces);
         setWalls(nextWalls);
         setOpenings(Array.isArray(planPayload.openings) ? planPayload.openings : []);
-        const nextSpace = requestedSpaceId && nextSpaces.some((space: any) => space.id === requestedSpaceId)
-          ? nextSpaces.find((space: any) => space.id === requestedSpaceId)
+        const nextSpace = requestedSpaceId && nextSpaces.some((space: any) => space.id === requestedSpaceId || space.space_id === requestedSpaceId)
+          ? nextSpaces.find((space: any) => space.id === requestedSpaceId || space.space_id === requestedSpaceId)
           : nextSpaces.find((space: any) => space.id === spaceId) ?? nextSpaces[0];
         setSpaceId(nextSpace?.id ?? null);
-        setWallId((current) => current && nextWalls.some((wall: any) => wall.id === current) ? current : nextWalls[0]?.id ?? null);
+        setWallId((current) => requestedWallId && nextWalls.some((wall: any) => wall.id === requestedWallId) ? requestedWallId : current && nextWalls.some((wall: any) => wall.id === current) ? current : nextWalls[0]?.id ?? null);
         if (nextSpace?.roomType) setRoom(nextSpace.roomType);
       } catch {
         setSpaces([]); setWalls([]); setOpenings([]); setSpaceId(null); setWallId(null);
       }
     })();
-  }, [projectId, planApproved, requestedSpaceId]);
+  }, [projectId, planApproved, requestedSpaceId, requestedWallId]);
 
   useEffect(() => {
     setFamilyFilter('all');
@@ -857,6 +851,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       setDraftModules((current) => current.some((module) => module.id === next.id) ? current : [...current, next]);
       if (pendingModuleRequested && projectId) completePreparedModule(window.localStorage, projectId, item.id);
       setSelectedModuleId(next.id);
+      setCompiledSceneId(null);
       window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
       setPlacementNotice(`${item.name} was saved at ${Math.round(offsetMm)} mm along the verified wall${fitted.adapted ? ` and fitted to ${fitted.widthMm} mm of usable wall` : ''}. Select it to assign materials or make a targeted render revision.`);
     } catch { setPlacementNotice('Placement could not be confirmed. Reload saved modules before retrying to avoid adding a duplicate.'); }
@@ -2563,6 +2558,17 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   {spaces.length ? spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>) : <option value="">No approved rooms</option>}
                 </select>
               </label>
+              {roomProposals.length > 0 && <fieldset className="room-proposal-picker">
+                <legend>From your 2D room layout</legend>
+                <small>Choose a request, then select its catalog design below. These are proposals until placement is saved.</small>
+                {roomProposals.map((proposal) => <button type="button" key={proposal.id} aria-pressed={activeRoomProposal?.id === proposal.id} onClick={() => {
+                  setActiveRoomProposal(proposal);
+                  const match = catalogItems.find((item) => item.id === proposal.templateId);
+                  setFamilyFilter(match?.family ?? 'all'); setCatalogQuery(match?.name ?? '');
+                  if (proposal.wallId && roomWalls.some((wall) => wall.id === proposal.wallId)) setWallId(proposal.wallId);
+                }}><strong>{proposal.label}</strong><small>{proposal.widthMm} × {proposal.depthMm} × {proposal.heightMm} mm</small></button>)}
+                <button type="button" onClick={() => { setActiveRoomProposal(null); setFamilyFilter('all'); setCatalogQuery(''); }}>Browse all compatible designs</button>
+              </fieldset>}
               <label>
                 Anchor wall
                 <select value={wallId ?? ''} onChange={(event) => setWallId(event.target.value || null)}>
@@ -2802,7 +2808,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 {visibleCatalogItems.map((item) => (
                   <button className="catalog-item" key={item.id} onClick={() => {
                     const prepared = pendingModuleRequested ? readPreparedModule(window.localStorage, projectId) : null;
-                    void addModule(item, prepared?.templateId === item.id ? prepared.dimensionsMm : undefined);
+                    void addModule(item, prepared?.templateId === item.id ? prepared.dimensionsMm : activeRoomProposal ? { width: activeRoomProposal.widthMm, depth: activeRoomProposal.depthMm, height: activeRoomProposal.heightMm } : undefined);
                   }} disabled={!briefComplete || !planApproved}>
                     <ModulePreview module={item} compact interactive={false} />
                     <span>

@@ -341,7 +341,7 @@ def classify_opening(binary, center, gap_width, axis_is_y):
     return 'unknown', 0.45, 'A structural wall gap is visible, but door/window semantics are uncertain.'
 
 
-def detect_openings(walls, binary, min_gap_px=15, max_gap_px=140):
+def detect_openings(walls, binary, min_gap_px=None, max_gap_px=None):
     """Find plausible door/window openings as gaps between near-collinear
     wall segments on the same axis -- e.g. two wall segments that share the
     same y (horizontal wall) with a gap of a plausible door/window width
@@ -351,6 +351,11 @@ def detect_openings(walls, binary, min_gap_px=15, max_gap_px=140):
     once you have a calibrated scale for this specific image, the defaults
     here assume a roughly 1000-1100px-wide floor plan image.
     """
+    # The historical 15–140px range was tuned on a 1000px image. Detection
+    # now runs at 2400px; leaving that range unchanged discarded normal doors.
+    reference_ratio = max(binary.shape[:2]) / 1000.0
+    min_gap_px = 15 * reference_ratio if min_gap_px is None else min_gap_px
+    max_gap_px = 140 * reference_ratio if max_gap_px is None else max_gap_px
     openings = []
     horiz = [w for w in walls if abs(w['y1'] - w['y2']) < 2]
     vert = [w for w in walls if abs(w['x1'] - w['x2']) < 2]
@@ -368,6 +373,18 @@ def detect_openings(walls, binary, min_gap_px=15, max_gap_px=140):
                 if gap is None:
                     continue
                 if min_gap_px <= gap <= max_gap_px:
+                    gap_start, gap_end = (a_hi, b_lo) if a_hi < b_lo else (b_hi, a_lo)
+                    # A pair of non-adjacent wall segments is not an opening
+                    # when a third measured segment occupies the gap.
+                    obstructed = any(
+                        c is not a and c is not b
+                        and abs((c['y1'] if axis_is_y else c['x1']) - pos_a) <= 10
+                        and min(c['x1'] if axis_is_y else c['y1'], c['x2'] if axis_is_y else c['y2']) < gap_end
+                        and max(c['x1'] if axis_is_y else c['y1'], c['x2'] if axis_is_y else c['y2']) > gap_start
+                        for c in group
+                    )
+                    if obstructed:
+                        continue
                     mid = (min(a_hi, b_hi) + max(a_lo, b_lo)) / 2 if False else (a_hi + b_lo) / 2 if a_hi < b_lo else (b_hi + a_lo) / 2
                     center = {'x': mid, 'y': pos_a} if axis_is_y else {'x': pos_a, 'y': mid}
                     kind_hint, confidence, evidence = classify_opening(binary, center, gap, axis_is_y)
@@ -431,7 +448,7 @@ def trace_image(img: np.ndarray) -> dict:
         inverse = 1.0 / scale
         for wall in walls:
             for key in ('x1', 'y1', 'x2', 'y2', 'lengthPx', 'thicknessPx'):
-                if key in wall:
+                if wall.get(key) is not None:
                     wall[key] = round(float(wall[key]) * inverse, 2)
         for corner in corners:
             corner['x'] = round(float(corner['x']) * inverse, 2)

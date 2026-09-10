@@ -41,8 +41,9 @@ export function buildSceneExpectation(scene: import('@ultida/scene-core').SceneV
   const camera = scene.cameras[0];
   return {
     wallCount: scene.walls.length,
-    doorCount: scene.openings.filter((opening) => opening.kind === 'door').length,
-    windowCount: scene.openings.filter((opening) => opening.kind === 'window').length,
+    // A view can only verify openings projected inside its saved camera frame.
+    doorCount: artifacts.openingMasks.filter((opening) => opening.kind === 'door').length,
+    windowCount: artifacts.openingMasks.filter((opening) => opening.kind === 'window').length,
     moduleCount: scene.modules.length,
     cabinetDivisions: (scene.moduleParts ?? []).filter((part) => part.semanticType === 'shutter' || part.semanticType === 'drawer').length,
     skirtingCount: artifacts.skirtingMasks.length,
@@ -242,7 +243,7 @@ export async function measureRenderImage(scene: import('@ultida/scene-core').Sce
   }));
   const measuredDoorCount = openingEvidence.filter(({ opening, visible }) => opening.kind === 'door' && visible).length;
   const measuredWindowCount = openingEvidence.filter(({ opening, visible }) => opening.kind === 'window' && visible).length;
-  const expectedOpeningCount = scene.openings.length;
+  const expectedOpeningCount = artifacts.openingMasks.filter((opening) => opening.kind !== 'passage').length;
   return {
     wallEdgesAligned: alignment >= 0.55,
     openingCountMatches: measuredDoorCount + measuredWindowCount === expectedOpeningCount,
@@ -529,6 +530,12 @@ export async function createVisualJob(environment: Record<string, string | undef
     // has no photoreal styling noise, so it is the canonical geometry evidence
     // used to validate the scene before a provider is invoked.
     const deterministicQa = await evaluateRenderImageQA(context.scene, baseArtifacts, baseArtifacts.edgeMap.url);
+    // Edge maps include technical outlines; verify that the actual provider
+    // input also contains visible furniture rather than a foreground wall.
+    const rgbEvidence = await measureRenderImage(context.scene, baseArtifacts, baseArtifacts.rgb.url);
+    if (context.scene.modules.length > 0 && !rgbEvidence.focalModuleVisible) {
+      deterministicQa.issues.push({ kind: 'module_boxes', severity: 'blocking', message: 'The saved camera does not show furniture in the base image. Adjust the camera before generating an AI render.' });
+    }
     const blockingQa = deterministicQa.issues.filter((issue) => issue.severity === 'blocking');
     if (blockingQa.length) {
       const message = `Geometry-locked render QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;
