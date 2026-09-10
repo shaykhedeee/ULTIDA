@@ -1505,7 +1505,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   <span className="provider-status">Provider status unavailable</span>
                 )}
               </div>
-              <div role="status" style={{ margin: '8px 0 10px', padding: '8px 10px', borderRadius: 8, background: providers.some((provider) => provider.configured) ? '#f0fdf4' : '#fff7ed', border: `1px solid ${providers.some((provider) => provider.configured) ? '#bbf7d0' : '#fed7aa'}`, color: providers.some((provider) => provider.configured) ? '#166534' : '#9a3412', fontSize: 11 }}>
+              <div className="provider-readiness" role="status">
                 {providers.some((provider) => provider.configured) ? 'A configured image provider is available. Render jobs will retain the scene, camera, material, and provider provenance.' : 'No image provider is configured. Scene compilation and deterministic 3D remain available; photorealistic generation is blocked until a provider is connected.'}
               </div>
               <div className="visual-controls visual-controls-stack">
@@ -2768,7 +2768,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   </label>
                 </div>
               </fieldset>
-              <div style={{ maxHeight: '420px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div className="catalog-template-list">
                 {visibleCatalogItems.map((item) => (
                   <button className="catalog-item" key={item.id} onClick={() => {
                     const prepared = pendingModuleRequested ? readPreparedModule(window.localStorage, projectId) : null;
@@ -2800,7 +2800,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
             </CardContent>
           </Card>
         ) : (
-          <Card className="catalog-panel" style={{ minWidth: '420px' }}>
+          <Card className="catalog-panel moodboard-catalog-panel">
             <CardHeader style={{ paddingBottom: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                 <div>
@@ -3812,7 +3812,7 @@ function WallElevationPreview({
         <span>{openings.length} opening{openings.length === 1 ? '' : 's'} · {modules.length} module{modules.length === 1 ? '' : 's'}</span>
       </div>
 
-      <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} role="img" aria-label="Architectural wall elevation with openings and modules">
+      <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="Architectural wall elevation with openings and modules">
         {/* Wall shell background */}
         <rect x={padX} y={padY} width={innerW} height={innerH} className="module-wall-shell" rx={3} />
 
