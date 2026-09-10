@@ -296,7 +296,7 @@ const CURATED_MINIMAL_FINISHES = [
 export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planApproved, briefComplete, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved }: Props) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const requestedSpaceId = searchParams.get('spaceId');
+  const requestedSpaceId = searchParams.get('spaceId') || searchParams.get('roomId');
   const pendingModuleRequested = searchParams.get('pendingModule') === '1';
   const [room, setRoom] = useState('kitchen');
   const [spaces, setSpaces] = useState<Array<{ id: string; name: string; roomType: string; geometry_json?: { polygon?: Array<{ xMm?: number; yMm?: number; x?: number; y?: number }> } }>>([]);
