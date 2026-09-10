@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ModulePreview } from '../../components/library/ModulePreview';
 import ModularCabinetBuilder from '../../components/modular/ModularCabinetBuilder';
 import './modular-unit-planner.css';
+import { supabase } from '../../lib/supabase';
 
 type CatalogModule = {
   id: string; family: string; name: string; roomTypes: string[]; widthMm: number; depthMm: number; heightMm: number;
@@ -13,6 +14,7 @@ type CatalogModule = {
 
 type PreparedModulePlan = {
   schema: 'ultida.module-plan.v1';
+  projectId?: string;
   templateId: string;
   family: string;
   name: string;
@@ -163,31 +165,21 @@ export function ModularUnitPlanner() {
   const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [availableProjects, setAvailableProjects] = useState<Array<{ id: string; name: string; client_name?: string; updated_at?: string }>>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [projectLoadError, setProjectLoadError] = useState('');
 
   async function openProjectPicker() {
     if (!selected || !ready) return;
     setShowProjectPicker(true);
     setLoadingProjects(true);
+    setAvailableProjects([]);
+    setProjectLoadError('');
     try {
-      const res = await fetch(`${apiBase()}/projects`);
-      const data = await res.json().catch(() => null);
-      if (res.ok && Array.isArray(data?.projects) && data.projects.length > 0) {
-        setAvailableProjects(data.projects);
-      } else {
-        const local = JSON.parse(window.localStorage.getItem('ultida_local_projects') ?? '[]');
-        if (Array.isArray(local) && local.length > 0) {
-          setAvailableProjects(local);
-        } else {
-          setAvailableProjects([{ id: 'demo-villa-5bhk', name: 'Alibaug Luxury 5BHK Villa', client_name: 'Dr. Singhania' }]);
-        }
-      }
-    } catch {
-      const local = JSON.parse(window.localStorage.getItem('ultida_local_projects') ?? '[]');
-      if (Array.isArray(local) && local.length > 0) {
-        setAvailableProjects(local);
-      } else {
-        setAvailableProjects([{ id: 'demo-villa-5bhk', name: 'Alibaug Luxury 5BHK Villa', client_name: 'Dr. Singhania' }]);
-      }
+      if (!supabase || !(await supabase.auth.getSession()).data.session) throw new Error('Sign in to load your saved projects.');
+      const { data, error } = await supabase.from('projects').select('id,name,client_name,updated_at').order('updated_at', { ascending: false });
+      if (error) throw error;
+      setAvailableProjects(data ?? []);
+    } catch (error) {
+      setProjectLoadError(error instanceof Error ? error.message : 'Saved projects could not be loaded. Retry when your connection is restored.');
     } finally {
       setLoadingProjects(false);
     }
@@ -197,6 +189,7 @@ export function ModularUnitPlanner() {
     if (!selected || !ready) return;
     const prepared: PreparedModulePlan = {
       schema: 'ultida.module-plan.v1',
+      projectId: targetProjectId,
       templateId: selected.id,
       family: selected.family,
       name: selected.name,
@@ -207,7 +200,7 @@ export function ModularUnitPlanner() {
     window.localStorage.setItem('ultida.pendingModulePlan.v1', JSON.stringify(prepared));
     setStatus(`Prepared ${selected.name} for ${targetProjectName}. Choose a room and wall to save placement.`);
     setShowProjectPicker(false);
-    navigate(`/projects/${targetProjectId}/spaces?tab=modules&placeModule=1`);
+    navigate(`/projects/${targetProjectId}/spaces?tab=modules&pendingModule=1`);
   }
 
   function prepareProjectPlacement() {
@@ -534,13 +527,13 @@ export function ModularUnitPlanner() {
               </div>
             ) : availableProjects.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 20, color: '#78716c', fontSize: 13 }}>
-                No existing projects found. Start a new project to place this unit.
+                {projectLoadError || 'No saved projects found. Start a new project to place this unit.'}
+                {projectLoadError && <button type="button" onClick={() => void openProjectPicker()}>Retry</button>}
               </div>
             ) : (
               availableProjects.map((p) => (
                 <div
                   key={p.id}
-                  onClick={() => dispatchToProject(p.id, p.name)}
                   style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     padding: '12px 14px', background: '#292524', border: '1px solid #44403c', borderRadius: 8,
@@ -553,6 +546,7 @@ export function ModularUnitPlanner() {
                   </div>
                   <button
                     type="button"
+                    onClick={() => dispatchToProject(p.id, p.name)}
                     style={{
                       background: 'linear-gradient(135deg, #10b981, #059669)',
                       color: '#000', border: 0, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700

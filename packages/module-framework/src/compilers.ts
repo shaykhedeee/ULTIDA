@@ -335,8 +335,25 @@ export function compileIsland(input: TemplateCompileInput): TemplateCompileResul
   const blocking: string[] = [];
   const warning: string[] = [];
 
+  const overhangMm = Number(p.overhangMm ?? 300);
+  const drawerCount = Number(p.drawerCount ?? 3);
+  for (const [name, value] of [['width', totalW], ['height', totalH], ['depth', totalD]] as const) {
+    if (!Number.isFinite(value) || value <= 0) blocking.push(`Island ${name} must be a finite positive millimetre value.`);
+  }
   if (totalW < 600) blocking.push(`Island width ${totalW}mm is too narrow for modular fabrication.`);
-  if (totalD < 600) warning.push('Island depth < 600mm restricts dual-sided or drawer clearance.');
+  if (totalD < 600) blocking.push('Island depth must be at least 600mm.');
+  if (totalH < 300) blocking.push('Island height must be at least 300mm.');
+  if (totalW > input.wall.widthMm) blocking.push('Finished island width exceeds the available width.');
+  if (totalH > input.wall.heightMm) blocking.push('Finished island height exceeds the available height.');
+  if (!isDressing && (!Number.isFinite(overhangMm) || overhangMm < 250 || totalD - overhangMm < 300)) {
+    blocking.push('Island overhang must be finite, at least 250mm, and leave at least 300mm storage depth.');
+  }
+  if (isDressing && (!Number.isSafeInteger(drawerCount) || drawerCount < 2 || drawerCount > 12 || (totalH - 140 - t) / drawerCount <= 4)) {
+    blocking.push('Dressing island requires 2–12 whole drawers with positive clear height.');
+  }
+  // Bound emitted geometry and loop counts before constructing parts.
+  if (totalW > 12000 || totalD > 12000 || totalH > 6000) blocking.push('Island dimensions exceed the supported compiler envelope (12000 × 12000 × 6000mm).');
+  if (blocking.length) return { templateVersionId: input.templateVersionId, instanceId, valid: false, blockingViolations: blocking, warningViolations: warning, parts: [], elements: [] };
 
   if (isDressing) {
     // ── Luxury Dressing Island (Glass top reveal + velvet jewellery organizers + tandem drawers) ──
@@ -459,7 +476,7 @@ export function compileIsland(input: TemplateCompileInput): TemplateCompileResul
         },
       });
 
-      const lowerDrawerCount = Math.max(2, p.drawerCount ?? 3);
+      const lowerDrawerCount = drawerCount;
       const remainingH = totalH - 140 - t;
       const lowerDrawerH = remainingH / lowerDrawerCount;
       for (let d = 0; d < lowerDrawerCount; d++) {
@@ -484,10 +501,11 @@ export function compileIsland(input: TemplateCompileInput): TemplateCompileResul
     parts.push(...compileLightingElements(input, { family: 'wardrobe' }));
   } else {
     // ── Gourmet Kitchen / Breakfast Island with Waterfall Stone & Stool Overhang ──
-    const overhangMm = Math.max(250, Number(p.overhangMm ?? 300));
     const storageDepth = totalD - overhangMm;
     const stoneThick = 40;
     const baseH = totalH - stoneThick;
+    // Declared width is the FINISHED envelope, including both stone legs.
+    const carcassW = totalW - 2 * stoneThick;
 
     parts.push({
       id: `${instanceId}-island-base`,
@@ -495,14 +513,14 @@ export function compileIsland(input: TemplateCompileInput): TemplateCompileResul
       instanceId,
       name: 'Island Carcass Base Bottom',
       transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 },
-      size: { widthMm: totalW, depthMm: storageDepth, heightMm: t },
+      size: { widthMm: carcassW, depthMm: storageDepth, heightMm: t },
       anchor: { face: 'bottom' },
       meta: {
         semanticType: 'carcass',
         parentId: null,
         materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Island Base' },
         drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 },
-        bom: { sku: 'CARCASS-18MM', qty: 1, unit: 'sqm', lengthMm: totalW, widthMm: storageDepth, thicknessMm: t },
+        bom: { sku: 'CARCASS-18MM', qty: 1, unit: 'sqm', lengthMm: carcassW, widthMm: storageDepth, thicknessMm: t },
       },
     });
 
@@ -527,7 +545,7 @@ export function compileIsland(input: TemplateCompileInput): TemplateCompileResul
       templateVersionId: input.templateVersionId,
       instanceId,
       name: 'Island Carcass Right Gable',
-      transform: { xMm: totalW - t, yMm: 0, zMm: t, rotationDeg: 0 },
+      transform: { xMm: carcassW - t, yMm: 0, zMm: t, rotationDeg: 0 },
       size: { widthMm: t, depthMm: storageDepth, heightMm: baseH - t },
       anchor: { face: 'right' },
       meta: {
@@ -545,19 +563,19 @@ export function compileIsland(input: TemplateCompileInput): TemplateCompileResul
       instanceId,
       name: 'Double-Sided Carcass Dividing Spine',
       transform: { xMm: t, yMm: storageDepth - t, zMm: t, rotationDeg: 0 },
-      size: { widthMm: totalW - t * 2, depthMm: t, heightMm: baseH - t },
+      size: { widthMm: carcassW - t * 2, depthMm: t, heightMm: baseH - t },
       anchor: { face: 'back' },
       meta: {
         semanticType: 'carcass',
         parentId: null,
         materialSlot: { id: COMPAT.carcass, code: COMPAT.carcass, name: 'Divider Spine' },
         drawing: { layer: 'A-MOD-CARCASS', sortOrder: 1 },
-        bom: { sku: 'CARCASS-SPINE-18MM', qty: 1, unit: 'sqm', lengthMm: totalW - t * 2, widthMm: baseH - t, thicknessMm: t },
+        bom: { sku: 'CARCASS-SPINE-18MM', qty: 1, unit: 'sqm', lengthMm: carcassW - t * 2, widthMm: baseH - t, thicknessMm: t },
       },
     });
 
-    const bayCount = Math.max(2, Math.round(totalW / 600));
-    const bayW = (totalW - (bayCount + 1) * t) / bayCount;
+    const bayCount = Math.max(2, Math.round(carcassW / 600));
+    const bayW = (carcassW - (bayCount + 1) * t) / bayCount;
     for (let b = 0; b < bayCount; b++) {
       const bX = t + b * (bayW + t);
       const drawerH = (baseH - t * 2) / 2;
@@ -581,7 +599,9 @@ export function compileIsland(input: TemplateCompileInput): TemplateCompileResul
       }
     }
 
-    // Waterfall Countertop Slabs
+    // Move carcass into the clear space between the stone legs.
+    for (const part of parts) part.transform.xMm += stoneThick;
+    // Waterfall Countertop Slabs (butt joint; no unmodelled mitre claim).
     parts.push({
       id: `${instanceId}-countertop-top`,
       templateVersionId: input.templateVersionId,
@@ -603,16 +623,16 @@ export function compileIsland(input: TemplateCompileInput): TemplateCompileResul
       id: `${instanceId}-countertop-waterfall-left`,
       templateVersionId: input.templateVersionId,
       instanceId,
-      name: 'Left Vertical Waterfall Mitred Stone Slab',
-      transform: { xMm: -stoneThick, yMm: 0, zMm: 0, rotationDeg: 0 },
-      size: { widthMm: stoneThick, depthMm: totalD, heightMm: totalH },
+      name: 'Left Vertical Waterfall Stone Slab',
+      transform: { xMm: 0, yMm: 0, zMm: 0, rotationDeg: 0 },
+      size: { widthMm: stoneThick, depthMm: totalD, heightMm: baseH },
       anchor: { face: 'left' },
       meta: {
         semanticType: 'countertop',
         parentId: null,
         materialSlot: { id: COMPAT.counter, code: COMPAT.counter, name: 'Waterfall Slab' },
         drawing: { layer: 'A-MOD-COUNTER', sortOrder: 4 },
-        bom: { sku: 'SINTERED-WATERFALL-LEG-40MM', qty: 1, unit: 'sqm', lengthMm: totalD, widthMm: totalH, thicknessMm: stoneThick },
+        bom: { sku: 'SINTERED-WATERFALL-LEG-40MM', qty: 1, unit: 'sqm', lengthMm: totalD, widthMm: baseH, thicknessMm: stoneThick },
       },
     });
 
@@ -620,16 +640,16 @@ export function compileIsland(input: TemplateCompileInput): TemplateCompileResul
       id: `${instanceId}-countertop-waterfall-right`,
       templateVersionId: input.templateVersionId,
       instanceId,
-      name: 'Right Vertical Waterfall Mitred Stone Slab',
-      transform: { xMm: totalW, yMm: 0, zMm: 0, rotationDeg: 0 },
-      size: { widthMm: stoneThick, depthMm: totalD, heightMm: totalH },
+      name: 'Right Vertical Waterfall Stone Slab',
+      transform: { xMm: totalW - stoneThick, yMm: 0, zMm: 0, rotationDeg: 0 },
+      size: { widthMm: stoneThick, depthMm: totalD, heightMm: baseH },
       anchor: { face: 'right' },
       meta: {
         semanticType: 'countertop',
         parentId: null,
         materialSlot: { id: COMPAT.counter, code: COMPAT.counter, name: 'Waterfall Slab' },
         drawing: { layer: 'A-MOD-COUNTER', sortOrder: 4 },
-        bom: { sku: 'SINTERED-WATERFALL-LEG-40MM', qty: 1, unit: 'sqm', lengthMm: totalD, widthMm: totalH, thicknessMm: stoneThick },
+        bom: { sku: 'SINTERED-WATERFALL-LEG-40MM', qty: 1, unit: 'sqm', lengthMm: totalD, widthMm: baseH, thicknessMm: stoneThick },
       },
     });
 

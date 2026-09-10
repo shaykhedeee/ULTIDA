@@ -35,8 +35,9 @@ import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSu
 import { migrateScene } from '@ultida/scene-core';
 import { compileSceneV1, reconcileBays, reconcileSceneBays, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
-import { ModuleEditSchema, prepareModuleEdit, validateModuleClearance } from './module-edit.js';
+import { ModuleEditSchema, prepareModuleEdit, prepareModulePlacement, validateModuleClearance } from './module-edit.js';
 import { compileStoredModuleForScene } from './scene-module-parts.js';
+import { invalidateModuleOutputs } from './module-output-invalidation.js';
 import { evaluateVastuCompliance, generateCandidates } from '@ultida/layout-core';
 import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord } from './reference-retrieval.js';
 import { getDeploymentIdentity, isPreviewWriteAllowed } from './deployment-identity.js';
@@ -1924,7 +1925,7 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
     return response.status(422).json({ success: false, code: 'MODULE_DIMENSIONS_INVALID', message: 'Module width, depth, and height must be positive millimetre values.' });
   }
   const client = getRequestSupabaseClient(request);
-  const space = await client.from('spaces').select('id,project_id,organization_id,floor_plan_version_id').eq('id', spaceId).eq('project_id', request.params.projectId).single();
+  const space = await client.from('spaces').select('id,space_id,project_id,organization_id,floor_plan_version_id').eq('id', spaceId).eq('project_id', request.params.projectId).single();
   if (space.error || !space.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected room does not belong to this project.' });
   const activePlan = await client.from('floor_plan_versions').select('id,canonical_model').eq('project_id', request.params.projectId).eq('active_version', true).eq('status', 'approved').maybeSingle();
   if (activePlan.error || !activePlan.data) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'Approve the plan before placing modules.' });
@@ -1935,7 +1936,7 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
   if (!resolvedAnchor.ok) return response.status(422).json({ success: false, code: resolvedAnchor.code, message: resolvedAnchor.message });
   const existingOnWall = await client.from('module_instances').select('*').eq('project_id', request.params.projectId).eq('space_id', spaceId).in('status', ['validated', 'approved']);
   if (existingOnWall.error) return response.status(500).json({ success: false, code: 'MODULE_COLLISION_LOOKUP_FAILED', message: existingOnWall.error.message });
-  const clearance = validateModuleClearance({ id: '', space_id: spaceId, category, config_json: config, position_json: resolvedAnchor.anchor }, plan.data, existingOnWall.data ?? []);
+  const clearance = prepareModulePlacement({ id: crypto.randomUUID(), space_id: spaceId, template_id: templateId, category, config_json: config, position_json: resolvedAnchor.anchor }, plan.data, space.data.space_id, existingOnWall.data ?? []);
   if (!clearance.ok) return response.status(422).json({ success: false, code: clearance.code, message: clearance.message });
   let resolvedLayoutId = typeof layoutId === 'string' ? layoutId : null;
   if (resolvedLayoutId) {
@@ -1949,6 +1950,7 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
     resolvedLayoutId = layout.data.id;
   }
   const row = {
+    id: clearance.candidate.id,
     organization_id: space.data.organization_id,
     project_id: request.params.projectId,
     space_id: spaceId,
@@ -1959,11 +1961,14 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
     config_json: { ...config, spaceId, floorPlanVersionId: activePlan.data.id },
     position_json: resolvedAnchor.anchor,
     status: 'validated',
+    validation_json: { partCount: clearance.partCount, sceneRecompileRequired: true },
     created_by: authReq.ultidaUser!.id,
   };
+  const invalidationError = await invalidateModuleOutputs(client, String(request.params.projectId));
+  if (invalidationError) return response.status(503).json({ success: false, code: 'MODULE_OUTPUT_INVALIDATION_FAILED', message: invalidationError });
   const created = await client.from('module_instances').insert(row).select('*').single();
   if (created.error) return response.status(500).json({ success: false, code: 'MODULE_INSTANCE_CREATE_FAILED', message: created.error.message });
-  return response.status(201).json({ success: true, module: created.data });
+  return response.status(201).json({ success: true, module: created.data, sceneRecompileRequired: true });
 });
 
 app.patch('/api/projects/:projectId/module-instances/:moduleId', requireProjectUser, async (request, response) => {
@@ -1994,6 +1999,8 @@ app.patch('/api/projects/:projectId/module-instances/:moduleId', requireProjectU
   if (!edit.ok) return response.status(422).json({ success: false, code: edit.code, message: edit.message });
   const actorId = (request as import('./api-auth.js').AuthenticatedRequest).ultidaUser!.id;
   const updatedAt = new Date(Math.max(Date.now(), Date.parse(current.data.updated_at) + 1)).toISOString();
+  const invalidationError = await invalidateModuleOutputs(client, projectId);
+  if (invalidationError) return response.status(503).json({ success: false, code: 'MODULE_OUTPUT_INVALIDATION_FAILED', message: invalidationError });
   const updated = await client.from('module_instances').update({
     config_json: edit.candidate.config_json, position_json: edit.candidate.position_json,
     status: 'validated', updated_at: updatedAt,

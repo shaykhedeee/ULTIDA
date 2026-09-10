@@ -19,6 +19,7 @@ type CanonicalWall = {
 
 function compilerCategory(family: string): CategoryType | null {
   const normalized = family.toLowerCase().replaceAll('-', '_');
+  if (normalized.includes('island')) return 'island';
   if (normalized.includes('tv')) return 'tv_unit';
   if (normalized.includes('wardrobe')) return 'wardrobe';
   if (normalized.includes('crockery')) return 'crockery_unit';
@@ -71,7 +72,8 @@ export function compileStoredModuleForScene(
     id: module.id, roomId: module.space_id, family, widthMm, depthMm, heightMm,
     xMm, yMm, zMm: Number(position.zMm ?? 0), rotationDeg, anchor: 'wall', materialId: typeof config.materialId === 'string' ? config.materialId : undefined,
   };
-  const category = compilerCategory(family);
+  const islandTemplate = ['kit-island-waterfall-1800', 'wardrobe-island-jewellery-900'].includes(module.template_id ?? '');
+  const category = islandTemplate ? 'island' : compilerCategory(family);
   if (!category) return { ok: true, module: moduleEnvelope, parts: [] };
 
   const wallId = typeof position.wallId === 'string' ? position.wallId : '';
