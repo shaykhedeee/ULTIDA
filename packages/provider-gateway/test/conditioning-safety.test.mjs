@@ -19,7 +19,7 @@ test('unsupported controls fail before network discovery or paid fallback', asyn
     for (const patch of [
       { conditioningMaps: { depthMapUrl: 'https://assets.example/depth.png' } },
       { masks: ['https://assets.example/mask.png'] },
-      { operation: 'material-swap', conditioningIntent: 'reference' },
+      { operation: 'material-swap', conditioningIntent: 'control', conditioningMaps: { depthMapUrl: 'https://assets.example/depth.png' } },
       { conditioningIntent: 'reference', conditioningMaps: { normalMapUrl: 'https://assets.example/normal.png' } },
     ]) {
       const result = await gateway.createVisualProposal({ ...base, ...patch });
@@ -29,6 +29,29 @@ test('unsupported controls fail before network discovery or paid fallback', asyn
       assert.equal(result.sourceSceneVersionId, base.sceneVersionId);
     }
     assert.equal(calls, 0);
+  } finally { globalThis.fetch = original; }
+});
+
+test('material swaps with ordinary image references reach the certified Cloudflare adapter', async () => {
+  const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#93765b' } }).png().toBuffer();
+  const asset = `data:image/png;base64,${bytes.toString('base64')}`;
+  const original = globalThis.fetch;
+  let fields = [];
+  globalThis.fetch = async (_url, options) => {
+    fields = [...options.body.keys()];
+    return new Response(JSON.stringify({ success: true, result: { image: { data: bytes.toString('base64'), mimeType: 'image/png' } } }), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const result = await createProviderGateway({ CLOUDFLARE_ACCOUNT_ID: 'test', CLOUDFLARE_AI_TOKEN: 'test' }).createVisualProposal({
+      ...base,
+      operation: 'material-swap',
+      sourceAssets: [asset, asset],
+      providerPreference: ['cloudflare'],
+      conditioningIntent: 'reference',
+      conditioningMaps: { cannyEdgeMapUrl: asset, materialKeyMapUrl: asset },
+    });
+    assert.equal(result.status, 'succeeded', JSON.stringify(result));
+    assert.deepEqual(fields.filter(name => name.startsWith('input_image_')), ['input_image_0', 'input_image_1', 'input_image_2', 'input_image_3']);
   } finally { globalThis.fetch = original; }
 });
 

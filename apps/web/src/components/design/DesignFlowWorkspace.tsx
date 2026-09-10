@@ -1276,7 +1276,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     }
   }
 
-  async function handleOneClickCompileAndApprove() {
+  async function handleOneClickCompileAndApprove(options: { preserveMaterialAssignments?: boolean; sceneMaterialSelection?: any[] } = {}) {
     if (!projectId || !spaceId) {
       setPlacementNotice('Select an approved room before compiling and approving the scene.');
       return;
@@ -1288,7 +1288,9 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     }
 
     setApprovingScene(true);
-    setPlacementNotice('⚡ Auto-configuring luxury finishes, compiling scene.v1, and approving for 3D & technical production...');
+    setPlacementNotice(options.preserveMaterialAssignments
+      ? 'Compiling the saved component material revision into scene.v1...'
+      : '⚡ Auto-configuring luxury finishes, compiling scene.v1, and approving for 3D & technical production...');
 
     try {
       const headers = await authenticatedHeaders();
@@ -1320,21 +1322,25 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         ?? currentMaterials[2]
         ?? selectedHardwareObj;
 
-      // Step 3: Ensure material assignments exist for every placed module in the room
-      for (const mod of roomModules) {
-        const assignmentsToSave = [
-          carcassMat?.id ? { materialId: carcassMat.id, semanticSlot: 'carcass' as const, targetId: mod.id } : null,
-          shutterMat?.id ? { materialId: shutterMat.id, semanticSlot: 'shutter' as const, targetId: mod.id } : null,
-          hardwareMat?.id ? { materialId: hardwareMat.id, semanticSlot: 'hardware' as const, targetId: mod.id } : null,
-        ].filter(Boolean);
+      // A targeted material edit has already created a versioned assignment.
+      // Never seed defaults after that point: doing so would create a newer
+      // revision and silently overwrite the designer's selected finish.
+      if (!options.preserveMaterialAssignments) {
+        for (const mod of roomModules) {
+          const assignmentsToSave = [
+            carcassMat?.id ? { materialId: carcassMat.id, semanticSlot: 'carcass' as const, targetId: mod.id } : null,
+            shutterMat?.id ? { materialId: shutterMat.id, semanticSlot: 'shutter' as const, targetId: mod.id } : null,
+            hardwareMat?.id ? { materialId: hardwareMat.id, semanticSlot: 'hardware' as const, targetId: mod.id } : null,
+          ].filter(Boolean);
 
-        await Promise.all(assignmentsToSave.map((assignment) =>
-          fetch(`${apiBase}/projects/${projectId}/material-assignments`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ ...assignment, targetKind: 'module', moduleInstanceId: mod.id, status: 'draft' }),
-          }).catch(() => null)
-        ));
+          await Promise.all(assignmentsToSave.map((assignment) =>
+            fetch(`${apiBase}/projects/${projectId}/material-assignments`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ ...assignment, targetKind: 'module', moduleInstanceId: mod.id, status: 'draft' }),
+            }).catch(() => null)
+          ));
+        }
       }
 
       setMaterialAssignmentsSaved(true);
@@ -1346,7 +1352,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         : roomModules;
 
       // Step 5: Compile scene.v1
-      const sceneMaterials = [carcassMat, shutterMat, hardwareMat].filter((m) => m && m.id);
+      const sceneMaterials = (options.sceneMaterialSelection?.length ? options.sceneMaterialSelection : [carcassMat, shutterMat, hardwareMat]).filter((m) => m && m.id);
       const nextSceneId = await onSceneCreated(crypto.randomUUID(), readyModules.length ? readyModules : roomModules, sceneMaterials);
       if (!nextSceneId) {
         throw new Error('Scene compilation did not return a saved scene version. Check the project readiness and retry.');
@@ -1371,7 +1377,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   }
 
   async function compileMoodboard(materialSelection?: any[], assignmentVerified = materialAssignmentsSaved) {
-    return handleOneClickCompileAndApprove();
+    return handleOneClickCompileAndApprove({ preserveMaterialAssignments: assignmentVerified, sceneMaterialSelection: materialSelection });
   }
 
   async function saveFinishesAndCompileScene() {

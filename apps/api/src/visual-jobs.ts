@@ -37,6 +37,35 @@ function imageExtension(mimeType: string) {
   return 'png';
 }
 
+type CatalogMaterialReference = {
+  id: string;
+  name: string;
+  sourceAsset: string;
+  kind: 'catalog-colour-swatch';
+};
+
+/**
+ * Creates a small, deterministic reference from the selected persisted
+ * catalog material. It is deliberately a colour swatch, not a fabricated
+ * texture or a manufacturing claim. The saved material assignment remains
+ * the source of construction truth.
+ */
+async function catalogMaterialReference(client: SupabaseClient, organizationId: string, materialId: string): Promise<CatalogMaterialReference> {
+  const result = await client.from('material_library_items')
+    .select('id,name,metadata')
+    .eq('id', materialId)
+    .eq('organization_id', organizationId)
+    .single();
+  if (result.error || !result.data) throw new Error('The selected laminate is no longer in this organization library. Save the material again before rendering.');
+  const metadata = result.data.metadata && typeof result.data.metadata === 'object'
+    ? result.data.metadata as Record<string, unknown>
+    : {};
+  const candidate = typeof metadata.colourHex === 'string' ? metadata.colourHex : typeof metadata.colorHex === 'string' ? metadata.colorHex : '#b6a28d';
+  const colour = /^#[0-9a-f]{6}$/i.test(candidate) ? candidate : '#b6a28d';
+  const bytes = await sharp({ create: { width: 256, height: 256, channels: 3, background: colour } }).png().toBuffer();
+  return { id: result.data.id, name: result.data.name, sourceAsset: `data:image/png;base64,${bytes.toString('base64')}`, kind: 'catalog-colour-swatch' };
+}
+
 export function buildSceneExpectation(scene: import('@ultida/scene-core').SceneV1, artifacts: BaseRenderArtifacts): SceneExpectation {
   const camera = scene.cameras[0];
   return {
@@ -498,7 +527,7 @@ export async function createVisualJob(environment: Record<string, string | undef
     const brief = compileRenderBrief({ scene: context.scene, sceneVersionId: request.sceneVersionId, roomId: request.roomId, style: request.style, quality: request.quality, camera: request.camera });
     const referenceGuidance = await renderReferenceGuidance(client, context.project.organization_id, context.scene, brief.roomId, brief.style);
     const materialSwapInstruction = request.operation === 'material-swap'
-      ? `\nMATERIAL REVISION LOCK: edit only the pixels inside the supplied mask for module ${request.targetModuleId} (${request.targetSemanticSlot ?? 'selected finish'}). Apply material ${request.targetMaterialId ?? 'selected by the studio'}. Do not alter any pixels outside that mask. Preserve the room shell, openings, ceiling, camera, module footprint, shutter count, hardware, lighting, and every unaffected finish.`
+      ? `\nMATERIAL REVISION: use the selected module-region guide to localize the ${request.targetSemanticSlot ?? 'selected finish'} of module ${request.targetModuleId}. Apply only the selected persisted material. Preserve the room shell, openings, sill and head heights, skirting, ceiling, camera, module footprint, shutter count, hardware, lighting, and every unaffected finish. This is a visual revision for QA review; the persisted scene material assignment remains the construction authority.`
       : '';
     const structuredPrompt = `${brief.positivePrompt}${geometryContract.prompt}${referenceGuidance.prompt}${materialSwapInstruction}`;
     const negativePrompt = request.operation === 'material-swap'
@@ -549,28 +578,35 @@ export async function createVisualJob(environment: Record<string, string | undef
       await client.from('jobs').update({ status: 'failed', error: 'The selected module has no deterministic scene mask. Recompile the scene before requesting a laminate revision.' }).eq('id', job.data.id);
       return { status: 'failed' as const, jobId: job.data.id, code: 'RENDER_TARGET_MASK_UNAVAILABLE', message: 'The selected module has no deterministic scene mask. Recompile the scene before requesting a laminate revision.', retryable: false };
     }
+    const materialReference = request.operation === 'material-swap' && request.targetMaterialId
+      ? await catalogMaterialReference(client, context.project.organization_id, request.targetMaterialId)
+      : null;
+    if (request.operation === 'material-swap' && !materialReference) {
+      await client.from('jobs').update({ status: 'failed', error: 'A persisted selected laminate is required before a material revision can be rendered.' }).eq('id', job.data.id);
+      return { status: 'failed' as const, jobId: job.data.id, code: 'RENDER_MATERIAL_REFERENCE_REQUIRED', message: 'Save a selected laminate from the organization library before requesting a material revision.', retryable: false };
+    }
     const providerRequest: VisualProposalRequest = {
       ...normalizedRequest,
-      sourceAssets: [baseArtifacts.rgb.url],
-      masks: request.operation === 'material-swap'
-        ? [baseArtifacts.edgeMap.url, selectedObjectMask!.url]
-        : [],
-      conditioningIntent: request.operation === 'material-swap' ? 'control' : 'reference',
+      sourceAssets: request.operation === 'material-swap'
+        ? [baseArtifacts.rgb.url, materialReference!.sourceAsset]
+        : [baseArtifacts.rgb.url],
+      masks: [],
+      conditioningIntent: 'reference',
       conditioningMaps: {
-        depthMapUrl: baseArtifacts.depth.url,
+        ...(request.operation === 'material-swap' ? {} : { depthMapUrl: baseArtifacts.depth.url }),
         cannyEdgeMapUrl: baseArtifacts.edgeMap.url,
-        materialKeyMapUrl: baseArtifacts.materialRegions[0]?.url,
-        objectMaskUrl: selectedObjectMask?.url,
+        materialKeyMapUrl: request.operation === 'material-swap' ? selectedObjectMask!.url : baseArtifacts.materialRegions[0]?.url,
       },
-      // FLUX.2 receives ordinary image references, not typed depth/mask controls.
-      // Precision edits fail closed at the gateway until a verified adapter exists.
+      // FLUX.2 receives ordinary image references, not typed mask controls.
+      // The resulting image is therefore QA-reviewed rather than presented as
+      // pixel-precise evidence of a construction change.
       providerPreference: ['cloudflare'],
     };
     await client.from('jobs').update({
       status: 'running',
       started_at: new Date().toISOString(),
       input: { ...providerRequest, renderBrief: brief, technicalArtifacts, referenceIds: referenceGuidance.ids },
-      output: { reviewStatus: 'pending', renderQa: deterministicQa, technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, referenceIds: referenceGuidance.ids, materialRevision: request.operation === 'material-swap' ? { targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, maskId: selectedObjectMask?.id } : null },
+      output: { reviewStatus: 'pending', renderQa: deterministicQa, technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, referenceIds: referenceGuidance.ids, materialRevision: request.operation === 'material-swap' ? { targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, maskId: selectedObjectMask?.id, materialReference: materialReference ? { id: materialReference.id, name: materialReference.name, kind: materialReference.kind } : null } : null },
     }).eq('id', job.data.id);
     const result = await gateway.createVisualProposal(providerRequest);
 

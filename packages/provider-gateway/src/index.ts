@@ -232,7 +232,10 @@ export function createProviderGateway(environment: Environment) {
 
     try {
       const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
-      const prompt = `${request.structuredPrompt}. Reference image 0 is the approved deterministic room render; image 1 is its depth map; image 2 is its measured edge map; image 3 is its material-region map. Preserve the room geometry, camera, openings, sill and head heights, skirting, cabinet divisions and material regions exactly. Improve only realism, physical materials, shadows, reflections and exposure. ${request.negativePrompt ?? ''}`;
+      const materialSwapReferencePrompt = request.operation === 'material-swap'
+        ? 'Reference image 0 is the approved deterministic room render. Reference image 1 is the selected catalog laminate swatch. Reference image 2 is the measured edge map. Reference image 3 localizes the selected module material region. Apply the visual character of reference image 1 only to the localized component. Preserve every other component and the complete room geometry.'
+        : 'Reference image 0 is the approved deterministic room render; image 1 is its depth map; image 2 is its measured edge map; image 3 is its material-region map. Preserve the room geometry, camera, openings, sill and head heights, skirting, cabinet divisions and material regions exactly. Improve only realism, physical materials, shadows, reflections and exposure.';
+      const prompt = `${request.structuredPrompt}. ${materialSwapReferencePrompt} ${request.negativePrompt ?? ''}`;
       let body: BodyInit;
       let headers: Record<string, string> = { authorization: `Bearer ${token}` };
       if (model.includes('flux-2')) {
@@ -243,12 +246,19 @@ export function createProviderGateway(environment: Environment) {
         form.append('width', '1024');
         form.append('height', '1024');
         form.append('seed', String(Math.floor(Math.random() * 2147483647)));
-        const conditioningInputs = [
-          { asset: request.sourceAssets[0], filename: 'ultida-base-render.png', description: 'deterministic base image' },
-          { asset: request.conditioningMaps?.depthMapUrl, filename: 'ultida-depth-map.png', description: 'depth map' },
-          { asset: request.conditioningMaps?.cannyEdgeMapUrl, filename: 'ultida-edge-map.png', description: 'edge map' },
-          { asset: request.conditioningMaps?.materialKeyMapUrl, filename: 'ultida-material-map.png', description: 'material-region map' },
-        ].filter((input): input is { asset: string; filename: string; description: string } => Boolean(input.asset));
+        const conditioningInputs = (request.operation === 'material-swap'
+          ? [
+              { asset: request.sourceAssets[0], filename: 'ultida-base-render.png', description: 'deterministic base image' },
+              { asset: request.sourceAssets[1], filename: 'ultida-material-swatch.png', description: 'selected catalog laminate swatch' },
+              { asset: request.conditioningMaps?.cannyEdgeMapUrl, filename: 'ultida-edge-map.png', description: 'edge map' },
+              { asset: request.conditioningMaps?.materialKeyMapUrl, filename: 'ultida-selected-module-region.png', description: 'selected module region map' },
+            ]
+          : [
+              { asset: request.sourceAssets[0], filename: 'ultida-base-render.png', description: 'deterministic base image' },
+              { asset: request.conditioningMaps?.depthMapUrl, filename: 'ultida-depth-map.png', description: 'depth map' },
+              { asset: request.conditioningMaps?.cannyEdgeMapUrl, filename: 'ultida-edge-map.png', description: 'edge map' },
+              { asset: request.conditioningMaps?.materialKeyMapUrl, filename: 'ultida-material-map.png', description: 'material-region map' },
+            ]).filter((input): input is { asset: string; filename: string; description: string } => Boolean(input.asset));
         for (const [index, input] of conditioningInputs.entries()) {
           let sourceBytes: Buffer;
           try {
@@ -713,7 +723,7 @@ export function createProviderGateway(environment: Environment) {
       // Reject unsupported precision controls before any provider discovery,
       // funding probe, asset download or generation call can incur a cost.
       const controls = Object.entries(request.conditioningMaps ?? {}).filter(([, value]) => Boolean(value));
-      const unsupported = request.masks.length || request.operation === 'material-swap' || request.operation === 'remove-object'
+      const unsupported = request.masks.length || request.operation === 'remove-object'
         ? 'precise region-mask editing'
         : controls.length && request.conditioningIntent !== 'reference'
           ? `typed conditioning controls (${controls.map(([key]) => key).join(', ')})`
