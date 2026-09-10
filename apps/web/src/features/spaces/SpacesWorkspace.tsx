@@ -96,6 +96,7 @@ export type AiFurnitureProposal = {
   rationale: string;
   dimensionsMm: { width: number; depth: number; height: number };
   position: Pt;
+  rotationDeg?: number;
   confidence: number;
 };
 
@@ -1580,6 +1581,7 @@ export function SpacesWorkspace() {
           rationale: `Placed at ${Math.round(offset)} mm on the selected measured wall; door and window keep-outs checked.`,
           dimensionsMm: { width: module.widthMm, depth: module.depthMm, height: module.heightMm },
           position: { xMm: start.xMm + direction.xMm * offset, yMm: start.yMm + direction.yMm * offset },
+          rotationDeg: Math.atan2(direction.yMm, direction.xMm) * 180 / Math.PI,
           confidence: 1,
         },
       ]);
@@ -2446,7 +2448,7 @@ export function SpacesWorkspace() {
                 const widthPx = Math.max(30, prop.dimensionsMm.width * view.scale);
                 const depthPx = Math.max(24, prop.dimensionsMm.depth * view.scale);
                 return (
-                  <g key={prop.id} className="ai-proposal-envelope" style={{ cursor: 'pointer' }}>
+                  <g key={prop.id} className="ai-proposal-envelope" style={{ cursor: 'pointer' }} transform={`rotate(${prop.rotationDeg ?? 0} ${pos.x} ${pos.y})`}>
                     {/* Subtle drop shadow */}
                     <rect
                       x={pos.x + 2}
