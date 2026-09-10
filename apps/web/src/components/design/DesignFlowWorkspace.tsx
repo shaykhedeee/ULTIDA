@@ -31,7 +31,7 @@ type Module = { id: string; roomId: string; family: string; label: string; width
 type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; roomTypes: string[]; description?: string; manufacturingRules?: string[] };
 type DesignPreset = { id: string; name: string; family: string; roomTypes: string[]; referenceStyle: string[]; renderRules: string[]; productionRules: string[] };
 type ModuleConfiguration = { archetype: string; shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; shutterCount?: number; includeLoft: boolean; glassProfile: boolean; sideFillerLeft: boolean; sideFillerRight: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
-type Provider = { id: string; configured: boolean; operations: string[] };
+type Provider = { id: string; configured: boolean; eligible?: boolean; operations: string[]; details?: string };
 type StoredRender = { id: string; scene_version_id: string; status: string; stale?: boolean; signedUrl: string | null; created_at: string; provenance?: { provider?: string; model?: string; promptVersion?: string; reviewStatus?: string } };
 type DesignFocus = 'all' | 'modules' | 'materials';
 type MaterialSlot = 'carcass' | 'shutter' | 'back_panel' | 'countertop' | 'profile' | 'glass';
@@ -544,55 +544,6 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     setRenders([]);
     setSelectedRenderId(null);
     setReviewVisualJobId(null);
-    return;
-
-    setRenders((current) => {
-      if (current.length > 0) return current;
-      const initialRenders: StoredRender[] = [
-        {
-          id: 'render-living-lux',
-          scene_version_id: sceneVersionId || 'scene-v1',
-          status: 'succeeded',
-          signedUrl: '/reference-vault/002-cab37cfa0bb2.png',
-          created_at: new Date().toISOString(),
-          provenance: {
-            provider: 'ULTIDA AURA Vision AI (Ultra Photoreal 4K)',
-            model: 'Architectural-Diffusion-XL v2.4',
-            promptVersion: 'scene.v1 | LIVING & DINING | Warm Amber Daylight | Fluted Smoked Oak',
-            reviewStatus: 'approved',
-          },
-        },
-        {
-          id: 'render-kitchen-lux',
-          scene_version_id: sceneVersionId || 'scene-v1',
-          status: 'succeeded',
-          signedUrl: '/reference-vault/001-ddc1891636f7.png',
-          created_at: new Date(Date.now() - 3600000).toISOString(),
-          provenance: {
-            provider: 'ULTIDA AURA Vision AI (Ultra Photoreal 4K)',
-            model: 'Architectural-Diffusion-XL v2.4',
-            promptVersion: 'scene.v1 | MODULAR KITCHEN | Calacatta Marble & Pearl Gloss',
-            reviewStatus: 'approved',
-          },
-        },
-        {
-          id: 'render-bed-lux',
-          scene_version_id: sceneVersionId || 'scene-v1',
-          status: 'succeeded',
-          signedUrl: '/reference-vault/006-e36e2c7c9b1a.png',
-          created_at: new Date(Date.now() - 7200000).toISOString(),
-          provenance: {
-            provider: 'ULTIDA AURA Vision AI (Ultra Photoreal 4K)',
-            model: 'Architectural-Diffusion-XL v2.4',
-            promptVersion: 'scene.v1 | MASTER BEDROOM | Anodized Profile Glass Wardrobe',
-            reviewStatus: 'approved',
-          },
-        },
-      ];
-      setSelectedRenderId(initialRenders[0].id);
-      setReviewVisualJobId(initialRenders[0].id);
-      return initialRenders;
-    });
   }
 
   useEffect(() => {
@@ -1392,6 +1343,13 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     if (!sceneIsApproved) { setVisualState('Approve the linked scene before requesting a render.'); return; }
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
+      const readinessResponse = await fetch(`${apiBase}/projects/${projectId}/render-readiness`, { headers: await authenticatedHeaders() }).catch(() => null);
+      const readiness = readinessResponse ? await readinessResponse.json().catch(() => null) : null;
+      if (!readinessResponse?.ok || !readiness?.realImageProvider?.ready) {
+        setVisualBusy(false);
+        setVisualState(readiness?.realImageProvider?.message ?? 'The real image provider is unavailable. Check the Cloudflare Workers AI connection and try again.');
+        return;
+      }
       let renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
       // A normal room render follows the room selected in Visual Studio. A
       // material swap is intentionally narrower and follows the selected
