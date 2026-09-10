@@ -354,9 +354,10 @@ async function normalizeRasterForVision(environment: Environment, bytes: Uint8Ar
     // Workers AI receives one self-consistent, upright PNG irrespective of a
     // browser filename, EXIF rotation, transparency, or camera encoding. The
     // A configurable cap keeps network payload and model pre-processing fast.
-    // 2000px preserves normal printed plan labels, while studios handling very
-    // dense drawings can use PLAN_ANALYSIS_MAX_DIMENSION_PX=2400.
-    const maxDimensionPx = boundedTimeout(environment.PLAN_ANALYSIS_MAX_DIMENSION_PX, 2_000, 1_200, 2_600);
+    // 2400px is the canonical tracer's reference resolution. Keeping the
+    // upload at that detail prevents small door swings and window rails from
+    // being discarded before CV gets its resolution-normalized pass.
+    const maxDimensionPx = boundedTimeout(environment.PLAN_ANALYSIS_MAX_DIMENSION_PX, 2_400, 1_200, 2_600);
     const source = sharp(Buffer.from(bytes), { animated: false, failOn: 'none' }).rotate().flatten({ background: '#ffffff' });
     const png = await source
       .resize({ width: maxDimensionPx, height: maxDimensionPx, fit: 'inside', withoutEnlargement: true })
@@ -824,4 +825,4 @@ export async function processPlanAnalysisJob(environment: Environment, jobId: st
 
 // Narrow test seam for coordinate reconciliation. Runtime callers use only
 // the durable job functions above.
-export const __test__ = { visionProposalsToSemantic, hasReviewablePlanCoverage };
+export const __test__ = { visionProposalsToSemantic, hasReviewablePlanCoverage, normalizeRasterForVision };

@@ -202,6 +202,10 @@ app.get('/api/health', async (_request, response) => {
     process.env.FLOORPLAN_VISION_URL ||
     (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN && process.env.CLOUDFLARE_VISION_MODEL)
   );
+  const planCvConfigured = Boolean(
+    process.env.PLAN_CV_SERVICE_URL?.trim()
+    && (process.env.ULTIDA_WORKER_SHARED_SECRET || process.env.WORKER_DISPATCH_SECRET)
+  );
   return response.status(200).json({
     success: true,
     app: 'ultida',
@@ -212,6 +216,7 @@ app.get('/api/health', async (_request, response) => {
       previewDatabaseIsolated: deployment.previewDatabaseIsolated,
       durableJobs: hasServerSupabaseKey && workerDispatchReady,
       planVision: hasPlanVisionProvider,
+      planCv: planCvConfigured,
       realImageGeneration: currentGateway.status().some((provider) => provider.configured && provider.operations.includes('generate'))
     },
     providers: currentGateway.status(),
