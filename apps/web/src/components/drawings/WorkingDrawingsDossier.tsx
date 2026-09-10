@@ -191,7 +191,7 @@ export function WorkingDrawingsDossier({
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: '#1c1917', padding: '10px 24px', borderRadius: 8, marginBottom: 24 }}>
                   <Sparkles size={20} color="#c59c2d" />
                   <span style={{ color: '#fff', fontWeight: 900, fontSize: 16, letterSpacing: 1.5 }}>
-                    CUBEDECORS × ULTIDA
+                    ULTIDA ARCHITECTURAL STUDIO
                   </span>
                 </div>
                 <h1 style={{ fontSize: 32, fontWeight: 900, color: '#dc2626', margin: '0 0 16px', letterSpacing: 1, textDecoration: 'underline', textUnderlineOffset: 8 }}>

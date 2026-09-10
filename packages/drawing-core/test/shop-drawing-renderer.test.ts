@@ -12,6 +12,9 @@ const sampleKitchenScene: SceneV1 = {
   walls: [
     { id: 'wall-a', start: { xMm: 0, yMm: 0 }, end: { xMm: 2552, yMm: 0 }, thicknessMm: 150, heightMm: 2718 },
   ],
+  openings: [
+    { id: 'window-a', wallId: 'wall-a', kind: 'window', offsetMm: 1600, widthMm: 750, heightMm: 900, sillHeightMm: 1100 },
+  ],
   modules: [
     { id: 'kit-base-1', family: 'kitchen-base', widthMm: 2552, depthMm: 560, heightMm: 850, position: { xMm: 0, yMm: 0 } },
     { id: 'kit-wall-1', family: 'kitchen-wall', widthMm: 2552, depthMm: 300, heightMm: 670, position: { xMm: 0, yMm: 0, zMm: 1450 } },
@@ -71,6 +74,11 @@ test('generateArchitecturalShopSheetSvg renders full external elevation with car
   assert.ok(svg.includes('PROFILE SHUTTER WITH BLACK FLUTED GLASS'));
   assert.ok(svg.includes('SKIRTING 100mm'));
   assert.ok(svg.includes('FALSE CEILING FILLER 50mm'));
+
+  // Persisted wall openings remain visible and are scheduled from scene data.
+  assert.ok(svg.includes('data-opening-id="window-a"'));
+  assert.ok(svg.includes('WINDOW 750W × 900H · SILL 1100'));
+  assert.ok(svg.includes('OPENING SCHEDULE'));
 
   // Carcass & Laminate Legend Box
   assert.ok(svg.includes('LEGEND'));
