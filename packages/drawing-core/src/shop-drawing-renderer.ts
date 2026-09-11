@@ -26,6 +26,8 @@ export interface ShopDrawingOptions {
   selectedModuleId?: string;
   materialSwatches?: Record<string, string>;
   activeWallName?: string;
+  /** Studio name printed on the sheet. Defaults to the ULTIDA product brand. */
+  studioName?: string;
 }
 
 /**
@@ -81,6 +83,7 @@ export function generateArchitecturalShopSheetSvg(
   const measurementStatus = options.measurementStatus ?? 'unverified';
   const provenance = options.provenance || `Scene ${scene.metadata.designVersion} · floor plan ${scene.floorPlanVersionId}`;
   const revision = options.revision || scene.metadata.designVersion;
+  const studioName = options.studioName || 'ULTIDA ARCHITECTURAL STUDIO';
   const constructionReady = (scene.metadata.status === 'approved' || scene.metadata.status === 'locked') && measurementStatus !== 'unverified';
   const approvalLabel = constructionReady ? 'APPROVED FOR PRODUCTION' : 'NOT FOR CONSTRUCTION — REVIEW REQUIRED';
   const approvalFill = constructionReady ? '#ecfdf5' : '#fef2f2';
@@ -130,6 +133,12 @@ export function generateArchitecturalShopSheetSvg(
   const GLASS_FILL = '#f0fdf4';
   const GLASS_BORDER = '#0f172a';
   const GRANITE_FILL = '#334155';
+  const legendX = legendLeft;
+  const legendY = headerH + 16;
+  const wallOpenings = (scene.openings ?? [])
+    .filter((opening) => opening.wallId === wall?.id)
+    .filter((opening) => Number.isFinite(opening.offsetMm) && Number.isFinite(opening.widthMm) && Number.isFinite(opening.heightMm))
+    .sort((a, b) => a.offsetMm - b.offsetMm);
 
   // ── Helper: Red Dimension with 45° Tick Marks ──────────────────────────
   function dimLine(x1: number, y1: number, x2: number, y2: number, label: string, offset = 0, isVertical = false): string {
@@ -161,6 +170,35 @@ export function generateArchitecturalShopSheetSvg(
         fill="#0f172a" font-size="7.5" font-family="Arial,sans-serif" font-weight="bold">${label}</text>
     </g>`;
   }
+
+  // Openings are drawn from persisted wall geometry. Their sill and head are
+  // construction-critical constraints for joinery and must remain visible in
+  // every external elevation, independent of any rendered image.
+  const openingSvg = wallOpenings.map((opening) => {
+    const x = tx(Math.max(0, opening.offsetMm));
+    const width = Math.max(1, opening.widthMm * scale);
+    const sillMm = Math.max(0, opening.sillHeightMm ?? opening.sillMm ?? 0);
+    const height = Math.max(1, opening.heightMm * scale);
+    const y = ty(sillMm + opening.heightMm);
+    const kind = opening.kind.toUpperCase();
+    const isDoor = opening.kind.toLowerCase() === 'door';
+    const statusPrefix = measurementStatus === 'unverified' ? 'TBC ' : '';
+    const sillLabel = isDoor ? 'FFL' : `${sillMm} SILL`;
+    return `<g class="cad-opening" data-opening-id="${opening.id}">
+      <rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${isDoor ? '#f8fafc' : '#e0f2fe'}" fill-opacity="0.72" stroke="#0f172a" stroke-width="1.4" stroke-dasharray="${isDoor ? 'none' : '4 2'}"/>
+      ${isDoor ? `<line x1="${x}" y1="${ty(sillMm)}" x2="${x + width}" y2="${y}" stroke="#64748b" stroke-width="0.8"/>` : `<line x1="${x + width / 2}" y1="${y}" x2="${x + width / 2}" y2="${y + height}" stroke="#64748b" stroke-width="0.7" stroke-dasharray="2 2"/>`}
+      <text x="${x + width / 2}" y="${y + Math.min(height / 2, 14)}" text-anchor="middle" fill="#0f172a" font-size="6.5" font-family="Arial,sans-serif" font-weight="bold">${statusPrefix}${kind}</text>
+      <text x="${x + width / 2}" y="${y + Math.min(height / 2 + 10, height - 4)}" text-anchor="middle" fill="#334155" font-size="5.6" font-family="Arial,sans-serif">${Math.round(opening.widthMm)} W × ${Math.round(opening.heightMm)} H · ${sillLabel}</text>
+    </g>`;
+  }).join('\n');
+
+  const openingScheduleSvg = wallOpenings.length
+    ? wallOpenings.slice(0, 3).map((opening, index) => {
+      const sillMm = Math.max(0, opening.sillHeightMm ?? opening.sillMm ?? 0);
+      const label = `${opening.kind.toUpperCase()} ${Math.round(opening.widthMm)}W × ${Math.round(opening.heightMm)}H · SILL ${sillMm}`;
+      return `<text x="${legendX + 8}" y="${legendY + 648 + index * 11}" font-size="5.5" fill="#334155">${measurementStatus === 'unverified' ? 'TBC ' : ''}${label}</text>`;
+    }).join('')
+    : `<text x="${legendX + 8}" y="${legendY + 648}" font-size="5.5" fill="#64748b">NO MEASURED OPENINGS ON THIS WALL</text>`;
 
   // ── 1. Top View Plan ───────────────────────────────────────────────────
   let topViewSvg = '';
@@ -489,9 +527,6 @@ export function generateArchitecturalShopSheetSvg(
   verticalDims.push(dimLine(vDimX2, ty(0), vDimX2, ty(wallHeightMm), `${wallHeightMm}`, 0, true));
 
   // ── 5. Standard Right-Side Legend & Title Block ─────────────────────────
-  const legendX = legendLeft;
-  const legendY = headerH + 16;
-
   const legendSvg = `
     <!-- Right Legend & Matrix Area -->
     <g class="cad-legend-block" font-family="Arial,sans-serif">
@@ -587,7 +622,7 @@ export function generateArchitecturalShopSheetSvg(
 
       <!-- Studio Address -->
       <text x="${legendX + legendWidth / 2}" y="${legendY + 545}" text-anchor="middle" font-size="6" fill="#64748b">
-        ULTIDA ARCHITECTURAL STUDIO · BENGALURU
+        ${studioName}
       </text>
       <text x="${legendX + legendWidth / 2}" y="${legendY + 557}" text-anchor="middle" font-size="5.5" fill="#94a3b8">
         REV ${revision} · SCENE ${scene.metadata.designVersion} · UNITS: MM
@@ -611,6 +646,8 @@ export function generateArchitecturalShopSheetSvg(
         <text x="144" y="14" fill="#0f172a" font-size="5.5">VIRGO 1409</text>
         <text x="144" y="24" fill="#64748b" font-size="5">FROSTY WHITE SHG</text>
       </g>
+      <text x="${legendX + 8}" y="${legendY + 636}" font-size="5.5" font-weight="bold" fill="#334155">OPENING SCHEDULE</text>
+      ${openingScheduleSvg}
     </g>
   `;
 
@@ -663,6 +700,9 @@ export function generateArchitecturalShopSheetSvg(
 
     <!-- Casework Items -->
     ${elevationItemsSvg}
+
+    <!-- Measured doors and windows -->
+    ${openingSvg}
 
     <!-- Leader Callouts -->
     ${callouts.join('\n    ')}

@@ -55,3 +55,15 @@ test('records independent CV evidence for an editable room proposal without appr
   assert.equal(result.rooms[0]?.boundaryEvidence.status, 'candidate');
   assert.equal(result.requiresDesignerReview, true);
 });
+
+test('preserves a classified CV-only opening for review without promoting an unknown gap', () => {
+  const result = reconcilePlan({
+    ...cv,
+    openings: [
+      { betweenWallIds: ['wall-1', 'wall-2'], approxCenterPx: { x: 900, y: 300 }, approxWidthPx: 120, kindHint: 'door', confidence: 0.72, note: 'Door swing stroke visible.' },
+      { betweenWallIds: ['wall-3', 'wall-4'], approxCenterPx: { x: 1300, y: 300 }, approxWidthPx: 120, kindHint: 'unknown', confidence: 0.45 },
+    ],
+  }, vision([]));
+  assert.deepEqual(result.openings, [{ kind: 'door', approxCenterPx: { x: 900, y: 300 }, approxWidthPx: 120, confidence: 0.65 }]);
+  assert.match(result.reviewFlags.join(' '), /CV found a door gap/i);
+});

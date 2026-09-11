@@ -28,11 +28,24 @@ export interface CvWallCandidate {
   confidence: number;
 }
 
+/** A conservative classification attached to a measured wall gap by the
+ * canonical wall tracer. It is evidence for review, never an approved
+ * opening or a replacement for calibrated site dimensions. */
+export interface CvOpeningCandidate {
+  betweenWallIds: [string, string];
+  approxCenterPx: { x: number; y: number };
+  approxWidthPx: number;
+  kindHint: 'door' | 'window' | 'unknown';
+  confidence: number;
+  note?: string;
+}
+
 export interface CvTraceResult {
   schema: 'PlanAnalysisResultV1.wallCandidates';
   sourceImageSize: { widthPx: number; heightPx: number };
   corners: Array<{ id: string; x: number; y: number; refs: number }>;
   walls: CvWallCandidate[];
+  openings?: CvOpeningCandidate[];
 }
 
 /** Shape of whatever your existing vision-LLM call already returns --
@@ -218,6 +231,25 @@ export function reconcilePlan(
   };
   const reviewFlags: string[] = [];
   const tolerancePx = sourceTolerancePx(cv.sourceImageSize);
+  const openings = [...semantic.openings];
+
+  // The vision provider may miss a small symbol even where deterministic CV
+  // has measured a clear wall gap. Preserve only classified CV candidates as
+  // an editable, review-required semantic proposal. An unknown gap remains a
+  // gap, rather than being silently promoted to a door.
+  for (const opening of cv.openings ?? []) {
+    if (opening.kindHint === 'unknown') continue;
+    const represented = openings.some((candidate) => candidate.kind === opening.kindHint
+      && Math.hypot(candidate.approxCenterPx.x - opening.approxCenterPx.x, candidate.approxCenterPx.y - opening.approxCenterPx.y) <= tolerancePx * 2);
+    if (represented) continue;
+    openings.push({
+      kind: opening.kindHint,
+      approxCenterPx: opening.approxCenterPx,
+      approxWidthPx: opening.approxWidthPx,
+      confidence: Math.min(0.65, Math.max(0.35, opening.confidence)),
+    });
+    reviewFlags.push(`CV found a ${opening.kindHint} gap without matching vision evidence — confirm it against the source before approval.`);
+  }
 
   // 1. Attach opening proximity to each CV wall -- a wall segment near a
   // vision-detected door/window is likely where the actual gap/opening is,
@@ -287,7 +319,7 @@ export function reconcilePlan(
     sourceImageSize: cv.sourceImageSize,
     walls,
     rooms,
-    openings: semantic.openings,
+    openings,
     dimensionHints: semantic.dimensionTextFindings,
     reviewFlags,
     requiresDesignerReview: true,

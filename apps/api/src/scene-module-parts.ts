@@ -1,5 +1,6 @@
 import { COMPILER_REGISTRY, type CategoryType, type Part } from '@ultida/module-framework';
 import type { CompiledModulePart } from '@ultida/scene-compiler';
+import { IndianModularCatalog } from '@ultida/catalog-core';
 
 type StoredModule = {
   id: string;
@@ -68,9 +69,14 @@ export function compileStoredModuleForScene(
     return { ok: false, code: 'MODULE_INSTANCE_NOT_SCENE_READY', message: `Module ${module.id} has incomplete millimetre geometry.` };
   }
 
+  const catalogModule = IndianModularCatalog.find((candidate) => candidate.id === module.template_id);
   const moduleEnvelope: CompiledModulePart = {
     id: module.id, roomId: module.space_id, family, widthMm, depthMm, heightMm,
     xMm, yMm, zMm: Number(position.zMm ?? 0), rotationDeg, anchor: 'wall', materialId: typeof config.materialId === 'string' ? config.materialId : undefined,
+    // Asset URLs are resolved only from the trusted catalog record, never from
+    // browser module config. The renderer falls back to this exact envelope if
+    // the optional digital twin cannot load.
+    glbUrl: catalogModule?.glbUrl,
   };
   const islandTemplate = ['kit-island-waterfall-1800', 'wardrobe-island-jewellery-900'].includes(module.template_id ?? '');
   const category = islandTemplate ? 'island' : compilerCategory(family);

@@ -202,6 +202,10 @@ app.get('/api/health', async (_request, response) => {
     process.env.FLOORPLAN_VISION_URL ||
     (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN && process.env.CLOUDFLARE_VISION_MODEL)
   );
+  const planCvConfigured = Boolean(
+    process.env.PLAN_CV_SERVICE_URL?.trim()
+    && (process.env.ULTIDA_WORKER_SHARED_SECRET || process.env.WORKER_DISPATCH_SECRET)
+  );
   return response.status(200).json({
     success: true,
     app: 'ultida',
@@ -212,6 +216,7 @@ app.get('/api/health', async (_request, response) => {
       previewDatabaseIsolated: deployment.previewDatabaseIsolated,
       durableJobs: hasServerSupabaseKey && workerDispatchReady,
       planVision: hasPlanVisionProvider,
+      planCv: planCvConfigured,
       realImageGeneration: currentGateway.status().some((provider) => provider.configured && provider.operations.includes('generate'))
     },
     providers: currentGateway.status(),
@@ -983,6 +988,32 @@ app.get('/api/projects/:projectId/renders', requireProjectUser, async (request, 
   return response.json({ success: true, renders: result.renders });
 });
 
+// A geometry-locked scene render needs an image-to-image capable provider. The
+// browser checks this before it creates a durable job so a missing Vercel
+// credential is actionable instead of appearing later as a generic failure.
+app.get('/api/projects/:projectId/render-readiness', requireProjectUser, (_request, response) => {
+  const cloudflare = gateway.status().find((provider) => provider.id === 'cloudflare');
+  const ready = Boolean(
+    cloudflare?.configured
+    && cloudflare?.eligible
+    && cloudflare.operations.includes('generate')
+    && cloudflare.operations.includes('enhance')
+  );
+  return response.json({
+    success: true,
+    realImageProvider: {
+      id: 'cloudflare',
+      name: cloudflare?.name ?? 'Cloudflare Workers AI',
+      ready,
+      operations: cloudflare?.operations ?? [],
+      details: cloudflare?.details ?? 'No Cloudflare Workers AI provider is registered.',
+      message: ready
+        ? 'Cloudflare Workers AI is ready for geometry-locked scene rendering.'
+        : 'Cloudflare Workers AI is not ready. Add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN to the Vercel API environment, then redeploy.'
+    }
+  });
+});
+
 // Render records are durable jobs, not gallery entries. The client polls this
 // endpoint for the precise job it started so failed or queued work is never
 // mistaken for a missing gallery image.
@@ -1036,9 +1067,10 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
     structuredPrompt: operation === 'material-swap'
       ? `Compiled server-side from the approved ULTIDA scene. Change only the ${targetSemanticSlot ?? 'selected finish'} of module ${targetModuleId}; preserve all geometry, openings, camera, ceiling, and every other module.`
       : 'Compiled server-side from the approved ULTIDA scene.',
-    providerPreference: Array.isArray(options.providerPreference) && options.providerPreference.length > 0
-      ? options.providerPreference
-      : ['cloudflare', 'gemini-nano-banana-2', 'free-image-worker', 'huggingface', 'pollinations']
+    // Scene-conditioned output is deliberately Cloudflare-only. Other
+    // text-to-image services cannot consume ULTIDA's depth/edge/material
+    // evidence and therefore must never become an implicit render fallback.
+    providerPreference: ['cloudflare']
   });
   if (!parsed.success) return response.status(400).json({ success: false, code: 'INVALID_RENDER_REQUEST', message: 'Select a persisted room before requesting a scene render.', issues: parsed.error.issues });
   const result = await createVisualJob(process.env, gateway, parsed.data, authReq.ultidaUser?.id, getRequestSupabaseClient(request));

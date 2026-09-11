@@ -422,6 +422,22 @@
 .room-workflow-summary strong, .room-workflow-summary small { display: block; }
 .room-workflow-summary strong { color: var(--text-secondary); font-size: 12px; }
 .room-workflow-summary small { margin-top: 2px; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.placement-flow-card { border: 1px solid #dfcfab; border-radius: 10px; padding: 12px; background: linear-gradient(135deg, #fffdf8, #fbf4e7); }
+.placement-flow-heading, .placement-flow-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.placement-flow-heading small { display:block; color:#9a6d22; font-size:9px; font-weight:800; letter-spacing:.08em; }
+.placement-flow-heading strong { display:block; margin-top:2px; color:var(--text-secondary); font-size:12px; }
+.placement-flow-status { padding:4px 7px; border:1px solid #e6d8bd; border-radius:999px; color:#8a7561; background:#fff; font-size:10px; font-weight:700; white-space:nowrap; }
+.placement-flow-status.ready { color:#0f766e; border-color:#99d5c8; background:#f0fdfa; }
+.placement-flow-steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; padding:0; margin:12px 0 10px; list-style:none; }
+.placement-flow-steps li { min-width:0; padding:7px; border:1px solid #eadfca; border-radius:7px; background:rgba(255,255,255,.68); }
+.placement-flow-steps li.complete { border-color:#b9d9ce; background:#f4fbf8; }
+.placement-flow-steps span { display:inline-grid; place-items:center; width:16px; height:16px; margin-right:4px; border-radius:50%; background:#d7c5a5; color:#fff; font-size:9px; font-weight:800; }
+.placement-flow-steps li.complete span { background:#0f766e; }
+.placement-flow-steps b, .placement-flow-steps small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.placement-flow-steps b { color:var(--text-secondary); font-size:10px; }
+.placement-flow-steps small { margin-top:3px; color:var(--text-muted); font-size:9px; }
+.placement-flow-actions { justify-content:flex-end; }
+.placement-flow-card > p { margin:8px 0 0; color:var(--text-muted); font-size:10px; line-height:1.4; }
 .space-panel-tabs { display: flex; flex-wrap: wrap; gap: 3px; padding: 3px; background: #f3efe7; border-radius: 8px; }
 .space-panel-tabs button { border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 10px; font-weight: 800; padding: 5px 8px; cursor: pointer; white-space: nowrap; flex: 1 1 0; min-width: 0; text-align: center; }
 .space-panel-tabs button.active { background: var(--surface); color: var(--text-secondary); box-shadow: 0 1px 2px rgba(0,0,0,.08); }

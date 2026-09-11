@@ -244,7 +244,7 @@ export function generateProductionDossierPdf(
 
   // Top Header Banner
   writer.rect(40, 40, pw - 80, 52).fillColor('#1c1917').fill();
-  writer.font('Helvetica-Bold').fontSize(14).fillColor('#c59c2d').text('CUBEDECORS  ×  ULTIDA ARCHITECTURAL STUDIO', 55, 52);
+  writer.font('Helvetica-Bold').fontSize(14).fillColor('#c59c2d').text('ULTIDA ARCHITECTURAL STUDIO', 55, 52);
   writer.font('Helvetica-Bold').fontSize(18).fillColor('#ffffff').text('PROJECT SIGN OFF & PRODUCTION DOSSIER', 55, 68);
 
   // Status Badge

@@ -69,6 +69,27 @@ export type PlanIssueDraft = {
   optionB: string;
 };
 
+/**
+ * Evidence returned by the canonical OpenCV wall tracer. Coordinates remain
+ * in source-image pixels until reconciliation maps them to the review grid.
+ * A classifier hint is deliberately not construction authority: it only
+ * creates a review proposal when the vision model did not find the opening.
+ */
+export type CvOpeningEvidence = {
+  approxCenterPx: { x: number; y: number };
+  approxWidthPx: number;
+  kindHint: 'door' | 'window' | 'unknown';
+  confidence: number;
+  note?: string;
+};
+
+export type CvTraceEvidence = {
+  widthPx: number;
+  heightPx: number;
+  walls: Array<{ x1: number; y1: number; x2: number; y2: number; thicknessPx?: number }>;
+  openings?: CvOpeningEvidence[];
+};
+
 export type AnalysisResult = {
   analysisUuid: string;
   provider: string;
@@ -143,12 +164,7 @@ export function extractOcrMeasurements(ocrText: string): Array<{ originalText: s
  * Python environment / opencv is unavailable (caller treats that as a soft
  * failure, not a fake result).
  */
-export async function runWallTracer(pngPath: string): Promise<{
-  widthPx: number;
-  heightPx: number;
-  walls: Array<{ x1: number; y1: number; x2: number; y2: number; thicknessPx: number }>;
-  openings: Array<{ x: number; y: number; widthPx: number }>;
-} | null> {
+export async function runWallTracer(pngPath: string): Promise<CvTraceEvidence | null> {
   const scriptPath = resolveWallTracerPath();
   if (!scriptPath) return null;
   try {
@@ -169,7 +185,13 @@ export async function runWallTracer(pngPath: string): Promise<{
     const parsed = JSON.parse(raw) as {
       sourceImageSize?: { widthPx: number; heightPx: number };
       walls?: Array<{ x1: number; y1: number; x2: number; y2: number; thicknessPx?: number }>;
-      openings?: Array<{ x: number; y: number; widthPx?: number }>;
+      openings?: Array<{
+        approxCenterPx?: { x?: number; y?: number };
+        approxWidthPx?: number;
+        kindHint?: string;
+        confidence?: number;
+        note?: string;
+      }>;
     };
     return {
       widthPx: parsed.sourceImageSize?.widthPx ?? 1000,
@@ -181,7 +203,19 @@ export async function runWallTracer(pngPath: string): Promise<{
         y2: w.y2,
         thicknessPx: w.thicknessPx ?? 0,
       })),
-      openings: (parsed.openings ?? []).map((o) => ({ x: o.x, y: o.y, widthPx: o.widthPx ?? 0 })),
+      openings: (parsed.openings ?? []).flatMap((opening): CvOpeningEvidence[] => {
+        const x = Number(opening.approxCenterPx?.x);
+        const y = Number(opening.approxCenterPx?.y);
+        const width = Number(opening.approxWidthPx);
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || width <= 0) return [];
+        return [{
+          approxCenterPx: { x, y },
+          approxWidthPx: width,
+          kindHint: opening.kindHint === 'door' || opening.kindHint === 'window' ? opening.kindHint : 'unknown',
+          confidence: Number.isFinite(Number(opening.confidence)) ? Number(opening.confidence) : 0.45,
+          note: typeof opening.note === 'string' ? opening.note : undefined,
+        }];
+      }),
     };
   } catch {
     return null;
@@ -207,12 +241,16 @@ async function runOcr(pngPath: string): Promise<string> {
 
 /** Build a normalized PNG raster buffer for CV/OCR from an image input. */
 export async function rasterizeImage(buffer: Buffer, mimeType: string): Promise<{ png: Buffer; width: number; height: number }> {
-  const image = sharp(buffer, { failOn: 'none' });
+  // Match the canonical tracer's 2400px working reference. The previous
+  // 1600px cap discarded small door-swing arcs and window rails before CV
+  // could normalize them, and ignoring EXIF rotation made phone captures
+  // disagree with the vision pass.
+  const image = sharp(buffer, { failOn: 'none' }).rotate();
   const meta = await image.metadata();
   const width = meta.width ?? 1000;
   const height = meta.height ?? 1000;
   const longest = Math.max(width, height);
-  const resize = longest > 1600 ? { width: Math.round((width / longest) * 1600), height: Math.round((height / longest) * 1600) } : undefined;
+  const resize = longest > 2400 ? { width: Math.round((width / longest) * 2400), height: Math.round((height / longest) * 2400) } : undefined;
   const png = await image
     .resize(resize)
     .png()
@@ -230,7 +268,7 @@ export async function rasterizeImage(buffer: Buffer, mimeType: string): Promise<
  */
 export function reconcileToElements(
   ai: PlanVisionOutput,
-  cv: { widthPx: number; heightPx: number; walls: Array<{ x1: number; y1: number; x2: number; y2: number }> } | null,
+  cv: CvTraceEvidence | null,
   ocrText: string
 ): { elements: PlanElementDraft[]; issues: PlanIssueDraft[] } {
   const elements: PlanElementDraft[] = [];
@@ -247,6 +285,19 @@ export function reconcileToElements(
     x2: normalizeToGrid(w.x2, cv!.widthPx),
     y2: normalizeToGrid(w.y2, cv!.heightPx),
   }));
+  const cvOpenings = (cv?.openings ?? []).map((opening) => ({
+    ...opening,
+    x: normalizeToGrid(opening.approxCenterPx.x, cv!.widthPx),
+    y: normalizeToGrid(opening.approxCenterPx.y, cv!.heightPx),
+    width: normalizeToGrid(opening.approxWidthPx, cv!.widthPx),
+  }));
+
+  // CV detects a gap and its local visual cues; the vision pass identifies
+  // semantics. Treat a nearby same-kind result as corroboration, and only add
+  // unmatched *classified* gaps as review-only door/window proposals.
+  const hasNearbyCvOpening = (kind: 'door' | 'window', x: number, y: number, width: number) =>
+    cvOpenings.some((opening) => opening.kindHint === kind
+      && Math.hypot(opening.x - x, opening.y - y) <= Math.max(28, Math.abs(width) * 0.6, Math.abs(opening.width) * 0.6));
 
   const wallDist = (a: { x1?: number; y1?: number; x2?: number; y2?: number }, b: { x1: number; y1: number; x2: number; y2: number }) => {
     const d1 = Math.hypot((a.x1 ?? 0) - b.x1, (a.y1 ?? 0) - b.y1);
@@ -310,11 +361,33 @@ export function reconcileToElements(
   }
 
   for (const d of ai.doorCandidates) {
-    elements.push({ id: str(d.id, `d${elements.length}`), kind: 'door', label: `Door ${d.id ?? elements.length}`, confidence: num(d.confidence), status: 'needs_review', geometry: { x: num(d.x), y: num(d.y), width: num(d.width) }, source: d.source, note: d.notes });
+    const x = num(d.x); const y = num(d.y); const width = num(d.width);
+    const corroborated = hasNearbyCvOpening('door', x, y, width);
+    elements.push({ id: str(d.id, `d${elements.length}`), kind: 'door', label: `Door ${d.id ?? elements.length}`, confidence: num(d.confidence), status: 'needs_review', geometry: { x, y, width }, source: corroborated ? 'mixed' : d.source, note: corroborated ? `${d.notes ? `${d.notes} ` : ''}Corroborated by a deterministic CV wall-gap trace; confirm hinge and exact measured width.` : d.notes });
   }
 
   for (const win of ai.windowCandidates) {
-    elements.push({ id: str(win.id, `win${elements.length}`), kind: 'window', label: `Window ${win.id ?? elements.length}`, confidence: num(win.confidence), status: 'needs_review', geometry: { x: num(win.x), y: num(win.y), width: num(win.width), height: num(win.height) }, source: win.source, note: win.notes });
+    const x = num(win.x); const y = num(win.y); const width = num(win.width);
+    const corroborated = hasNearbyCvOpening('window', x, y, width);
+    elements.push({ id: str(win.id, `win${elements.length}`), kind: 'window', label: `Window ${win.id ?? elements.length}`, confidence: num(win.confidence), status: 'needs_review', geometry: { x, y, width, height: num(win.height) }, source: corroborated ? 'mixed' : win.source, note: corroborated ? `${win.notes ? `${win.notes} ` : ''}Corroborated by a deterministic CV wall-gap trace; confirm sill and head heights.` : win.notes });
+  }
+
+  for (const opening of cvOpenings) {
+    if (opening.kindHint === 'unknown') continue;
+    const alreadyRepresented = elements.some((element) => element.kind === opening.kindHint
+      && Math.hypot(Number(element.geometry.x) - opening.x, Number(element.geometry.y) - opening.y) <= Math.max(28, Math.abs(opening.width) * 0.6));
+    if (alreadyRepresented) continue;
+    const label = opening.kindHint === 'door' ? 'Detected door' : 'Detected window';
+    elements.push({
+      id: `cv-${opening.kindHint}-${elements.length}`,
+      kind: opening.kindHint,
+      label,
+      confidence: Math.min(0.65, Math.max(0.35, opening.confidence)),
+      status: 'needs_review',
+      geometry: { x: opening.x, y: opening.y, width: opening.width },
+      source: 'line',
+      note: `${opening.note ?? 'A structural wall gap was detected.'} Review this ${opening.kindHint} before it affects measured geometry.`,
+    });
   }
 
   for (const dim of ai.dimensionCandidates) {
@@ -447,7 +520,7 @@ export async function analyzePlanFile(input: {
   const previewSha256 = sha256(rasterPng);
   const { elements, issues } = reconcileToElements(
     visionResult.output,
-    cvResult ? { widthPx: cvResult.widthPx, heightPx: cvResult.heightPx, walls: cvResult.walls } : null,
+    cvResult,
     ocrText
   );
 
@@ -468,7 +541,7 @@ export async function analyzePlanFile(input: {
     issues,
     deterministic: {
       lineWallCount: cvResult?.walls.length ?? 0,
-      openingCount: cvResult?.openings.length ?? 0,
+      openingCount: cvResult?.openings?.length ?? 0,
       ocrText,
       measurements: extractOcrMeasurements(ocrText),
     },

@@ -29,3 +29,19 @@
 .plan-trust-strip .trust-ok { color:#247653; }
 .plan-trust-strip .trust-review { color:#a4661e; }
 .plan-trust-strip .trust-hint { flex:1 1 260px; color:#8f7865; }
+
+/* Spaces module workspace: keep controls and wall previews inside the usable app canvas. */
+.design-flow-workspace{min-width:0}
+.design-flow-workspace .module-layout{grid-template-columns:minmax(280px,350px) minmax(0,1fr);gap:16px}
+.design-flow-workspace .catalog-panel,.design-flow-workspace .scene-panel{min-width:0;max-width:100%}
+.design-flow-workspace .catalog-panel .ui-card-content{min-width:0;overflow-wrap:anywhere}
+.design-flow-workspace .catalog-panel input[type=checkbox]{width:auto;max-width:none;padding:0;accent-color:#a67c25}
+.design-flow-workspace .catalog-panel label:has(input[type=checkbox]){display:flex;align-items:center;gap:.45rem}
+.design-flow-workspace .module-wall-preview{min-width:0;max-width:100%;overflow:hidden}
+.design-flow-workspace .module-wall-preview svg{display:block;width:100%;max-width:100%;height:auto}
+.design-flow-workspace .catalog-template-list{display:flex;flex-direction:column;gap:.5rem;min-width:0;max-height:min(46dvh,420px);overflow:auto;padding-right:2px}
+.design-flow-workspace .moodboard-catalog-panel{min-width:0!important}
+@media(max-width:1220px){.design-flow-workspace .module-layout{grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:12px}.design-flow-workspace .catalog-panel .ui-card-content{padding:12px}.design-flow-workspace .module-wall-preview{padding:9px}}
+@media(max-width:1060px){.design-flow-workspace .module-layout{grid-template-columns:1fr}.design-flow-workspace .scene-panel{order:1}.design-flow-workspace .catalog-panel{order:2}.design-flow-workspace .catalog-template-list{max-height:360px}}
+@media(max-width:640px){.design-flow-workspace .side-filler-options,.design-flow-workspace .module-inline-materials{grid-template-columns:1fr}.design-flow-workspace .catalog-panel .ui-card-content{padding:10px}.design-flow-workspace .module-wall-preview-title{align-items:flex-start;flex-direction:column}.design-flow-workspace .catalog-template-list{max-height:320px}}
+.room-setup-recovery{display:grid;gap:8px;padding:11px;border:1px solid #dec995;border-radius:8px;background:#fff9eb;color:#5f472f;font-size:11px;line-height:1.4}.room-setup-recovery strong{font-size:12px}.room-setup-recovery>div{display:flex;gap:8px;flex-wrap:wrap}.room-setup-recovery .ui-button{width:auto}
