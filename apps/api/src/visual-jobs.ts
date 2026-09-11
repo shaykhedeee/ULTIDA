@@ -529,7 +529,27 @@ export async function createVisualJob(environment: Record<string, string | undef
     if (!geometryContract.valid) {
       return { status: 'failed' as const, jobId, code: 'RENDER_GEOMETRY_INCOMPLETE', message: geometryContract.issues.join(' '), retryable: false };
     }
-    const brief = compileRenderBrief({ scene: context.scene, sceneVersionId: request.sceneVersionId, roomId: request.roomId, style: request.style, quality: request.quality, camera: request.camera });
+    // The conditioning images are rendered from an actual saved scene camera.
+    // The prompt must describe that same camera: a request that says
+    // "24 mm, eye height 1500" while the depth and edge maps were projected
+    // from a different lens teaches the provider to distrust the geometry.
+    const renderCamera = request.cameraId
+      ? context.scene.cameras.find((candidate) => candidate.id === request.cameraId)
+      : context.scene.cameras[0];
+    if (request.cameraId && !context.scene.cameras.some((candidate) => candidate.id === request.cameraId)) {
+      return { status: 'failed' as const, jobId, code: 'RENDER_CAMERA_NOT_IN_SCENE', message: 'The requested camera is not saved on this scene version. Save the camera before rendering from it.', retryable: false };
+    }
+    const resolvedCamera = renderCamera
+      ? {
+          view: request.camera?.view ?? 'wide-corner' as const,
+          lensMm: renderCamera.lensMm,
+          // Eye height is the camera's own height above the floor, not a
+          // constant, so the horizon in the words matches the horizon in the
+          // conditioning images.
+          eyeHeightMm: Math.min(2400, Math.max(600, Math.round(renderCamera.position.zMm))),
+        }
+      : request.camera;
+    const brief = compileRenderBrief({ scene: context.scene, sceneVersionId: request.sceneVersionId, roomId: request.roomId, style: request.style, quality: request.quality, camera: resolvedCamera });
     const referenceGuidance = await renderReferenceGuidance(client, context.project.organization_id, context.scene, brief.roomId, brief.style);
     const materialSwapInstruction = request.operation === 'material-swap'
       ? `\nMATERIAL REVISION: use the selected module-region guide to localize the ${request.targetSemanticSlot ?? 'selected finish'} of module ${request.targetModuleId}. Apply only the selected persisted material. Preserve the room shell, openings, sill and head heights, skirting, ceiling, camera, module footprint, shutter count, hardware, lighting, and every unaffected finish. This is a visual revision for QA review; the persisted scene material assignment remains the construction authority.`
@@ -538,8 +558,8 @@ export async function createVisualJob(environment: Record<string, string | undef
     const negativePrompt = request.operation === 'material-swap'
       ? `${brief.negativePrompt}, ${geometryContract.negativePrompt}, changed architecture, moved door, moved window, changed room proportions, changed ceiling, changed camera, changed module layout, changed shutters, changed hardware, changed lighting, change outside selected mask`
       : `${brief.negativePrompt}, ${geometryContract.negativePrompt}`;
-    const normalizedRequest: VisualProposalRequest = { ...request, roomId: brief.roomId, structuredPrompt, negativePrompt, promptVersion: brief.version };
-    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, style: brief.style, quality: brief.quality, camera: request.camera, references: referenceGuidance.ids, geometryContract, structuredPrompt, negativePrompt, promptVersion: brief.version });
+    const normalizedRequest: VisualProposalRequest = { ...request, roomId: brief.roomId, camera: brief.camera, cameraId: renderCamera?.id, structuredPrompt, negativePrompt, promptVersion: brief.version };
+    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, style: brief.style, quality: brief.quality, camera: brief.camera, cameraId: renderCamera?.id, references: referenceGuidance.ids, geometryContract, structuredPrompt, negativePrompt, promptVersion: brief.version });
     const idempotencyKey = request.idempotencyKey ?? `render:${inputFingerprint}`;
     
     const job = await client.from('jobs').insert({ organization_id: context.project.organization_id, project_id: request.projectId, kind: 'visual_proposal', status: 'queued', idempotency_key: idempotencyKey, input: { ...normalizedRequest, renderBrief: brief }, output: { reviewStatus: 'pending' }, attempts: 1, created_by: actorId ?? null }).select('id').single();
@@ -552,7 +572,7 @@ export async function createVisualJob(environment: Record<string, string | undef
     }
     persistedJobId = job.data.id;
 
-    const baseArtifacts = renderScenePerspectiveArtifacts(context.scene, { cameraId: request.camera?.view === 'elevation' ? undefined : context.scene.cameras[0]?.id });
+    const baseArtifacts = renderScenePerspectiveArtifacts(context.scene, { cameraId: request.camera?.view === 'elevation' ? undefined : renderCamera?.id });
     const technicalArtifacts = await persistTechnicalArtifacts(client, {
       organizationId: context.project.organization_id,
       projectId: request.projectId,

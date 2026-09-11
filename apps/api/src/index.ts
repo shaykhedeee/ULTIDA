@@ -1063,7 +1063,10 @@ app.post('/api/projects/:projectId/renders', requireProjectUser, async (request,
     operation,
     style: typeof options.style === 'string' ? options.style : 'Warm contemporary Indian',
     quality: options.quality === 'draft' || options.quality === 'final' ? options.quality : 'review',
-    camera: { view: 'wide-corner', lensMm: 24, eyeHeightMm: 1500 },
+    // Lens and eye height are resolved from the saved scene camera during job
+    // compilation. Only the framing intent is a client choice.
+    camera: { view: ['eye-level', 'wide-corner', 'elevation', 'detail'].includes(String(options.cameraView)) ? String(options.cameraView) as 'eye-level' | 'wide-corner' | 'elevation' | 'detail' : 'wide-corner', lensMm: 24, eyeHeightMm: 1500 },
+    cameraId: typeof options.cameraId === 'string' && options.cameraId.trim() ? options.cameraId.trim() : undefined,
     structuredPrompt: operation === 'material-swap'
       ? `Compiled server-side from the approved ULTIDA scene. Change only the ${targetSemanticSlot ?? 'selected finish'} of module ${targetModuleId}; preserve all geometry, openings, camera, ceiling, and every other module.`
       : 'Compiled server-side from the approved ULTIDA scene.',
