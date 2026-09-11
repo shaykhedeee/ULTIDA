@@ -1666,19 +1666,25 @@ export function SpacesWorkspace() {
       setSaveState(fit?.issues[0] ?? 'This module does not fit the selected measured wall. Choose another wall or adjust the module in the bay editor.');
       return;
     }
-    // A drop position is only honoured when it still satisfies the measured
-    // keep-outs at that exact offset. Otherwise the reconciled offset is used.
+    // Explicit placement must never move to a different position silently.
     let placementOffsetMm = fit.suggestedOffsetMm;
     if (requestedOffsetMm !== undefined) {
-      const clamped = Math.max(0, Math.min(requestedOffsetMm, targetWall.lengthMm - module.widthMm));
+      if (!Number.isFinite(requestedOffsetMm) || requestedOffsetMm < 0 || requestedOffsetMm + module.widthMm > targetWall.lengthMm) {
+        setSaveState('The requested module position extends beyond the measured wall. Choose a valid position.');
+        return;
+      }
       const atDrop = reconcileCatalogPlacement({
         wallId: targetWall.id,
         wallLengthMm: targetWall.lengthMm,
         openings: targetWall.openings.map((opening) => ({ ...opening, wallId: targetWall.id, kind: opening.kind === 'window' ? 'window' as const : 'door' as const })),
         module: { id: module.id, widthMm: module.widthMm },
-        offsetMm: clamped,
+        offsetMm: requestedOffsetMm,
       });
-      if (atDrop.geometryValid) placementOffsetMm = clamped;
+      if (!atDrop.geometryValid) {
+        setSaveState('The requested module position conflicts with a measured opening. Choose a clear position.');
+        return;
+      }
+      placementOffsetMm = requestedOffsetMm;
     }
     const activeCatalogWall = targetWall;
 
@@ -1726,11 +1732,11 @@ export function SpacesWorkspace() {
             zOffsetMm: 0,
             materialSlots: module.materialSlots,
           },
-          position: { wallId: activeCatalogWall.id, offsetMm: Math.round(placementOffsetMm) },
+          position: { wallId: activeCatalogWall.id, offsetMm: placementOffsetMm },
         }),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) {
+      if (!response.ok || !payload?.module?.id) {
         setSaveState(payload?.message ?? 'The module could not be placed. Check the approved room layout and measured wall clearance.');
         return;
       }

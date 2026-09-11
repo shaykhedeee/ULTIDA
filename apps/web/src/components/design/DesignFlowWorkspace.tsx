@@ -850,7 +850,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   }
 
   async function updateModuleWidth(moduleId: string, requestedWidthMm: number) {
-    const widthMm = Math.round(requestedWidthMm / 10) * 10;
+    const widthMm = requestedWidthMm;
     if (!Number.isFinite(widthMm) || widthMm < 200) {
       setPlacementNotice('Module width must be at least 200 mm.');
       return;
