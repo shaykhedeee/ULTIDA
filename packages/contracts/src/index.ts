@@ -24,6 +24,10 @@ export const VisualProposalRequestSchema = z.object({
   promptVersion: z.string().min(1).max(80).optional(),
   quality: z.enum(['draft', 'review', 'final']).default('review'),
   camera: z.object({ view: z.enum(['eye-level', 'wide-corner', 'elevation', 'detail']), lensMm: z.number().min(12).max(100), eyeHeightMm: z.number().min(600).max(2400) }).optional(),
+  // Which saved scene camera renders the conditioning images. The prompt's
+  // stated lens and eye height are derived from this same camera, so the words
+  // sent to the provider can never contradict the pixels sent alongside them.
+  cameraId: z.string().min(1).optional(),
   conditioningMaps: z.object({
     depthMapUrl: z.string().optional(),
     cannyEdgeMapUrl: z.string().optional(),
