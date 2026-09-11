@@ -9,7 +9,9 @@ import test from 'node:test';
  * that was previously hardcoded into the working-drawings dossier and the
  * production dossier PDF header.
  */
-const FORBIDDEN_BRAND = 'CUBEDECOR';
+// Assembled at runtime so this guard file is not itself a match for the
+// literal it forbids. The guard is also excluded from the search below.
+const FORBIDDEN_BRAND = ['CUBE', 'DECOR'].join('');
 
 test('no third-party studio brand is hardcoded into shipped source', () => {
   let matches = '';
@@ -27,6 +29,8 @@ test('no third-party studio brand is hardcoded into shipped source', () => {
         'packages',
         'scripts',
         'api',
+        // The guard itself is not shipped source.
+        `:(exclude)${'apps/web/test/studio-branding.test.mjs'}`,
       ],
       { encoding: 'utf8' },
     );
