@@ -114,6 +114,51 @@ test('reconcileToElements keeps AI-only source when no CV wall matches', () => {
   assert.equal(elements.find((e) => e.kind === 'wall')!.source, 'ai');
 });
 
+test('reconcileToElements retains classified CV opening evidence when vision omitted it', () => {
+  const ai = rawSample({ doorCandidates: [], windowCandidates: [] });
+  const cv = {
+    widthPx: 1000,
+    heightPx: 1000,
+    walls: [],
+    openings: [
+      { approxCenterPx: { x: 500, y: 100 }, approxWidthPx: 90, kindHint: 'door' as const, confidence: 0.72, note: 'A diagonal door-leaf stroke is visible.' },
+      { approxCenterPx: { x: 200, y: 100 }, approxWidthPx: 120, kindHint: 'window' as const, confidence: 0.69, note: 'Parallel window-rail strokes are visible.' },
+    ],
+  };
+  const { elements } = reconcileToElements(ai, cv, '');
+  const door = elements.find((element) => element.kind === 'door')!;
+  const window = elements.find((element) => element.kind === 'window')!;
+  assert.equal(door.source, 'line');
+  assert.deepEqual(door.geometry, { x: 500, y: 100, width: 90 });
+  assert.match(door.note ?? '', /Review this door/i);
+  assert.equal(window.source, 'line');
+  assert.deepEqual(window.geometry, { x: 200, y: 100, width: 120 });
+});
+
+test('reconcileToElements never turns an unknown CV wall gap into a door or window', () => {
+  const ai = rawSample({ doorCandidates: [], windowCandidates: [] });
+  const { elements } = reconcileToElements(ai, {
+    widthPx: 1000,
+    heightPx: 1000,
+    walls: [],
+    openings: [{ approxCenterPx: { x: 500, y: 100 }, approxWidthPx: 90, kindHint: 'unknown', confidence: 0.45 }],
+  }, '');
+  assert.equal(elements.some((element) => element.kind === 'door' || element.kind === 'window'), false);
+});
+
+test('reconcileToElements marks matching vision and CV door evidence as mixed', () => {
+  const ai = rawSample({ windowCandidates: [] });
+  const { elements } = reconcileToElements(ai, {
+    widthPx: 1000,
+    heightPx: 1000,
+    walls: [],
+    openings: [{ approxCenterPx: { x: 250, y: 100 }, approxWidthPx: 36, kindHint: 'door', confidence: 0.7 }],
+  }, '');
+  const door = elements.find((element) => element.kind === 'door')!;
+  assert.equal(door.source, 'mixed');
+  assert.match(door.note ?? '', /Corroborated by a deterministic CV wall-gap trace/i);
+});
+
 test('reconcileToElements notes OCR presence when dimension lacks value', () => {
   const ai = rawSample({ dimensionCandidates: [{ id: 'dim1', confidence: 0.5, x1: 100, y1: 350, x2: 400, y2: 350 }] });
   const { elements, issues } = reconcileToElements(ai, null, '3800 mm written here');

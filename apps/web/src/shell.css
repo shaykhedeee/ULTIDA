@@ -7,7 +7,7 @@
   /* Brand */
   --gold:         #c59c2d;
   --gold-light:   #e8c96a;
-  --gold-dim:     #8a6d1e;
+  --gold-dim:     #a2533c;
   --brown-dark:   #1a1208;
   --brown-mid:    #3d2a1a;
   --cream-warm:   #faf7f2;
@@ -125,7 +125,6 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   transition: all .15s;
 }
 .sidebar-collapse-btn:hover { color: #e8c96a; background: rgba(255,255,255,.05); }
-.sidebar-collapse-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(197,156,45,0.5); background: rgba(255,255,255,.05); }
 
 /* Primary Nav */
 .primary-nav {
@@ -161,7 +160,6 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   cursor: pointer;
 }
 .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; transform: translateX(2px); }
-.nav-item:focus-visible { outline: none; background: rgba(255,255,255,.06); color: #fff; box-shadow: 0 0 0 2px rgba(197,156,45,0.5); }
 .nav-item.active {
   background: linear-gradient(90deg, rgba(197, 156, 45, 0.22) 0%, rgba(197, 156, 45, 0.06) 100%);
   border: 1px solid rgba(197, 156, 45, 0.35);
@@ -249,7 +247,6 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 .workflow-stage.done { color: rgba(255,255,255,.5); }
 .workflow-stage.locked { color: rgba(255,255,255,.2); cursor: not-allowed; }
 .workflow-stage.needs_review { color: #f5c56a; }
-.workflow-stage:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(197,156,45,0.6), inset 2px 0 0 var(--gold-light); background: rgba(255,255,255,.07); }
 
 @keyframes stagePulse {
   0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(197, 156, 45, 0.4); }

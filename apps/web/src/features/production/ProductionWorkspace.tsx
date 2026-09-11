@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FolderKanban, Package, AlertTriangle, CheckCircle2, Download, ChevronLeft, ChevronRight, Maximize2, PanelRightClose, ClipboardList, Settings, SlidersHorizontal, FileText, Compass, Sparkles, ExternalLink, ArrowLeft, ArrowRight } from 'lucide-react';
-import { Badge, Button, Card, CardContent, CardHeader, WorkflowDock } from '../../components/ui/primitives';
+import { FolderKanban, Package, AlertTriangle, CheckCircle2, Download, ChevronLeft, ChevronRight, Maximize2, PanelRightClose, ClipboardList, Settings, SlidersHorizontal, FileText } from 'lucide-react';
+import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import WorkingDrawingsDossier from '../../components/drawings/WorkingDrawingsDossier';
@@ -38,21 +37,9 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'release', label: 'Release', icon: <CheckCircle2 size={14} /> },
 ];
 
-interface ProductionWorkspaceProps {
-  projectId: string;
-  sceneVersionId: string | null;
-  sceneApproved: boolean;
-  modules: Array<{ id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number }>;
-  materials: Array<{ id: string; code: string; name: string; category: string }>;
-  onSceneCreated: (id: string, modules: any[], materials: any[]) => void;
-  onSceneApproved: () => Promise<void>;
-  initialTab?: TabId;
-}
-
-export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved, initialTab = 'elevations' }: ProductionWorkspaceProps) {
-  const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
-  const [selectedElevationId, setSelectedElevationId] = useState<string>('tv-wall');
+export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved, initialTab = 'parts' }: ProductionWorkspaceProps) {
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab === 'elevations' ? 'drawings' : initialTab);
+  useEffect(() => { setActiveTab(initialTab === 'elevations' ? 'drawings' : initialTab); }, [initialTab]);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   // Production outputs may only come from compiler-emitted PartV1 records. Module boxes are not manufacturing parts.
@@ -449,32 +436,6 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
           </div>
         )}
       </div>
-      <WorkflowDock
-        currentStageIndex={activeTab === 'release' ? 7 : 5}
-        stageTitle={activeTab === 'release' ? 'Production Release & CAM Export' : 'Architectural Elevations & Cutlists'}
-        stageSummary={activeTab === 'release'
-          ? 'Final approval, CNC post-processing, and fabrication pack release'
-          : 'System 32 CAD elevations · Panel cutting lists · Nesting sheets · Edge banding schedules'}
-        beaconTone={activeTab === 'release' ? 'success' : 'gold'}
-        prevAction={{
-          label: 'Back to 3D Scene',
-          icon: <ArrowLeft size={14} />,
-          onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/visualize`);
-          },
-        }}
-        nextAction={{
-          label: activeTab === 'release' ? 'Commercial Estimate' : 'Production Release',
-          icon: <ArrowRight size={14} />,
-          onClick: () => {
-            if (activeTab === 'release') {
-              if (projectId) navigate(`/projects/${projectId}/estimate`);
-            } else {
-              setActiveTab('release');
-            }
-          },
-        }}
-      />
     </div>
   );
 }

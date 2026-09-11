@@ -1595,29 +1595,20 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
   const openingsOnWall = (scene.openings ?? []).filter((o: SceneOpeningV1) => o.wallId === wall?.id);
   let openingsSvg = '';
   for (const op of openingsOnWall) {
-    const isDoor = op.kind === 'door';
-    const sillMm = Number((op as any).sillHeightMm ?? (op as any).sillMm ?? (isDoor ? 0 : 900));
     const ox = tx(op.offsetMm);
-    const oy = ty(sillMm + op.heightMm);
+    const oy = ty(op.heightMm);
     const ow = op.widthMm * scale;
     const oh = op.heightMm * scale;
     openingsSvg += `<rect x="${ox}" y="${oy}" width="${ow}" height="${oh}"
       fill="white" stroke="#9b2c2c" stroke-width="1.8" fill-opacity="0.9"/>`;
-
-    if (isDoor) {
-      // Door swing arc hint
+    // Door swing arc hint
+    if (op.kind === 'door') {
       openingsSvg += `<path d="M${ox} ${originY} Q${ox + ow} ${originY} ${ox + ow} ${originY - oh}"
         fill="none" stroke="#9b2c2c" stroke-width="0.8" stroke-dasharray="3 2" opacity="0.6"/>`;
-    } else {
-      // Window sill board and glass mullion lines
-      const sillBoardY = ty(sillMm);
-      openingsSvg += `<line x1="${ox - 4}" y1="${sillBoardY}" x2="${ox + ow + 4}" y2="${sillBoardY}" stroke="#9b2c2c" stroke-width="2.5"/>`;
-      openingsSvg += `<line x1="${ox + ow / 2}" y1="${oy}" x2="${ox + ow / 2}" y2="${sillBoardY}" stroke="#0284c7" stroke-width="1.2" stroke-dasharray="2 2" opacity="0.7"/>`;
     }
-
     openingsSvg += `<text x="${ox + ow / 2}" y="${oy - 8}" text-anchor="middle"
       fill="#9b2c2c" font-size="9.5" font-weight="bold" font-family="Arial,sans-serif">
-      ${op.kind.toUpperCase()} ${Math.round(op.widthMm)}mm${!isDoor && sillMm ? ` (Sill ${sillMm})` : ''}</text>`;
+      ${op.kind.toUpperCase()} ${Math.round(op.widthMm)}mm</text>`;
     // Dim line for opening
     hDimLines.push(hDim(ox, ox + ow, originY + 14, `${Math.round(op.widthMm)}`, false, 7));
   }

@@ -31,7 +31,7 @@ type Module = { id: string; roomId: string; family: string; label: string; width
 type CatalogItem = { id: string; family: string; name: string; widthMm: number; depthMm: number; heightMm: number; tags: string[]; roomTypes: string[]; description?: string; manufacturingRules?: string[] };
 type DesignPreset = { id: string; name: string; family: string; roomTypes: string[]; referenceStyle: string[]; renderRules: string[]; productionRules: string[] };
 type ModuleConfiguration = { archetype: string; shutterStyle: 'swing' | 'sliding' | 'profile-glass' | 'open'; drawerCount: number; shutterCount?: number; includeLoft: boolean; glassProfile: boolean; sideFillerLeft: boolean; sideFillerRight: boolean; handleStyle: 'gola' | 'long-profile' | 'knob' | 'none'; lighting: 'none' | 'shelf-led' | 'vertical-led' };
-type Provider = { id: string; configured: boolean; operations: string[] };
+type Provider = { id: string; configured: boolean; eligible?: boolean; operations: string[]; details?: string };
 type StoredRender = { id: string; scene_version_id: string; status: string; stale?: boolean; signedUrl: string | null; created_at: string; provenance?: { provider?: string; model?: string; promptVersion?: string; reviewStatus?: string } };
 type DesignFocus = 'all' | 'modules' | 'materials';
 type MaterialSlot = 'carcass' | 'shutter' | 'back_panel' | 'countertop' | 'profile' | 'glass';
@@ -292,6 +292,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const pendingModuleRequested = searchParams.get('pendingModule') === '1';
   const [room, setRoom] = useState('kitchen');
   const [spaces, setSpaces] = useState<Array<{ id: string; space_id?: string; name: string; roomType: string; geometry_json?: { polygon?: Array<{ xMm?: number; yMm?: number; x?: number; y?: number }> } }>>([]);
+  const [spacesLoadState, setSpacesLoadState] = useState<'idle' | 'loading' | 'ready' | 'empty' | 'error' | 'blocked'>('idle');
+  const [spacesReloadKey, setSpacesReloadKey] = useState(0);
   const [walls, setWalls] = useState<Array<{ id: string; start?: { xMm: number; yMm: number }; end?: { xMm: number; yMm: number } }>>([]);
   const [openings, setOpenings] = useState<Array<{ id: string; wallId?: string; kind?: string; widthMm?: number; heightMm?: number; sillHeightMm?: number; offsetAlongWallMm?: number; offsetMm?: number }>>([]);
   const [spaceId, setSpaceId] = useState<string | null>(null);
@@ -544,55 +546,6 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     setRenders([]);
     setSelectedRenderId(null);
     setReviewVisualJobId(null);
-    return;
-
-    setRenders((current) => {
-      if (current.length > 0) return current;
-      const initialRenders: StoredRender[] = [
-        {
-          id: 'render-living-lux',
-          scene_version_id: sceneVersionId || 'scene-v1',
-          status: 'succeeded',
-          signedUrl: '/reference-vault/002-cab37cfa0bb2.png',
-          created_at: new Date().toISOString(),
-          provenance: {
-            provider: 'ULTIDA AURA Vision AI (Ultra Photoreal 4K)',
-            model: 'Architectural-Diffusion-XL v2.4',
-            promptVersion: 'scene.v1 | LIVING & DINING | Warm Amber Daylight | Fluted Smoked Oak',
-            reviewStatus: 'approved',
-          },
-        },
-        {
-          id: 'render-kitchen-lux',
-          scene_version_id: sceneVersionId || 'scene-v1',
-          status: 'succeeded',
-          signedUrl: '/reference-vault/001-ddc1891636f7.png',
-          created_at: new Date(Date.now() - 3600000).toISOString(),
-          provenance: {
-            provider: 'ULTIDA AURA Vision AI (Ultra Photoreal 4K)',
-            model: 'Architectural-Diffusion-XL v2.4',
-            promptVersion: 'scene.v1 | MODULAR KITCHEN | Calacatta Marble & Pearl Gloss',
-            reviewStatus: 'approved',
-          },
-        },
-        {
-          id: 'render-bed-lux',
-          scene_version_id: sceneVersionId || 'scene-v1',
-          status: 'succeeded',
-          signedUrl: '/reference-vault/006-e36e2c7c9b1a.png',
-          created_at: new Date(Date.now() - 7200000).toISOString(),
-          provenance: {
-            provider: 'ULTIDA AURA Vision AI (Ultra Photoreal 4K)',
-            model: 'Architectural-Diffusion-XL v2.4',
-            promptVersion: 'scene.v1 | MASTER BEDROOM | Anodized Profile Glass Wardrobe',
-            reviewStatus: 'approved',
-          },
-        },
-      ];
-      setSelectedRenderId(initialRenders[0].id);
-      setReviewVisualJobId(initialRenders[0].id);
-      return initialRenders;
-    });
   }
 
   useEffect(() => {
@@ -645,9 +598,13 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   }
 
   useEffect(() => {
-    if (!projectId || !planApproved) return;
+    if (!projectId || !planApproved) {
+      setSpacesLoadState('blocked');
+      return;
+    }
     void (async () => {
       try {
+        setSpacesLoadState('loading');
         const headers = await authenticatedHeaders();
         const [spaceResponse, planResponse] = await Promise.all([
           fetch(`${apiBase}/projects/${projectId}/spaces`, { headers }),
@@ -655,6 +612,9 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         ]);
         const spacePayload = await spaceResponse.json();
         const planPayload = await planResponse.json();
+        if (!spaceResponse.ok || !planResponse.ok) {
+          throw new Error(spacePayload?.message ?? planPayload?.message ?? 'The persisted room design could not be loaded.');
+        }
         // `/spaces` returns database rows (`room_type`), while this workspace
         // uses the UI contract (`roomType`). Normalize at this boundary so
         // catalogue filtering, wall placement, and rendering share one room.
@@ -677,11 +637,12 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         setSpaceId(nextSpace?.id ?? null);
         setWallId((current) => requestedWallId && nextWalls.some((wall: any) => wall.id === requestedWallId) ? requestedWallId : current && nextWalls.some((wall: any) => wall.id === current) ? current : nextWalls[0]?.id ?? null);
         if (nextSpace?.roomType) setRoom(nextSpace.roomType);
+        setSpacesLoadState(nextSpaces.length ? 'ready' : 'empty');
       } catch {
-        setSpaces([]); setWalls([]); setOpenings([]); setSpaceId(null); setWallId(null);
+        setSpaces([]); setWalls([]); setOpenings([]); setSpaceId(null); setWallId(null); setSpacesLoadState('error');
       }
     })();
-  }, [projectId, planApproved, requestedSpaceId, requestedWallId]);
+  }, [projectId, planApproved, requestedSpaceId, requestedWallId, spacesReloadKey]);
 
   useEffect(() => {
     setFamilyFilter('all');
@@ -1392,6 +1353,13 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     if (!sceneIsApproved) { setVisualState('Approve the linked scene before requesting a render.'); return; }
     setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
+      const readinessResponse = await fetch(`${apiBase}/projects/${projectId}/render-readiness`, { headers: await authenticatedHeaders() }).catch(() => null);
+      const readiness = readinessResponse ? await readinessResponse.json().catch(() => null) : null;
+      if (!readinessResponse?.ok || !readiness?.realImageProvider?.ready) {
+        setVisualBusy(false);
+        setVisualState(readiness?.realImageProvider?.message ?? 'The real image provider is unavailable. Check the Cloudflare Workers AI connection and try again.');
+        return;
+      }
       let renderStyle = materialName ? `${style}; apply ${materialName} only to the selected shutter/material region` : style;
       // A normal room render follows the room selected in Visual Studio. A
       // material swap is intentionally narrower and follows the selected
@@ -1547,7 +1515,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   <span className="provider-status">Provider status unavailable</span>
                 )}
               </div>
-              <div role="status" style={{ margin: '8px 0 10px', padding: '8px 10px', borderRadius: 8, background: providers.some((provider) => provider.configured) ? '#f0fdf4' : '#fff7ed', border: `1px solid ${providers.some((provider) => provider.configured) ? '#bbf7d0' : '#fed7aa'}`, color: providers.some((provider) => provider.configured) ? '#166534' : '#9a3412', fontSize: 11 }}>
+              <div className="provider-readiness" role="status">
                 {providers.some((provider) => provider.configured) ? 'A configured image provider is available. Render jobs will retain the scene, camera, material, and provider provenance.' : 'No image provider is configured. Scene compilation and deterministic 3D remain available; photorealistic generation is blocked until a provider is connected.'}
               </div>
               <div className="visual-controls visual-controls-stack">
@@ -1589,6 +1557,16 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     {spaces.map((space) => <option key={space.id} value={space.id}>{space.name} · {space.roomType}</option>)}
                   </select>
                 </label>
+                {!spaces.length && (
+                  <div className="room-setup-recovery room-setup-recovery-dark" role="status">
+                    <strong>Choose a saved room before generating.</strong>
+                    <span>Return to Room Setup to save the room boundary and requirements from the approved plan.</span>
+                    <div>
+                      <Button type="button" variant="outline" onClick={() => navigate(`/projects/${projectId}/spaces`)} disabled={!projectId}>Open Room Setup</Button>
+                      <Button type="button" variant="outline" onClick={() => setSpacesReloadKey((value) => value + 1)} disabled={spacesLoadState === 'loading'}>Refresh rooms</Button>
+                    </div>
+                  </div>
+                )}
                 <p className="visual-selection-note">
                   {selectedModule
                     ? `Selected module: ${selectedModule.label}. Material previews remain locked to this module and its room.`
@@ -1897,35 +1875,8 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         >
           <Ruler size={15} style={{ marginRight: '0.5rem', color: designMode === 'elevations' ? 'var(--gold)' : undefined }} /> 📐 Wall Elevations (A/B/C/D)
         </Button>
-        <Button
-          variant={designMode === 'elevations' ? 'default' : 'outline'}
-          onClick={() => { setDesignMode('elevations'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'elevations'); navigate({ search: next.toString() }, { replace: true }); }}
-          style={{
-            height: '36px',
-            padding: '0 14px',
-            fontSize: '12px',
-            fontWeight: designMode === 'elevations' ? 800 : 600,
-            background: designMode === 'elevations' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fff',
-            color: designMode === 'elevations' ? '#e8c96a' : '#44403c',
-            border: designMode === 'elevations' ? '1.5px solid var(--gold)' : '1px solid #dcd3c5',
-          }}
-        >
-          <Ruler size={14} style={{ marginRight: '0.4rem', color: designMode === 'elevations' ? 'var(--gold)' : undefined }} /> 📐 Architectural Wall Elevations &amp; System 32
-        </Button>
-        <Button
-          variant={designMode === 'moodboard' ? 'default' : 'outline'}
-          onClick={() => { setDesignMode('moodboard'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'moodboard'); navigate({ search: next.toString() }, { replace: true }); }}
-          style={{
-            height: '36px',
-            padding: '0 14px',
-            fontSize: '12px',
-            fontWeight: designMode === 'moodboard' ? 800 : 600,
-            background: designMode === 'moodboard' ? 'linear-gradient(135deg, #1c1917, #3d2a1a)' : '#fff',
-            color: designMode === 'moodboard' ? '#e8c96a' : '#44403c',
-            border: designMode === 'moodboard' ? '1.5px solid var(--gold)' : '1px solid #dcd3c5',
-          }}
-        >
-          <Palette size={14} style={{ marginRight: '0.4rem' }} /> 🎨 Finishes, Swatches &amp; Moodboard
+        <Button variant={designMode === 'moodboard' ? 'default' : 'outline'} onClick={() => { setDesignMode('moodboard'); const next = new URLSearchParams(searchParams); next.set('tab', 'modules'); next.set('mode', 'moodboard'); navigate({ search: next.toString() }, { replace: true }); }} style={{ height: '38px', padding: '0 16px' }}>
+          <Palette size={15} style={{ marginRight: '0.5rem' }} /> 🎨 Moodboard &amp; Materials
         </Button>
         <Button
           variant={designMode === 'flooring' ? 'default' : 'outline'}
@@ -2349,156 +2300,6 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                           </button>
                         </CardHeader>
                         <CardContent style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                          {/* Interactive Dimensions & System 32 Presets */}
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase' }}>
-                                Width &amp; System 32 Grid
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => autoFitModuleToAvailableSpace(inspectedMod.id)}
-                                style={{
-                                  padding: '2px 7px',
-                                  borderRadius: '4px',
-                                  background: '#fff',
-                                  border: '1px solid #c59c2d',
-                                  color: '#92400e',
-                                  fontSize: '10px',
-                                  fontWeight: 700,
-                                  cursor: 'pointer',
-                                }}
-                                title="Auto-fit unit to remaining wall span"
-                              >
-                                📐 Auto-Fit Wall
-                              </button>
-                            </div>
-
-                            {/* Direct Width Input & Range Slider */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <label style={{ fontSize: '11px', fontWeight: 700, color: '#44403c', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <input
-                                  type="number"
-                                  min="200"
-                                  max="3600"
-                                  step="10"
-                                  value={inspectedMod.widthMm}
-                                  onChange={(e) => updateModuleWidth(inspectedMod.id, Number(e.target.value))}
-                                  style={{
-                                    width: '74px',
-                                    padding: '4px 6px',
-                                    fontSize: '12px',
-                                    fontWeight: 800,
-                                    border: '1.5px solid #c59c2d',
-                                    borderRadius: '6px',
-                                    textAlign: 'center',
-                                    color: '#92400e',
-                                  }}
-                                />
-                                mm W
-                              </label>
-                              <input
-                                type="range"
-                                min="200"
-                                max="3000"
-                                step="10"
-                                value={inspectedMod.widthMm}
-                                onChange={(e) => updateModuleWidth(inspectedMod.id, Number(e.target.value))}
-                                style={{ flex: 1, accentColor: '#c59c2d', cursor: 'pointer' }}
-                              />
-                            </div>
-
-                            {/* Fine-tune Steppers */}
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              {[-100, -50, 50, 100].map((delta) => (
-                                <button
-                                  key={delta}
-                                  type="button"
-                                  onClick={() => updateModuleWidth(inspectedMod.id, inspectedMod.widthMm + delta)}
-                                  style={{
-                                    flex: 1,
-                                    padding: '3px 4px',
-                                    fontSize: '10px',
-                                    fontWeight: 700,
-                                    borderRadius: '4px',
-                                    border: '1px solid #d6d3d1',
-                                    background: '#f5f5f4',
-                                    color: '#44403c',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  {delta > 0 ? `+${delta}` : delta}
-                                </button>
-                              ))}
-                            </div>
-
-                            {/* System 32 Standard Preset Chips */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: '9.5px', color: '#78716c', fontWeight: 700 }}>System 32:</span>
-                              {[450, 600, 900, 1000, 1200, 1500, 1800, 2100, 2400].map((sz) => (
-                                <button
-                                  key={sz}
-                                  type="button"
-                                  onClick={() => updateModuleWidth(inspectedMod.id, sz)}
-                                  style={{
-                                    padding: '2px 6px',
-                                    borderRadius: '4px',
-                                    fontSize: '9.5px',
-                                    fontWeight: inspectedMod.widthMm === sz ? 800 : 500,
-                                    background: inspectedMod.widthMm === sz ? '#fef3c7' : '#fff',
-                                    border: inspectedMod.widthMm === sz ? '1px solid #c59c2d' : '1px solid #e7dcce',
-                                    color: inspectedMod.widthMm === sz ? '#92400e' : '#57534e',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  {sz}
-                                </button>
-                              ))}
-                            </div>
-
-                            {/* Height & Depth Parametric Inputs */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
-                              <label style={{ fontSize: '10.5px', fontWeight: 600, color: '#57534e', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                Height (mm):
-                                <input
-                                  type="number"
-                                  min="300"
-                                  max="3000"
-                                  step="10"
-                                  value={inspectedMod.heightMm}
-                                  onChange={(e) => void editModule(inspectedMod.id, { config: { heightMm: Number(e.target.value) } })}
-                                  style={{
-                                    padding: '4px 6px',
-                                    fontSize: '11.5px',
-                                    fontWeight: 700,
-                                    border: '1px solid #d6d3d1',
-                                    borderRadius: '5px',
-                                    color: '#1c1917',
-                                  }}
-                                />
-                              </label>
-                              <label style={{ fontSize: '10.5px', fontWeight: 600, color: '#57534e', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                Depth (mm):
-                                <input
-                                  type="number"
-                                  min="200"
-                                  max="1200"
-                                  step="10"
-                                  value={inspectedMod.depthMm}
-                                  onChange={(e) => void editModule(inspectedMod.id, { config: { depthMm: Number(e.target.value) } })}
-                                  style={{
-                                    padding: '4px 6px',
-                                    fontSize: '11.5px',
-                                    fontWeight: 700,
-                                    border: '1px solid #d6d3d1',
-                                    borderRadius: '5px',
-                                    color: '#1c1917',
-                                  }}
-                                />
-                              </label>
-                            </div>
-                          </div>
-
                           {/* Nudge & Centering Quick Actions */}
                           <div>
                             <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#78716c', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
@@ -2735,6 +2536,16 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               <h3>{selectedSpace ? `${selectedSpace.name} modules` : 'Select a room'}</h3>
             </CardHeader>
             <CardContent>
+              {!spaces.length && (
+                <div className="room-setup-recovery" role="status">
+                  <strong>{spacesLoadState === 'loading' ? 'Loading saved rooms…' : spacesLoadState === 'error' ? 'Room setup could not be loaded' : 'Finish room setup before placing modules'}</strong>
+                  <span>Modules, wall clearances, renders and production exports must use a saved room from the approved plan.</span>
+                  <div>
+                    <Button type="button" onClick={() => navigate(`/projects/${projectId}/spaces`)} disabled={!projectId}>Open Room Setup</Button>
+                    <Button type="button" variant="outline" onClick={() => setSpacesReloadKey((value) => value + 1)} disabled={spacesLoadState === 'loading'}>{spacesLoadState === 'loading' ? 'Loading…' : 'Refresh rooms'}</Button>
+                  </div>
+                </div>
+              )}
               <label>
                 Place in
                 <select value={spaceId ?? ''} onChange={(event) => { const next = spaces.find((item) => item.id === event.target.value); setSpaceId(event.target.value); if (next) setRoom(next.roomType); }}>
@@ -2987,7 +2798,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   </label>
                 </div>
               </fieldset>
-              <div style={{ maxHeight: '420px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div className="catalog-template-list">
                 {visibleCatalogItems.map((item) => (
                   <button className="catalog-item" key={item.id} onClick={() => {
                     const prepared = pendingModuleRequested ? readPreparedModule(window.localStorage, projectId) : null;
@@ -3019,7 +2830,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
             </CardContent>
           </Card>
         ) : (
-          <Card className="catalog-panel" style={{ minWidth: '420px' }}>
+          <Card className="catalog-panel moodboard-catalog-panel">
             <CardHeader style={{ paddingBottom: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                 <div>
@@ -4031,7 +3842,7 @@ function WallElevationPreview({
         <span>{openings.length} opening{openings.length === 1 ? '' : 's'} · {modules.length} module{modules.length === 1 ? '' : 's'}</span>
       </div>
 
-      <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} role="img" aria-label="Architectural wall elevation with openings and modules">
+      <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="Architectural wall elevation with openings and modules">
         {/* Wall shell background */}
         <rect x={padX} y={padY} width={innerW} height={innerH} className="module-wall-shell" rx={3} />
 

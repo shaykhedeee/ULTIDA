@@ -144,67 +144,6 @@ body { margin: 0; }
 @keyframes ultida-spin { to { transform: rotate(360deg); } }
 .ultida-spinner { animation: ultida-spin 1s linear infinite; }
 
-/* ─── WorkflowDock Beacon Pulse ─────────────────── */
-@keyframes beaconPulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 8px currentColor; }
-  50% { opacity: 0.55; box-shadow: 0 0 18px currentColor; }
-}
-
-/* ─── WorkflowDock Global Rules ─────────────────── */
-.workflow-dock {
-  /* Ensure the dock is on top of everything */
-  isolation: isolate;
-}
-.workflow-dock button:hover:not(:disabled) {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-  transition: all 0.15s ease;
-}
-.workflow-dock button:active:not(:disabled) {
-  transform: translateY(0);
-}
-.workflow-dock button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.45) !important;
-}
-
-/* ─── Global Button Consistency ─────────────────── */
-.ui-button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.45);
-}
-.ui-button-gold {
-  background: linear-gradient(135deg, var(--gold), var(--gold-dim));
-  color: #fff;
-  border: 0;
-  font-weight: 700;
-}
-.ui-button-gold:hover:not(:disabled) {
-  background: linear-gradient(135deg, #d4ab3a, var(--gold));
-  box-shadow: 0 4px 14px rgba(197, 156, 45, 0.35);
-}
-
-/* ─── Form Controls Polish ─────────────────────── */
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.28);
-  border-color: var(--gold) !important;
-}
-
-/* ─── Workspace Section Padding Safety ─────────── */
-section.brief-workspace,
-section.plan-workspace,
-section.spaces-workspace,
-section.visualize-workspace,
-section.production-section,
-section.commercial-section,
-section.delivery-workspace {
-  padding-bottom: 96px;
-}
-
-
 /* ─── App Shell ─────────────────────────────────── */
 .app-shell {
   min-height: 100vh;

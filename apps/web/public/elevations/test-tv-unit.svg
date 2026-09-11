@@ -36,7 +36,7 @@
 <rect x="4910.0" y="180.0" width="300.0" height="3229.0" fill="#1e293b" stroke="#eab308" stroke-width="2" />
 <line x1="4910.0" y1="180.0" x2="5210.0" y2="3409.0" stroke="#eab308" stroke-width="1" stroke-opacity="0.6" />
 <line x1="4910.0" y1="3409.0" x2="5210.0" y2="180.0" stroke="#eab308" stroke-width="1" stroke-opacity="0.6" />
-<text x="5060.0" y="1800.5" fill="#f8fafc" font-size="14" font-weight="600" text-anchor="middle">300mm RETURN FILLER & COLUMN SCRIBE</text>
+<text x="5060.0" y="1800.5" fill="#f8fafc" font-size="14" font-weight="600" text-anchor="middle">300mm RETURN FILLER &amp; COLUMN SCRIBE</text>
 <text x="5060.0" y="1820.5" fill="#94a3b8" font-size="11" text-anchor="middle">300 x 3229 mm</text>
 <rect x="695.0" y="2859.0" width="4000.0" height="350.0" fill="#1a2234" stroke="#cbd5e1" stroke-width="2" />
 <text x="2695.0" y="3040.0" fill="#f8fafc" font-size="14" font-weight="600" text-anchor="middle">FLOATING CONSOLE (4000x400x350H, +200 FFL)</text>

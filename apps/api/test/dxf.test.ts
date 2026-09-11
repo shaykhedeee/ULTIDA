@@ -54,8 +54,12 @@ test('canonical writer emits a valid CRLF ASCII DXF structure', () => {
 
 function isPythonAvailable(): boolean {
   try {
-    const res = spawnSync('python', ['--version'], { encoding: 'utf8' });
-    return !res.error && res.status === 0;
+    // Windows can resolve `python --version` to the Microsoft Store alias
+    // with a successful exit code even though no interpreter is installed.
+    // Execute a tiny program so the independent DXF validator only runs when
+    // a real Python runtime is available.
+    const res = spawnSync('python', ['-c', 'import sys; print(sys.version_info.major)'], { encoding: 'utf8' });
+    return !res.error && res.status === 0 && /^\s*3\s*$/.test(String(res.stdout));
   } catch {
     return false;
   }
