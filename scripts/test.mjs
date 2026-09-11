@@ -82,8 +82,8 @@ try {
       await runWorkspace('@ultida/render-pipeline', 'test');
       break;
     case 'rooms':
-      await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/prepared-module-plan.test.ts', 'apps/web/test/vastu-readiness.test.ts', 'apps/web/test/wall-bay-editor.test.ts']);
-      await runCommand(node, ['--test', 'apps/web/test/room-catalog.test.mjs']);
+      await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/compiled-module-meshes.test.ts', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/prepared-module-plan.test.ts', 'apps/web/test/vastu-readiness.test.ts', 'apps/web/test/wall-bay-editor.test.ts', 'apps/web/test/dashboard-elevation-assets.test.mjs']);
+      await runCommand(node, ['--test', 'apps/web/test/room-catalog.test.mjs', 'apps/web/test/spaces-placement-rail.test.mjs']);
       break;
     case 'all':
     default:
@@ -92,8 +92,8 @@ try {
       await runWorkspace('@ultida/api', 'test');
       await runWorkspace('@ultida/aura-tools', 'test');
       await runWorkspace('@ultida/render-pipeline', 'test');
-      await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/prepared-module-plan.test.ts', 'apps/web/test/vastu-readiness.test.ts', 'apps/web/test/wall-bay-editor.test.ts']);
-      await runCommand(node, ['--test', 'apps/web/test/room-catalog.test.mjs']);
+      await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/prepared-module-plan.test.ts', 'apps/web/test/vastu-readiness.test.ts', 'apps/web/test/wall-bay-editor.test.ts', 'apps/web/test/dashboard-elevation-assets.test.mjs']);
+      await runCommand(node, ['--test', 'apps/web/test/room-catalog.test.mjs', 'apps/web/test/spaces-placement-rail.test.mjs']);
       break;
   }
   process.stdout.write('\n[test] complete\n');

@@ -26,6 +26,65 @@ export interface ShopDrawingOptions {
   selectedModuleId?: string;
   materialSwatches?: Record<string, string>;
   activeWallName?: string;
+  /** Studio name printed on the sheet. Defaults to the ULTIDA product brand. */
+  studioName?: string;
+}
+
+/** Escapes text interpolated into SVG so an id or title cannot break the sheet. */
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/**
+ * Renders a valid, clearly-labelled sheet for a wall that carries no approved
+ * casework. This exists so the renderer never has to invent geometry: a sheet
+ * that states nothing is specified is safe, whereas a sheet showing plausible
+ * but fabricated cabinets can be cut from.
+ */
+function emptyElevationSheet(input: {
+  sheetW: number;
+  sheetH: number;
+  headerH: number;
+  headerBg: string;
+  studioName: string;
+  drawingTitle: string;
+  wallId?: string;
+  wallLengthMm: number;
+  wallHeightMm: number;
+  revision: string;
+  measurementStatus: string;
+}): string {
+  const { sheetW, sheetH, headerH, headerBg, studioName, drawingTitle, wallId, wallLengthMm, wallHeightMm, revision, measurementStatus } = input;
+  const midX = sheetW / 2;
+  const boxW = 620;
+  const boxH = 210;
+  const boxX = midX - boxW / 2;
+  const boxY = sheetH / 2 - boxH / 2 - 10;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${sheetW}" height="${sheetH}" viewBox="0 0 ${sheetW} ${sheetH}" xmlns="http://www.w3.org/2000/svg">
+  <rect width="${sheetW}" height="${sheetH}" fill="#ffffff"/>
+  <rect x="0" y="0" width="${sheetW}" height="${headerH}" fill="${headerBg}"/>
+  <text x="14" y="23" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#ffffff">${escapeXml(studioName)}</text>
+  <text x="${sheetW - 14}" y="23" text-anchor="end" font-family="Arial, sans-serif" font-size="11" fill="#ffffff">${escapeXml(drawingTitle)}</text>
+
+  <rect x="${boxX}" y="${boxY}" width="${boxW}" height="${boxH}" fill="#fef2f2" stroke="#b91c1c" stroke-width="2" rx="6"/>
+  <text x="${midX}" y="${boxY + 52}" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="#b91c1c">NO MODULES PLACED</text>
+  <text x="${midX}" y="${boxY + 84}" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#7f1d1d">This wall has no approved casework in the current scene version.</text>
+  <text x="${midX}" y="${boxY + 106}" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#7f1d1d">No elevation can be issued and nothing on this sheet may be manufactured.</text>
+  <text x="${midX}" y="${boxY + 142}" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#1e293b">Place modules against this wall in Spaces, recompile the scene, then reissue this drawing.</text>
+  <text x="${midX}" y="${boxY + 172}" text-anchor="middle" font-family="Arial, sans-serif" font-size="11.5" fill="#475569">Measured shell on record: ${wallLengthMm} mm long x ${wallHeightMm} mm high${wallId ? ` (wall ${escapeXml(wallId)})` : ''}</text>
+
+  <rect x="0" y="${sheetH - 30}" width="${sheetW}" height="30" fill="#f1f5f9"/>
+  <text x="14" y="${sheetH - 11}" font-family="Arial, sans-serif" font-size="10.5" fill="#334155">REVISION: ${escapeXml(revision)}</text>
+  <text x="${midX}" y="${sheetH - 11}" text-anchor="middle" font-family="Arial, sans-serif" font-size="10.5" font-weight="bold" fill="#b91c1c">NOT FOR CONSTRUCTION</text>
+  <text x="${sheetW - 14}" y="${sheetH - 11}" text-anchor="end" font-family="Arial, sans-serif" font-size="10.5" fill="#334155">MEASUREMENT: ${escapeXml(String(measurementStatus).toUpperCase())}</text>
+  <rect x="0.5" y="0.5" width="${sheetW - 1}" height="${sheetH - 1}" fill="none" stroke="#94a3b8" stroke-width="1"/>
+</svg>`;
 }
 
 /**
@@ -81,6 +140,7 @@ export function generateArchitecturalShopSheetSvg(
   const measurementStatus = options.measurementStatus ?? 'unverified';
   const provenance = options.provenance || `Scene ${scene.metadata.designVersion} · floor plan ${scene.floorPlanVersionId}`;
   const revision = options.revision || scene.metadata.designVersion;
+  const studioName = options.studioName || 'ULTIDA ARCHITECTURAL STUDIO';
   const constructionReady = (scene.metadata.status === 'approved' || scene.metadata.status === 'locked') && measurementStatus !== 'unverified';
   const approvalLabel = constructionReady ? 'APPROVED FOR PRODUCTION' : 'NOT FOR CONSTRUCTION — REVIEW REQUIRED';
   const approvalFill = constructionReady ? '#ecfdf5' : '#fef2f2';
@@ -130,6 +190,12 @@ export function generateArchitecturalShopSheetSvg(
   const GLASS_FILL = '#f0fdf4';
   const GLASS_BORDER = '#0f172a';
   const GRANITE_FILL = '#334155';
+  const legendX = legendLeft;
+  const legendY = headerH + 16;
+  const wallOpenings = (scene.openings ?? [])
+    .filter((opening) => opening.wallId === wall?.id)
+    .filter((opening) => Number.isFinite(opening.offsetMm) && Number.isFinite(opening.widthMm) && Number.isFinite(opening.heightMm))
+    .sort((a, b) => a.offsetMm - b.offsetMm);
 
   // ── Helper: Red Dimension with 45° Tick Marks ──────────────────────────
   function dimLine(x1: number, y1: number, x2: number, y2: number, label: string, offset = 0, isVertical = false): string {
@@ -161,6 +227,35 @@ export function generateArchitecturalShopSheetSvg(
         fill="#0f172a" font-size="7.5" font-family="Arial,sans-serif" font-weight="bold">${label}</text>
     </g>`;
   }
+
+  // Openings are drawn from persisted wall geometry. Their sill and head are
+  // construction-critical constraints for joinery and must remain visible in
+  // every external elevation, independent of any rendered image.
+  const openingSvg = wallOpenings.map((opening) => {
+    const x = tx(Math.max(0, opening.offsetMm));
+    const width = Math.max(1, opening.widthMm * scale);
+    const sillMm = Math.max(0, opening.sillHeightMm ?? opening.sillMm ?? 0);
+    const height = Math.max(1, opening.heightMm * scale);
+    const y = ty(sillMm + opening.heightMm);
+    const kind = opening.kind.toUpperCase();
+    const isDoor = opening.kind.toLowerCase() === 'door';
+    const statusPrefix = measurementStatus === 'unverified' ? 'TBC ' : '';
+    const sillLabel = isDoor ? 'FFL' : `${sillMm} SILL`;
+    return `<g class="cad-opening" data-opening-id="${opening.id}">
+      <rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${isDoor ? '#f8fafc' : '#e0f2fe'}" fill-opacity="0.72" stroke="#0f172a" stroke-width="1.4" stroke-dasharray="${isDoor ? 'none' : '4 2'}"/>
+      ${isDoor ? `<line x1="${x}" y1="${ty(sillMm)}" x2="${x + width}" y2="${y}" stroke="#64748b" stroke-width="0.8"/>` : `<line x1="${x + width / 2}" y1="${y}" x2="${x + width / 2}" y2="${y + height}" stroke="#64748b" stroke-width="0.7" stroke-dasharray="2 2"/>`}
+      <text x="${x + width / 2}" y="${y + Math.min(height / 2, 14)}" text-anchor="middle" fill="#0f172a" font-size="6.5" font-family="Arial,sans-serif" font-weight="bold">${statusPrefix}${kind}</text>
+      <text x="${x + width / 2}" y="${y + Math.min(height / 2 + 10, height - 4)}" text-anchor="middle" fill="#334155" font-size="5.6" font-family="Arial,sans-serif">${Math.round(opening.widthMm)} W × ${Math.round(opening.heightMm)} H · ${sillLabel}</text>
+    </g>`;
+  }).join('\n');
+
+  const openingScheduleSvg = wallOpenings.length
+    ? wallOpenings.slice(0, 3).map((opening, index) => {
+      const sillMm = Math.max(0, opening.sillHeightMm ?? opening.sillMm ?? 0);
+      const label = `${opening.kind.toUpperCase()} ${Math.round(opening.widthMm)}W × ${Math.round(opening.heightMm)}H · SILL ${sillMm}`;
+      return `<text x="${legendX + 8}" y="${legendY + 648 + index * 11}" font-size="5.5" fill="#334155">${measurementStatus === 'unverified' ? 'TBC ' : ''}${label}</text>`;
+    }).join('')
+    : `<text x="${legendX + 8}" y="${legendY + 648}" font-size="5.5" fill="#64748b">NO MEASURED OPENINGS ON THIS WALL</text>`;
 
   // ── 1. Top View Plan ───────────────────────────────────────────────────
   let topViewSvg = '';
@@ -196,11 +291,18 @@ export function generateArchitecturalShopSheetSvg(
 
   // ── 2. Casework Modules & Elevation Geometry ───────────────────────────
   const modules = (scene.modules ?? []).filter((m) => !wall || m.roomId === wall.spaceIds?.[0] || m.id === targetModule?.id);
-  const activeModules = modules.length ? modules : (targetModule ? [targetModule] : [
-    { id: 'mod-1', family: 'kitchen-base', widthMm: Math.min(2400, wallLengthMm), depthMm: baseDepthMm, heightMm: 850, position: { xMm: 0, yMm: 0 } },
-    { id: 'mod-2', family: 'kitchen-wall', widthMm: Math.min(2400, wallLengthMm), depthMm: wallDepthMm, heightMm: 670, position: { xMm: 0, yMm: 0, zMm: 1450 } },
-    { id: 'mod-3', family: 'loft', widthMm: Math.min(2400, wallLengthMm), depthMm: loftDepthMm, heightMm: 558, position: { xMm: 0, yMm: 0, zMm: 2120 } }
-  ]);
+  // A shop drawing is a manufacturing instruction. When the scene has no
+  // modules on this wall there is nothing to manufacture, and inventing
+  // placeholder casework here would emit a dimensioned sheet for cabinets
+  // nobody specified. Previously this fell back to three fabricated kitchen
+  // units, which a workshop could read as an approved cutting instruction.
+  const activeModules = modules.length ? modules : (targetModule ? [targetModule] : []);
+  if (!activeModules.length) {
+    return emptyElevationSheet({
+      sheetW, sheetH, headerH, headerBg, studioName, drawingTitle: inferredTitle,
+      wallId: wall?.id, wallLengthMm, wallHeightMm, revision, measurementStatus,
+    });
+  }
 
   let elevationItemsSvg = '';
   const horizontalDims: string[] = [];
@@ -489,9 +591,6 @@ export function generateArchitecturalShopSheetSvg(
   verticalDims.push(dimLine(vDimX2, ty(0), vDimX2, ty(wallHeightMm), `${wallHeightMm}`, 0, true));
 
   // ── 5. Standard Right-Side Legend & Title Block ─────────────────────────
-  const legendX = legendLeft;
-  const legendY = headerH + 16;
-
   const legendSvg = `
     <!-- Right Legend & Matrix Area -->
     <g class="cad-legend-block" font-family="Arial,sans-serif">
@@ -587,7 +686,7 @@ export function generateArchitecturalShopSheetSvg(
 
       <!-- Studio Address -->
       <text x="${legendX + legendWidth / 2}" y="${legendY + 545}" text-anchor="middle" font-size="6" fill="#64748b">
-        ULTIDA ARCHITECTURAL STUDIO · BENGALURU
+        ${studioName}
       </text>
       <text x="${legendX + legendWidth / 2}" y="${legendY + 557}" text-anchor="middle" font-size="5.5" fill="#94a3b8">
         REV ${revision} · SCENE ${scene.metadata.designVersion} · UNITS: MM
@@ -611,6 +710,8 @@ export function generateArchitecturalShopSheetSvg(
         <text x="144" y="14" fill="#0f172a" font-size="5.5">VIRGO 1409</text>
         <text x="144" y="24" fill="#64748b" font-size="5">FROSTY WHITE SHG</text>
       </g>
+      <text x="${legendX + 8}" y="${legendY + 636}" font-size="5.5" font-weight="bold" fill="#334155">OPENING SCHEDULE</text>
+      ${openingScheduleSvg}
     </g>
   `;
 
@@ -663,6 +764,9 @@ export function generateArchitecturalShopSheetSvg(
 
     <!-- Casework Items -->
     ${elevationItemsSvg}
+
+    <!-- Measured doors and windows -->
+    ${openingSvg}
 
     <!-- Leader Callouts -->
     ${callouts.join('\n    ')}

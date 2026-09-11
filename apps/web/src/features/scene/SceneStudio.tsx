@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { createCompiledModuleMeshes } from './compiled-module-meshes';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
@@ -1181,6 +1182,13 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
 
     const modulesGroup = new THREE.Group(); geometryGroup.add(modulesGroup);
     for (const mod of (scene.modules ?? [])) {
+      const savedParts = (scene.moduleParts ?? []).filter(part => part.moduleId === mod.id);
+      if (savedParts.length > 0) {
+        // These already contain world placement and mounting elevation. Never
+        // replace them with family guesses or stretch a reference GLB over them.
+        modulesGroup.add(createCompiledModuleMeshes(mod.id, savedParts, getThreeMaterialForFinish));
+        continue;
+      }
       const modContainer = new THREE.Group();
       const posX = Number(mod.position?.xMm ?? (mod as any)?.position?.x ?? 1500);
       const posY = Number(mod.position?.yMm ?? (mod as any)?.position?.y ?? 1500);

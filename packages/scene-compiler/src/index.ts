@@ -16,6 +16,7 @@ export type CompiledModulePart = {
   rotationDeg?: number;
   anchor?: 'floor' | 'wall' | 'ceiling' | 'free';
   materialId?: string;
+  glbUrl?: string;
   semanticType?: string;
   name?: string;
   kind?: string;
@@ -476,6 +477,7 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     rotationDeg: module.rotationDeg ?? 0,
     anchor: module.anchor ?? 'floor',
     materialId: module.materialId,
+    glbUrl: module.glbUrl,
     confidence: 1,
   }));
   const moduleParts = (input.moduleParts ?? []).map((part) => ({

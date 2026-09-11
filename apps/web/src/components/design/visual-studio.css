@@ -296,6 +296,14 @@
   border: 1px solid var(--border, #ded6c9);
   border-radius: 10px;
 }
+
+/* Checkbox controls must retain their intrinsic size inside the catalog grid. */
+.side-filler-options input[type="checkbox"],
+.module-configuration input[type="checkbox"] {
+  width: auto !important;
+  max-width: none !important;
+  padding: 0 !important;
+}
 .room-proposal-picker legend { padding: 0 6px; font-weight: 600; }
 .room-proposal-picker button {
   display: grid;
@@ -310,3 +318,8 @@
 }
 .room-proposal-picker button[aria-pressed="true"] { border-color: #a67c25; background: #faf2df; }
 .room-proposal-picker button:focus-visible { outline: 2px solid #a67c25; outline-offset: 2px; }
+
+/* The dark Visual Studio needs explicit foreground colors on provider states. */
+.visual-studio-panel .provider-status{padding:7px 9px;border:1px solid #50483e;border-radius:6px;background:#171513;color:#ece6dc!important}
+.visual-studio-panel .provider-readiness{margin:0;padding:9px 10px;border:1px solid #426950;border-radius:8px;background:#14281b;color:#d7f4df!important;font-size:11px;line-height:1.4}
+.visual-studio-panel .room-setup-recovery-dark{border-color:#6d593e;background:#2a241d;color:#f5ead8!important}.visual-studio-panel .room-setup-recovery-dark strong,.visual-studio-panel .room-setup-recovery-dark span{color:inherit!important}.visual-studio-panel .room-setup-recovery-dark .ui-button{border-color:#8b7554;background:#211e1a;color:#f5ead8!important}

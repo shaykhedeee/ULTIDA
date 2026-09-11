@@ -38,22 +38,34 @@ function applyPrompt(workflow: ComfyWorkflow, request: VisualProposalRequest) {
 type ComfyUploads = Partial<Record<'sourceImage' | 'depthMapImage' | 'cannyEdgeMapImage' | 'materialKeyMapImage' | 'objectMaskImage' | 'normalMapImage', string>>;
 
 function applyComfyTemplate(workflow: ComfyWorkflow, request: VisualProposalRequest, uploads: ComfyUploads = {}) {
-  return JSON.parse(JSON.stringify(workflow)
-    .replaceAll('{{prompt}}', request.structuredPrompt)
-    .replaceAll('{{negativePrompt}}', request.negativePrompt ?? '')
-    .replaceAll('{{style}}', request.style)
-    .replaceAll('{{sceneVersionId}}', request.sceneVersionId)
-    .replaceAll('{{sourceImage}}', uploads.sourceImage ?? '')
-    .replaceAll('{{depthMapImage}}', uploads.depthMapImage ?? '')
-    .replaceAll('{{cannyEdgeMapImage}}', uploads.cannyEdgeMapImage ?? '')
-    .replaceAll('{{materialKeyMapImage}}', uploads.materialKeyMapImage ?? '')
-    .replaceAll('{{objectMaskImage}}', uploads.objectMaskImage ?? '')
-    .replaceAll('{{normalMapImage}}', uploads.normalMapImage ?? '')
-    .replaceAll('{{depthMapUrl}}', request.conditioningMaps?.depthMapUrl ?? '')
-    .replaceAll('{{cannyEdgeMapUrl}}', request.conditioningMaps?.cannyEdgeMapUrl ?? '')
-    .replaceAll('{{materialKeyMapUrl}}', request.conditioningMaps?.materialKeyMapUrl ?? '')
-    .replaceAll('{{objectMaskUrl}}', request.conditioningMaps?.objectMaskUrl ?? '')
-    .replaceAll('{{normalMapUrl}}', request.conditioningMaps?.normalMapUrl ?? ''));
+  const replacements: Record<string, string> = {
+    prompt: request.structuredPrompt,
+    negativePrompt: request.negativePrompt ?? '',
+    style: request.style,
+    sceneVersionId: request.sceneVersionId,
+    sourceImage: uploads.sourceImage ?? '',
+    depthMapImage: uploads.depthMapImage ?? '',
+    cannyEdgeMapImage: uploads.cannyEdgeMapImage ?? '',
+    materialKeyMapImage: uploads.materialKeyMapImage ?? '',
+    objectMaskImage: uploads.objectMaskImage ?? '',
+    normalMapImage: uploads.normalMapImage ?? '',
+    depthMapUrl: request.conditioningMaps?.depthMapUrl ?? '',
+    cannyEdgeMapUrl: request.conditioningMaps?.cannyEdgeMapUrl ?? '',
+    materialKeyMapUrl: request.conditioningMaps?.materialKeyMapUrl ?? '',
+    objectMaskUrl: request.conditioningMaps?.objectMaskUrl ?? '',
+    normalMapUrl: request.conditioningMaps?.normalMapUrl ?? '',
+  };
+  // Substitute string values once, never serialized JSON or node/input keys.
+  // Quotes, backslashes and token-like prompt text must remain literal data.
+  const interpolate = (value: unknown): unknown => {
+    if (typeof value === 'string') return value.replace(/\{\{(\w+)\}\}/g,
+      (token, key: string) => Object.hasOwn(replacements, key) ? replacements[key]! : token);
+    if (Array.isArray(value)) return value.map(interpolate);
+    if (value !== null && typeof value === 'object') return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, interpolate(child)]));
+    return value;
+  };
+  return interpolate(workflow) as ComfyWorkflow;
 }
 
 function comfyTemplateNeeds(workflow: ComfyWorkflow, token: keyof ComfyUploads) {

@@ -10,6 +10,45 @@ const base = {
   structuredPrompt: 'Preserve approved openings and furniture.', quality: 'review', providerPreference: [],
 };
 
+test('ComfyUI preserves quoted prompts, literal tokens and typed workflow links', async () => {
+  const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#888888' } }).png().toBuffer();
+  const workflow = {
+    '1': { class_type: 'LoadImage', inputs: { image: '{{sourceImage}}' } },
+    '2': { class_type: 'CLIPTextEncode', inputs: { text: '{{prompt}}', negative: '{{negativePrompt}}', clip: ['3', 1], enabled: true, optional: null } },
+    '3': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'studio.safetensors' } },
+  };
+  const prompt = 'Use "oak"\nPath C:\\studio\\wood. Keep {{style}} and $& literal.';
+  const original = globalThis.fetch;
+  const calls = [];
+  let submitted;
+  globalThis.fetch = async (url, options) => {
+    calls.push(String(url));
+    if (String(url).endsWith('/upload/image')) return Response.json({ name: 'scene "approved".png' });
+    if (String(url).endsWith('/prompt')) {
+      submitted = JSON.parse(options.body);
+      return Response.json({ prompt_id: 'real-workflow-job' });
+    }
+    throw new Error(`Unexpected endpoint: ${url}`);
+  };
+  try {
+    const result = await createProviderGateway({
+      COMFYUI_BASE_URL: 'http://localhost:8188', COMFYUI_WORKFLOW_JSON: JSON.stringify(workflow),
+    }).createVisualProposal({ ...base, sourceAssets: [`data:image/png;base64,${bytes.toString('base64')}`],
+      providerPreference: ['comfyui'], structuredPrompt: prompt, negativePrompt: 'No "extra" doors\nNo distortion',
+    });
+    assert.equal(result.status, 'queued', JSON.stringify(result));
+    assert.equal(result.promptId, 'real-workflow-job');
+    assert.equal(submitted.prompt['2'].inputs.text, prompt);
+    assert.equal(submitted.prompt['2'].inputs.negative, 'No "extra" doors\nNo distortion');
+    assert.deepEqual(submitted.prompt['2'].inputs.clip, ['3', 1]);
+    assert.equal(submitted.prompt['2'].inputs.enabled, true);
+    assert.equal(submitted.prompt['2'].inputs.optional, null);
+    assert.equal(submitted.prompt['1'].inputs.image, 'scene "approved".png');
+    assert.equal(workflow['2'].inputs.text, '{{prompt}}');
+    assert.deepEqual(calls, ['http://localhost:8188/upload/image', 'http://localhost:8188/prompt']);
+  } finally { globalThis.fetch = original; }
+});
+
 test('unsupported controls fail before network discovery or paid fallback', async () => {
   const original = globalThis.fetch;
   let calls = 0;

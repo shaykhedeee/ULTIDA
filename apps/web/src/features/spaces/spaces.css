@@ -384,7 +384,8 @@
 .rc-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); padding: 2.5px 0; }
 .rc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(227, 221, 210, 0.8); }
 .inc-toggle { font-size: 11px; display: flex; align-items: center; gap: 4px; color: var(--text-muted); font-weight: 600; cursor: pointer; }
-.canvas-region { grid-area: canvas; display: flex; flex-direction: column; min-height: 0; overflow: clip; }
+/* position:relative anchors the cursor-following drop tooltip. */
+.canvas-region { grid-area: canvas; position: relative; display: flex; flex-direction: column; min-height: 0; overflow: clip; }
 .canvas-focus-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fffaf2; }
 .canvas-focus-bar > div:first-child { display:flex; flex-direction:column; gap:2px; }
 .canvas-focus-bar strong { font-size:13px; color:var(--text-secondary); font-weight: 800; }
@@ -422,6 +423,22 @@
 .room-workflow-summary strong, .room-workflow-summary small { display: block; }
 .room-workflow-summary strong { color: var(--text-secondary); font-size: 12px; }
 .room-workflow-summary small { margin-top: 2px; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.placement-flow-card { border: 1px solid #dfcfab; border-radius: 10px; padding: 12px; background: linear-gradient(135deg, #fffdf8, #fbf4e7); }
+.placement-flow-heading, .placement-flow-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.placement-flow-heading small { display:block; color:#9a6d22; font-size:9px; font-weight:800; letter-spacing:.08em; }
+.placement-flow-heading strong { display:block; margin-top:2px; color:var(--text-secondary); font-size:12px; }
+.placement-flow-status { padding:4px 7px; border:1px solid #e6d8bd; border-radius:999px; color:#8a7561; background:#fff; font-size:10px; font-weight:700; white-space:nowrap; }
+.placement-flow-status.ready { color:#0f766e; border-color:#99d5c8; background:#f0fdfa; }
+.placement-flow-steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; padding:0; margin:12px 0 10px; list-style:none; }
+.placement-flow-steps li { min-width:0; padding:7px; border:1px solid #eadfca; border-radius:7px; background:rgba(255,255,255,.68); }
+.placement-flow-steps li.complete { border-color:#b9d9ce; background:#f4fbf8; }
+.placement-flow-steps span { display:inline-grid; place-items:center; width:16px; height:16px; margin-right:4px; border-radius:50%; background:#d7c5a5; color:#fff; font-size:9px; font-weight:800; }
+.placement-flow-steps li.complete span { background:#0f766e; }
+.placement-flow-steps b, .placement-flow-steps small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.placement-flow-steps b { color:var(--text-secondary); font-size:10px; }
+.placement-flow-steps small { margin-top:3px; color:var(--text-muted); font-size:9px; }
+.placement-flow-actions { justify-content:flex-end; }
+.placement-flow-card > p { margin:8px 0 0; color:var(--text-muted); font-size:10px; line-height:1.4; }
 .space-panel-tabs { display: flex; flex-wrap: wrap; gap: 3px; padding: 3px; background: #f3efe7; border-radius: 8px; }
 .space-panel-tabs button { border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 10px; font-weight: 800; padding: 5px 8px; cursor: pointer; white-space: nowrap; flex: 1 1 0; min-width: 0; text-align: center; }
 .space-panel-tabs button.active { background: var(--surface); color: var(--text-secondary); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
@@ -954,26 +971,32 @@
   font-weight: 700;
 }
 
-/* ── Design Library Drawer ── */
-.design-library-drawer-backdrop {
+/* ── Design Library Rail ──
+   Docked, not modal. The catalog must never obscure the plan canvas, because
+   every placement decision depends on seeing the wall being placed against. */
+.design-library-rail {
   position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(4px);
-  z-index: 9999;
-  display: flex;
-  justify-content: flex-end;
-  animation: fadeIn 0.2s ease;
-}
-.design-library-drawer {
-  width: min(720px, 92vw);
-  height: 100%;
+  top: 0;
+  right: 0;
+  width: clamp(320px, 26vw, 360px);
+  height: 100dvh;
   background: var(--surface);
-  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.2);
+  border-left: 1px solid var(--line);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.10);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: slideLeft 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 40;
+  animation: slideLeft 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* Reserve the rail's width so the canvas reflows beside it rather than
+   sitting underneath it. */
+.spaces-workspace--library-open {
+  padding-right: clamp(332px, calc(26vw + 12px), 372px);
+}
+@media (max-width: 900px) {
+  .design-library-rail { width: 100vw; }
+  .spaces-workspace--library-open { padding-right: 0; }
 }
 @keyframes slideLeft {
   from { transform: translateX(100%); }
@@ -1040,10 +1063,10 @@
 .dld-grid {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
+  padding: 14px 14px 28px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 12px;
 }
 .dld-card {
   border: 1px solid var(--line);
@@ -2295,4 +2318,51 @@
 .icon-btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.35);
+}
+
+/* ── Drag-to-place placement affordances ── */
+.dld-card[draggable='true'] { cursor: grab; }
+.dld-card[draggable='true']:active { cursor: grabbing; }
+.dld-card--armed {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.25);
+}
+.dld-card--blocked { opacity: 0.72; }
+.dld-card-actions { display: flex; flex-direction: column; gap: 6px; }
+
+/* While a module is in flight the canvas is a drop target, so suppress the
+   normal editing cursor and highlight the drop surface. */
+.plan-canvas--dropping { cursor: copy; }
+
+.drop-reject-tip {
+  position: absolute;
+  z-index: 30;
+  max-width: 260px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #7f1d1d;
+  color: #fee2e2;
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.drop-reject-tip strong { color: #fff; font-size: 11.5px; }
+
+.drop-arm-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: #1c1917;
+  color: #fef3c7;
+  font-size: 11.5px;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
 }

@@ -12,6 +12,9 @@ const sampleKitchenScene: SceneV1 = {
   walls: [
     { id: 'wall-a', start: { xMm: 0, yMm: 0 }, end: { xMm: 2552, yMm: 0 }, thicknessMm: 150, heightMm: 2718 },
   ],
+  openings: [
+    { id: 'window-a', wallId: 'wall-a', kind: 'window', offsetMm: 1600, widthMm: 750, heightMm: 900, sillHeightMm: 1100 },
+  ],
   modules: [
     { id: 'kit-base-1', family: 'kitchen-base', widthMm: 2552, depthMm: 560, heightMm: 850, position: { xMm: 0, yMm: 0 } },
     { id: 'kit-wall-1', family: 'kitchen-wall', widthMm: 2552, depthMm: 300, heightMm: 670, position: { xMm: 0, yMm: 0, zMm: 1450 } },
@@ -72,6 +75,11 @@ test('generateArchitecturalShopSheetSvg renders full external elevation with car
   assert.ok(svg.includes('SKIRTING 100mm'));
   assert.ok(svg.includes('FALSE CEILING FILLER 50mm'));
 
+  // Persisted wall openings remain visible and are scheduled from scene data.
+  assert.ok(svg.includes('data-opening-id="window-a"'));
+  assert.ok(svg.includes('WINDOW 750W × 900H · SILL 1100'));
+  assert.ok(svg.includes('OPENING SCHEDULE'));
+
   // Carcass & Laminate Legend Box
   assert.ok(svg.includes('LEGEND'));
   assert.ok(svg.includes('CARCASS'));
@@ -129,4 +137,53 @@ test('generateWallElevationSvg delegates cleanly to shop-sheet renderer when req
   assert.ok(svg.includes('TOP VIEW'));
   assert.ok(svg.includes('CARCASS'));
   assert.ok(svg.includes('LAMINATE'));
+});
+
+/**
+ * A shop drawing is a manufacturing instruction. The renderer used to fall
+ * back to three invented kitchen modules whenever a scene had no casework on
+ * the target wall, producing a fully dimensioned sheet for cabinets nobody had
+ * specified. A workshop could cut from that sheet. These tests keep the
+ * renderer honest about the difference between "nothing specified" and
+ * "here is what to build".
+ */
+const emptyWallScene: SceneV1 = {
+  schema: 'scene.v1',
+  units: 'mm',
+  projectId: 'empty-wall-01',
+  floorPlanVersionId: 'plan-01',
+  coordinateSystem: 'right-handed-z-up',
+  walls: [
+    { id: 'wall-empty', start: { xMm: 0, yMm: 0 }, end: { xMm: 3400, yMm: 0 }, thicknessMm: 150, heightMm: 2700 },
+  ],
+  modules: [],
+  metadata: { status: 'approved', designVersion: '01' },
+};
+
+test('a wall with no approved casework yields an explicit empty sheet, not invented cabinets', () => {
+  const svg = generateArchitecturalShopSheetSvg(emptyWallScene, 'wall-empty', { measurementStatus: 'measured' });
+  assert.ok(svg.startsWith('<?xml version="1.0" encoding="UTF-8"?>'), 'it must still be a valid sheet');
+  assert.match(svg, /NO MODULES PLACED/, 'the sheet must say plainly that nothing is specified');
+  assert.match(svg, /NOT FOR CONSTRUCTION/, 'an empty sheet can never be construction-ready');
+});
+
+test('an empty sheet never fabricates module geometry', () => {
+  const svg = generateArchitecturalShopSheetSvg(emptyWallScene, 'wall-empty', { measurementStatus: 'measured' });
+  // The old fallback invented a 850mm base, a 670mm wall unit and a 558mm loft.
+  assert.doesNotMatch(svg, /kitchen-base/i, 'no casework family may be invented');
+  assert.doesNotMatch(svg, /\b670\b/, 'no invented wall-unit height may appear');
+  assert.doesNotMatch(svg, /\b558\b/, 'no invented loft height may appear');
+});
+
+test('an empty sheet still reports the measured shell that is on record', () => {
+  const svg = generateArchitecturalShopSheetSvg(emptyWallScene, 'wall-empty', { measurementStatus: 'measured' });
+  assert.match(svg, /3400 mm long/, 'the real measured wall length must be stated');
+  assert.match(svg, /2700 mm high/, 'the real measured wall height must be stated');
+  assert.match(svg, /wall-empty/, 'the sheet must identify which wall it describes');
+});
+
+test('a wall that does carry casework is unaffected by the empty-sheet path', () => {
+  const svg = generateArchitecturalShopSheetSvg(sampleKitchenScene, 'wall-a', { measurementStatus: 'measured' });
+  assert.doesNotMatch(svg, /NO MODULES PLACED/);
+  assert.ok(svg.includes('<svg width="1200" height="750"'));
 });
