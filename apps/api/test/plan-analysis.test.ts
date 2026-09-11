@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyFile, extractOcrMeasurements, reconcileToElements, UNSUPPORTED_FORMATS, type PlanElementDraft } from '../src/plan-analysis-service.js';
+import { classifyFile, extractOcrMeasurements, extractPositionedMeasurements, reconcileToElements, UNSUPPORTED_FORMATS, type PlanElementDraft } from '../src/plan-analysis-service.js';
 import { PlanVisionOutputSchema, normalizeVisionOutput } from '@ultida/agent-core';
 import { buildPlanPrompt, parseProposals } from '../src/plan-analyzer.js';
 
@@ -220,4 +220,94 @@ test('provider proposals ignore unknown entity kinds without throwing includes e
   const proposals = parseProposals(response, 'detector');
   assert.equal(proposals.length, 2);
   assert.deepEqual(proposals.map((proposal) => proposal.kind), ['wall', 'room']);
+});
+
+/**
+ * Tesseract reports a bounding box for every word, but the analyzer used to
+ * keep only the flat text. That forced OCR association to be a counting
+ * argument: a value could be adopted only when the page had exactly one
+ * unlabelled dimension and exactly one measurement. Any real plan, which has
+ * many dimension strings, fell straight through. These tests cover matching a
+ * measurement to the dimension line it physically annotates.
+ */
+function words(entries: Array<[string, number, number]>) {
+  return entries.map(([text, x, y]) => ({ text, x, y }));
+}
+
+test('extractPositionedMeasurements joins split words and keeps their position', () => {
+  const found = extractPositionedMeasurements(words([['3600', 200, 400], ['mm', 230, 400]]));
+  assert.equal(found.length, 1);
+  assert.equal(found[0].valueMm, 3600);
+  assert.ok(found[0].x > 200 && found[0].x < 231);
+});
+
+test('extractPositionedMeasurements converts imperial callouts', () => {
+  const found = extractPositionedMeasurements(words([["12'", 500, 700], ['6"', 540, 700]]));
+  assert.equal(found.length, 1);
+  assert.equal(found[0].valueMm, 3810);
+});
+
+test('extractPositionedMeasurements ignores a room label that merely ends in a number', () => {
+  const found = extractPositionedMeasurements(words([['BEDROOM', 100, 100], ['3', 180, 100]]));
+  assert.equal(found.length, 0);
+});
+
+test('a positioned measurement is adopted by the dimension line it sits on', () => {
+  const ai = rawSample({
+    dimensionCandidates: [{ id: 'dim1', confidence: 0.6, x1: 100, y1: 350, x2: 400, y2: 350 }],
+  });
+  const { elements } = reconcileToElements(ai, null, '3600 mm', words([['3600', 250, 360], ['mm', 285, 360]]));
+  const dim = elements.find((element) => element.kind === 'dimension')!;
+  assert.equal(dim.geometry.valueMm, 3600);
+  assert.equal(dim.source, 'ocr');
+  assert.match(dim.note!, /located on this dimension line/);
+});
+
+test('a measurement far from a dimension line is not adopted by it', () => {
+  const ai = rawSample({
+    dimensionCandidates: [{ id: 'dim1', confidence: 0.6, x1: 100, y1: 350, x2: 400, y2: 350 }],
+  });
+  const { elements } = reconcileToElements(ai, null, '3600 mm', words([['3600', 900, 900], ['mm', 935, 900]]));
+  const dim = elements.find((element) => element.kind === 'dimension')!;
+  assert.equal(dim.geometry.valueMm, undefined, 'a distant label must not become this dimension');
+});
+
+test('two unlabelled dimensions each take their own nearby measurement', () => {
+  const ai = rawSample({
+    dimensionCandidates: [
+      { id: 'dim1', confidence: 0.6, x1: 100, y1: 350, x2: 400, y2: 350 },
+      { id: 'dim2', confidence: 0.6, x1: 100, y1: 800, x2: 400, y2: 800 },
+    ],
+  });
+  const { elements } = reconcileToElements(
+    ai,
+    null,
+    '3600 mm 2400 mm',
+    words([['3600', 250, 360], ['mm', 285, 360], ['2400', 250, 810], ['mm', 285, 810]]),
+  );
+  const dims = elements.filter((element) => element.kind === 'dimension');
+  assert.equal(dims[0].geometry.valueMm, 3600);
+  assert.equal(dims[1].geometry.valueMm, 2400);
+});
+
+test('one measurement cannot be claimed by two dimension lines', () => {
+  const ai = rawSample({
+    dimensionCandidates: [
+      { id: 'dim1', confidence: 0.6, x1: 100, y1: 350, x2: 400, y2: 350 },
+      { id: 'dim2', confidence: 0.6, x1: 100, y1: 360, x2: 400, y2: 360 },
+    ],
+  });
+  const { elements } = reconcileToElements(ai, null, '3600 mm', words([['3600', 250, 355], ['mm', 285, 355]]));
+  const dims = elements.filter((element) => element.kind === 'dimension');
+  const adopted = dims.filter((dim) => dim.geometry.valueMm === 3600);
+  assert.equal(adopted.length, 1, 'the same label must not populate both dimensions');
+});
+
+test('a dimension the provider already valued is never overwritten by OCR', () => {
+  const ai = rawSample({
+    dimensionCandidates: [{ id: 'dim1', confidence: 0.6, x1: 100, y1: 350, x2: 400, y2: 350, valueMm: 3800 }],
+  });
+  const { elements } = reconcileToElements(ai, null, '3600 mm', words([['3600', 250, 360], ['mm', 285, 360]]));
+  const dim = elements.find((element) => element.kind === 'dimension')!;
+  assert.equal(dim.geometry.valueMm, 3800, 'declared vision geometry wins over OCR');
 });
