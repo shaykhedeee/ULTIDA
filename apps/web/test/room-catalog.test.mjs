@@ -6,6 +6,16 @@ import { chromium, expect } from '@playwright/test';
 import { IndianModularCatalog, listCatalog } from '@ultida/catalog-core';
 
 let vite, browser, baseUrl;
+
+/**
+ * Chromium is an optional local development dependency. Only CI turns this
+ * browser check into a release requirement, matching the API browser smoke
+ * test. Without this guard a host that has not run `npx playwright install`
+ * reports four product failures instead of an absent optional browser.
+ */
+const browserRequired = process.env.CI === 'true' && process.env.ULTIDA_REQUIRE_BROWSER_E2E === 'true';
+let browserUnavailableReason = null;
+
 before(async () => {
   const fs = await import('node:fs');
   vite = await createServer({
@@ -44,9 +54,20 @@ before(async () => {
     (fs.existsSync('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe')
       ? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
       : undefined);
-  browser = await chromium.launch({ headless: true, executablePath });
+  try {
+    browser = await chromium.launch({ headless: true, executablePath });
+  } catch (error) {
+    if (browserRequired) throw error;
+    browserUnavailableReason = error instanceof Error ? error.message.split('\n')[0] : String(error);
+  }
 });
 after(async () => { await browser?.close(); await vite?.close(); });
+
+function skipWithoutBrowser(t) {
+  if (browser) return false;
+  t.skip(`Chromium is not installed for this optional browser check: ${browserUnavailableReason ?? 'browser did not launch'}`);
+  return true;
+}
 
 async function roomPage(catalogHandler) {
   const page = await browser.newPage();
@@ -67,7 +88,8 @@ async function roomPage(catalogHandler) {
   return page;
 }
 
-test('switching rooms clears filters that hide the new room catalog', async () => {
+test('switching rooms clears filters that hide the new room catalog', async (t) => {
+  if (skipWithoutBrowser(t)) return;
   const page = await roomPage((route, room) => route.fulfill({ json: { modules: listCatalog(room) } }));
   try {
     await expect(page.locator('button.catalog-item').first()).toBeVisible();
@@ -83,7 +105,8 @@ test('switching rooms clears filters that hide the new room catalog', async () =
   } finally { await page.close(); }
 });
 
-test('failed catalog request retains bundled room templates', async () => {
+test('failed catalog request retains bundled room templates', async (t) => {
+  if (skipWithoutBrowser(t)) return;
   const page = await roomPage((route) => route.fulfill({ status: 503, json: { message: 'Unavailable' } }));
   try {
     await page.getByLabel(/^Place in/).selectOption('dining');
@@ -91,7 +114,8 @@ test('failed catalog request retains bundled room templates', async () => {
   } finally { await page.close(); }
 });
 
-test('a broad catalog response is narrowed to the selected room', async () => {
+test('a broad catalog response is narrowed to the selected room', async (t) => {
+  if (skipWithoutBrowser(t)) return;
   const page = await roomPage((route) => route.fulfill({ json: { modules: IndianModularCatalog } }));
   try {
     await page.getByLabel(/^Place in/).selectOption('living');
@@ -102,7 +126,8 @@ test('a broad catalog response is narrowed to the selected room', async () => {
   } finally { await page.close(); }
 });
 
-test('late responses cannot replace the selected room catalog', async () => {
+test('late responses cannot replace the selected room catalog', async (t) => {
+  if (skipWithoutBrowser(t)) return;
   let release;
   const delayed = new Promise((resolve) => { release = resolve; });
   const page = await roomPage(async (route, room) => {

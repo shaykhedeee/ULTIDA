@@ -65,6 +65,23 @@ function isPythonAvailable(): boolean {
   }
 }
 
+/**
+ * The independent CAD check needs the ezdxf library, not merely a Python
+ * runtime. A host with Python but without ezdxf previously failed this suite
+ * with `ezdxf is not installed`, which reads as a broken DXF exporter rather
+ * than a missing optional development dependency. Install
+ * `requirements-test.txt` (CI does) to make this gate execute for real.
+ */
+function isDxfValidatorAvailable(): boolean {
+  if (!isPythonAvailable()) return false;
+  try {
+    const res = spawnSync('python', ['-c', 'import ezdxf'], { encoding: 'utf8' });
+    return !res.error && res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
 test('DXF validation fails when the independent validator is unavailable', (t) => {
   if (!isPythonAvailable()) {
     t.skip('python runtime is not available on this host');
@@ -78,8 +95,8 @@ test('DXF validation fails when the independent validator is unavailable', (t) =
 });
 
 test('python ezdxf validator approves canonical dxf output', (t) => {
-  if (!isPythonAvailable()) {
-    t.skip('python runtime is not available on this host');
+  if (!isDxfValidatorAvailable()) {
+    t.skip('ezdxf is not installed on this host; install requirements-test.txt to run the independent CAD check');
     return;
   }
   const dxf = exportSceneToDxf(approvedScene as any);

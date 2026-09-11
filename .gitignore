@@ -30,3 +30,6 @@ output/
 
 .vercel
 .env*
+
+# Test artifacts from the golden-room drawing gate.
+.tmp-golden-room/
