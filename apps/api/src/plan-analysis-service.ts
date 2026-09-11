@@ -159,6 +159,66 @@ export function extractOcrMeasurements(ocrText: string): Array<{ originalText: s
 }
 
 /**
+ * Group OCR words into positioned measurements. Tesseract splits "3600 mm"
+ * and "12' 6\"" across several words, so adjacent words on the same text line
+ * are joined before parsing. Each result keeps the centroid of the words that
+ * produced it, which is what allows a value to be tied to the dimension line
+ * it actually annotates rather than to an arbitrary one.
+ */
+export function extractPositionedMeasurements(words: OcrWord[]): Array<{ originalText: string; valueMm: number; x: number; y: number; source: 'ocr' }> {
+  const results: Array<{ originalText: string; valueMm: number; x: number; y: number; source: 'ocr' }> = [];
+  // Sort into reading order so neighbouring fragments end up adjacent.
+  const ordered = [...words].sort((a, b) => (Math.abs(a.y - b.y) > 6 ? a.y - b.y : a.x - b.x));
+  for (let index = 0; index < ordered.length; index += 1) {
+    // Join up to three consecutive words on the same line, longest first, so
+    // "12 ' 6" is preferred over the bare "12".
+    for (let span = 3; span >= 1; span -= 1) {
+      const group = ordered.slice(index, index + span);
+      if (group.length < span) continue;
+      const sameLine = group.every((word) => Math.abs(word.y - group[0].y) <= 8);
+      if (!sameLine) continue;
+      const text = group.map((word) => word.text).join(' ');
+      const parsed = extractOcrMeasurements(text);
+      if (parsed.length !== 1) continue;
+      // Require the match to consume the numeric head of the group so a stray
+      // room label such as "BEDROOM 3" is not read as a 3 mm dimension.
+      if (!/^\s*\d/.test(text)) continue;
+      results.push({
+        originalText: parsed[0].originalText,
+        valueMm: parsed[0].valueMm,
+        x: group.reduce((sum, word) => sum + word.x, 0) / group.length,
+        y: group.reduce((sum, word) => sum + word.y, 0) / group.length,
+        source: 'ocr',
+      });
+      index += span - 1;
+      break;
+    }
+  }
+  return results;
+}
+
+/**
+ * Distance from a point to a dimension line segment, in 0-1000 grid units.
+ * A dimension label sits beside the line it measures, so proximity to the
+ * segment is a far better association signal than proximity to its midpoint.
+ */
+function distanceToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+  if (!lengthSq) return Math.hypot(px - x1, py - y1);
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSq));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+/**
+ * Maximum distance, in 0-1000 grid units, at which an OCR measurement may be
+ * attributed to a dimension line. Roughly 4% of the page: close enough that
+ * the label is plainly annotating that line.
+ */
+const OCR_ASSOCIATION_RADIUS = 40;
+
+/**
  * Run the deterministic OpenCV wall tracer on a raster PNG.
  * Returns walls/openings in PIXEL space + image dimensions, or null if the
  * Python environment / opencv is unavailable (caller treats that as a soft
@@ -222,18 +282,41 @@ export async function runWallTracer(pngPath: string): Promise<CvTraceEvidence | 
   }
 }
 
-async function runOcr(pngPath: string): Promise<string> {
+/**
+ * A single OCR word and where it sits on the page, normalized to the same
+ * 0-1000 grid the vision candidates use. Tesseract already computes these
+ * boxes; discarding them forced every dimension match to be a guess based on
+ * counting, so a plan with two unlabelled dimensions could not use OCR at all.
+ */
+export type OcrWord = { text: string; x: number; y: number };
+
+async function runOcr(pngPath: string): Promise<{ text: string; words: OcrWord[] }> {
   if (process.env.VERCEL_URL && ![
     join(process.cwd(), 'node_modules', 'tesseract.js-core', 'tesseract-core-relaxedsimd.wasm'),
     join('/var/task', 'node_modules', 'tesseract.js-core', 'tesseract-core-relaxedsimd.wasm'),
-  ].some(existsSync)) return '';
+  ].some(existsSync)) return { text: '', words: [] };
   let worker: Worker | null = null;
   try {
     worker = await createWorker('eng');
     const { data } = await worker.recognize(pngPath);
-    return (data.text || '').trim();
+    const pageWidth = (data as any).width || 0;
+    const pageHeight = (data as any).height || 0;
+    const rawWords: any[] = Array.isArray((data as any).words)
+      ? (data as any).words
+      : ((data as any).blocks ?? []).flatMap((block: any) => (block.paragraphs ?? []).flatMap((para: any) => (para.lines ?? []).flatMap((line: any) => line.words ?? [])));
+    const words: OcrWord[] = pageWidth > 0 && pageHeight > 0
+      ? rawWords.flatMap((word: any): OcrWord[] => {
+          const text = typeof word?.text === 'string' ? word.text.trim() : '';
+          const box = word?.bbox;
+          if (!text || !box) return [];
+          const x0 = Number(box.x0), x1 = Number(box.x1), y0 = Number(box.y0), y1 = Number(box.y1);
+          if (![x0, x1, y0, y1].every(Number.isFinite)) return [];
+          return [{ text, x: ((x0 + x1) / 2 / pageWidth) * 1000, y: ((y0 + y1) / 2 / pageHeight) * 1000 }];
+        })
+      : [];
+    return { text: (data.text || '').trim(), words };
   } catch {
-    return '';
+    return { text: '', words: [] };
   } finally {
     if (worker) await worker.terminate();
   }
@@ -269,7 +352,8 @@ export async function rasterizeImage(buffer: Buffer, mimeType: string): Promise<
 export function reconcileToElements(
   ai: PlanVisionOutput,
   cv: CvTraceEvidence | null,
-  ocrText: string
+  ocrText: string,
+  ocrWords: OcrWord[] = []
 ): { elements: PlanElementDraft[]; issues: PlanIssueDraft[] } {
   const elements: PlanElementDraft[] = [];
   const issues: PlanIssueDraft[] = [];
@@ -277,6 +361,11 @@ export function reconcileToElements(
   const str = (v: string | undefined, fallback: string): string => (typeof v === 'string' && v.length ? v : fallback);
   const ocrMeasurements = extractOcrMeasurements(ocrText);
   const missingDimensionCount = ai.dimensionCandidates.filter((dimension) => num(dimension.valueMm) === 0).length;
+  // Positioned measurements can be tied to the specific dimension line they
+  // annotate. Each is claimed at most once so two dimension lines cannot both
+  // adopt the same label.
+  const positionedMeasurements = extractPositionedMeasurements(ocrWords);
+  const claimedMeasurements = new Set<number>();
 
   // Deterministic CV walls normalized to 0-1000
   const cvWalls = (cv?.walls ?? []).map((w) => ({
@@ -392,13 +481,30 @@ export function reconcileToElements(
 
   for (const dim of ai.dimensionCandidates) {
     const declaredMm = num(dim.valueMm);
-    // Metric OCR without a spatial bounding box may belong to a different
-    // dimension. The provider already returns metric values directly, so only
-    // a single explicit imperial OCR value is eligible for deterministic
-    // normalization here.
-    const promotedOcrMeasurement = declaredMm === 0 && missingDimensionCount === 1 && ocrMeasurements.length === 1 && /(?:'|\bft\b)/i.test(ocrMeasurements[0].originalText)
-      ? ocrMeasurements[0]
-      : null;
+    // Prefer an OCR measurement that physically sits on this dimension line.
+    // A positioned match is specific evidence about this dimension, so unlike
+    // the flat-text path it does not require the page to contain exactly one
+    // unlabelled dimension and exactly one measurement.
+    let spatialMatch: { index: number; measurement: (typeof positionedMeasurements)[number]; distance: number } | null = null;
+    if (declaredMm === 0) {
+      positionedMeasurements.forEach((measurement, index) => {
+        if (claimedMeasurements.has(index)) return;
+        const distance = distanceToSegment(measurement.x, measurement.y, num(dim.x1), num(dim.y1), num(dim.x2), num(dim.y2));
+        if (distance > OCR_ASSOCIATION_RADIUS) return;
+        if (!spatialMatch || distance < spatialMatch.distance) spatialMatch = { index, measurement, distance };
+      });
+    }
+    const matched = spatialMatch as { index: number; measurement: (typeof positionedMeasurements)[number]; distance: number } | null;
+    if (matched) claimedMeasurements.add(matched.index);
+    // Without a bounding box an OCR value may belong to a different dimension,
+    // so the unpositioned path stays restricted to the unambiguous case: one
+    // missing dimension, one measurement, and an explicit imperial unit the
+    // vision provider does not already normalize.
+    const promotedOcrMeasurement = matched
+      ? matched.measurement
+      : declaredMm === 0 && missingDimensionCount === 1 && ocrMeasurements.length === 1 && /(?:'|\bft\b)/i.test(ocrMeasurements[0].originalText)
+        ? ocrMeasurements[0]
+        : null;
     elements.push({
       id: str(dim.id, `dim${elements.length}`),
       kind: 'dimension',
@@ -408,7 +514,9 @@ export function reconcileToElements(
       geometry: { x1: num(dim.x1), y1: num(dim.y1), x2: num(dim.x2), y2: num(dim.y2), ...(declaredMm !== 0 ? { valueMm: declaredMm } : promotedOcrMeasurement ? { valueMm: promotedOcrMeasurement.valueMm } : {}) },
       source: promotedOcrMeasurement ? 'ocr' : dim.source,
       note: promotedOcrMeasurement
-        ? `OCR evidence: ${promotedOcrMeasurement.originalText} = ${promotedOcrMeasurement.valueMm} mm.`
+        ? matched
+          ? `OCR evidence located on this dimension line: ${promotedOcrMeasurement.originalText} = ${promotedOcrMeasurement.valueMm} mm. Confirm before it becomes measured geometry.`
+          : `OCR evidence: ${promotedOcrMeasurement.originalText} = ${promotedOcrMeasurement.valueMm} mm.`
         : declaredMm === 0 && ocrMeasurements.length
           ? `OCR evidence available: ${ocrMeasurements.map((measurement) => `${measurement.originalText} = ${measurement.valueMm} mm`).join('; ')}. Map it to this dimension before verification.`
           : dim.notes,
@@ -490,10 +598,11 @@ export async function analyzePlanFile(input: {
   const pngPath = join(workDir, 'source.png');
   await writeFile(pngPath, rasterPng);
 
-  const [cvResult, ocrText] = await Promise.all([
+  const [cvResult, ocr] = await Promise.all([
     category === 'raster' ? runWallTracer(pngPath) : Promise.resolve(null),
-    category === 'raster' ? runOcr(pngPath) : Promise.resolve(''),
+    category === 'raster' ? runOcr(pngPath) : Promise.resolve({ text: '', words: [] }),
   ]);
+  const ocrText = ocr.text;
 
   // ---- Vision provider call ----
   // Gemini accepts PDF directly; others need a raster PNG.
@@ -521,7 +630,8 @@ export async function analyzePlanFile(input: {
   const { elements, issues } = reconcileToElements(
     visionResult.output,
     cvResult,
-    ocrText
+    ocrText,
+    ocr.words
   );
 
   await rm(workDir, { recursive: true, force: true }).catch(() => {});
