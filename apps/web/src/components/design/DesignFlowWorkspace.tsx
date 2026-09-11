@@ -849,6 +849,35 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     }
   }
 
+  async function updateModuleWidth(moduleId: string, requestedWidthMm: number) {
+    const widthMm = Math.round(requestedWidthMm / 10) * 10;
+    if (!Number.isFinite(widthMm) || widthMm < 200) {
+      setPlacementNotice('Module width must be at least 200 mm.');
+      return;
+    }
+    await editModule(moduleId, { config: { widthMm } });
+  }
+
+  async function autoFitModuleToAvailableSpace(moduleId: string) {
+    const mod = draftModules.find((entry) => entry.id === moduleId);
+    const wall = mod?.wallId ? roomWalls.find((entry) => entry.id === mod.wallId) : null;
+    if (!mod || !wall?.start || !wall.end) {
+      setPlacementNotice('Select a saved wall-anchored module before using Auto-Fit.');
+      return;
+    }
+    const wallLengthMm = Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm);
+    const leftEdgeMm = Math.max(0, mod.offsetMm ?? 0);
+    const rightLimitMm = draftModules
+      .filter((entry) => entry.id !== moduleId && entry.wallId === mod.wallId && (entry.offsetMm ?? 0) >= leftEdgeMm)
+      .reduce((limit, entry) => Math.min(limit, entry.offsetMm ?? wallLengthMm), wallLengthMm);
+    const availableWidthMm = Math.floor((rightLimitMm - leftEdgeMm) / 10) * 10;
+    if (availableWidthMm < 200) {
+      setPlacementNotice('There is no measured clearance available to auto-fit this module. Move adjacent modules or choose another wall.');
+      return;
+    }
+    await updateModuleWidth(moduleId, availableWidthMm);
+  }
+
   async function nudgeModule(moduleId: string, deltaMm: number) {
     const mod = draftModules.find((entry) => entry.id === moduleId);
     if (!mod || !selectedWall) return;

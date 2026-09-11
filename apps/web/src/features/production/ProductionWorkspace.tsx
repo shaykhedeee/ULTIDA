@@ -38,20 +38,9 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'release', label: 'Release', icon: <CheckCircle2 size={14} /> },
 ];
 
-interface ProductionWorkspaceProps {
-  projectId: string;
-  sceneVersionId: string | null;
-  sceneApproved: boolean;
-  modules: Array<{ id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number }>;
-  materials: Array<{ id: string; code: string; name: string; category: string }>;
-  onSceneCreated: (id: string, modules: any[], materials: any[]) => void;
-  onSceneApproved: () => Promise<void>;
-  initialTab?: TabId;
-}
-
 export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved, initialTab = 'elevations' }: ProductionWorkspaceProps) {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab === 'elevations' ? 'drawings' : initialTab);
   const [selectedElevationId, setSelectedElevationId] = useState<string>('tv-wall');
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
