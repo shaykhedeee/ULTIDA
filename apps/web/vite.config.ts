@@ -43,6 +43,10 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5173,
+    // Sandboxed and remote dev environments serve the dev server through a
+    // generated preview hostname. Vite rejects unknown hosts by default, which
+    // makes the preview fail with a 403 before any app code runs.
+    allowedHosts: ['.e2b.app', 'localhost', '127.0.0.1'],
     proxy: { '/api': { target: 'http://127.0.0.1:8800', changeOrigin: true } }
   }
 });
