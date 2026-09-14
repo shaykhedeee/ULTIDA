@@ -21,7 +21,7 @@ if (typeof process.loadEnvFile === 'function') {
 
 import { getRequestSupabaseClient, getServerSupabaseClient } from './supabase.js';
 import { authenticateProjectUser, requireProjectUser, requireStudioUser } from './api-auth.js';
-import { CompositionScheduleV1Schema, MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, VisualProposalRequestSchema, buildFlooringQuantities, validateProjectBrief } from '@ultida/contracts';
+import { CompositionScheduleV1Schema, MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, RenderIntentV1Schema, VisualProposalRequestSchema, buildFlooringQuantities, validateProjectBrief } from '@ultida/contracts';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { getIkeaResearchStock, parseIkeaStockQuery } from './research-sourcing.js';
 import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
@@ -2402,6 +2402,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
       materials,
       compositionSchedules,
       floorSurfaces: Array.isArray(request.body?.floorSurfaces) ? request.body.floorSurfaces : undefined,
+      designIntent: request.body?.designIntent ? RenderIntentV1Schema.parse(request.body.designIntent) : undefined,
       changeReason: typeof request.body?.changeReason === 'string' ? request.body.changeReason : undefined,
     });
   } catch (error) {

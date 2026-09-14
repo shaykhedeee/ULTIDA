@@ -2,6 +2,7 @@ import { Check, Download, FileUp, Save, Sparkles, Upload, ArrowRight } from 'luc
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, CardContent, CardHeader, WorkflowDock } from '../ui/primitives';
+import { getApiBase } from '../../lib/api-base';
 import type { ClientBrief } from '../../features/project-types';
 export type { ClientBrief } from '../../features/project-types';
 
@@ -66,7 +67,7 @@ export function BriefWorkspace({ projectId, initialBrief, fileName, status, onSa
       const { supabase } = await import('../../lib/supabase');
       const token = (await supabase?.auth.getSession())?.data.session?.access_token;
       if (!token) throw new Error('Sign in again before downloading the brief.');
-      const apiBase = String(import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/brief.pdf`, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) { const error = await response.json().catch(() => null); throw new Error(error?.message ?? 'Brief PDF could not be created.'); }
       const url = URL.createObjectURL(await response.blob());

@@ -523,6 +523,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   const [preset, setPreset] = useState<Preset>('perspective');
   const [lightingMode, setLightingMode] = useState<LightingPreset>('warm');
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [assetFilter, setAssetFilter] = useState<'all' | 'furniture' | 'lighting'>('all');
   const [compiling, setCompiling] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -1707,6 +1708,10 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+    const selectionBox = new THREE.BoxHelper(new THREE.Mesh(), 0xc59c2d);
+    selectionBox.visible = false;
+    root.add(selectionBox);
+
     const onPointer = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1714,6 +1719,17 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       raycaster.setFromCamera(pointer, camera);
       const hit = raycaster.intersectObjects(geometryGroup.children, true)[0];
       if (hit) {
+        if (hit.object.userData?.partId) {
+          setSelectedPartId(hit.object.userData.partId);
+          setSelected(hit.object.userData.id);
+          if (hit.object.userData.roomId) {
+            setSelectedRoomId(hit.object.userData.roomId);
+          }
+          selectionBox.setFromObject(hit.object);
+          selectionBox.visible = true;
+          return;
+        }
+        setSelectedPartId(null);
         let curr: THREE.Object3D | null = hit.object;
         while (curr && !curr.userData?.id && curr.parent && curr.parent !== geometryGroup) {
           curr = curr.parent;
@@ -1723,11 +1739,16 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           if (curr.userData.kind === 'room') {
             setSelectedRoomId(curr.userData.id);
           }
+          selectionBox.setFromObject(curr);
+          selectionBox.visible = true;
         } else {
           setSelected(null);
+          selectionBox.visible = false;
         }
       } else {
         setSelected(null);
+        setSelectedPartId(null);
+        selectionBox.visible = false;
       }
     };
     renderer.domElement.addEventListener('pointerdown', onPointer);
@@ -1830,6 +1851,16 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     return scene.modules.find((module) => module.id === selected) ?? null;
   }, [scene, selected]);
 
+  const activeSelectedPart = useMemo(() => {
+    if (!scene || !selectedPartId) return null;
+    return (scene.moduleParts ?? []).find((part) => part.id === selectedPartId) ?? null;
+  }, [scene, selectedPartId]);
+
+  const activeSelectedPartMaterial = useMemo(() => {
+    if (!scene || !activeSelectedPart?.materialId) return null;
+    return (scene.materials ?? []).find((m) => m.id === activeSelectedPart.materialId) ?? null;
+  }, [scene, activeSelectedPart]);
+
   const allLightingItems = useMemo(() => {
     if (!scene) return [];
     const direct = (scene.lighting ?? []).map((l) => ({
@@ -1879,7 +1910,14 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           <h2>3D Space & Measured Room Inspector</h2>
           <p>{status}</p>
         </div>
-        <Badge tone={scene ? 'success' : 'accent'}>{scene ? '3D Geometry Active' : 'No scene'}</Badge>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {scene?.moduleParts && scene.moduleParts.length > 0 && (
+            <Badge tone="success" style={{ background: '#14532d', color: '#86efac', border: '1px solid #22c55e' }}>
+              ✓ {scene.moduleParts.length} Compiled Parts (100% Measured)
+            </Badge>
+          )}
+          <Badge tone={scene ? 'success' : 'accent'}>{scene ? '3D Geometry Active' : 'No scene'}</Badge>
+        </div>
       </div>
 
       {scene && scene.rooms.length > 0 && (
@@ -2241,14 +2279,123 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         <Card className="scene-inspector">
           <CardHeader>
             <div>
-              <small>{activeSelectedLighting ? 'FIXTURE INSPECTOR' : activeSelectedModule ? 'MODULE INSPECTOR' : 'ACTIVE ROOM & GEOMETRY'}</small>
-              <h3 style={{ margin: '3px 0 0', fontSize: 16 }}>{activeSelectedLighting ? (activeSelectedLighting.fixture ?? activeSelectedLighting.kind).replaceAll('-', ' ') : activeSelectedModule ? activeSelectedModule.family.replaceAll('-', ' ') : activeSelectedRoom?.name ?? selected ?? 'Whole Floor Overview'}</h3>
+              <small>
+                {activeSelectedPart
+                  ? 'COMPILED COMPONENT INSPECTOR'
+                  : activeSelectedLighting
+                  ? 'FIXTURE INSPECTOR'
+                  : activeSelectedModule
+                  ? 'MODULE INSPECTOR'
+                  : 'ACTIVE ROOM & GEOMETRY'}
+              </small>
+              <h3 style={{ margin: '3px 0 0', fontSize: 16 }}>
+                {activeSelectedPart
+                  ? (activeSelectedPart.name || activeSelectedPart.semanticType.replaceAll('_', ' '))
+                  : activeSelectedLighting
+                  ? (activeSelectedLighting.fixture ?? activeSelectedLighting.kind).replaceAll('-', ' ')
+                  : activeSelectedModule
+                  ? activeSelectedModule.family.replaceAll('-', ' ')
+                  : activeSelectedRoom?.name ?? selected ?? 'Whole Floor Overview'}
+              </h3>
             </div>
             <MousePointer2 size={18} style={{ color: 'var(--gold)' }} />
           </CardHeader>
           <CardContent style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {activeSelectedRoom ? (
               <>
+                {activeSelectedPart && (
+                  <div className="scene-selected-fixture" style={{ border: '1.5px solid var(--gold)', background: 'rgba(197, 156, 45, 0.08)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gridColumn: '1 / -1' }}>
+                      <span style={{ color: 'var(--gold-dim)', fontWeight: 800, fontSize: 10.5, letterSpacing: '0.06em' }}>
+                        COMPILED COMPONENT
+                      </span>
+                      <span style={{ padding: '2px 8px', borderRadius: 12, background: '#164e35', color: '#86efac', fontSize: 10, fontWeight: 700 }}>
+                        ✓ Compiled Geometry
+                      </span>
+                    </div>
+                    <strong style={{ fontSize: 14 }}>{activeSelectedPart.name || activeSelectedPart.semanticType.replaceAll('_', ' ')}</strong>
+                    <div><small>Width (X)</small><b>{activeSelectedPart.widthMm} mm</b></div>
+                    <div><small>Height (Z)</small><b>{activeSelectedPart.heightMm} mm</b></div>
+                    <div><small>Depth (Y)</small><b>{activeSelectedPart.depthMm} mm</b></div>
+                    <div><small>Mount Elevation (Z)</small><b>{activeSelectedPart.position.zMm} mm</b></div>
+                    <div><small>World X / Y</small><b>{Math.round(activeSelectedPart.position.xMm)} / {Math.round(activeSelectedPart.position.yMm)} mm</b></div>
+                    <div><small>Yaw Rotation</small><b>{activeSelectedPart.rotationDeg ?? 0}°</b></div>
+                    {activeSelectedPartMaterial && (
+                      <div style={{ gridColumn: '1 / -1', background: 'rgba(0,0,0,0.25)', padding: '6px 8px', borderRadius: 6 }}>
+                        <small style={{ color: '#aaa39b' }}>Assigned Material &amp; Finish</small>
+                        <b style={{ color: 'var(--gold)', display: 'block', fontSize: 12 }}>
+                          {activeSelectedPartMaterial.name} ({activeSelectedPartMaterial.finish || activeSelectedPartMaterial.code})
+                        </b>
+                      </div>
+                    )}
+                    {activeSelectedModule && (
+                      <div style={{ gridColumn: '1 / -1', background: 'rgba(0,0,0,0.25)', padding: '6px 8px', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <small style={{ color: '#aaa39b' }}>Parent Modular Unit</small>
+                          <b style={{ color: '#e7e5e4', display: 'block', fontSize: 11.5 }}>
+                            {activeSelectedModule.family.replaceAll('-', ' ')}
+                          </b>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPartId(null)}
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 5,
+                            border: '1px solid #765e2b',
+                            background: '#322a1d',
+                            color: '#e8c96a',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          View Unit Envelope
+                        </button>
+                      </div>
+                    )}
+                    <p style={{ margin: 0, fontSize: 10.5, color: '#a8a29e', gridColumn: '1 / -1' }}>
+                      Authoritative manufacturing geometry compiled from moduleParts. Cannot be overridden by visual GLBs or downstream AI render prompts.
+                    </p>
+                  </div>
+                )}
+                {scene?.designIntent && (
+                  <div style={{ padding: 10, background: 'rgba(38, 35, 31, 0.85)', borderRadius: 8, border: '1px solid #4a433a', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <small style={{ color: 'var(--gold)', fontWeight: 800, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                        Render Intent (RenderIntentV1)
+                      </small>
+                      <span style={{ fontSize: 10, color: '#a8a29e' }}>v1 Active</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: '#f5f5f4' }}>
+                      <strong>Style:</strong> {scene.designIntent.style}
+                    </div>
+                    {scene.designIntent.lightingMood && (
+                      <div style={{ fontSize: 11, color: '#d6d3d1' }}>
+                        <strong>Lighting:</strong> {scene.designIntent.lightingMood}
+                      </div>
+                    )}
+                    {scene.designIntent.hardwareStyle && (
+                      <div style={{ fontSize: 11, color: '#d6d3d1' }}>
+                        <strong>Hardware:</strong> {scene.designIntent.hardwareStyle}
+                      </div>
+                    )}
+                    {scene.designIntent.surfaceDirection && (
+                      <div style={{ fontSize: 11, color: '#d6d3d1' }}>
+                        <strong>Grain:</strong> {scene.designIntent.surfaceDirection}
+                      </div>
+                    )}
+                    {scene.designIntent.palette && scene.designIntent.palette.length > 0 && (
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
+                        {scene.designIntent.palette.map((p, idx) => (
+                          <span key={idx} style={{ padding: '2px 6px', background: '#322a1d', border: '1px solid #765e2b', borderRadius: 4, fontSize: 10, color: '#e8c96a' }}>
+                            {p}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {activeSelectedLighting && (
                   <div className="scene-selected-fixture">
                     <span>SELECTED FIXTURE</span>
@@ -2259,7 +2406,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                     <p>Fixture properties are compiled from the approved room and cannot alter production cutlists.</p>
                   </div>
                 )}
-                {activeSelectedModule && (
+                {!activeSelectedPart && activeSelectedModule && (
                   <div className="scene-selected-fixture">
                     <span>SELECTED MODULAR UNIT</span>
                     <strong>{activeSelectedModule.family.replaceAll('-', ' ')}</strong>

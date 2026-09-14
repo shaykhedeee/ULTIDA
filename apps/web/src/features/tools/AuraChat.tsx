@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Bot, CheckCircle2, Compass, Loader2, MessageSquareText, Send, ShieldCheck, Sparkles } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 import './aura-chat.css';
 
-const apiBase = import.meta.env.VITE_API_BASE ?? '/api';
+const apiBase = getApiBase();
 type Project = { id: string; name: string };
 type Tool = { id: string; label: string; mode: string; requires: string[] };
 type NextAction = { method: string; path: string; body: Record<string, unknown> };

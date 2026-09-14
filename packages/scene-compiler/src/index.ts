@@ -1,6 +1,6 @@
 import { validateCanonicalPlan, type CanonicalPlanModel } from '@ultida/plan-core';
 import { CompositionScheduleV1Schema, FloorSurfaceV1Schema, type CompositionScheduleV1, type FloorSurfaceV1 } from '@ultida/contracts';
-import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
+import { SceneV1Schema, type SceneV1, type RenderIntentV1 } from '@ultida/scene-core';
 
 export type CompiledModulePart = {
   id: string;
@@ -35,6 +35,7 @@ export type SceneCompilerInput = {
   materials?: Array<{ id: string; name: string; code: string; finish?: string }>;
   compositionSchedules?: CompositionScheduleV1[];
   floorSurfaces?: FloorSurfaceV1[];
+  designIntent?: RenderIntentV1;
   changeReason?: string;
 };
 
@@ -567,6 +568,7 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: cameraCenter.xMm, yMm: 1500, zMm: cameraCenter.yMm }, target: cameraTarget, lensMm: 24 }],
     constraints: [],
     unresolvedDetections: [],
+    designIntent: input.designIntent,
     metadata: { branch: 'main', status: 'draft', changeReason: input.changeReason ?? 'Compiled from approved plan.v1', schemaVersion: 'scene.v1', designVersion: input.designVersion },
   });
 }

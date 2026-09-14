@@ -1069,9 +1069,9 @@ export function DeliveryWorkspace({ briefSaved, planApproved, sceneVersionId, mo
 
       {/* Bottom Stage Progression */}
       <WorkflowDock
-        currentStageIndex={8}
-        stageTitle="Client Presentation, Handover & Production Release"
-        stageSummary="Project design gates, commercial approvals, and delivery records are tracked in real-time."
+        currentStageIndex={7}
+        stageTitle="Client Presentation, Handover & Approvals"
+        stageSummary="Project design gates, commercial sign-offs, and presentation walkthroughs tracked in real-time."
         beaconTone="success"
         prevAction={{
           label: 'Back to Commercial Estimate',
@@ -1081,10 +1081,10 @@ export function DeliveryWorkspace({ briefSaved, planApproved, sceneVersionId, mo
           },
         }}
         nextAction={{
-          label: 'View Technical CAD Drawings',
-          icon: <Check size={14} />,
+          label: 'Release to CAM Production',
+          icon: <ArrowRight size={14} />,
           onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/drawings`);
+            if (projectId) navigate(`/projects/${projectId}/production`);
           },
         }}
       />

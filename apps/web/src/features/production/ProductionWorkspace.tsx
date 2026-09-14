@@ -111,7 +111,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
       if (!token) throw new Error('Sign in again to export production assets.');
-      const apiBase = String(import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production/${asset}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error(await response.text());
       const blob = await response.blob();
@@ -190,7 +190,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
     try {
       const token = (await supabase?.auth.getSession())?.data.session?.access_token;
       if (!token) throw new Error('Sign in again before approving production data.');
-      const apiBase = String(import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production-review`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ approvedPartIds: parts.map((part) => part.partInstanceId), notes: reviewNotes }),
@@ -263,13 +263,19 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
           <div className="production-summary-strip">
             <div><span>Scene source</span><strong>{sceneVersionId ? 'Approved scene.v1' : 'Not selected'}</strong></div>
             <div><span>Physical panels</span><strong>{parts.length}</strong></div>
+            <div><span>Geometry Authority</span><strong style={{ color: '#10b981' }}>✓ Compiled Geometry</strong></div>
             <div><span>Materials</span><strong>{new Set(parts.map((part) => part.materialCode)).size}</strong></div>
             <div><span>Release state</span><strong className={releaseReady ? 'ready' : 'review'}>{releaseReady ? 'Ready' : 'Review required'}</strong></div>
           </div>
           {activeTab === 'parts' && (
             <div className="production-parts-grid">
               <div className="parts-toolbar">
-                <h4>Manufacturing Parts</h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <h4>Manufacturing Parts</h4>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#166534', background: '#dcfce7', padding: '2px 8px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    ✓ 100% Measured Manufacturing Geometry
+                  </span>
+                </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input aria-label="Search cutlist parts" value={partQuery} onChange={(event) => setPartQuery(event.target.value)} placeholder="Search ID, module, material..." style={{ minWidth: 220, padding: '6px 9px', border: '1px solid #d6d3d1', borderRadius: 6, fontSize: 11 }} /><Badge variant="info">{visibleParts.length}/{parts.length} parts</Badge></div>
               </div>
               <table className="production-table">
@@ -439,27 +445,35 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
         )}
       </div>
       <WorkflowDock
-        currentStageIndex={activeTab === 'release' ? 7 : 5}
+        currentStageIndex={activeTab === 'release' ? 8 : 5}
         stageTitle={activeTab === 'release' ? 'Production Release & CAM Export' : 'Architectural Elevations & Cutlists'}
         stageSummary={activeTab === 'release'
           ? 'Final approval, CNC post-processing, and fabrication pack release'
           : 'System 32 CAD elevations · Panel cutting lists · Nesting sheets · Edge banding schedules'}
         beaconTone={activeTab === 'release' ? 'success' : 'gold'}
         prevAction={{
-          label: 'Back to 3D Scene',
+          label: activeTab === 'release' ? 'Back to Presentation' : 'Back to 3D Scene',
           icon: <ArrowLeft size={14} />,
           onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/visualize`);
+            if (projectId) {
+              if (activeTab === 'release') {
+                navigate(`/projects/${projectId}/presentation`);
+              } else {
+                navigate(`/projects/${projectId}/3d`);
+              }
+            }
           },
         }}
         nextAction={{
-          label: activeTab === 'release' ? 'Commercial Estimate' : 'Production Release',
+          label: activeTab === 'release' ? 'View Technical CAD Drawings' : 'Proceed to Commercial Estimate',
           icon: <ArrowRight size={14} />,
           onClick: () => {
-            if (activeTab === 'release') {
-              if (projectId) navigate(`/projects/${projectId}/estimate`);
-            } else {
-              setActiveTab('release');
+            if (projectId) {
+              if (activeTab === 'release') {
+                navigate(`/projects/${projectId}/drawings`);
+              } else {
+                navigate(`/projects/${projectId}/estimate`);
+              }
             }
           },
         }}

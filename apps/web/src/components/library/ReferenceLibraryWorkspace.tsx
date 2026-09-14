@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 import { ModulePreview } from './ModulePreview';
 import ResearchSourcingPanel from './ResearchSourcingPanel';
 
@@ -217,12 +218,7 @@ function moduleSupportsRoom(module: CatalogModule, room: string) {
   return false;
 }
 
-function apiBase() {
-  const configured = String(import.meta.env.VITE_API_BASE ?? '').trim();
-  const isLocalTarget = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/api\/?$/i.test(configured);
-  if (typeof window !== 'undefined' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(window.location.origin) && isLocalTarget) return '/api';
-  return configured || '/api';
-}
+const apiBase = getApiBase;
 
 function materialSubtitle(material: Material) {
   const thickness = material.thickness_mm ? `${material.thickness_mm}mm` : '';

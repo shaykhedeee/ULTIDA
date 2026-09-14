@@ -1,5 +1,16 @@
 import { z } from 'zod';
 
+export const RenderIntentV1Schema = z.object({
+  version: z.literal(1),
+  style: z.string().min(1).max(120),
+  palette: z.array(z.string().min(1).max(120)).max(12).default([]),
+  lightingMood: z.string().min(1).max(120).optional(),
+  hardwareStyle: z.string().min(1).max(120).optional(),
+  surfaceDirection: z.enum(['horizontal-grain', 'vertical-grain', 'follow-part', 'none']).optional(),
+  referenceAssetIds: z.array(z.string().min(1)).max(24).default([]),
+});
+export type RenderIntentV1 = z.infer<typeof RenderIntentV1Schema>;
+
 const PointMm = z.object({ xMm: z.number(), yMm: z.number() });
 const Confidence = z.number().min(0).max(1);
 // Canonical plan entities use UUIDs, so scene references must accept UUIDs too.
@@ -80,6 +91,7 @@ export const SceneV1Schema = z.object({
   cameras: z.array(z.object({ id: Id, name: z.string(), position: z.object({ xMm: z.number(), yMm: z.number(), zMm: z.number() }), target: z.object({ xMm: z.number(), yMm: z.number(), zMm: z.number() }), lensMm: z.number().positive() })),
   constraints: z.array(z.object({ id: Id, kind: z.string(), severity: z.enum(['advisory','warning','critical']), description: z.string(), entityIds: z.array(Id) })),
   unresolvedDetections: z.array(z.object({ id: Id, kind: z.string(), description: z.string(), confidence: Confidence, source: z.string() })),
+  designIntent: RenderIntentV1Schema.optional(),
   metadata: z.object({ branch: z.string(), status: z.enum(['draft','review','approved','locked','superseded']), changeReason: z.string(), schemaVersion: z.literal('scene.v1'), designVersion: z.string() })
 }).superRefine((scene, ctx) => {
   // A room deliberately references its corresponding space by the same ID.

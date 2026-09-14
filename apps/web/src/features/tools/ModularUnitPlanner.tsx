@@ -6,6 +6,7 @@ import ModularCabinetBuilder from '../../components/modular/ModularCabinetBuilde
 import { compileCabinetCncPackage, generateHomagWoodWopMpr, generateBiesseCix, type CncPanel, type CabinetCncPackage } from '@ultida/catalog-core';
 import './modular-unit-planner.css';
 import { supabase } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 
 type CatalogModule = {
   id: string; family: string; name: string; roomTypes: string[]; widthMm: number; depthMm: number; heightMm: number;
@@ -24,12 +25,7 @@ type PreparedModulePlan = {
   clearanceMm: number;
 };
 
-function apiBase() {
-  const configured = String(import.meta.env.VITE_API_BASE ?? '').trim();
-  const localApi = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/api\/?$/i.test(configured);
-  if (typeof window !== 'undefined' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(window.location.origin) && localApi) return '/api';
-  return configured || '/api';
-}
+const apiBase = getApiBase;
 
 function label(value: string) { return value.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()); }
 

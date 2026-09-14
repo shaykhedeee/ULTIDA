@@ -53,6 +53,9 @@ interface PlanRoom {
   falseCeiling?: string;
   styleDirection?: string;
   paletteDirection?: string;
+  lightingMood?: string;
+  hardwareStyle?: string;
+  surfaceDirection?: 'horizontal-grain' | 'vertical-grain' | 'follow-part' | 'none';
   retainedElements?: string[];
   wallRoles?: Record<string, string>;
   preferredCamera?: string;
@@ -381,9 +384,9 @@ function getWallElevationTemplate(wallId: string | null, room: PlanRoom | null) 
 export function SpacesWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const roomDraftRequested = searchParams.get('roomDraft') === '1';
-  const [roomDraftSummary, setRoomDraftSummary] = useState<{ name?: string; widthMm?: number; depthMm?: number; ceilingHeightMm?: number } | null>(null);
+  const [roomDraftSummary, setRoomDraftSummary] = useState<{ name?: string; roomType?: string; widthMm?: number; depthMm?: number; ceilingHeightMm?: number; floorFinish?: string } | null>(null);
 
   const [plan, setPlan] = useState<CanonicalPlanFragment | null>(null);
   const [rooms, setRooms] = useState<PlanRoom[]>([]);
@@ -479,6 +482,55 @@ export function SpacesWorkspace() {
       setRoomDraftSummary(null);
     }
   }, [roomDraftRequested]);
+
+  function dismissRoomDraft() {
+    window.localStorage.removeItem('ultida.pendingRoomDraft.v1');
+    setRoomDraftSummary(null);
+    const newParams = new URLSearchParams(searchParams);
+    newParams.delete('roomDraft');
+    setSearchParams(newParams, { replace: true });
+  }
+
+  function importRoomDraft() {
+    if (!roomDraftSummary) return;
+    const widthMm = Number(roomDraftSummary.widthMm) || 4200;
+    const depthMm = Number(roomDraftSummary.depthMm) || 3600;
+    const ceilingMm = Number(roomDraftSummary.ceilingHeightMm) || 2700;
+
+    let originX = 1000;
+    let originY = 1000;
+    if (rooms.length > 0) {
+      const allX = rooms.flatMap((r) => r.polygon.map((pt) => pt.xMm));
+      const maxX = Math.max(...allX, 0);
+      originX = maxX + 800;
+    }
+
+    const polygon: Pt[] = [
+      { xMm: originX, yMm: originY },
+      { xMm: originX + widthMm, yMm: originY },
+      { xMm: originX + widthMm, yMm: originY + depthMm },
+      { xMm: originX, yMm: originY + depthMm },
+    ];
+
+    const newRoomId = entityId();
+    const newRoom: PlanRoom = {
+      id: newRoomId,
+      name: roomDraftSummary.name || `Room ${rooms.length + 1}`,
+      roomType: roomDraftSummary.roomType ? roomDraftSummary.roomType.toLowerCase().replace(/\s+/g, '_') : 'living',
+      polygon,
+      areaSqm: polyArea(polygon),
+      ceilingHeightMm: ceilingMm,
+      requiredFurniture: [],
+      included: true,
+      surfaceFinishes: roomDraftSummary.floorFinish ? { floor: roomDraftSummary.floorFinish } : undefined,
+    };
+
+    snapshot();
+    setRooms((prev) => [...prev, newRoom]);
+    setSelectedRoom(newRoomId);
+    setSaveState(`Imported ${newRoom.name} (${widthMm}×${depthMm} mm) from Room Builder.`);
+    dismissRoomDraft();
+  }
 
   useEffect(() => {
     if (!projectId) return;
@@ -1537,7 +1589,7 @@ export function SpacesWorkspace() {
     }
     const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '', verificationStatus, included: room.included !== false })
+      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', lightingMood: room.lightingMood ?? '', hardwareStyle: room.hardwareStyle ?? '', surfaceDirection: room.surfaceDirection ?? 'vertical-grain', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '', verificationStatus, included: room.included !== false })
     });
     const payload = await res.json().catch(() => null);
     if (!res.ok) {
@@ -2515,6 +2567,59 @@ export function SpacesWorkspace() {
               {!scaleVerified && <span className="trust-hint">Calibrate the plan before dimension chains or production exports.</span>}
             </div>
 
+            {roomDraftSummary && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 18px',
+                  background: 'linear-gradient(135deg, rgba(197, 156, 45, 0.16), rgba(197, 156, 45, 0.06))',
+                  border: '1.5px solid rgba(197, 156, 45, 0.45)',
+                  borderRadius: 8,
+                  margin: '8px 12px 14px',
+                  boxShadow: '0 2px 10px rgba(0, 0, 0, 0.05)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ background: '#c59c2d', color: '#1c1917', padding: '6px', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Home size={18} />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <strong style={{ fontSize: 13, color: '#1c1917' }}>
+                        Measured Room Draft: {roomDraftSummary.name || 'Untitled Room'}
+                      </strong>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#8a6d1e', background: 'rgba(197, 156, 45, 0.2)', padding: '1px 6px', borderRadius: 4 }}>
+                        From Room Builder
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 11, color: '#57534e' }}>
+                      {roomDraftSummary.widthMm} mm × {roomDraftSummary.depthMm} mm ({((Number(roomDraftSummary.widthMm || 0) * Number(roomDraftSummary.depthMm || 0)) / 1_000_000).toFixed(1)} m²) · Ceiling: {roomDraftSummary.ceilingHeightMm ?? 2700} mm · Type: {roomDraftSummary.roomType || 'Living room'}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => importRoomDraft()}
+                    style={{ fontSize: 12, padding: '6px 14px', background: 'linear-gradient(135deg, #c59c2d, #a88220)', color: '#1c1917', fontWeight: 800, border: 0, borderRadius: 6, cursor: 'pointer' }}
+                  >
+                    + Add to Project Floor Plan
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => dismissRoomDraft()}
+                    style={{ fontSize: 12, padding: '6px 12px', background: '#f5f5f4', color: '#57534e', border: '1px solid #d6d3d1', borderRadius: 6, cursor: 'pointer' }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
             {annotationDialogOpen && (
               <div className="annotation-dialog" role="dialog" aria-label="Add annotation">
                 <label htmlFor="annotation-text">Annotation</label>
@@ -2956,13 +3061,13 @@ export function SpacesWorkspace() {
                 </section>
 
                 <div className="space-panel-tabs" role="tablist" aria-label="Room configuration">
-                  <button type="button" className={spacePanel === 'candidates' ? 'active' : ''} onClick={() => setSpacePanel('candidates')}>Room layout</button>
-                  <button type="button" className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>Wall &amp; openings</button>
-                  <button type="button" className={spacePanel === 'modules' ? 'active' : ''} onClick={() => setSpacePanel('modules')}>Adjust module</button>
-                  <button type="button" className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>Design advice</button>
-                  <button type="button" className={spacePanel === 'flooring' ? 'active' : ''} onClick={() => setSpacePanel('flooring')}>Flooring &amp; Skirting</button>
-                  <button type="button" className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>Design brief</button>
-                  <button type="button" className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>Scene setup</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'candidates'} className={spacePanel === 'candidates' ? 'active' : ''} onClick={() => setSpacePanel('candidates')}>Room layout</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'geometry'} className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>Wall &amp; openings</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'modules'} className={spacePanel === 'modules' ? 'active' : ''} onClick={() => setSpacePanel('modules')}>Adjust module</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'advisor'} className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>Design advice</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'flooring'} className={spacePanel === 'flooring' ? 'active' : ''} onClick={() => setSpacePanel('flooring')}>Flooring &amp; Skirting</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'brief'} className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>Design brief</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'scene'} className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>Scene setup</button>
                 </div>
 
                 {spacePanel === 'candidates' && (
@@ -3611,6 +3716,67 @@ export function SpacesWorkspace() {
                         <span>{palette.label}</span>
                       </button>
                     ))}
+                  </div>
+
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1.5px solid var(--line, #ebdccb)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--gold-dim, #8a6d1e)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        🎨 Design Intent &amp; AI Render Specification
+                      </span>
+                      <span style={{ padding: '2px 8px', borderRadius: 10, background: 'rgba(197,156,45,0.12)', color: 'var(--gold-dim, #8a6d1e)', fontSize: 10, fontWeight: 700 }}>
+                        RenderIntentV1
+                      </span>
+                    </div>
+
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary, #57534e)' }}>Lighting Mood</label>
+                    <select
+                      value={sel.room.lightingMood ?? '3000K warm indirect cove'}
+                      onChange={(e) => patchRoom(sel.room.id, { lightingMood: e.target.value })}
+                      style={{ fontSize: 12 }}
+                    >
+                      <option value="3000K warm indirect cove">3000K Warm Indirect Cove (Architectural Linear LED)</option>
+                      <option value="morning sun natural daylight">Morning Sun Natural Daylight (Window Sunbeam Cast)</option>
+                      <option value="4000K museum gallery crisp white">4000K Museum Gallery Crisp White (High CRI Spotlights)</option>
+                      <option value="2700K moody evening dusk">2700K Moody Evening Dusk &amp; Floor Accents</option>
+                      <option value="5000K high-noon bright daylight">5000K High-Noon Bright Daylight</option>
+                    </select>
+
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary, #57534e)' }}>Hardware &amp; Profile Specification</label>
+                    <select
+                      value={sel.room.hardwareStyle ?? 'minimal Gola profile (handleless)'}
+                      onChange={(e) => patchRoom(sel.room.id, { hardwareStyle: e.target.value })}
+                      style={{ fontSize: 12 }}
+                    >
+                      <option value="minimal Gola profile (handleless)">Minimal Gola J-Profile (Handleless Aluminum)</option>
+                      <option value="handleless push-to-open">Handleless Tip-On / Push-To-Open (Flush Face)</option>
+                      <option value="champagne knurled bar pulls">Champagne Knurled Bar Pulls (Hafele Luxury Collection)</option>
+                      <option value="brushed bronze edge-lip pulls">Brushed Bronze Recessed Edge-Lip Pulls</option>
+                      <option value="matte black architectural slim profile">Matte Black Architectural Slim Profile</option>
+                    </select>
+
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary, #57534e)' }}>Wood / Surface Grain Orientation</label>
+                    <select
+                      value={sel.room.surfaceDirection ?? 'vertical-grain'}
+                      onChange={(e) => patchRoom(sel.room.id, { surfaceDirection: e.target.value as any })}
+                      style={{ fontSize: 12 }}
+                    >
+                      <option value="vertical-grain">Vertical Grain (Tall shutters &amp; side gables)</option>
+                      <option value="horizontal-grain">Horizontal Grain (Drawers &amp; horizontal panels)</option>
+                      <option value="follow-part">Follow Part (Longest panel dimension)</option>
+                      <option value="none">None (Solid matte / sintered slab / fluted glass)</option>
+                    </select>
+
+                    {/* Tri-Input Architecture Trust Callout */}
+                    <div style={{ background: 'linear-gradient(135deg, rgba(197,156,45,0.08), rgba(28,25,23,0.03))', border: '1px solid rgba(197,156,45,0.3)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--gold-dim, #8a6d1e)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        🛡️ ULTIDA Tri-Input Render Pipeline
+                      </span>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary, #57534e)', lineHeight: 1.45 }}>
+                        • <strong>moduleParts</strong>: Measured mm geometry &amp; masks (never hallucinated)<br />
+                        • <strong>Materials</strong>: Physical laminates, veneers &amp; PBR behavior<br />
+                        • <strong>RenderIntentV1</strong>: Presentation style, mood &amp; lighting
+                      </div>
+                    </div>
                   </div>
                 </>}
 
