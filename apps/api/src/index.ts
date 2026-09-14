@@ -171,6 +171,11 @@ app.use('/api', (request, response, next) => {
     success: false,
     code: 'PREVIEW_DATABASE_NOT_ISOLATED',
     message: 'Preview writes are disabled until this deployment is connected to an isolated Preview database.',
+    nextSteps: [
+      'Use the production workspace for durable scene and AI render generation.',
+      'Or configure this Preview with ULTIDA_DATABASE_ENVIRONMENT=preview and a separate Supabase project before retrying.'
+    ],
+    productionUrl: 'https://ultida.vercel.app',
     deployment,
   });
 });
