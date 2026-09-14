@@ -9,7 +9,10 @@ const patterns = [
   /pplx-[A-Za-z0-9_-]{24,}/g,
   /hf_[A-Za-z0-9_-]{24,}/g
 ];
-const allowed = new Set(['package-lock.json']);
+// The IKEA research index is a pinned, public filename manifest. Some IKEA
+// filenames begin with `sk-`, which matches the generic provider-key pattern;
+// it contains no credentials and is intentionally limited to this exact file.
+const allowed = new Set(['package-lock.json', 'apps/web/public/research/ikea-index.json']);
 const files = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean).filter((file) => !allowed.has(file));
 const findings = [];
 for (const file of files) {
