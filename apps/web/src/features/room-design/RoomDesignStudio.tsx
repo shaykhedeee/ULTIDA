@@ -1,11 +1,13 @@
-import { BookOpen, Boxes, Box, CheckCircle2, LayoutTemplate, Ruler, Sparkles } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { BookOpen, Boxes, Box, CheckCircle2, LayoutTemplate, Ruler, Sparkles, ArrowLeft, ArrowRight } from 'lucide-react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { WorkflowDock } from '../../components/ui/primitives';
 import './room-design.css';
 
 export type RoomDesignTab = 'spaces' | 'modules';
 
 type Props = {
+  projectId?: string | null;
   spaces: ReactNode;
   modules: ReactNode;
   // Legacy props kept for backward-compatibility if passed
@@ -26,7 +28,8 @@ function normalizeTab(requested: string | null): RoomDesignTab {
   return 'spaces';
 }
 
-export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes }: Props) {
+export function RoomDesignStudio({ projectId, spaces, modules, setup, arrangement, finishes }: Props) {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const requested = searchParams.get('tab');
   const activeTab: RoomDesignTab = normalizeTab(requested);
@@ -160,6 +163,29 @@ export function RoomDesignStudio({ spaces, modules, setup, arrangement, finishes
         {panels[activeTab]}
       </div>
 
+      {/* Bottom Stage Progression */}
+      <WorkflowDock
+        currentStageIndex={3}
+        totalStages={8}
+        stageTitle="Room Spaces, Modular Units & Elevations"
+        stageSummary="Configure room boundary geometry, assign modular units and wall elevations, then proceed to 3D Scene Studio."
+        beaconTone="gold"
+        prevAction={{
+          label: 'Back to Measured Plan',
+          icon: <ArrowLeft size={14} />,
+          onClick: () => {
+            if (projectId) navigate(`/projects/${projectId}/plan`);
+            else navigate(-1);
+          },
+        }}
+        nextAction={{
+          label: 'Proceed to Step 4: 3D Scene',
+          icon: <ArrowRight size={14} />,
+          onClick: () => {
+            if (projectId) navigate(`/projects/${projectId}/3d`);
+          },
+        }}
+      />
     </section>
   );
 }

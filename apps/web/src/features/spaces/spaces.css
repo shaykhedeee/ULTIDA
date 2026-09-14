@@ -386,11 +386,11 @@
 .inc-toggle { font-size: 11px; display: flex; align-items: center; gap: 4px; color: var(--text-muted); font-weight: 600; cursor: pointer; }
 /* position:relative anchors the cursor-following drop tooltip. */
 .canvas-region { grid-area: canvas; position: relative; display: flex; flex-direction: column; min-height: 0; overflow: clip; }
-.canvas-focus-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fffaf2; }
-.canvas-focus-bar > div:first-child { display:flex; flex-direction:column; gap:2px; }
+.canvas-focus-bar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:10px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fffaf2; }
+.canvas-focus-bar > div:first-child { display:flex; flex-direction:column; gap:2px; min-width: 180px; }
 .canvas-focus-bar strong { font-size:13px; color:var(--text-secondary); font-weight: 800; }
 .canvas-focus-bar span { font-size:10.5px; color:var(--text-muted); }
-.canvas-focus-actions { display:flex; gap:6px; }
+.canvas-focus-actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
 .canvas-focus-actions button { border:1px solid var(--line); border-radius:7px; padding:5px 9px; background:#fff; color:var(--text-secondary); font-size:10.5px; font-weight:700; cursor:pointer; transition: all .15s; }
 .canvas-focus-actions button:hover { border-color: var(--gold); }
 .canvas-focus-actions button.active { border-color:var(--gold); background:rgba(197,156,45,.12); color:var(--gold-dim); }

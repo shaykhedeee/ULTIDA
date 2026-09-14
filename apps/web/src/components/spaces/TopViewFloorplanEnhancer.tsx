@@ -456,61 +456,6 @@ export default function TopViewFloorplanEnhancer({
     setItems(updated);
   };
 
-  const handleToggleVastuViolation = () => {
-    if (!vastuAnalysis.isCompliant) {
-      handleAutoAlignVastu();
-      return;
-    }
-
-    // Currently compliant: shift a critical item into an inauspicious zone
-    // Bed -> North-East (Ishanya), Kitchen Hob -> North-West, Mandir -> South-West
-    let hasShifted = false;
-    const updated = items.map((item) => {
-      if (item.category === 'bed') {
-        hasShifted = true;
-        return {
-          ...item,
-          xMm: Math.round(room.widthMm * 0.7),
-          yMm: Math.round(room.lengthMm * 0.08),
-        };
-      }
-      if (item.name.toLowerCase().includes('mandir') || item.name.toLowerCase().includes('pooja')) {
-        hasShifted = true;
-        return {
-          ...item,
-          xMm: Math.round(room.widthMm * 0.1),
-          yMm: Math.round(room.lengthMm * 0.65),
-        };
-      }
-      if (item.category === 'modular_storage' && item.name.toLowerCase().includes('kitchen')) {
-        hasShifted = true;
-        return {
-          ...item,
-          xMm: Math.round(room.widthMm * 0.1),
-          yMm: Math.round(room.lengthMm * 0.1),
-        };
-      }
-      return item;
-    });
-
-    if (!hasShifted && items.length > 0) {
-      // If no bed/kitchen/mandir found, convert first item to bed in NE to demonstrate violation
-      const first = items[0];
-      setItems([
-        {
-          ...first,
-          category: 'bed',
-          name: 'Master Bed (Vastu Test Placement)',
-          xMm: Math.round(room.widthMm * 0.72),
-          yMm: Math.round(room.lengthMm * 0.08),
-        },
-        ...items.slice(1),
-      ]);
-      return;
-    }
-
-    setItems(updated);
-  };
 
   // ------------------------------------------
   // CALCULATED METRICS & DYNAMIC BOM
@@ -863,47 +808,45 @@ export default function TopViewFloorplanEnhancer({
               <Compass size={13} /> {showVastuOverlay ? 'Vastu Grid Active' : 'Show Vastu Grid'}
             </button>
 
-            <button
-              type="button"
-              onClick={handleAutoAlignVastu}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                border: 'none',
-                color: '#000',
-                padding: '6px 12px',
-                borderRadius: 8,
-                fontSize: 11,
-                fontWeight: 700,
-                cursor: 'pointer',
-                boxShadow: '0 2px 8px rgba(245, 158, 11, 0.25)',
-              }}
-            >
-              <Sparkles size={13} /> ✨ Align to Vastu
-            </button>
-
-            <button
-              type="button"
-              onClick={handleToggleVastuViolation}
-              title="Toggle a Vastu-violating furniture placement to test readiness checklist reaction"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                background: vastuAnalysis.isCompliant ? '#292524' : 'rgba(239, 68, 68, 0.15)',
-                border: vastuAnalysis.isCompliant ? '1px solid #44403c' : '1px solid #ef4444',
-                color: vastuAnalysis.isCompliant ? '#fbbf24' : '#f87171',
-                padding: '6px 12px',
-                borderRadius: 8,
-                fontSize: 11,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              <AlertTriangle size={13} /> {vastuAnalysis.isCompliant ? 'Simulate Vastu Defect' : 'Fix Vastu Violation'}
-            </button>
+            {vastuAnalysis.isCompliant ? (
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  color: '#34d399',
+                  padding: '6px 12px',
+                  borderRadius: 8,
+                  fontSize: 11,
+                  fontWeight: 700,
+                }}
+              >
+                <CheckCircle2 size={13} /> Vastu Compliant ({vastuAnalysis.score}%)
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleAutoAlignVastu}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  border: 'none',
+                  color: '#000',
+                  padding: '6px 12px',
+                  borderRadius: 8,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(245, 158, 11, 0.25)',
+                }}
+              >
+                <Sparkles size={13} /> ✨ Align to Vastu
+              </button>
+            )}
 
             {selectedItem && (
               <>
