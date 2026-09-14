@@ -1,8 +1,9 @@
 import { CalendarDays, FileText, Plus, RefreshCw, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 
-function apiBase() { return String(import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, ''); }
+const apiBase = getApiBase;
 type Event = { id: string; title: string; event_type: string; starts_at: string; status: string; notes?: string };
 type Invoice = { id: string; invoice_number: string; client_name: string; total: number; status: string; due_date?: string };
 type DialogKind = 'event' | 'invoice' | null;

@@ -7,6 +7,7 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 import { bindPreparedModule } from '../../lib/prepared-module-plan';
 import './projects.css';
 
@@ -491,12 +492,7 @@ function SkeletonCard() {
 // ─── Main ProjectDashboard ────────────────────────────────────────
 const STATUS_FILTERS = ['all', 'draft', 'designing', 'client_review', 'approved', 'archived'];
 
-function apiBase() {
-  const configured = String(import.meta.env.VITE_API_BASE ?? '').trim();
-  const isLocalTarget = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/api\/?$/i.test(configured);
-  if (typeof window !== 'undefined' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(window.location.origin) && isLocalTarget) return '/api';
-  return configured || '/api';
-}
+const apiBase = getApiBase;
 
 export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: string | null; orgName?: string | null }) {
   const [projects, setProjects] = useState<Project[]>([]);

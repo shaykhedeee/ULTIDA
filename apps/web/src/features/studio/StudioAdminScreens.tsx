@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { getSupabaseBrowserClient } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 
 const card: CSSProperties = {
   background: '#fff',
@@ -17,7 +18,7 @@ const input: CSSProperties = {
   boxSizing: 'border-box',
 };
 const db = getSupabaseBrowserClient();
-const apiBase = String(import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
+const apiBase = getApiBase();
 async function token() {
   return (await db?.auth.getSession())?.data.session?.access_token ?? '';
 }

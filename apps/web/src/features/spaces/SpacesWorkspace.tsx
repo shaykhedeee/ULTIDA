@@ -384,9 +384,9 @@ function getWallElevationTemplate(wallId: string | null, room: PlanRoom | null) 
 export function SpacesWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const roomDraftRequested = searchParams.get('roomDraft') === '1';
-  const [roomDraftSummary, setRoomDraftSummary] = useState<{ name?: string; widthMm?: number; depthMm?: number; ceilingHeightMm?: number } | null>(null);
+  const [roomDraftSummary, setRoomDraftSummary] = useState<{ name?: string; roomType?: string; widthMm?: number; depthMm?: number; ceilingHeightMm?: number; floorFinish?: string } | null>(null);
 
   const [plan, setPlan] = useState<CanonicalPlanFragment | null>(null);
   const [rooms, setRooms] = useState<PlanRoom[]>([]);
@@ -482,6 +482,55 @@ export function SpacesWorkspace() {
       setRoomDraftSummary(null);
     }
   }, [roomDraftRequested]);
+
+  function dismissRoomDraft() {
+    window.localStorage.removeItem('ultida.pendingRoomDraft.v1');
+    setRoomDraftSummary(null);
+    const newParams = new URLSearchParams(searchParams);
+    newParams.delete('roomDraft');
+    setSearchParams(newParams, { replace: true });
+  }
+
+  function importRoomDraft() {
+    if (!roomDraftSummary) return;
+    const widthMm = Number(roomDraftSummary.widthMm) || 4200;
+    const depthMm = Number(roomDraftSummary.depthMm) || 3600;
+    const ceilingMm = Number(roomDraftSummary.ceilingHeightMm) || 2700;
+
+    let originX = 1000;
+    let originY = 1000;
+    if (rooms.length > 0) {
+      const allX = rooms.flatMap((r) => r.polygon.map((pt) => pt.xMm));
+      const maxX = Math.max(...allX, 0);
+      originX = maxX + 800;
+    }
+
+    const polygon: Pt[] = [
+      { xMm: originX, yMm: originY },
+      { xMm: originX + widthMm, yMm: originY },
+      { xMm: originX + widthMm, yMm: originY + depthMm },
+      { xMm: originX, yMm: originY + depthMm },
+    ];
+
+    const newRoomId = entityId();
+    const newRoom: PlanRoom = {
+      id: newRoomId,
+      name: roomDraftSummary.name || `Room ${rooms.length + 1}`,
+      roomType: roomDraftSummary.roomType ? roomDraftSummary.roomType.toLowerCase().replace(/\s+/g, '_') : 'living',
+      polygon,
+      areaSqm: polyArea(polygon),
+      ceilingHeightMm: ceilingMm,
+      requiredFurniture: [],
+      included: true,
+      surfaceFinishes: roomDraftSummary.floorFinish ? { floor: roomDraftSummary.floorFinish } : undefined,
+    };
+
+    snapshot();
+    setRooms((prev) => [...prev, newRoom]);
+    setSelectedRoom(newRoomId);
+    setSaveState(`Imported ${newRoom.name} (${widthMm}×${depthMm} mm) from Room Builder.`);
+    dismissRoomDraft();
+  }
 
   useEffect(() => {
     if (!projectId) return;
@@ -2517,6 +2566,59 @@ export function SpacesWorkspace() {
               <span>{openings.filter((opening) => opening.kind === 'window').length} windows</span>
               {!scaleVerified && <span className="trust-hint">Calibrate the plan before dimension chains or production exports.</span>}
             </div>
+
+            {roomDraftSummary && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 18px',
+                  background: 'linear-gradient(135deg, rgba(197, 156, 45, 0.16), rgba(197, 156, 45, 0.06))',
+                  border: '1.5px solid rgba(197, 156, 45, 0.45)',
+                  borderRadius: 8,
+                  margin: '8px 12px 14px',
+                  boxShadow: '0 2px 10px rgba(0, 0, 0, 0.05)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ background: '#c59c2d', color: '#1c1917', padding: '6px', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Home size={18} />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <strong style={{ fontSize: 13, color: '#1c1917' }}>
+                        Measured Room Draft: {roomDraftSummary.name || 'Untitled Room'}
+                      </strong>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#8a6d1e', background: 'rgba(197, 156, 45, 0.2)', padding: '1px 6px', borderRadius: 4 }}>
+                        From Room Builder
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 11, color: '#57534e' }}>
+                      {roomDraftSummary.widthMm} mm × {roomDraftSummary.depthMm} mm ({((Number(roomDraftSummary.widthMm || 0) * Number(roomDraftSummary.depthMm || 0)) / 1_000_000).toFixed(1)} m²) · Ceiling: {roomDraftSummary.ceilingHeightMm ?? 2700} mm · Type: {roomDraftSummary.roomType || 'Living room'}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => importRoomDraft()}
+                    style={{ fontSize: 12, padding: '6px 14px', background: 'linear-gradient(135deg, #c59c2d, #a88220)', color: '#1c1917', fontWeight: 800, border: 0, borderRadius: 6, cursor: 'pointer' }}
+                  >
+                    + Add to Project Floor Plan
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => dismissRoomDraft()}
+                    style={{ fontSize: 12, padding: '6px 12px', background: '#f5f5f4', color: '#57534e', border: '1px solid #d6d3d1', borderRadius: 6, cursor: 'pointer' }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
 
             {annotationDialogOpen && (
               <div className="annotation-dialog" role="dialog" aria-label="Add annotation">

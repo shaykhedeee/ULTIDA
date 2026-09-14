@@ -111,7 +111,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
       if (!token) throw new Error('Sign in again to export production assets.');
-      const apiBase = String(import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production/${asset}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error(await response.text());
       const blob = await response.blob();
@@ -190,7 +190,7 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
     try {
       const token = (await supabase?.auth.getSession())?.data.session?.access_token;
       if (!token) throw new Error('Sign in again before approving production data.');
-      const apiBase = String(import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+      const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production-review`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ approvedPartIds: parts.map((part) => part.partInstanceId), notes: reviewNotes }),
