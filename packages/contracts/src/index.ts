@@ -2,6 +2,17 @@ import { z } from 'zod';
 export * from './flooring.js';
 
 export const VisualOperationSchema = z.enum(['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance']);
+/** Appearance guidance for presentation renders. This never contains geometry. */
+export const RenderIntentV1Schema = z.object({
+  version: z.literal(1),
+  style: z.string().min(1).max(120),
+  palette: z.array(z.string().min(1).max(120)).max(12).default([]),
+  lightingMood: z.string().min(1).max(120).optional(),
+  hardwareStyle: z.string().min(1).max(120).optional(),
+  surfaceDirection: z.enum(['horizontal-grain', 'vertical-grain', 'follow-part', 'none']).optional(),
+  referenceAssetIds: z.array(z.string().min(1)).max(24).default([]),
+});
+export type RenderIntentV1 = z.infer<typeof RenderIntentV1Schema>;
 export const VisualProposalRequestSchema = z.object({
   projectId: z.string().min(1),
   sceneVersionId: z.string().uuid(),
@@ -19,6 +30,7 @@ export const VisualProposalRequestSchema = z.object({
   masks: z.array(z.string()).default([]),
   operation: VisualOperationSchema,
   style: z.string().min(1).max(120),
+  designIntent: RenderIntentV1Schema.optional(),
   structuredPrompt: z.string().min(1).max(4000),
   negativePrompt: z.string().max(2000).optional(),
   promptVersion: z.string().min(1).max(80).optional(),

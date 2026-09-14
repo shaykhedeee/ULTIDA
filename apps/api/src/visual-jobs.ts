@@ -554,12 +554,15 @@ export async function createVisualJob(environment: Record<string, string | undef
     const materialSwapInstruction = request.operation === 'material-swap'
       ? `\nMATERIAL REVISION: use the selected module-region guide to localize the ${request.targetSemanticSlot ?? 'selected finish'} of module ${request.targetModuleId}. Apply only the selected persisted material. Preserve the room shell, openings, sill and head heights, skirting, ceiling, camera, module footprint, shutter count, hardware, lighting, and every unaffected finish. This is a visual revision for QA review; the persisted scene material assignment remains the construction authority.`
       : '';
-    const structuredPrompt = `${brief.positivePrompt}${geometryContract.prompt}${referenceGuidance.prompt}${materialSwapInstruction}`;
+    const intentGuidance = request.designIntent
+      ? `\nDESIGN INTENT (appearance only; never change geometry): style ${request.designIntent.style}; palette [${request.designIntent.palette.join(', ')}]; lighting ${request.designIntent.lightingMood ?? 'neutral'}; hardware ${request.designIntent.hardwareStyle ?? 'unspecified'}; surface direction ${request.designIntent.surfaceDirection ?? 'none'}.`
+      : '';
+    const structuredPrompt = `${brief.positivePrompt}${intentGuidance}${geometryContract.prompt}${referenceGuidance.prompt}${materialSwapInstruction}`;
     const negativePrompt = request.operation === 'material-swap'
       ? `${brief.negativePrompt}, ${geometryContract.negativePrompt}, changed architecture, moved door, moved window, changed room proportions, changed ceiling, changed camera, changed module layout, changed shutters, changed hardware, changed lighting, change outside selected mask`
       : `${brief.negativePrompt}, ${geometryContract.negativePrompt}`;
     const normalizedRequest: VisualProposalRequest = { ...request, roomId: brief.roomId, camera: brief.camera, cameraId: renderCamera?.id, structuredPrompt, negativePrompt, promptVersion: brief.version };
-    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, style: brief.style, quality: brief.quality, camera: brief.camera, cameraId: renderCamera?.id, references: referenceGuidance.ids, geometryContract, structuredPrompt, negativePrompt, promptVersion: brief.version });
+    const inputFingerprint = renderInputFingerprint({ sceneVersionId: request.sceneVersionId, roomId: brief.roomId, operation: request.operation, targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, style: brief.style, designIntent: request.designIntent, quality: brief.quality, camera: brief.camera, cameraId: renderCamera?.id, references: referenceGuidance.ids, geometryContract, structuredPrompt, negativePrompt, promptVersion: brief.version });
     const idempotencyKey = request.idempotencyKey ?? `render:${inputFingerprint}`;
     
     const job = await client.from('jobs').insert({ organization_id: context.project.organization_id, project_id: request.projectId, kind: 'visual_proposal', status: 'queued', idempotency_key: idempotencyKey, input: { ...normalizedRequest, renderBrief: brief }, output: { reviewStatus: 'pending' }, attempts: 1, created_by: actorId ?? null }).select('id').single();
