@@ -6,7 +6,11 @@ let rawStores: { findOneById: (id: string) => { name?: string; buCode?: string }
 try {
   const checker = await import('ikea-availability-checker');
   rawAvailability = checker.availability;
-  rawStores = checker.stores;
+  // The optional package returns `undefined` when a store is unknown; keep
+  // the API boundary total so callers only handle the documented null case.
+  rawStores = {
+    findOneById: (id: string) => checker.stores.findOneById(id) ?? null,
+  };
 } catch {
   // Optional research package is absent; use fallback store catalog
 }
