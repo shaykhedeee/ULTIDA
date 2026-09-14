@@ -39,6 +39,9 @@ type ScenePreflightModule = { id: string; roomId: string; label: string; family:
 type ScenePreflight = { room: { id: string; planRoomId?: string; name: string; roomType: string }; modules: ScenePreflightModule[]; requestedModuleIds: string[]; sceneReady: boolean; blockers: Array<Record<string, unknown>> };
 type Props = { stage: Stage; focus?: DesignFocus; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
 const apiBase = getApiBase();
+// Production is the safe, durable render workspace. Preview deployments are
+// intentionally read-only until they are connected to an isolated database.
+const productionAppUrl = (import.meta.env.VITE_PRODUCTION_APP_URL as string | undefined)?.replace(/\/$/, '') || 'https://ultida.vercel.app';
 const familyLabels: Record<string, string> = {
   'kitchen-base': 'Kitchen base', 'kitchen-wall': 'Kitchen wall', 'kitchen-tall': 'Kitchen tall', 'kitchen-corner': 'Kitchen corner',
   wardrobe: 'Wardrobes', 'tv-unit': 'TV units', crockery: 'Crockery', pooja: 'Mandir', sofa: 'Seating', bed: 'Beds', study: 'Study',
@@ -343,6 +346,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const [activePickerSlot, setActivePickerSlot] = useState<string>('shutter');
   const [visualState, setVisualState] = useState('No visual proposal requested');
+  const [visualRecoveryUrl, setVisualRecoveryUrl] = useState<string | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [drawingState, setDrawingState] = useState('Generate drawing package');
@@ -1380,7 +1384,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     if (!projectId) { setVisualState('Select a project before generating a render.'); return; }
     if (!renderSceneVersionId) { setVisualState('Compile a persisted scene before requesting a render.'); return; }
     if (!sceneIsApproved) { setVisualState('Approve the linked scene before requesting a render.'); return; }
-    setVisualBusy(true); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
+    setVisualBusy(true); setVisualRecoveryUrl(null); setVisualState(operation === 'material-swap' ? 'Saving the selected laminate and preparing its scene-locked preview...' : 'Validating scene and visual providers...');
     try {
       const readinessResponse = await fetch(`${apiBase}/projects/${projectId}/render-readiness`, { headers: await authenticatedHeaders() }).catch(() => null);
       const readiness = readinessResponse ? await readinessResponse.json().catch(() => null) : null;
@@ -1403,6 +1407,11 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
 
       if (!response?.ok || !payload?.success) {
         setVisualBusy(false);
+        if (payload?.code === 'PREVIEW_DATABASE_NOT_ISOLATED') {
+          setVisualRecoveryUrl(productionAppUrl);
+          setVisualState('This Preview is read-only. Open the production render studio to generate and save the AI image, or connect this Preview to its own Supabase database.');
+          return;
+        }
         setVisualState(payload?.message ?? payload?.error ?? 'The render service could not create an image. Your approved scene is unchanged; try again when a provider is available.');
         return;
 
@@ -1527,6 +1536,11 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
             <div className="visual-stage-status">
               <Badge tone={latest?.stale ? 'accent' : latest ? 'success' : 'accent'}>{latest?.stale ? 'Stale' : latest ? 'Ready' : visualBusy ? 'Processing' : 'Waiting'}</Badge>
               <span>{visualState}</span>
+              {visualRecoveryUrl && (
+                <a className="visual-recovery-link" href={visualRecoveryUrl} target="_blank" rel="noreferrer">
+                  Open production render studio <ExternalLink size={13} aria-hidden="true" />
+                </a>
+              )}
             </div>
           </div>
           <Card className="visual-studio-panel">
