@@ -1,0 +1,16 @@
+.research-sourcing { min-width: 0; color: #302a25; }
+.research-sourcing p { max-width: 85ch; line-height: 1.6; }
+.research-sourcing a { color: #78531c; text-decoration: underline; }
+.research-sourcing details { background: #faf7f1; padding: 16px; border: 1px solid #ded6c8; border-radius: 10px; margin: 16px 0; }
+.research-sourcing summary { cursor: pointer; font-weight: 700; }
+.research-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 16px 0; }
+.research-sourcing label { display: grid; gap: 5px; font-size: 13px; }
+.research-sourcing input, .research-sourcing select, .research-sourcing button { padding: 9px; border: 1px solid #cfc6b8; border-radius: 6px; min-width: 0; max-width: 100%; background: white; color: #302a25; }
+.research-sourcing button { cursor: pointer; }
+.research-sourcing button:disabled { opacity: .6; cursor: wait; }
+.research-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 16px; margin-bottom: 16px; }
+.research-grid article { display: grid; gap: 10px; padding: 12px; border: 1px solid #ded6c8; border-radius: 10px; background: white; min-width: 0; }
+.research-grid img { width: 100%; height: 170px; object-fit: contain; background: #f7f5f0; }
+.research-grid article.research-image-missing::before { content: 'Image unavailable · reference metadata retained'; display: grid; place-items: center; min-height: 170px; padding: 12px; color: #665d53; background: #f7f5f0; text-align: center; font-size: 12px; }
+.research-grid h3 { font-size: 14px; margin: 0; overflow-wrap: anywhere; }
+.research-grid small { color: #665d53; }

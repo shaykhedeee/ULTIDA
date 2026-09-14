@@ -23,6 +23,7 @@ import { getRequestSupabaseClient, getServerSupabaseClient } from './supabase.js
 import { authenticateProjectUser, requireProjectUser, requireStudioUser } from './api-auth.js';
 import { CompositionScheduleV1Schema, MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, VisualProposalRequestSchema, buildFlooringQuantities, validateProjectBrief } from '@ultida/contracts';
 import { createProviderGateway } from '@ultida/provider-gateway';
+import { getIkeaResearchStock, parseIkeaStockQuery } from './research-sourcing.js';
 import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
 import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, listDesignPresets, ModuleFamilySchema, getCatalogVault, CuratedLaminateCatalog, CATALOG_VERSION, getCatalogDigitalTwin } from '@ultida/catalog-core';
 import { CanonicalPlanModelSchema, parsePlanIntake } from '@ultida/plan-core';
@@ -235,6 +236,18 @@ app.post('/api/rules/evaluate', (request, response) => {
 
 app.get('/api/catalog', (request, response) => {
   response.json({ success: true, app: 'ultida', version: '0.1.0', providers: gateway.status(), laminates: CuratedLaminateCatalog });
+});
+
+app.get('/api/research/ikea-stock', requireStudioUser, async (request, response) => {
+  const query = parseIkeaStockQuery(request.query);
+  if (!query) return response.status(400).json({ message: 'Enter an eight-digit IKEA product number and a supported three-digit store code.' });
+  try {
+    const result = await getIkeaResearchStock(query);
+    response.setHeader('Cache-Control', 'no-store');
+    return response.json(result);
+  } catch {
+    return response.status(503).json({ status: 'unknown', message: 'IKEA availability could not be checked. Retry later or confirm directly with IKEA.' });
+  }
 });
 
 app.get('/api/catalog/laminates', (request, response) => {

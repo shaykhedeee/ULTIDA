@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 import { ModulePreview } from './ModulePreview';
+import ResearchSourcingPanel from './ResearchSourcingPanel';
 
 type LibraryItem = {
   id: string;
@@ -280,7 +281,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const { projectId: urlProjectId } = useParams<{ projectId?: string }>();
   const activeProjectId = projectId ?? urlProjectId ?? null;
 
-  const [activeTab, setActiveTab] = useState<'templates' | 'modules' | 'moodboard' | 'materials'>('modules');
+  const [activeTab, setActiveTab] = useState<'templates' | 'modules' | 'moodboard' | 'materials' | 'research'>('modules');
   const [moduleImageMode, setModuleImageMode] = useState<'photo' | 'nobg'>('nobg');
   const [items, setItems] = useState<LibraryItem[]>([]);
   // Templates come from the canonical catalogue API. Do not briefly show the
@@ -741,6 +742,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           ['moodboard', 'Moodboard Studio', Sparkles, moodboardItems.length],
           ['templates', 'Studio References', BookOpen, CURATED_VAULT_REFERENCES.length],
           ['materials', 'Project Materials', Palette, visibleMaterials.length],
+          ['research', 'Research & Sourcing', Search, 4],
         ] as const).map(([id, label, Icon, count]) => (
           <button key={id} onClick={() => setActiveTab(id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', fontSize: 14, fontWeight: 700, color: activeTab === id ? '#8a6244' : '#78716c', borderBottom: activeTab === id ? '2.5px solid #c59c2d' : '2.5px solid transparent', background: activeTab === id ? 'rgba(197,156,45,0.06)' : 'none', borderRadius: '8px 8px 0 0', borderTop: 0, borderLeft: 0, borderRight: 0, cursor: 'pointer', transition: 'all 0.15s ease' }}>
             <Icon size={16} color={activeTab === id ? '#c59c2d' : '#78716c'} /> {label} <span style={{ color: activeTab === id ? '#c59c2d' : '#a8a29e', background: activeTab === id ? 'rgba(197,156,45,0.14)' : '#f3efe7', padding: '2px 7px', borderRadius: 999, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>{count}</span>
@@ -749,6 +751,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       </div>
 
       {/* TAB 1: MODULAR TEMPLATES */}
+      {activeTab === 'research' && <ResearchSourcingPanel />}
       {activeTab === 'modules' && (
         <Card className="workflow">
           {/* Quick Filter Category Chips */}
