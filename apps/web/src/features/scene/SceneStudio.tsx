@@ -8,6 +8,7 @@ import { createCompiledModuleMeshes } from './compiled-module-meshes';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
+import type { RenderIntentV1 } from '@ultida/contracts';
 import './scene-studio.css';
 
 const gltfLoader = new GLTFLoader();
@@ -50,6 +51,7 @@ type Scene = {
   materials: Array<{ id: string; name: string; code: string; finish?: string }>;
   lighting: Array<{ id: string; spaceId: string; kind: 'ambient' | 'task' | 'accent' | 'natural'; position: { xMm: number; yMm: number }; fixture?: 'ceiling-spot' | 'floor-lamp' | 'table-lamp' | 'pendant' | 'cove'; heightMm?: number; shadeDiameterMm?: number; colorTemperatureK?: number; lumens?: number; materialId?: string }>;
   cameras: Array<{ id: string; name: string; position: { xMm: number; yMm: number; zMm: number }; target: { xMm: number; yMm: number; zMm: number }; lensMm: number }>;
+  designIntent?: RenderIntentV1;
 };
 
 type Props = {
@@ -1912,7 +1914,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {scene?.moduleParts && scene.moduleParts.length > 0 && (
-            <Badge tone="success" style={{ background: '#14532d', color: '#86efac', border: '1px solid #22c55e' }}>
+            <Badge tone="success" className="scene-geometry-badge">
               ✓ {scene.moduleParts.length} Compiled Parts (100% Measured)
             </Badge>
           )}

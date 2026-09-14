@@ -13,6 +13,7 @@ import {
   SlidersHorizontal,
   Award,
   ShieldCheck,
+  ArrowRight,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
