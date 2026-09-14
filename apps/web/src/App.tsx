@@ -1495,6 +1495,10 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         <Route path="modules-legacy" element={<Navigate to="../modules" replace />} />
         <Route path="materials" element={<Navigate to={`/projects/${projectId}/spaces?tab=modules`} replace />} />
         <Route path="materials-legacy" element={<Navigate to="../materials" replace />} />
+        <Route path="renders" element={<Navigate to="../3d?tab=render" replace />} />
+        <Route path="render" element={<Navigate to="../3d?tab=render" replace />} />
+        <Route path="visualize" element={<Navigate to="../3d" replace />} />
+        <Route path="visual" element={<Navigate to="../3d" replace />} />
         <Route path="3d" element={
           <VisualizeStudio
             sceneReady={Boolean(sceneVersionId)}

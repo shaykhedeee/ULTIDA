@@ -36,7 +36,14 @@ export function RenderLauncher() {
     setState('Approved scene found. Visual Studio will let you choose the room, camera, quality, references, and scene-locked render operation.');
   }
 
-  const goTo = (stage: 'spaces' | 'layouts' | 'modules' | 'materials' | '3d' | 'renders') => projectId && navigate(`/projects/${projectId}/${stage}`);
+  const goTo = (stage: 'spaces' | 'layouts' | 'modules' | 'materials' | '3d' | 'renders') => {
+    if (!projectId) return;
+    if (stage === 'renders') {
+      navigate(`/projects/${projectId}/3d?tab=render`);
+    } else {
+      navigate(`/projects/${projectId}/${stage}`);
+    }
+  };
 
   return <main className="render-launcher">
     <section className="render-launcher-hero">
