@@ -2430,6 +2430,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
     branch_name: 'main',
     status: 'draft',
     scene,
+    design_intent: scene.designIntent ?? null,
     change_reason: scene.metadata.changeReason,
     created_by: authReq.ultidaUser!.id,
   }).select('id,version_number,status,scene,created_at').single();
