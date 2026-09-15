@@ -522,7 +522,7 @@ export function SpacesWorkspace() {
       ceilingHeightMm: ceilingMm,
       requiredFurniture: [],
       included: true,
-      surfaceFinishes: roomDraftSummary.floorFinish ? { floor: roomDraftSummary.floorFinish } : undefined,
+      floorFinish: roomDraftSummary.floorFinish || undefined,
     };
 
     snapshot();

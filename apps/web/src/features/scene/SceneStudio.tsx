@@ -50,6 +50,14 @@ type Scene = {
   materials: Array<{ id: string; name: string; code: string; finish?: string }>;
   lighting: Array<{ id: string; spaceId: string; kind: 'ambient' | 'task' | 'accent' | 'natural'; position: { xMm: number; yMm: number }; fixture?: 'ceiling-spot' | 'floor-lamp' | 'table-lamp' | 'pendant' | 'cove'; heightMm?: number; shadeDiameterMm?: number; colorTemperatureK?: number; lumens?: number; materialId?: string }>;
   cameras: Array<{ id: string; name: string; position: { xMm: number; yMm: number; zMm: number }; target: { xMm: number; yMm: number; zMm: number }; lensMm: number }>;
+  designIntent?: {
+    style: string;
+    lightingMood?: string;
+    hardwareStyle?: string;
+    surfaceDirection?: string;
+    palette?: string[];
+    lockedSeed?: number;
+  };
 };
 
 type Props = {
@@ -2387,7 +2395,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                     )}
                     {scene.designIntent.palette && scene.designIntent.palette.length > 0 && (
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
-                        {scene.designIntent.palette.map((p, idx) => (
+                        {scene.designIntent.palette.map((p: string, idx: number) => (
                           <span key={idx} style={{ padding: '2px 6px', background: '#322a1d', border: '1px solid #765e2b', borderRadius: 4, fontSize: 10, color: '#e8c96a' }}>
                             {p}
                           </span>

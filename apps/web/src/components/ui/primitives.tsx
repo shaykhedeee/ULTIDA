@@ -38,11 +38,13 @@ export function Badge({
   children,
   className,
   tone,
-  variant
+  variant,
+  style,
 }: PropsWithChildren<{
   className?: string;
   tone?: 'neutral' | 'success' | 'accent' | 'warn' | 'gold';
   variant?: 'default' | 'success' | 'warning' | 'info' | 'muted' | 'error' | 'gold';
+  style?: React.CSSProperties;
 }>) {
   const resolvedTone = tone ?? (
     variant === 'success' ? 'success' :
@@ -51,7 +53,7 @@ export function Badge({
     variant === 'gold' ? 'gold' :
     'neutral'
   );
-  return <span className={cn('ui-badge', `ui-badge-${resolvedTone}`, className)}>{children}</span>;
+  return <span className={cn('ui-badge', `ui-badge-${resolvedTone}`, className)} style={style}>{children}</span>;
 }
 
 export function Separator({ className }: { className?: string }) {
