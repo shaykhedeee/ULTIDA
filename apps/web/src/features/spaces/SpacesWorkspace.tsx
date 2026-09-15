@@ -869,64 +869,30 @@ export function SpacesWorkspace() {
       depthMm,
       selectedRoom === roomId ? aiProposals : undefined
     );
-    const analysis = evaluateVastuCompliance({ widthMm, lengthMm: depthMm }, currentFurniture);
 
-    if (analysis.isCompliant) {
-      // Shift to inauspicious zone (e.g. Bed to NE Ishanya or Hob to NW Vayavya)
-      let shifted = false;
-      const updated = currentFurniture.map(it => {
-        if (it.category === 'bed') {
-          shifted = true;
-          return { ...it, xMm: Math.round(widthMm * 0.72), yMm: Math.round(depthMm * 0.08) };
-        }
-        if (it.name.toLowerCase().includes('mandir') || it.name.toLowerCase().includes('pooja')) {
-          shifted = true;
-          return { ...it, xMm: Math.round(widthMm * 0.1), yMm: Math.round(depthMm * 0.65) };
-        }
-        if (it.category === 'modular_storage' && it.name.toLowerCase().includes('kitchen')) {
-          shifted = true;
-          return { ...it, xMm: Math.round(widthMm * 0.1), yMm: Math.round(depthMm * 0.1) };
-        }
-        return it;
-      });
-      if (!shifted && updated.length > 0) {
-        updated[0] = {
-          ...updated[0],
-          category: 'bed',
-          name: 'Master Bed (Vastu Test Placement)',
-          xMm: Math.round(widthMm * 0.72),
-          yMm: Math.round(depthMm * 0.08),
-        };
+    // Auto-align to auspicious zones (SW for Master bed, NE for Pooja, SE for cooking hob)
+    const updated = currentFurniture.map(it => {
+      if (it.category === 'bed') {
+        return { ...it, xMm: Math.round(widthMm * 0.1), yMm: Math.round(depthMm * 0.55), rotationDeg: 0 };
       }
-      const newVastu = evaluateVastuCompliance({ widthMm, lengthMm: depthMm }, updated);
-      setRoomFurnitureMap(prev => ({ ...prev, [roomId]: updated }));
-      setRoomVastuMap(prev => ({ ...prev, [roomId]: newVastu }));
-      setSaveState(`Toggled Vastu violation in ${targetRoom.name}: Bed moved to North-East (Ishanya). Readiness updated.`);
-    } else {
-      // Auto-align to auspicious zones
-      const updated = currentFurniture.map(it => {
-        if (it.category === 'bed') {
-          return { ...it, xMm: Math.round(widthMm * 0.1), yMm: Math.round(depthMm * 0.55), rotationDeg: 0 };
-        }
-        if (it.name.toLowerCase().includes('mandir') || it.name.toLowerCase().includes('pooja')) {
-          return { ...it, xMm: Math.round(widthMm * 0.72), yMm: Math.round(depthMm * 0.08), rotationDeg: 0 };
-        }
-        if (it.category === 'modular_storage' && it.name.toLowerCase().includes('kitchen')) {
-          return { ...it, xMm: Math.round(widthMm * 0.65), yMm: Math.round(depthMm * 0.65), rotationDeg: 0 };
-        }
-        if (it.category === 'modular_storage' && (it.name.toLowerCase().includes('tv') || it.name.toLowerCase().includes('console'))) {
-          return { ...it, xMm: Math.round(widthMm * 0.28), yMm: Math.round(depthMm * 0.05), rotationDeg: 0 };
-        }
-        if (it.category === 'seating') {
-          return { ...it, xMm: Math.round(widthMm * 0.22), yMm: Math.round(depthMm * 0.35), rotationDeg: 0 };
-        }
-        return it;
-      });
-      const newVastu = evaluateVastuCompliance({ widthMm, lengthMm: depthMm }, updated);
-      setRoomFurnitureMap(prev => ({ ...prev, [roomId]: updated }));
-      setRoomVastuMap(prev => ({ ...prev, [roomId]: newVastu }));
-      setSaveState(`Aligned ${targetRoom.name} to auspicious Vastu zones. Room is now Vastu compliant.`);
-    }
+      if (it.name.toLowerCase().includes('mandir') || it.name.toLowerCase().includes('pooja')) {
+        return { ...it, xMm: Math.round(widthMm * 0.72), yMm: Math.round(depthMm * 0.08), rotationDeg: 0 };
+      }
+      if (it.category === 'modular_storage' && it.name.toLowerCase().includes('kitchen')) {
+        return { ...it, xMm: Math.round(widthMm * 0.65), yMm: Math.round(depthMm * 0.65), rotationDeg: 0 };
+      }
+      if (it.category === 'modular_storage' && (it.name.toLowerCase().includes('tv') || it.name.toLowerCase().includes('console'))) {
+        return { ...it, xMm: Math.round(widthMm * 0.28), yMm: Math.round(depthMm * 0.05), rotationDeg: 0 };
+      }
+      if (it.category === 'seating') {
+        return { ...it, xMm: Math.round(widthMm * 0.22), yMm: Math.round(depthMm * 0.35), rotationDeg: 0 };
+      }
+      return it;
+    });
+    const newVastu = evaluateVastuCompliance({ widthMm, lengthMm: depthMm }, updated);
+    setRoomFurnitureMap(prev => ({ ...prev, [roomId]: updated }));
+    setRoomVastuMap(prev => ({ ...prev, [roomId]: newVastu }));
+    setSaveState(`✨ Aligned ${targetRoom.name} to auspicious Vastu zones (${newVastu.score}% compliant).`);
   };
 
   // ── AI Furniture Layout Detection Engine ──
@@ -2469,18 +2435,20 @@ export function SpacesWorkspace() {
                       >
                         <CheckCircle2 size={13} /> {readiness.ready ? 'Room ready (Approved)' : !vastu.isCompliant ? 'Fix Vastu & Approve' : 'Approve & Verify Room'}
                       </button>
-                      <button
-                        type="button"
-                        className={`room-vastu-toggle-btn ${vastu.isCompliant ? 'btn-comp' : 'btn-viol'}`}
-                        title={vastu.isCompliant ? 'Simulate Vastu defect to test readiness checklist' : 'Auto-align furniture to auspicious Vastu zones'}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedRoom(room.id);
-                          toggleRoomVastu(room.id, widthMm, depthMm);
-                        }}
-                      >
-                        <Compass size={11} /> {vastu.isCompliant ? 'Test Vastu' : 'Align Vastu'}
-                      </button>
+                      {!vastu.isCompliant && (
+                        <button
+                          type="button"
+                          className="room-vastu-toggle-btn btn-viol"
+                          title="Auto-align furniture to auspicious Vastu zones"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedRoom(room.id);
+                            toggleRoomVastu(room.id, widthMm, depthMm);
+                          }}
+                        >
+                          <Compass size={11} /> Align Vastu
+                        </button>
+                      )}
                       <button type="button" className="room-ai-btn" title="AI Auto-Detect Layout" onClick={(e) => { e.stopPropagation(); setSelectedRoom(room.id); detectAiLayout(room); }}>
                         <Sparkles size={12} /> AI Layout
                       </button>
@@ -2506,7 +2474,7 @@ export function SpacesWorkspace() {
                   title="Auto-detect rooms, assign wall roles, place doors/windows, and verify all spaces"
                   aria-label="AI Auto-Enhance Entire Plan"
                 >
-                  <Sparkles size={13} /> Suggest room finishes
+                  <Sparkles size={13} /> Auto-Furnish Plan
                 </button>
                 <button
                   type="button"
@@ -3281,13 +3249,19 @@ export function SpacesWorkspace() {
                     )}
 
                     <div className="vrc-actions">
-                      <button
-                        type="button"
-                        className="btn-vrc-align"
-                        onClick={() => toggleRoomVastu(sel.room.id, sel.widthMm, sel.depthMm)}
-                      >
-                        <Sparkles size={12} /> {sel.vastu.isCompliant ? 'Simulate Vastu Defect (NE Bed)' : '✨ Auto-Align to Vastu (SW Bed)'}
-                      </button>
+                      {!sel.vastu.isCompliant ? (
+                        <button
+                          type="button"
+                          className="btn-vrc-align"
+                          onClick={() => toggleRoomVastu(sel.room.id, sel.widthMm, sel.depthMm)}
+                        >
+                          <Sparkles size={12} /> ✨ Auto-Align to Vastu (SW Bed)
+                        </button>
+                      ) : (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#059669', background: 'rgba(5, 150, 105, 0.1)', padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(5, 150, 105, 0.25)' }}>
+                          <CheckCircle2 size={12} /> Vastu Compliant ({sel.vastu.score}%)
+                        </span>
+                      )}
                       <button
                         type="button"
                         className="btn-vrc-stager"
@@ -4000,26 +3974,32 @@ export function SpacesWorkspace() {
                               ? `All furniture modules align auspiciously with sacred Vastu zones: master bed grounded in SW/South, social seating welcoming North/East prana energy.`
                               : (sel.vastu.criticalRemedy || `Vastu directional adjustments needed to optimize positive energy flow in ${sel.room.name}.`)}
                           </p>
-                          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                            <button
-                              type="button"
-                              style={{
-                                padding: '4px 10px',
-                                fontSize: 11,
-                                fontWeight: 700,
-                                background: sel.vastu.isCompliant ? 'var(--gold-dim, #ebdccb)' : '#f59e0b',
-                                color: sel.vastu.isCompliant ? '#1c1917' : '#000',
-                                border: 0,
-                                borderRadius: 6,
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                              onClick={() => toggleRoomVastu(sel.room.id, sel.widthMm, sel.depthMm)}
-                            >
-                              <Sparkles size={11} /> {sel.vastu.isCompliant ? 'Simulate Vastu Defect' : '✨ Auto-Align to Vastu'}
-                            </button>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                            {!sel.vastu.isCompliant ? (
+                              <button
+                                type="button"
+                                style={{
+                                  padding: '4px 10px',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: '#f59e0b',
+                                  color: '#000',
+                                  border: 0,
+                                  borderRadius: 6,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                                onClick={() => toggleRoomVastu(sel.room.id, sel.widthMm, sel.depthMm)}
+                              >
+                                <Sparkles size={11} /> ✨ Auto-Align to Vastu
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: 11, fontWeight: 700, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <CheckCircle2 size={12} /> Vastu Verified
+                              </span>
+                            )}
                           </div>
                         </div>
 

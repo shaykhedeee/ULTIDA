@@ -1486,6 +1486,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         } />
         <Route path="spaces" element={
           <RoomDesignStudio
+            projectId={projectId ?? null}
             spaces={<SpacesWorkspace />}
             modules={<DesignFlowWorkspace stage="Design" focus="all" projectId={projectId ?? null} planApproved={planApproved} briefComplete={briefSaved} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={approveScene} />}
           />
