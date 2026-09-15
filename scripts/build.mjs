@@ -49,13 +49,14 @@ try {
 } catch {}
 
 function runWorkspace(name, script = 'build', timeoutMs = 180_000) {
+  const dir = WORKSPACES[name];
+  const cwd = resolve(rootDir, dir);
   return new Promise((resolvePromise, reject) => {
     process.stdout.write(`\n[build] ${name} ${script} started\n`);
-    const args = isPnpm ? ['--filter', name, 'run', script] : ['run', script, '--workspace', name];
-    const child = spawn(npm, args, {
+    const child = spawn(npm, ['run', script], {
       stdio: ['ignore', 'inherit', 'inherit'],
       shell: process.platform === 'win32',
-      cwd: rootDir,
+      cwd,
       env: {
         ...process.env,
         PATH: pathEnv,
