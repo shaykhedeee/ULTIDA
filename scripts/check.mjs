@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { resolve, delimiter } from 'node:path';
 import { existsSync } from 'node:fs';
 
 const hermesNpm = process.platform === 'win32' && process.env.LOCALAPPDATA
@@ -46,7 +46,7 @@ const packageKeys = [
 const appKeys = ['@ultida/api', '@ultida/cloudflare-ai-worker', '@ultida/web', '@ultida/worker', '@ultida/aura-tools'];
 
 const binDir = resolve(rootDir, 'node_modules/.bin');
-const pathEnv = `${binDir};${process.env.PATH || process.env.Path || ''}`;
+const pathEnv = `${binDir}${delimiter}${process.env.PATH || process.env.Path || ''}`;
 
 function runWorkspace(name, script = 'build', timeoutMs = 180_000) {
   const dir = WORKSPACES[name];

@@ -435,6 +435,7 @@ export function SpacesWorkspace() {
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  const suppressCanvasClick = useRef(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [spacebarDown, setSpacebarDown] = useState(false);
   const [cursorCoords, setCursorCoords] = useState<{ xMm: number; yMm: number } | null>(null);
@@ -577,7 +578,11 @@ export function SpacesWorkspace() {
     dismissRoomDraft();
   }
 
-  function addNewRoom(name: string, roomType: string, widthMm: number, depthMm: number, ceilingMm = 2800) {
+  function addNewRoom(name: string, roomType: string, widthMm: number, depthMm: number, ceilingMm: number) {
+    if (![widthMm, depthMm, ceilingMm].every(value => Number.isFinite(value) && value > 0)) {
+      setSaveState('Enter valid positive width, depth and ceiling measurements before adding a room.');
+      return;
+    }
     let originX = 1000;
     let originY = 1000;
     if (rooms.length > 0) {
@@ -607,11 +612,21 @@ export function SpacesWorkspace() {
     };
 
     snapshot();
-    setRooms((prev) => [...prev, newRoom]);
+    const roomsToCommit = [...rooms, newRoom];
+    setRooms(roomsToCommit);
     setSelectedRoom(newRoomId);
     setCanvasFocus('room');
-    setSaveState(`Added ${newRoom.name} (${widthMm}×${depthMm} mm) to floor plan.`);
+    setSaveState(`Saving ${newRoom.name} to the measured plan…`);
     setShowAddRoomModal(false);
+    void saveGeometryVersion(roomsToCommit).then((committed) => {
+      const spaceRecordId = committed?.spaces.find((space) => space.space_id === newRoomId)?.id;
+      if (!spaceRecordId) {
+        setSaveState(`${newRoom.name} is visible locally but could not be attached to the saved plan. Use Save geometry to retry.`);
+        return;
+      }
+      setRooms((current) => current.map((room) => room.id === newRoomId ? { ...room, spaceRecordId } : room));
+      setSaveState(`${newRoom.name} saved. Select a wall or a free position to add furniture.`);
+    });
   }
 
   const totalPlanAreaSqm = useMemo(() => {
@@ -940,6 +955,7 @@ export function SpacesWorkspace() {
     if (spacebarDown || e.button === 1) {
       e.preventDefault();
       setIsPanning(true);
+      suppressCanvasClick.current = true;
       setPanStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
     }
   }
@@ -1014,10 +1030,13 @@ export function SpacesWorkspace() {
     };
 
     window.addEventListener('keydown', onKeyDown);
+    const onBlur = () => { setSpacebarDown(false); setIsPanning(false); };
+    window.addEventListener('blur', onBlur);
     window.addEventListener('keyup', onKeyUp);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
     };
   }, [draggingModule, tool]);
 
@@ -2945,7 +2964,7 @@ export function SpacesWorkspace() {
                   setDropCursor(null);
                 }}
                 onClick={(event) => {
-                  if (isPanning) return;
+                  if (suppressCanvasClick.current) { suppressCanvasClick.current = false; return; } if (isPanning) return;
                   if (draggingModule) { commitArmedPlacement(event); return; }
                   onCanvasClick(event);
                 }}
@@ -4806,7 +4825,7 @@ export function SpacesWorkspace() {
             <div className="add-room-modal-body">
               <div className="add-room-section-heading">
                 <strong>Luxury Villa Presets</strong>
-                <small>Architecturally proportioned with calibrated System 32 joinery zones</small>
+                <small>Editable design proposals — confirm dimensions against your measured plan</small>
               </div>
               <div className="add-room-presets-grid">
                 {QUICK_ROOM_PRESETS.map((preset) => {
@@ -4849,9 +4868,9 @@ export function SpacesWorkspace() {
                   addNewRoom(
                     customRoomForm.name.trim(),
                     customRoomForm.roomType,
-                    Number(customRoomForm.widthMm) || 4500,
-                    Number(customRoomForm.depthMm) || 3600,
-                    Number(customRoomForm.ceilingMm) || 2800
+                    Number(customRoomForm.widthMm),
+                    Number(customRoomForm.depthMm),
+                    Number(customRoomForm.ceilingMm)
                   );
                 }}
               >

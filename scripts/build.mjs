@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { resolve, delimiter } from 'node:path';
 import { existsSync } from 'node:fs';
 
 const hermesNpm = process.platform === 'win32' && process.env.LOCALAPPDATA
@@ -40,7 +40,7 @@ const packageKeys = Object.keys(WORKSPACES).filter(
 );
 const appKeys = ['@ultida/api', '@ultida/cloudflare-ai-worker', '@ultida/web', '@ultida/worker'];
 const binDir = resolve(rootDir, 'node_modules/.bin');
-const pathEnv = `${binDir};${process.env.PATH || process.env.Path || ''}`;
+const pathEnv = `${binDir}${delimiter}${process.env.PATH || process.env.Path || ''}`;
 
 let isPnpm = false;
 try {
