@@ -134,7 +134,7 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
   const [params, setParams] = useSearchParams();
   const requested = params.get('tab');
   const active: VisualizeTab =
-    requested === 'render' || requested === 'laminate' || requested === 'interactive' || requested === 'compare'
+    requested === 'render' || requested === 'laminate'
       ? requested
       : 'review';
   const [approving, setApproving] = useState(false);
@@ -205,11 +205,9 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
   };
 
   const tabs = [
-    { id: 'review' as const, label: '3D Scene Review', icon: Box, help: 'Measured Three.js scene verification' },
-    { id: 'render' as const, label: 'AI Render', icon: Image, help: 'Generate from the approved scene' },
-    { id: 'laminate' as const, label: 'Laminate Revision', icon: Palette, help: 'Change one named component only' },
-    { id: 'interactive' as const, label: 'Spatial AI Object Takeoff', icon: Sparkles, help: 'Interactive object hotspots & live bill of materials' },
-    { id: 'compare' as const, label: 'Seed Lock & A/B Compare', icon: SlidersHorizontal, help: 'Deterministic side-by-side material comparisons' },
+    { id: 'review' as const, label: '3D review', icon: Box, help: 'Check the saved scene and measurements' },
+    { id: 'render' as const, label: 'AI render', icon: Image, help: 'Generate a presentation image from the approved scene' },
+    { id: 'laminate' as const, label: 'Finish revision', icon: Palette, help: 'Revise a named component finish' },
   ];
 
   function select(id: VisualizeTab) {
@@ -855,7 +853,7 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
           label: 'Back to Rooms & Bay Layout',
           icon: <ArrowLeft size={14} />,
           onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/spaces?tab=modules`);
+            if (projectId) navigate(`/projects/${projectId}/spaces`);
           },
         }}
         nextAction={{

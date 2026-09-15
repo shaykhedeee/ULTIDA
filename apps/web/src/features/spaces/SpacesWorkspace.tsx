@@ -413,6 +413,7 @@ export function SpacesWorkspace() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const roomDraftRequested = searchParams.get('roomDraft') === '1';
+  const pendingModuleRequested = searchParams.get('pendingModule') === '1';
   const [roomDraftSummary, setRoomDraftSummary] = useState<{ name?: string; roomType?: string; widthMm?: number; depthMm?: number; ceilingHeightMm?: number; floorFinish?: string } | null>(null);
 
   const [plan, setPlan] = useState<CanonicalPlanFragment | null>(null);
@@ -473,6 +474,14 @@ export function SpacesWorkspace() {
   const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogFilterFamily, setCatalogFilterFamily] = useState('all');
   const [catalogFitFilter, setCatalogFitFilter] = useState<'all' | 'fits'>('all');
+
+  useEffect(() => {
+    if (!pendingModuleRequested) return;
+    setShowDesignLibrary(true);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('pendingModule');
+    setSearchParams(nextParams, { replace: true });
+  }, [pendingModuleRequested, searchParams, setSearchParams]);
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   useEffect(() => {
@@ -539,9 +548,13 @@ export function SpacesWorkspace() {
 
   function importRoomDraft() {
     if (!roomDraftSummary) return;
-    const widthMm = Number(roomDraftSummary.widthMm) || 4200;
-    const depthMm = Number(roomDraftSummary.depthMm) || 3600;
-    const ceilingMm = Number(roomDraftSummary.ceilingHeightMm) || 2700;
+    const widthMm = Number(roomDraftSummary.widthMm);
+    const depthMm = Number(roomDraftSummary.depthMm);
+    const ceilingMm = Number(roomDraftSummary.ceilingHeightMm);
+    if (![widthMm, depthMm, ceilingMm].every((value) => Number.isFinite(value) && value > 0)) {
+      setSaveState('This room draft is missing confirmed width, depth, or ceiling measurements. Edit the values before adding it to the plan.');
+      return;
+    }
 
     let originX = 1000;
     let originY = 1000;
@@ -2385,20 +2398,19 @@ export function SpacesWorkspace() {
       {/* Header */}
       <div className="page-header">
         <div className="page-header-text">
-          <small>Room Design Studio · Stage 3: Rooms &amp; 2D Layout</small>
-          <h1>Configured Spaces ({rooms.filter(r => r.included !== false).length})</h1>
-          <p>The approved plan supplies measured geometry. Overlay the floor plan, auto-detect furniture layout with AI, and link authentic units from the Design Library.</p>
+          <small>ROOM DESIGN</small>
+          <h1>Design your rooms ({rooms.filter(r => r.included !== false).length})</h1>
+          <p>Choose a room, place furniture on its measured walls, adjust the details, then review the same saved design in 3D.</p>
         </div>
         <div className="page-header-actions">
           <div className="history-btns">
             <button className="icon-btn" onClick={undo} type="button" aria-label="Undo"><Undo2 size={15} /></button>
             <button className="icon-btn" onClick={redo} type="button" aria-label="Redo"><Redo2 size={15} /></button>
           </div>
-          <button type="button" className="btn-secondary workspace-action" onClick={() => setShowDesignLibrary(true)} title="Browse authentic modular units and finishes in Design Library"><BookOpen size={14} /> Design Library</button>
-          <button type="button" className="btn-secondary workspace-action" disabled={!sel} onClick={() => sel && detectAiLayout(sel.room)} title="Auto-detect optimal furniture layout and wall roles using AI"><Wand2 size={14} /> AI Auto-Layout</button>
+          <button type="button" className="btn-primary workspace-action" onClick={() => setShowDesignLibrary(true)} title="Browse furniture that fits the selected room"><BookOpen size={14} /> Add furniture</button>
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
-          <button className="btn-secondary workspace-action" onClick={() => void saveGeometryVersion()} title="Save geometry changes to create a new plan version"><Save size={14} /> Save geometry</button>
-          <button className="btn-primary proceed-header-action workspace-action" disabled={!rooms.length} onClick={() => navigate(`/projects/${projectId}/spaces?tab=modules${selectedRoom ? `&roomId=${selectedRoom}` : ''}${selectedWall ? `&wallId=${selectedWall}` : ''}`)} title="Open catalog-backed modules and wall elevations"><LayoutGrid size={15} /> Configure Modules <ArrowRight size={14} /></button>
+          <button className="btn-secondary workspace-action" onClick={() => void saveGeometryVersion()} title="Save room and placement changes"><Save size={14} /> Save changes</button>
+          <button className="btn-secondary proceed-header-action workspace-action" disabled={!rooms.length} onClick={() => navigate(`/projects/${projectId}/3d`)} title="Review the saved room design in 3D"><Rotate3d size={15} /> Review in 3D <ArrowRight size={14} /></button>
         </div>
       </div>
 
@@ -2419,7 +2431,7 @@ export function SpacesWorkspace() {
           )}
         </div>
         <div className="spaces-guidance-actions">
-          {sel && <button type="button" className="btn-secondary btn-sm" onClick={() => detectAiLayout(sel.room)}><Sparkles size={13} /> AI Detect Furniture</button>}
+          {sel && <button type="button" className="btn-secondary btn-sm" onClick={() => detectAiLayout(sel.room)}><Sparkles size={13} /> Suggest a layout</button>}
           <button type="button" className="btn-secondary btn-sm" onClick={() => navigate(`/projects/${projectId}/plan`)}><Ruler size={13} /> Edit Plan</button>
         </div>
       </div>
@@ -3361,10 +3373,10 @@ export function SpacesWorkspace() {
                   <span>{spacePanel === 'geometry' ? '1' : spacePanel === 'candidates' ? '2' : spacePanel === 'modules' ? '3' : spacePanel === 'flooring' ? '4' : spacePanel === 'brief' ? '5' : spacePanel === 'scene' ? '6' : '★'}</span>
                   <div>
                     <strong>
-                      {spacePanel === 'geometry' ? 'Verify the physical room' : spacePanel === 'candidates' ? 'Deterministic Layout Candidates' : spacePanel === 'modules' ? 'Wall Bays & Modular Reconciliation' : spacePanel === 'flooring' ? 'Flooring Surface & Skirting Studio' : spacePanel === 'brief' ? 'Define the design brief' : spacePanel === 'scene' ? 'Prepare the scene' : 'Senior Designer Architectural Audit'}
+                      {spacePanel === 'geometry' ? 'Room measurements' : spacePanel === 'candidates' ? 'Layout ideas' : spacePanel === 'modules' ? 'Module details' : spacePanel === 'flooring' ? 'Flooring and skirting' : spacePanel === 'brief' ? 'Design brief' : spacePanel === 'scene' ? '3D scene details' : 'Design advice'}
                     </strong>
                     <small>
-                      {spacePanel === 'geometry' ? 'Room edges, wall sizes, openings and ceiling.' : spacePanel === 'candidates' ? 'Select an architecturally verified layout candidate.' : spacePanel === 'modules' ? 'Adjust bay boundaries, enforce keep-outs, and reconcile live usable width.' : spacePanel === 'flooring' ? 'Substrate buildup, laying patterns, cut-tile optimization, and skirting linear meters.' : spacePanel === 'brief' ? 'Required modules, priorities and client intent.' : spacePanel === 'scene' ? 'Feature walls, finishes and preferred camera.' : '10-Year expert ergonomics, work triangles, lighting and material harmony.'}
+                      {spacePanel === 'geometry' ? 'Check walls, openings, ceiling and confirmed measurements.' : spacePanel === 'candidates' ? 'Compare practical layout suggestions for this room.' : spacePanel === 'modules' ? 'Adjust the selected unit while keeping doors and windows clear.' : spacePanel === 'flooring' ? 'Choose floor finishes, laying pattern and skirting.' : spacePanel === 'brief' ? 'Capture the client’s priorities and required items.' : spacePanel === 'scene' ? 'Set finishes and camera details for the 3D review.' : 'Review circulation, lighting and practical design improvements.'}
                     </small>
                   </div>
                 </div>
@@ -3398,25 +3410,25 @@ export function SpacesWorkspace() {
 
                 <div className="space-panel-tabs" role="tablist" aria-label="Room configuration">
                   <button type="button" role="tab" aria-selected={spacePanel === 'candidates'} className={spacePanel === 'candidates' ? 'active' : ''} onClick={() => setSpacePanel('candidates')}>
-                    <LayoutGrid size={13} /> Room layout
+                    <LayoutGrid size={13} /> Layout
                   </button>
                   <button type="button" role="tab" aria-selected={spacePanel === 'geometry'} className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>
-                    <Columns size={13} /> Wall &amp; openings
+                    <Columns size={13} /> Room
                   </button>
                   <button type="button" role="tab" aria-selected={spacePanel === 'modules'} className={spacePanel === 'modules' ? 'active' : ''} onClick={() => setSpacePanel('modules')}>
-                    <Boxes size={13} /> Adjust module
+                    <Boxes size={13} /> Furniture
                   </button>
                   <button type="button" role="tab" aria-selected={spacePanel === 'advisor'} className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>
-                    <Sparkles size={13} /> Design advice
+                    <Sparkles size={13} /> Advice
                   </button>
                   <button type="button" role="tab" aria-selected={spacePanel === 'flooring'} className={spacePanel === 'flooring' ? 'active' : ''} onClick={() => setSpacePanel('flooring')}>
-                    <Grid size={13} /> Flooring &amp; Skirting
+                    <Grid size={13} /> Finishes
                   </button>
                   <button type="button" role="tab" aria-selected={spacePanel === 'brief'} className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>
-                    <BookOpen size={13} /> Design brief
+                    <BookOpen size={13} /> Brief
                   </button>
                   <button type="button" role="tab" aria-selected={spacePanel === 'scene'} className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>
-                    <Rotate3d size={13} /> Scene setup
+                    <Rotate3d size={13} /> 3D
                   </button>
                 </div>
 
@@ -4442,7 +4454,7 @@ export function SpacesWorkspace() {
                     disabled={!sel.room.requiredFurniture.length || !(sel.room.ceilingHeightMm ?? ceilingHeightMm)}
                     onClick={async () => {
                       await persistRoom(sel.room);
-                      navigate(`/projects/${projectId}/spaces?tab=modules`);
+                      navigate(`/projects/${projectId}/spaces?pendingModule=1`);
                     }}
                     title="Save this room and select its buildable catalog modules."
                   >
@@ -4931,16 +4943,16 @@ export function SpacesWorkspace() {
         currentStageIndex={3}
         totalStages={8}
         stageTitle="Rooms &amp; 2D Space Layout"
-        stageSummary={`${rooms.filter((r) => r.included !== false).length} configured spaces • Next: Design Library modules, Wall A/B/C/D elevations & System 32.`}
+        stageSummary={`${rooms.filter((r) => r.included !== false).length} room${rooms.filter((r) => r.included !== false).length === 1 ? '' : 's'} configured • Next: review the saved design in 3D.`}
         prevAction={{
           label: 'Measured Plan',
           icon: <ArrowLeft size={13} />,
           onClick: () => navigate(`/projects/${projectId}/plan`),
         }}
         nextAction={{
-          label: 'Configure Modules & Elevations',
+          label: 'Review in 3D',
           icon: <ArrowRight size={14} />,
-          onClick: () => navigate(`/projects/${projectId}/spaces?tab=modules${selectedRoom ? `&roomId=${selectedRoom}` : ''}${selectedWall ? `&wallId=${selectedWall}` : ''}`),
+          onClick: () => navigate(`/projects/${projectId}/3d`),
         }}
       />
     </div>

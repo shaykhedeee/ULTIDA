@@ -651,7 +651,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
             className="pipeline-step-card"
             onClick={() => {
               const activeProjId = projects[0]?.id;
-              openTool(activeProjId ? `/projects/${activeProjId}/spaces?tab=modules` : '/projects');
+              openTool(activeProjId ? `/projects/${activeProjId}/spaces?pendingModule=1` : '/projects');
             }}
           >
             <div className="step-card-body">

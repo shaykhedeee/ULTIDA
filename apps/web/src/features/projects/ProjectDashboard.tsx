@@ -789,7 +789,7 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
   function openProject(project: Project) {
     if (placingPreparedModule) {
       if (!bindPreparedModule(window.localStorage, project.id)) { setError('The prepared unit is missing or invalid. Return to the module planner and prepare it again.'); return; }
-      navigate(`/projects/${project.id}/spaces?tab=modules&pendingModule=1`);
+      navigate(`/projects/${project.id}/spaces?pendingModule=1`);
       return;
     }
     if (attachingRoomDraft) {

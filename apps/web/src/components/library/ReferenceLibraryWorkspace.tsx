@@ -334,7 +334,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     };
     window.localStorage.setItem('ultida.pendingModulePlan.v1', JSON.stringify(prepared));
     if (activeProjectId) {
-      navigate(`/projects/${activeProjectId}/spaces?tab=modules`);
+      navigate(`/projects/${activeProjectId}/spaces?pendingModule=1`);
     } else {
       navigate('/projects?placeModule=1');
     }
@@ -983,7 +983,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                                   // ignore
                                 }
                                 if (projectId) {
-                                  navigate(`/projects/${projectId}/spaces?tab=modules&pendingModule=1`);
+                                  navigate(`/projects/${projectId}/spaces?pendingModule=1`);
                                 } else {
                                   navigate('/projects');
                                 }

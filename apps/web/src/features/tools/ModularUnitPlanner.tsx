@@ -242,7 +242,7 @@ export function ModularUnitPlanner() {
     window.localStorage.setItem('ultida.pendingModulePlan.v1', JSON.stringify(prepared));
     setStatus(`Prepared ${selected.name} for ${targetProjectName}. Choose a room and wall to save placement.`);
     setShowProjectPicker(false);
-    navigate(`/projects/${targetProjectId}/spaces?tab=modules&pendingModule=1`);
+    navigate(`/projects/${targetProjectId}/spaces?pendingModule=1`);
   }
 
   function prepareProjectPlacement() {
