@@ -692,11 +692,6 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           setReviewSnapshot(plan.interpretation ?? plan.canonical_model ?? null);
         }
       }
-      try {
-        if (projectId && window.localStorage.getItem(`ultida.sceneApproved.${projectId}`) === 'true') {
-          setSceneApproved(true);
-        }
-      } catch {}
       // Rendering must prefer the newest approved scene. A newer draft is
       // reviewable in Scene Studio but cannot displace the approved render source.
       const sceneRows = Array.isArray(sceneResult.data) ? sceneResult.data : [];
@@ -709,65 +704,6 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         setSceneModules((storedScene.modules ?? []).map((module) => ({ ...module, label: module.label ?? module.family })));
         setSceneMaterials(storedScene.materials ?? []);
         setSceneApproved(['approved', 'locked'].includes(String(sceneRow.status)));
-      } else if (projectId) {
-        try {
-          const localVer = window.localStorage.getItem(`ultida.sceneVersionId.${projectId}`) || `scene-v1-${projectId}`;
-          setSceneVersionId(localVer);
-          if (window.localStorage.getItem(`ultida.sceneApproved.${projectId}`) === 'true') {
-            setSceneApproved(true);
-          }
-          const localSceneRaw = window.localStorage.getItem(`ultida.scene.${projectId}`);
-          if (localSceneRaw) {
-            const parsed = JSON.parse(localSceneRaw);
-            if (Array.isArray(parsed?.modules) && parsed.modules.length > 0) {
-              setSceneModules(parsed.modules.map((m: any) => ({ ...m, label: m.label ?? m.family })));
-              if (Array.isArray(parsed.materials)) setSceneMaterials(parsed.materials);
-            }
-          } else {
-            const localModsRaw = window.localStorage.getItem(`ultida.modules.${projectId}`);
-            if (localModsRaw) {
-              const parsedMods = JSON.parse(localModsRaw);
-              if (Array.isArray(parsedMods) && parsedMods.length > 0) {
-                setSceneModules(parsedMods.map((m: any) => ({ ...m, label: m.label ?? m.family })));
-              }
-            } else {
-              const starterModules = [
-                {
-                  id: `mod-starter-wardrobe-${projectId}`,
-                  roomId: 'room-main',
-                  family: 'wardrobe',
-                  label: '2400mm 4-Door Fluted Glass Wardrobe',
-                  widthMm: 2400,
-                  depthMm: 600,
-                  heightMm: 2400,
-                  wallId: 'wall-a',
-                  offsetMm: 200,
-                  configuration: { archetype: 'profile_glass_display', shutterStyle: 'profile-glass', drawerCount: 3, includeLoft: true, glassProfile: true, lighting: 'shelf-led' },
-                  position: { xMm: 1200, yMm: 300 },
-                  rotationDeg: 0,
-                },
-                {
-                  id: `mod-starter-tv-${projectId}`,
-                  roomId: 'room-main',
-                  family: 'tv-unit',
-                  label: '1800mm Floating TV Credenza & Slat Wall',
-                  widthMm: 1800,
-                  depthMm: 400,
-                  heightMm: 1800,
-                  wallId: 'wall-b',
-                  offsetMm: 400,
-                  configuration: { archetype: 'tv_credenza_slats', shutterStyle: 'fluted-panel', drawerCount: 2, lighting: 'cove' },
-                  position: { xMm: 3200, yMm: 300 },
-                  rotationDeg: 90,
-                }
-              ];
-              setSceneModules(starterModules);
-              try {
-                window.localStorage.setItem(`ultida.modules.${projectId}`, JSON.stringify(starterModules));
-              } catch {}
-            }
-          }
-        } catch {}
       }
     })();
     return () => { cancelled = true; };
@@ -1319,80 +1255,44 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   }
 
   async function saveScene(id: string, modules: typeof sceneModules, materials: any[] = []) {
-    let effectivePlanVersionId = approvedPlanVersionId;
-    if (!effectivePlanVersionId && projectId) {
-      try {
-        effectivePlanVersionId = window.localStorage.getItem(`ultida.approvedPlanVersionId.${projectId}`) || 'plan.v1';
-      } catch {
-        effectivePlanVersionId = 'plan.v1';
-      }
-    }
     const accessToken = await getValidToken();
     const apiBase = getApiBase();
-    const roomId = modules[0]?.roomId || 'room-master-bed';
+    const roomId = modules[0]?.roomId;
+    if (!projectId || !accessToken || !roomId) {
+      setPlanStatus('Save a room and at least one placed module before compiling the scene.');
+      return undefined;
+    }
     const normalizedModules = modules.map((m) => ({ ...m, roomId }));
 
-    if (accessToken && projectId) {
-      try {
-        const response = await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-          body: JSON.stringify({ roomId, moduleInstanceIds: normalizedModules.map((module) => module.id), designVersion: 'room-design.v1', changeReason: 'Compiled from persisted room modules, component finishes, and active approved plan.v1' }),
-        });
-        const payload = await response.json().catch(() => null);
-        if (response.ok && payload?.success && payload?.sceneVersion) {
-          setSceneVersionId(payload.sceneVersion.id);
-          setSceneVersionNumber(payload.sceneVersion.version_number);
-          setSceneModules(normalizedModules);
-          setSceneMaterials(Array.isArray(payload.materials) ? payload.materials : materials);
-          setSceneApproved(false);
-          setPlanStatus('Measured scene compiled from the active plan.v1.');
-          return payload.sceneVersion.id as string;
-        }
-      } catch (err) {
-        console.warn('Backend scene compile fetch failed, using local resilient compile:', err);
+    try {
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ roomId, moduleInstanceIds: normalizedModules.map((module) => module.id), designVersion: 'room-design.v1', changeReason: 'Compiled from persisted room modules, component finishes, and active approved plan.v1' }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (response.ok && payload?.success && payload?.sceneVersion) {
+        setSceneVersionId(payload.sceneVersion.id);
+        setSceneVersionNumber(payload.sceneVersion.version_number);
+        setSceneModules(normalizedModules);
+        setSceneMaterials(Array.isArray(payload.materials) ? payload.materials : materials);
+        setSceneApproved(false);
+        setPlanStatus('Measured scene compiled from the active approved plan. Review and approve it before rendering.');
+        return payload.sceneVersion.id as string;
       }
+      setPlanStatus(payload?.message ?? 'The scene could not be saved. Check the room, plan, and module readiness, then retry.');
+    } catch {
+      setPlanStatus('The scene service could not be reached. Nothing was compiled or approved; retry when the connection is restored.');
     }
-
-    // Client-side resilient compile fallback
-    const fallbackId = `scene-v1-${Date.now()}`;
-    const nextVer = (sceneVersionNumber || 0) + 1;
-    setSceneVersionId(fallbackId);
-    setSceneVersionNumber(nextVer);
-    setSceneModules(normalizedModules);
-    setSceneMaterials(materials);
-    setSceneApproved(false);
-    if (projectId) {
-      try {
-        window.localStorage.setItem(`ultida.sceneVersionId.${projectId}`, fallbackId);
-        const sceneDoc = {
-          schema: 'scene.v1',
-          units: 'mm',
-          rooms: [{ id: roomId, name: 'Main Suite', boundary: [{ xMm: 0, yMm: 0 }, { xMm: 4500, yMm: 0 }, { xMm: 4500, yMm: 3600 }, { xMm: 0, yMm: 3600 }] }],
-          walls: [
-            { id: 'wall-a', start: { xMm: 0, yMm: 0 }, end: { xMm: 4500, yMm: 0 }, thicknessMm: 150, heightMm: 2700 },
-            { id: 'wall-b', start: { xMm: 4500, yMm: 0 }, end: { xMm: 4500, yMm: 3600 }, thicknessMm: 150, heightMm: 2700 },
-            { id: 'wall-c', start: { xMm: 4500, yMm: 3600 }, end: { xMm: 0, yMm: 3600 }, thicknessMm: 150, heightMm: 2700 },
-            { id: 'wall-d', start: { xMm: 0, yMm: 3600 }, end: { xMm: 0, yMm: 0 }, thicknessMm: 150, heightMm: 2700 },
-          ],
-          openings: [],
-          modules: normalizedModules,
-          moduleParts: [],
-          lighting: [],
-          materials: materials,
-          cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: 2000, yMm: 1600, zMm: -4000 }, target: { xMm: 2000, yMm: 1200, zMm: 1200 }, lensMm: 35 }],
-        };
-        window.localStorage.setItem(`ultida.scene.${projectId}`, JSON.stringify(sceneDoc));
-        window.localStorage.setItem(`ultida.scene.${fallbackId}`, JSON.stringify(sceneDoc));
-      } catch {}
-    }
-    setPlanStatus('Measured scene compiled from the active plan.v1.');
-    return fallbackId;
+    return undefined;
   }
 
   async function approveScene(targetSceneVersionId?: string): Promise<boolean> {
-    const sceneToApprove = targetSceneVersionId ?? sceneVersionId ?? `scene-v1-${Date.now()}`;
-    if (!projectId) return false;
+    const sceneToApprove = targetSceneVersionId ?? sceneVersionId;
+    if (!projectId || !sceneToApprove) {
+      setPlanStatus('Compile a saved scene before approval.');
+      return false;
+    }
     const accessToken = await getValidToken();
     const apiBase = getApiBase();
     if (accessToken) {
@@ -1405,22 +1305,15 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           setSceneVersionId(sceneToApprove);
           setSceneApproved(true);
           setPlanStatus(`Scene approved and ready for 3D walkthrough.`);
-          if (projectId) {
-            try { window.localStorage.setItem(`ultida.sceneApproved.${projectId}`, 'true'); } catch {}
-          }
           return true;
         }
-      } catch (err) {
-        console.warn('Backend scene approve fetch failed, using local approval:', err);
+        setPlanStatus(payload?.message ?? 'The scene could not be approved. Resolve the listed blockers and retry.');
+      } catch {
+        setPlanStatus('The approval service could not be reached. The scene remains unapproved.');
       }
     }
-    setSceneVersionId(sceneToApprove);
-    setSceneApproved(true);
-    if (projectId) {
-      try { window.localStorage.setItem(`ultida.sceneApproved.${projectId}`, 'true'); } catch {}
-    }
-    setPlanStatus('Scene approved and ready for 3D walkthrough.');
-    return true;
+    if (!accessToken) setPlanStatus('Sign in again before approving the saved scene.');
+    return false;
   }
 
   const currentStage = activeStageId;
