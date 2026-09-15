@@ -8,7 +8,8 @@ import {
   Home, CheckCircle2, Circle, Edit3, AlertTriangle, Layers, Ruler, Square, SplitSquareHorizontal,
   Merge, Columns, Plug, DoorOpen, Pencil, Undo2, Redo2, Eye, EyeOff, Sparkles,
   MapPin, TriangleAlert, Save, Plus, X, Maximize, ArrowRight, ArrowLeft, LayoutGrid, Sofa,
-  BookOpen, Search, Image as ImageIcon, Sliders, Check, Wand2, Info, ChevronRight, Compass, Download, Grid, MousePointer2
+  BookOpen, Search, Image as ImageIcon, Sliders, Check, Wand2, Info, ChevronRight, Compass, Download, Grid, MousePointer2,
+  Boxes, Minus, Rotate3d
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -244,8 +245,34 @@ const FURNITURE_OPTIONS: Record<string, Array<{ id: string; label: string; defau
     { id: 'storage_unit', label: 'Storage Unit', defaultModuleId: 'foyer-console-1200' },
     { id: 'study_unit', label: 'Study Unit', defaultModuleId: 'study-1500' },
     { id: 'tv_unit', label: 'TV Unit' }
-  ],
+  ]
 };
+
+const TOOL_DEFINITIONS: Record<string, { label: string; icon: any; shortcut?: string; hint: string }> = {
+  select: { label: 'Select', icon: MousePointer2, shortcut: 'V', hint: 'Select rooms, walls, and modules' },
+  measure: { label: 'Measure', icon: Ruler, shortcut: 'M', hint: 'Click two points to measure distance' },
+  annotate: { label: 'Note', icon: Pencil, shortcut: 'N', hint: 'Add text annotations to plan' },
+  draw_room: { label: 'Draw room', icon: Square, shortcut: 'R', hint: 'Click and drag to draw a room' },
+  wall: { label: 'Add wall', icon: Columns, shortcut: 'W', hint: 'Click start and end to place partition wall' },
+  split: { label: 'Split', icon: SplitSquareHorizontal, hint: 'Split selected rectangular room into two' },
+  merge: { label: 'Merge', icon: Merge, hint: 'Merge touching rooms of the same type' },
+  door: { label: 'Door', icon: DoorOpen, shortcut: 'D', hint: 'Click any wall line to place door opening' },
+  window: { label: 'Window', icon: Square, hint: 'Click perimeter wall to place window opening' },
+  column: { label: 'Column', icon: LayoutGrid, hint: 'Place structural load-bearing column' },
+  beam: { label: 'Beam', icon: Layers, hint: 'Draw ceiling/slab structural beam' },
+  service: { label: 'Service', icon: Plug, hint: 'Place MEP plumbing, electrical or drain point' },
+};
+
+const QUICK_ROOM_PRESETS = [
+  { name: 'Master Suite', roomType: 'master_bedroom', widthMm: 5000, depthMm: 4200, ceilingMm: 3000, icon: '🛏️', desc: 'King bed, walk-in wardrobe wall & vanity' },
+  { name: 'Living & Lounge', roomType: 'living', widthMm: 6500, depthMm: 4800, ceilingMm: 3200, icon: '🛋️', desc: 'Cantilevered TV media wall & sectionals' },
+  { name: 'Modular Kitchen', roomType: 'kitchen', widthMm: 4200, depthMm: 3600, ceilingMm: 2800, icon: '🍳', desc: 'Tandembox base units & profile glass wall' },
+  { name: 'Dining Hall', roomType: 'dining', widthMm: 4500, depthMm: 3800, ceilingMm: 3000, icon: '🍽️', desc: 'Crockery display bar & 8-seater dining' },
+  { name: 'Guest Bedroom', roomType: 'bedroom', widthMm: 4200, depthMm: 3600, ceilingMm: 2800, icon: '🛏️', desc: 'Queen storage bed & 3-shutter wardrobe' },
+  { name: 'Sacred Mandir', roomType: 'pooja', widthMm: 2400, depthMm: 2400, ceilingMm: 3000, icon: '🪔', desc: 'North-East Ishanya sanctuary with CNC Jaali' },
+  { name: 'Executive Study', roomType: 'study', widthMm: 3600, depthMm: 3200, ceilingMm: 2800, icon: '📚', desc: 'Integrated library wall & dual workstation' },
+  { name: 'Entry Foyer', roomType: 'foyer', widthMm: 3000, depthMm: 2400, ceilingMm: 3000, icon: '🚪', desc: 'Shoe console & illuminated art niche' },
+];
 
 const STYLE_PRESETS = [
   'Warm minimal', 'Scandinavian', 'Contemporary luxe', 'Modern classic', 'Japandi', 'Industrial modern',
@@ -404,6 +431,25 @@ export function SpacesWorkspace() {
   const [canvasFocus, setCanvasFocus] = useState<'room' | 'plan'>('plan');
   const [activeStoreyId, setActiveStoreyId] = useState<string>('level-ground');
 
+  // Interactive Zoom, Pan, and Cursor state
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [spacebarDown, setSpacebarDown] = useState(false);
+  const [cursorCoords, setCursorCoords] = useState<{ xMm: number; yMm: number } | null>(null);
+
+  // Room search & quick add state
+  const [roomSearchQuery, setRoomSearchQuery] = useState('');
+  const [showAddRoomModal, setShowAddRoomModal] = useState(false);
+  const [customRoomForm, setCustomRoomForm] = useState({
+    name: '',
+    roomType: 'living',
+    widthMm: 5000,
+    depthMm: 4000,
+    ceilingMm: 2800,
+  });
+
   // Floor plan backdrop overlay state
   const [planPreviewUrl, setPlanPreviewUrl] = useState<string | null>(null);
   const [showPlanOverlay, setShowPlanOverlay] = useState(true);
@@ -528,9 +574,49 @@ export function SpacesWorkspace() {
     snapshot();
     setRooms((prev) => [...prev, newRoom]);
     setSelectedRoom(newRoomId);
-    setSaveState(`Imported ${newRoom.name} (${widthMm}×${depthMm} mm) from Room Builder.`);
     dismissRoomDraft();
   }
+
+  function addNewRoom(name: string, roomType: string, widthMm: number, depthMm: number, ceilingMm = 2800) {
+    let originX = 1000;
+    let originY = 1000;
+    if (rooms.length > 0) {
+      const allX = rooms.flatMap((r) => r.polygon.map((pt) => pt.xMm));
+      const maxX = Math.max(...allX, 0);
+      originX = maxX + 800;
+    }
+
+    const polygon: Pt[] = [
+      { xMm: originX, yMm: originY },
+      { xMm: originX + widthMm, yMm: originY },
+      { xMm: originX + widthMm, yMm: originY + depthMm },
+      { xMm: originX, yMm: originY + depthMm },
+    ];
+
+    const newRoomId = entityId();
+    const newRoom: PlanRoom = {
+      id: newRoomId,
+      name: name || `Room ${rooms.length + 1}`,
+      roomType: roomType || 'living',
+      polygon,
+      areaSqm: polyArea(polygon),
+      ceilingHeightMm: ceilingMm,
+      requiredFurniture: defaultCategoriesForRoom(roomType, 'balanced'),
+      included: true,
+      floorFinish: 'Italian Botticino Marble',
+    };
+
+    snapshot();
+    setRooms((prev) => [...prev, newRoom]);
+    setSelectedRoom(newRoomId);
+    setCanvasFocus('room');
+    setSaveState(`Added ${newRoom.name} (${widthMm}×${depthMm} mm) to floor plan.`);
+    setShowAddRoomModal(false);
+  }
+
+  const totalPlanAreaSqm = useMemo(() => {
+    return rooms.filter((r) => r.included !== false).reduce((sum, r) => sum + r.areaSqm, 0);
+  }, [rooms]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -760,6 +846,15 @@ export function SpacesWorkspace() {
     };
   }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode, scaleVerified, roomFurnitureMap, roomVastuMap, selectedRoom, aiProposals]);
 
+  const filteredRoomMetrics = useMemo(() => {
+    if (!roomSearchQuery.trim()) return roomMetrics;
+    const q = roomSearchQuery.toLowerCase().trim();
+    return roomMetrics.filter(({ room }) =>
+      room.name.toLowerCase().includes(q) ||
+      room.roomType.toLowerCase().includes(q)
+    );
+  }, [roomMetrics, roomSearchQuery]);
+
   const includedMetrics = useMemo(() => roomMetrics.filter(({ room }) => room.included !== false), [roomMetrics]);
   const overallReadiness = useMemo(() => {
     const ready = includedMetrics.filter(({ readiness }) => readiness.ready);
@@ -827,20 +922,104 @@ export function SpacesWorkspace() {
 
   const sel = roomMetrics.find(m => m.room.id === selectedRoom);
 
-  // Escape always cancels an in-flight placement. Without this a user who
-  // arms a module by click has no way out except placing it somewhere.
+  const svgViewBox = useMemo(() => {
+    const effectiveW = view.w / zoomLevel;
+    const effectiveH = view.h / zoomLevel;
+    const effectiveX = (view.w - effectiveW) / 2 - panOffset.x;
+    const effectiveY = (view.h - effectiveH) / 2 - panOffset.y;
+    return `${effectiveX} ${effectiveY} ${effectiveW} ${effectiveH}`;
+  }, [view.w, view.h, zoomLevel, panOffset]);
+
+  function handleCanvasWheel(e: React.WheelEvent<SVGSVGElement>) {
+    e.preventDefault();
+    const zoomDelta = e.deltaY < 0 ? 0.15 : -0.15;
+    setZoomLevel((prev) => Math.max(0.4, Math.min(3.5, +(prev + zoomDelta).toFixed(2))));
+  }
+
+  function handleCanvasMouseDown(e: React.MouseEvent<SVGSVGElement>) {
+    if (spacebarDown || e.button === 1) {
+      e.preventDefault();
+      setIsPanning(true);
+      setPanStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
+    }
+  }
+
+  function handleCanvasMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    try {
+      const pt = svgPoint(e);
+      setCursorCoords({ xMm: Math.round(pt.xMm), yMm: Math.round(pt.yMm) });
+    } catch {
+      // ignore when canvas not ready
+    }
+
+    if (isPanning) {
+      setPanOffset({
+        x: e.clientX - panStart.x,
+        y: e.clientY - panStart.y,
+      });
+      return;
+    }
+
+    if (tool === 'draw_room' && roomDraftStart) setRoomDraftCurrent(svgPoint(e));
+    if (draggingModule) updateDropPreview(e);
+  }
+
+  function handleCanvasMouseUp() {
+    if (isPanning) setIsPanning(false);
+  }
+
+  // Comprehensive keyboard shortcut navigation
   useEffect(() => {
-    if (!draggingModule) return;
-    const onKey = (event: KeyboardEvent) => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) || target?.isContentEditable) {
+        return;
+      }
+
+      if (event.key === ' ' || event.code === 'Space') {
+        event.preventDefault();
+        setSpacebarDown(true);
+        return;
+      }
+
       if (event.key === 'Escape') {
-        setDraggingModule(null);
-        setDropPreview(null);
-        setDropCursor(null);
+        if (draggingModule) {
+          setDraggingModule(null);
+          setDropPreview(null);
+          setDropCursor(null);
+        }
+        if (tool !== 'select') {
+          activateCanvasTool('cancel_tool');
+        }
+        setShowAddRoomModal(false);
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === 'v') activateCanvasTool('select');
+      else if (key === 'm') activateCanvasTool('measure');
+      else if (key === 'r') activateCanvasTool('draw_room');
+      else if (key === 'w') activateCanvasTool('wall');
+      else if (key === 'd') activateCanvasTool('door');
+      else if (key === '+' || key === '=') setZoomLevel(z => Math.min(3.5, +(z + 0.25).toFixed(2)));
+      else if (key === '-') setZoomLevel(z => Math.max(0.4, +(z - 0.25).toFixed(2)));
+      else if (key === '0') { setZoomLevel(1); setPanOffset({ x: 0, y: 0 }); }
+    };
+
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === ' ' || event.code === 'Space') {
+        setSpacebarDown(false);
+        setIsPanning(false);
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [draggingModule]);
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [draggingModule, tool]);
 
   const activeCatalogWall = useMemo(() => {
     if (!sel?.room) return null;
@@ -2338,9 +2517,53 @@ export function SpacesWorkspace() {
         <div className="spaces-layout">
           {/* Region: Room list */}
           <aside className="region room-list">
-            <div className="region-title"><Home size={14} /> Rooms ({rooms.length})</div>
+            <div className="room-list-header">
+              <div className="region-title">
+                <Home size={14} />
+                <span>Rooms ({rooms.length})</span>
+                <span className="room-total-area-badge" title="Total plan floor area">
+                  {totalPlanAreaSqm.toFixed(1)} m²
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn-add-room-quick"
+                onClick={() => setShowAddRoomModal(true)}
+                title="Add a new room or select from villa architectural presets"
+              >
+                <Plus size={13} /> Add Room
+              </button>
+            </div>
+
+            <div className="room-search-bar">
+              <Search size={13} className="room-search-icon" />
+              <input
+                type="text"
+                className="room-search-input"
+                placeholder="Filter rooms by name or type..."
+                value={roomSearchQuery}
+                onChange={(e) => setRoomSearchQuery(e.target.value)}
+              />
+              {roomSearchQuery && (
+                <button
+                  type="button"
+                  className="room-search-clear"
+                  onClick={() => setRoomSearchQuery('')}
+                  title="Clear filter"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
             <div className="room-cards">
-              {roomMetrics.map(({ room, widthMm, depthMm, effectiveAreaSqm, usable, readiness, vastu, scaleReview }) => (
+              {filteredRoomMetrics.length === 0 ? (
+                <div className="room-list-empty-state">
+                  <p>No rooms match &ldquo;{roomSearchQuery}&rdquo;</p>
+                  <button type="button" className="btn-secondary btn-xs" onClick={() => setRoomSearchQuery('')}>Clear filter</button>
+                </div>
+              ) : (
+                filteredRoomMetrics.map(({ room, widthMm, depthMm, effectiveAreaSqm, usable, readiness, vastu, scaleReview }) => (
                 <div key={room.id} className={`room-card ${selectedRoom === room.id ? 'sel' : ''}`} onClick={() => { setSelectedRoom(room.id); setAiProposals([]); }}>
                   <div className="rc-head">
                     <input
@@ -2355,20 +2578,34 @@ export function SpacesWorkspace() {
                       onBlur={() => void persistRoom(room)}
                       title="Click to rename room"
                     />
-                    <select
-                      className="rc-type-select"
-                      value={room.roomType}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        setRoomType(room.id, e.target.value);
-                      }}
-                      title="Select room classification"
-                    >
-                      {Object.entries(ROOM_TYPES).map(([key, label]) => (
-                        <option key={key} value={key}>{label}</option>
-                      ))}
-                    </select>
+                    <div className="rc-head-actions">
+                      <button
+                        type="button"
+                        className={`rc-focus-btn ${canvasFocus === 'room' && selectedRoom === room.id ? 'active' : ''}`}
+                        title="Focus view on this room"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedRoom(room.id);
+                          setCanvasFocus('room');
+                        }}
+                      >
+                        <Maximize size={11} />
+                      </button>
+                      <select
+                        className="rc-type-select"
+                        value={room.roomType}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          setRoomType(room.id, e.target.value);
+                        }}
+                        title="Select room classification"
+                      >
+                        {Object.entries(ROOM_TYPES).map(([key, label]) => (
+                          <option key={key} value={key}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                   <div className="rc-dims">
                     <strong className="rc-dims-value">{Math.round(widthMm)} × {Math.round(depthMm)} mm</strong>
@@ -2455,7 +2692,7 @@ export function SpacesWorkspace() {
                     </div>
                   )}
                 </div>
-              ))}
+              )))}
             </div>
           </aside>
 
@@ -2518,14 +2755,80 @@ export function SpacesWorkspace() {
             </div>
             <div className="toolbar" aria-label="Canvas tools">
               {[
-                { label: 'AI Architecture', tools: [['select', 'Choose'], ['measure', 'Measure'], ['annotate', 'Note']] },
-                { label: 'Production & CNC', tools: [['draw_room', 'Draw room'], ['wall', 'Add wall'], ['split', 'Split'], ['merge', 'Merge']] },
-                { label: 'Operations', tools: [['door', 'Door'], ['window', 'Window'], ['column', 'Column'], ['beam', 'Beam'], ['service', 'Service']] },
-              ].map((group) => <div className="tool-group" key={group.label}><span>{group.label}</span><div>{group.tools.map(([t, label]) => (
-                <button key={t} className={`tool-btn ${(tool === t || (t === 'column' && tool === 'add_column') || (t === 'service' && tool === 'add_service') || (t === 'wall' && tool === 'draw_wall') || (t === 'beam' && tool === 'draw_beam') || (t === 'door' && tool === 'add_door') || (t === 'window' && tool === 'add_window')) ? 'active' : ''}`} onClick={() => activateCanvasTool(t)}>{label}</button>
-              ))}</div></div>)}
-              {tool !== 'select' && <button type="button" className="tool-cancel" onClick={() => activateCanvasTool('cancel_tool')}>Cancel active tool</button>}
+                { label: 'Navigation & Notes', tools: ['select', 'measure', 'annotate'] },
+                { label: 'Room & Partitions', tools: ['draw_room', 'wall', 'split', 'merge'] },
+                { label: 'Openings & Structural', tools: ['door', 'window', 'column', 'beam', 'service'] },
+              ].map((group) => (
+                <div className="tool-group" key={group.label}>
+                  <span className="tool-group-label">{group.label}</span>
+                  <div className="tool-group-buttons">
+                    {group.tools.map((t) => {
+                      const def = TOOL_DEFINITIONS[t];
+                      const Icon = def?.icon || MousePointer2;
+                      const isActive = (
+                        tool === t ||
+                        (t === 'column' && tool === 'add_column') ||
+                        (t === 'service' && tool === 'add_service') ||
+                        (t === 'wall' && tool === 'draw_wall') ||
+                        (t === 'beam' && tool === 'draw_beam') ||
+                        (t === 'door' && tool === 'add_door') ||
+                        (t === 'window' && tool === 'add_window')
+                      );
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          className={`tool-btn ${isActive ? 'active' : ''}`}
+                          onClick={() => activateCanvasTool(t)}
+                          title={`${def?.hint || def?.label || t}${def?.shortcut ? ` (${def.shortcut})` : ''}`}
+                        >
+                          <Icon size={14} className="tool-btn-icon" />
+                          <span className="tool-btn-text">{def?.label || t}</span>
+                          {def?.shortcut && <kbd className="tool-kbd">{def.shortcut}</kbd>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {tool !== 'select' && (
+                <button
+                  type="button"
+                  className="tool-cancel"
+                  onClick={() => activateCanvasTool('cancel_tool')}
+                  title="Return to select mode (Esc)"
+                >
+                  <X size={13} /> Cancel ({tool.replace(/^(add_|draw_)/, '')})
+                </button>
+              )}
             </div>
+
+            {tool !== 'select' && (
+              <div className="canvas-active-tool-banner" role="alert">
+                <div className="tool-banner-info">
+                  <span className="tool-banner-icon">
+                    {(() => {
+                      const baseTool = tool.replace(/^(add_|draw_)/, '');
+                      const def = TOOL_DEFINITIONS[tool] || TOOL_DEFINITIONS[baseTool];
+                      const IconComp = def?.icon || Wand2;
+                      return <IconComp size={15} />;
+                    })()}
+                  </span>
+                  <div className="tool-banner-text">
+                    <strong>Active: {TOOL_DEFINITIONS[tool]?.label || TOOL_DEFINITIONS[tool.replace(/^(add_|draw_)/, '')]?.label || tool}</strong>
+                    <span>{TOOL_DEFINITIONS[tool]?.hint || TOOL_DEFINITIONS[tool.replace(/^(add_|draw_)/, '')]?.hint || saveState || 'Click canvas to execute'}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="tool-banner-cancel-btn"
+                  onClick={() => activateCanvasTool('cancel_tool')}
+                  title="Cancel active tool (Esc)"
+                >
+                  <X size={12} /> Cancel (Esc)
+                </button>
+              </div>
+            )}
             <div className="plan-trust-strip" role="status">
               <span className={scaleVerified ? 'trust-ok' : 'trust-review'}>{scaleVerified ? '✓ Scale confirmed' : 'Scale not confirmed'}</span>
               <span>{rooms.length} rooms</span>
@@ -2627,14 +2930,24 @@ export function SpacesWorkspace() {
             ) : (
               <svg
                 ref={svgRef}
-                className={`plan-canvas${draggingModule ? ' plan-canvas--dropping' : ''}`}
+                className={`plan-canvas${draggingModule ? ' plan-canvas--dropping' : ''}${spacebarDown || isPanning ? ' plan-canvas--panning' : ''}`}
                 role="img"
                 aria-label="Interactive 2D floor plan canvas"
-                viewBox={`0 0 ${view.w} ${view.h}`}
-                onClick={(event) => { if (draggingModule) { commitArmedPlacement(event); return; } onCanvasClick(event); }}
-                onMouseMove={(event) => {
-                  if (tool === 'draw_room' && roomDraftStart) setRoomDraftCurrent(svgPoint(event));
-                  if (draggingModule) updateDropPreview(event);
+                viewBox={svgViewBox}
+                onWheel={handleCanvasWheel}
+                onMouseDown={handleCanvasMouseDown}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseUp={handleCanvasMouseUp}
+                onMouseLeave={() => {
+                  if (isPanning) setIsPanning(false);
+                  setCursorCoords(null);
+                  setDropPreview(null);
+                  setDropCursor(null);
+                }}
+                onClick={(event) => {
+                  if (isPanning) return;
+                  if (draggingModule) { commitArmedPlacement(event); return; }
+                  onCanvasClick(event);
                 }}
                 onDragOver={(event) => { if (!draggingModule) return; event.preventDefault(); event.dataTransfer.dropEffect = dropPreview?.valid ? 'copy' : 'none'; updateDropPreview(event); }}
                 onDragLeave={() => { setDropPreview(null); setDropCursor(null); }}
@@ -2982,6 +3295,78 @@ export function SpacesWorkspace() {
 
             {measureFrom && !measureTo && <div className="measure-hint">Click a second point to measure.</div>}
             {!scaleVerified && <div className="scale-warn"><TriangleAlert size={13} /> Scale not verified — dimensions are approximate.</div>}
+
+            {/* Floating Zoom & Pan HUD */}
+            <div className="canvas-floating-hud" role="toolbar" aria-label="Canvas zoom and pan controls">
+              <button
+                type="button"
+                className="zoom-hud-btn"
+                title="Zoom in (+)"
+                onClick={() => setZoomLevel(z => Math.min(3.5, +(z + 0.25).toFixed(2)))}
+              >
+                <Plus size={14} />
+              </button>
+              <button
+                type="button"
+                className="zoom-hud-val"
+                title="Reset zoom to 100% (0)"
+                onClick={() => { setZoomLevel(1); setPanOffset({ x: 0, y: 0 }); }}
+              >
+                {Math.round(zoomLevel * 100)}%
+              </button>
+              <button
+                type="button"
+                className="zoom-hud-btn"
+                title="Zoom out (-)"
+                onClick={() => setZoomLevel(z => Math.max(0.4, +(z - 0.25).toFixed(2)))}
+              >
+                <Minus size={14} />
+              </button>
+              <div className="zoom-hud-divider" />
+              <button
+                type="button"
+                className={`zoom-hud-btn zoom-hud-text-btn ${canvasFocus === 'plan' ? 'active' : ''}`}
+                title="Fit full floor plan"
+                onClick={() => { setZoomLevel(1); setPanOffset({ x: 0, y: 0 }); setCanvasFocus('plan'); }}
+              >
+                Fit Plan
+              </button>
+              {selectedRoom && (
+                <button
+                  type="button"
+                  className={`zoom-hud-btn zoom-hud-text-btn ${canvasFocus === 'room' ? 'active' : ''}`}
+                  title="Fit selected room"
+                  onClick={() => { setZoomLevel(1.5); setPanOffset({ x: 0, y: 0 }); setCanvasFocus('room'); }}
+                >
+                  Fit Room
+                </button>
+              )}
+            </div>
+
+            {/* Bottom Status Bar */}
+            <footer className="canvas-status-bar" role="contentinfo">
+              <div className="status-bar-coords">
+                <span className="status-dot live" />
+                <span className="status-coords-val">
+                  {cursorCoords ? `X: ${cursorCoords.xMm.toLocaleString()} mm · Y: ${cursorCoords.yMm.toLocaleString()} mm` : 'Move cursor over plan'}
+                </span>
+              </div>
+              <div className="status-bar-tool">
+                <span className="status-label">Tool:</span>
+                <span className="status-tool-badge">
+                  {TOOL_DEFINITIONS[tool]?.label || TOOL_DEFINITIONS[tool.replace(/^(add_|draw_)/, '')]?.label || tool}
+                </span>
+              </div>
+              {sel && (
+                <div className="status-bar-room">
+                  <strong>{sel.room.name}</strong>
+                  <span>({Math.round(sel.widthMm)} × {Math.round(sel.depthMm)} mm • {(sel.effectiveAreaSqm ?? sel.room.areaSqm).toFixed(1)} m²)</span>
+                </div>
+              )}
+              <div className="status-bar-hints">
+                <span className="canvas-status-hint">Space + Drag to Pan · Wheel to Zoom · Esc for Select</span>
+              </div>
+            </footer>
           </section>
 
           {/* Region: Properties (room / wall) */}
@@ -3029,13 +3414,27 @@ export function SpacesWorkspace() {
                 </section>
 
                 <div className="space-panel-tabs" role="tablist" aria-label="Room configuration">
-                  <button type="button" role="tab" aria-selected={spacePanel === 'candidates'} className={spacePanel === 'candidates' ? 'active' : ''} onClick={() => setSpacePanel('candidates')}>Room layout</button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'geometry'} className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>Wall &amp; openings</button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'modules'} className={spacePanel === 'modules' ? 'active' : ''} onClick={() => setSpacePanel('modules')}>Adjust module</button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'advisor'} className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>Design advice</button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'flooring'} className={spacePanel === 'flooring' ? 'active' : ''} onClick={() => setSpacePanel('flooring')}>Flooring &amp; Skirting</button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'brief'} className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>Design brief</button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'scene'} className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>Scene setup</button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'candidates'} className={spacePanel === 'candidates' ? 'active' : ''} onClick={() => setSpacePanel('candidates')}>
+                    <LayoutGrid size={13} /> Room layout
+                  </button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'geometry'} className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>
+                    <Columns size={13} /> Wall &amp; openings
+                  </button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'modules'} className={spacePanel === 'modules' ? 'active' : ''} onClick={() => setSpacePanel('modules')}>
+                    <Boxes size={13} /> Adjust module
+                  </button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'advisor'} className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>
+                    <Sparkles size={13} /> Design advice
+                  </button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'flooring'} className={spacePanel === 'flooring' ? 'active' : ''} onClick={() => setSpacePanel('flooring')}>
+                    <Grid size={13} /> Flooring &amp; Skirting
+                  </button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'brief'} className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>
+                    <BookOpen size={13} /> Design brief
+                  </button>
+                  <button type="button" role="tab" aria-selected={spacePanel === 'scene'} className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>
+                    <Rotate3d size={13} /> Scene setup
+                  </button>
                 </div>
 
                 {spacePanel === 'candidates' && (
@@ -4384,6 +4783,166 @@ export function SpacesWorkspace() {
           </div>
         );
       })()}
+
+      {/* Quick Add Architectural Room Modal */}
+      {showAddRoomModal && (
+        <div className="add-room-modal-backdrop" onClick={() => setShowAddRoomModal(false)}>
+          <div className="add-room-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="add-room-modal-header">
+              <div>
+                <h3>Add Room to Architectural Floor Plan</h3>
+                <small>Select from luxury villa architectural presets or input bespoke dimensions</small>
+              </div>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setShowAddRoomModal(false)}
+                title="Close modal (Esc)"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="add-room-modal-body">
+              <div className="add-room-section-heading">
+                <strong>Luxury Villa Presets</strong>
+                <small>Architecturally proportioned with calibrated System 32 joinery zones</small>
+              </div>
+              <div className="add-room-presets-grid">
+                {QUICK_ROOM_PRESETS.map((preset) => {
+                  const area = ((preset.widthMm * preset.depthMm) / 1_000_000).toFixed(1);
+                  return (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      className="add-room-preset-card"
+                      onClick={() => addNewRoom(preset.name, preset.roomType, preset.widthMm, preset.depthMm, preset.ceilingMm)}
+                    >
+                      <div className="preset-card-top">
+                        <span className="preset-icon">{preset.icon}</span>
+                        <strong>{preset.name}</strong>
+                      </div>
+                      <div className="preset-dims">
+                        {preset.widthMm} × {preset.depthMm} mm
+                        <span className="preset-area">({area} m²)</span>
+                      </div>
+                      <div className="preset-ceiling">Ceiling: {preset.ceilingMm} mm</div>
+                      <p className="preset-desc">{preset.desc}</p>
+                      <div className="preset-action">
+                        <span>+ Place in plan</span>
+                        <ArrowRight size={12} />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="add-room-divider">
+                <span>OR DEFINE BESPOKE ROOM</span>
+              </div>
+
+              <form
+                className="add-custom-room-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!customRoomForm.name.trim()) return;
+                  addNewRoom(
+                    customRoomForm.name.trim(),
+                    customRoomForm.roomType,
+                    Number(customRoomForm.widthMm) || 4500,
+                    Number(customRoomForm.depthMm) || 3600,
+                    Number(customRoomForm.ceilingMm) || 2800
+                  );
+                }}
+              >
+                <div className="custom-room-row">
+                  <div className="custom-room-field">
+                    <label>Room Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Master Lounge, Family Room"
+                      value={customRoomForm.name}
+                      onChange={(e) => setCustomRoomForm(f => ({ ...f, name: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="custom-room-field">
+                    <label>Room Classification</label>
+                    <select
+                      value={customRoomForm.roomType}
+                      onChange={(e) => setCustomRoomForm(f => ({ ...f, roomType: e.target.value }))}
+                    >
+                      {Object.entries(ROOM_TYPES).map(([k, lbl]) => (
+                        <option key={k} value={k}>{lbl}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="custom-room-row">
+                  <div className="custom-room-field">
+                    <label>Width (mm)</label>
+                    <input
+                      type="number"
+                      min={1200}
+                      max={20000}
+                      step={100}
+                      value={customRoomForm.widthMm}
+                      onChange={(e) => setCustomRoomForm(f => ({ ...f, widthMm: Number(e.target.value) }))}
+                    />
+                  </div>
+                  <div className="custom-room-field">
+                    <label>Depth (mm)</label>
+                    <input
+                      type="number"
+                      min={1200}
+                      max={20000}
+                      step={100}
+                      value={customRoomForm.depthMm}
+                      onChange={(e) => setCustomRoomForm(f => ({ ...f, depthMm: Number(e.target.value) }))}
+                    />
+                  </div>
+                  <div className="custom-room-field">
+                    <label>Ceiling (mm)</label>
+                    <input
+                      type="number"
+                      min={2100}
+                      max={6000}
+                      step={50}
+                      value={customRoomForm.ceilingMm}
+                      onChange={(e) => setCustomRoomForm(f => ({ ...f, ceilingMm: Number(e.target.value) }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="custom-room-footer">
+                  <div className="custom-room-calc-preview">
+                    <span>Calculated Area:</span>
+                    <strong>{((customRoomForm.widthMm * customRoomForm.depthMm) / 1_000_000).toFixed(2)} m²</strong>
+                    <small>({sqmToSqft((customRoomForm.widthMm * customRoomForm.depthMm) / 1_000_000)} sq.ft)</small>
+                  </div>
+                  <div className="custom-room-buttons">
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      onClick={() => setShowAddRoomModal(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn-primary btn-sm"
+                      disabled={!customRoomForm.name.trim()}
+                    >
+                      <Plus size={13} /> Add Custom Room to Plan
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       <WorkflowDock
         currentStageIndex={3}

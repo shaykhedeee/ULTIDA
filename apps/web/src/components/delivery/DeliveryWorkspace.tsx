@@ -5,6 +5,7 @@ import {
   LockKeyhole,
   Save,
   ArrowLeft,
+  ArrowRight,
   Check,
   Palette,
   Sparkles,

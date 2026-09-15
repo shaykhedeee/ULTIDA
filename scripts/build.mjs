@@ -1,7 +1,13 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const hermesNpm = process.platform === 'win32' && process.env.LOCALAPPDATA
+  ? resolve(process.env.LOCALAPPDATA, 'hermes/node/npm.cmd')
+  : null;
+const npm = (hermesNpm && existsSync(hermesNpm))
+  ? hermesNpm
+  : (process.platform === 'win32' ? 'npm.cmd' : 'npm');
 const rootDir = process.cwd();
 
 const WORKSPACES = {
