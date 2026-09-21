@@ -4,6 +4,8 @@ import {
   analyze2DDrawingsToCutlist,
   calculateHingesPerDoor,
   extractDrawingCutlistFromScene,
+  generateDrawingCutlistSvg,
+  DRAWING_CUTLIST_PRESETS,
 } from '../src/drawing-cutlist-analyzer.js';
 import type { SceneV1 } from '../src/scene-types.js';
 
@@ -135,3 +137,42 @@ test('extractDrawingCutlistFromScene derives valid input from a SceneV1', () => 
   assert.ok(result.panels.length > 10, 'Derived scene cutlist should contain panels');
   assert.ok(result.hardware.length > 3, 'Derived scene cutlist should contain hardware');
 });
+
+test('generateDrawingCutlistSvg renders valid architectural SVG for both external elevation and carcass section', () => {
+  const preset = DRAWING_CUTLIST_PRESETS.wardrobe_4door;
+
+  // View mode: both
+  const svgBoth = generateDrawingCutlistSvg(preset, 'both');
+  assert.ok(svgBoth.includes('<svg'), 'SVG should have opening tag');
+  assert.ok(svgBoth.includes('EXTERNAL ELEVATION'), 'Should have External Elevation title');
+  assert.ok(svgBoth.includes('INTERNAL CARCASS SECTION'), 'Should have Internal Carcass Section title');
+  assert.ok(svgBoth.includes('SYSTEM 32'), 'Should include System 32 annotations');
+  assert.ok(svgBoth.includes('PLINTH 100mm'), 'Should include plinth annotation');
+  assert.ok(svgBoth.includes('FILLER 30mm'), 'Should include dummy filler annotation');
+  assert.ok(svgBoth.includes('circle'), 'Should include System 32 boring dots');
+
+  // View mode: external only
+  const svgExt = generateDrawingCutlistSvg(preset, 'external');
+  assert.ok(svgExt.includes('EXTERNAL ELEVATION'));
+  assert.ok(!svgExt.includes('INTERNAL CARCASS SECTION'));
+
+  // View mode: internal only
+  const svgInt = generateDrawingCutlistSvg(preset, 'internal');
+  assert.ok(svgInt.includes('INTERNAL CARCASS SECTION'));
+  assert.ok(!svgInt.includes('EXTERNAL ELEVATION'));
+});
+
+test('all DRAWING_CUTLIST_PRESETS analyze cleanly into verified panels and hardware', () => {
+  const presetKeys = ['wardrobe_4door', 'kitchen_base', 'tv_console', 'crockery_unit'] as const;
+
+  for (const key of presetKeys) {
+    const preset = DRAWING_CUTLIST_PRESETS[key];
+    assert.ok(preset, `Preset ${key} should exist`);
+    const analysis = analyze2DDrawingsToCutlist(preset);
+    assert.ok(analysis.panels.length > 5, `Preset ${key} should generate panels`);
+    assert.ok(analysis.hardware.length > 2, `Preset ${key} should generate hardware items`);
+    assert.ok(analysis.summary.estimatedSheetsTotal >= 1, `Preset ${key} should calculate sheet count`);
+    assert.ok(analysis.sheetEstimates.length >= 1, `Preset ${key} should have sheet estimates`);
+  }
+});
+

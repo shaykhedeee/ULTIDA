@@ -9,6 +9,8 @@ import {
 import {
   analyze2DDrawingsToCutlist,
   extractDrawingCutlistFromScene,
+  generateDrawingCutlistSvg,
+  DRAWING_CUTLIST_PRESETS,
   type DrawingCutlistAnalysisResult,
   type DrawingCutlistInput,
 } from '@ultida/drawing-core/browser';
@@ -105,8 +107,11 @@ export function ProductionWorkspace({
   // Active Scope & 2D Drawing Cutlist Analyzer states
   const [activeRoomScope, setActiveRoomScope] = useState<string>('all');
   const [showDrawingAnalyzer, setShowDrawingAnalyzer] = useState(false);
+  const [drawingInput, setDrawingInput] = useState<DrawingCutlistInput | null>(null);
   const [drawingAnalysisResult, setDrawingAnalysisResult] = useState<DrawingCutlistAnalysisResult | null>(null);
-  const [drawingViewTab, setDrawingViewTab] = useState<'panels' | 'hardware' | 'audit'>('panels');
+  const [drawingViewTab, setDrawingViewTab] = useState<'visual2d' | 'panels' | 'hardware' | 'audit'>('visual2d');
+  const [drawingSvgMode, setDrawingSvgMode] = useState<'both' | 'external' | 'internal'>('both');
+  const [drawingPresetKey, setDrawingPresetKey] = useState<string>('wardrobe_4door');
   const [rawScene, setRawScene] = useState<any>(null);
 
   // ─── API helpers ────────────────────────────────────────────────────────────
@@ -274,11 +279,19 @@ export function ProductionWorkspace({
     [scopedParts, cutlist]);
 
   // ─── 2D Drawing Analysis Actions ──────────────────────────────────────────
-  function run2DDrawingAnalysis(targetRoom?: string) {
+  function run2DDrawingAnalysis(targetRoom?: string, presetKey = 'wardrobe_4door') {
     const targetRoomId = targetRoom || (activeRoomScope !== 'all' ? activeRoomScope : uniqueRooms[0] || 'room-main');
     let input: DrawingCutlistInput;
-    if (rawScene) {
+
+    if (presetKey === 'from_scene' && rawScene) {
       input = extractDrawingCutlistFromScene(rawScene);
+      setDrawingPresetKey('from_scene');
+    } else if (presetKey in DRAWING_CUTLIST_PRESETS) {
+      input = {
+        ...DRAWING_CUTLIST_PRESETS[presetKey],
+        roomId: targetRoomId,
+      };
+      setDrawingPresetKey(presetKey);
     } else {
       const roomMods = modules.filter((m) => !targetRoomId || m.roomId === targetRoomId);
       const primaryMod = roomMods[0] || modules[0];
@@ -311,10 +324,55 @@ export function ProductionWorkspace({
         dummyFillerLeftMm: 30,
         dummyFillerRightMm: 30,
       };
+      setDrawingPresetKey('custom');
     }
+
+    setDrawingInput(input);
     const result = analyze2DDrawingsToCutlist(input);
     setDrawingAnalysisResult(result);
     setShowDrawingAnalyzer(true);
+  }
+
+  function handleUpdateDrawingInput(patch: Partial<DrawingCutlistInput>) {
+    if (!drawingInput) return;
+    const updated: DrawingCutlistInput = {
+      ...drawingInput,
+      ...patch,
+    };
+    setDrawingInput(updated);
+    const result = analyze2DDrawingsToCutlist(updated);
+    setDrawingAnalysisResult(result);
+  }
+
+  const liveDrawingSvg = useMemo(() => {
+    if (!drawingInput) return '';
+    return generateDrawingCutlistSvg(drawingInput, drawingSvgMode);
+  }, [drawingInput, drawingSvgMode]);
+
+  function downloadDrawingSvg() {
+    if (!liveDrawingSvg || !drawingInput) return;
+    const blob = new Blob([liveDrawingSvg], { type: 'image/svg+xml;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ultida-2d-${drawingInput.unitId || 'casework'}-${drawingSvgMode}.svg`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadDrawingHardwareCsv() {
+    if (!drawingAnalysisResult) return;
+    const headers = ['Hardware Name', 'Category', 'Quantity', 'Unit', 'Specification', 'Assigned Bay', 'Notes'];
+    const rows = drawingAnalysisResult.hardware.map((hw) => [
+      `"${hw.name}"`, hw.category, hw.quantity, hw.unit, `"${hw.specification ?? ''}"`, `"${hw.assignedBay ?? ''}"`, `"${hw.notes ?? ''}"`
+    ]);
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ultida-hardware-schedule-${drawingAnalysisResult.roomId}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   function applyDrawingAnalysisToCutlist() {
@@ -590,6 +648,13 @@ export function ProductionWorkspace({
                         <div className="analyzer-view-tabs">
                           <button
                             type="button"
+                            className={`analyzer-tab-btn${drawingViewTab === 'visual2d' ? ' active' : ''}`}
+                            onClick={() => setDrawingViewTab('visual2d')}
+                          >
+                            📐 2D Drawing View
+                          </button>
+                          <button
+                            type="button"
                             className={`analyzer-tab-btn${drawingViewTab === 'panels' ? ' active' : ''}`}
                             onClick={() => setDrawingViewTab('panels')}
                           >
@@ -639,6 +704,233 @@ export function ProductionWorkspace({
                             <span className="label">Hardware</span>
                             <span className="value">{drawingAnalysisResult.hardware.reduce((s, h) => s + h.quantity, 0)}</span>
                             <span className="sub">{drawingAnalysisResult.hardware.length} items</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tab 0: 2D Drawing View (External & Internal Section) */}
+                      {drawingViewTab === 'visual2d' && drawingInput && (
+                        <div style={{ display: 'grid', gap: 14 }}>
+                          {/* Top Controls Bar */}
+                          <div className="analyzer-svg-topbar">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#78716c' }}>
+                                Drawing Preset:
+                              </span>
+                              <select
+                                value={drawingPresetKey}
+                                onChange={(e) => run2DDrawingAnalysis(drawingInput.roomId, e.target.value)}
+                                style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #dcd1c2', fontSize: 11.5, background: '#fff' }}
+                              >
+                                <option value="wardrobe_4door">4-Door Master Wardrobe (2400×2400)</option>
+                                <option value="kitchen_base">Kitchen Base Run (Tandem Drawers &amp; Units)</option>
+                                <option value="tv_console">Living Room TV Console (2100×450)</option>
+                                <option value="crockery_unit">Dining Crockery Cabinet (1800×2100)</option>
+                                {rawScene && <option value="from_scene">Current 3D Room Casework</option>}
+                              </select>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#78716c' }}>
+                                View Mode:
+                              </span>
+                              <div className="analyzer-mode-pills">
+                                <button
+                                  type="button"
+                                  className={`analyzer-mode-pill${drawingSvgMode === 'both' ? ' active' : ''}`}
+                                  onClick={() => setDrawingSvgMode('both')}
+                                >
+                                  Elevation + Carcass
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`analyzer-mode-pill${drawingSvgMode === 'external' ? ' active' : ''}`}
+                                  onClick={() => setDrawingSvgMode('external')}
+                                >
+                                  External Elevation
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`analyzer-mode-pill${drawingSvgMode === 'internal' ? ' active' : ''}`}
+                                  onClick={() => setDrawingSvgMode('internal')}
+                                >
+                                  Internal Carcass Section
+                                </button>
+                              </div>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                icon={<Download size={12} />}
+                                onClick={downloadDrawingSvg}
+                              >
+                                SVG
+                              </Button>
+                            </div>
+                          </div>
+
+                          {/* Split View: Left SVG Stage, Right Parameter Configurator */}
+                          <div className="analyzer-split-grid">
+                            <div className="analyzer-svg-stage">
+                              <div
+                                style={{ width: '100%', display: 'flex', justifyContent: 'center' }}
+                                dangerouslySetInnerHTML={{ __html: liveDrawingSvg }}
+                              />
+                            </div>
+
+                            <div className="analyzer-config-panel">
+                              <h4 className="analyzer-config-title">
+                                <Sliders size={14} /> Joinery &amp; Sizing Specs
+                              </h4>
+
+                              <div className="analyzer-input-row">
+                                <div className="analyzer-form-group">
+                                  <label>Width (mm)</label>
+                                  <input
+                                    type="number"
+                                    className="analyzer-input-field"
+                                    value={drawingInput.overallWidthMm}
+                                    step={50}
+                                    min={300}
+                                    max={6000}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      if (val > 0) {
+                                        const bayCount = drawingInput.bays.length || 1;
+                                        const bayW = Math.round(val / bayCount);
+                                        const newBays = drawingInput.bays.map((b, i) => ({
+                                          ...b,
+                                          widthMm: i === bayCount - 1 ? val - bayW * (bayCount - 1) : bayW,
+                                        }));
+                                        handleUpdateDrawingInput({ overallWidthMm: val, bays: newBays });
+                                      }
+                                    }}
+                                  />
+                                </div>
+                                <div className="analyzer-form-group">
+                                  <label>Height (mm)</label>
+                                  <input
+                                    type="number"
+                                    className="analyzer-input-field"
+                                    value={drawingInput.overallHeightMm}
+                                    step={50}
+                                    min={300}
+                                    max={3500}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      if (val > 0) handleUpdateDrawingInput({ overallHeightMm: val });
+                                    }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="analyzer-input-row">
+                                <div className="analyzer-form-group">
+                                  <label>Depth (mm)</label>
+                                  <input
+                                    type="number"
+                                    className="analyzer-input-field"
+                                    value={drawingInput.depthMm}
+                                    step={10}
+                                    min={200}
+                                    max={1200}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      if (val > 0) handleUpdateDrawingInput({ depthMm: val });
+                                    }}
+                                  />
+                                </div>
+                                <div className="analyzer-form-group">
+                                  <label>Plinth (mm)</label>
+                                  <input
+                                    type="number"
+                                    className="analyzer-input-field"
+                                    value={drawingInput.plinthHeightMm ?? 100}
+                                    step={10}
+                                    min={50}
+                                    max={200}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      if (val >= 0) handleUpdateDrawingInput({ plinthHeightMm: val });
+                                    }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="analyzer-input-row">
+                                <div className="analyzer-form-group">
+                                  <label>Left Filler (mm)</label>
+                                  <input
+                                    type="number"
+                                    className="analyzer-input-field"
+                                    value={drawingInput.dummyFillerLeftMm ?? 30}
+                                    step={5}
+                                    min={0}
+                                    max={150}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      if (val >= 0) handleUpdateDrawingInput({ dummyFillerLeftMm: val });
+                                    }}
+                                  />
+                                </div>
+                                <div className="analyzer-form-group">
+                                  <label>Right Filler (mm)</label>
+                                  <input
+                                    type="number"
+                                    className="analyzer-input-field"
+                                    value={drawingInput.dummyFillerRightMm ?? 30}
+                                    step={5}
+                                    min={0}
+                                    max={150}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      if (val >= 0) handleUpdateDrawingInput({ dummyFillerRightMm: val });
+                                    }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="analyzer-form-group">
+                                <label>Loft Height (mm)</label>
+                                <input
+                                  type="number"
+                                  className="analyzer-input-field"
+                                  value={drawingInput.loftHeightMm ?? 0}
+                                  step={50}
+                                  min={0}
+                                  max={1000}
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value);
+                                    if (val >= 0) handleUpdateDrawingInput({ loftHeightMm: val });
+                                  }}
+                                />
+                              </div>
+
+                              {/* Bay Summary Breakdown */}
+                              <div style={{ marginTop: 4, display: 'grid', gap: 6 }}>
+                                <label style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: '#78716c' }}>
+                                  Carcass Bays ({drawingInput.bays.length})
+                                </label>
+                                {drawingInput.bays.map((bay, idx) => (
+                                  <div key={bay.id} className="analyzer-bay-item">
+                                    <div className="analyzer-bay-header">
+                                      <span>{bay.label || `Bay ${idx + 1}`}</span>
+                                      <Badge variant="info">{bay.widthMm} mm</Badge>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 6, fontSize: 11, color: '#666', flexWrap: 'wrap' }}>
+                                      <span>Type: <strong>{bay.type}</strong></span>
+                                      {bay.drawerCount ? <span>· {bay.drawerCount} drawers</span> : null}
+                                      {bay.adjustableShelvesCount ? <span>· {bay.adjustableShelvesCount} adj. shelves</span> : null}
+                                      {bay.hasHangingRod ? <span>· Hanging rod</span> : null}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Standard specs note */}
+                              <div style={{ background: '#f5f5f4', padding: '8px 10px', borderRadius: 6, fontSize: 10.5, color: '#78716c', lineHeight: 1.4 }}>
+                                <strong>System 32 Standard:</strong> 18mm gables, 9mm grooved back, 2mm reveals, 32mm pitch line boring.
+                              </div>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -762,7 +1054,21 @@ export function ProductionWorkspace({
                       <Button variant="ghost" size="sm" onClick={() => setShowDrawingAnalyzer(false)}>
                         Close
                       </Button>
-                      <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <Button
+                          variant="secondary" size="sm"
+                          icon={<Download size={13} />}
+                          onClick={downloadDrawingSvg}
+                        >
+                          Download 2D SVG
+                        </Button>
+                        <Button
+                          variant="secondary" size="sm"
+                          icon={<Download size={13} />}
+                          onClick={downloadDrawingHardwareCsv}
+                        >
+                          Hardware Schedule CSV
+                        </Button>
                         <Button
                           variant="secondary" size="sm"
                           icon={<Download size={13} />}
@@ -781,7 +1087,7 @@ export function ProductionWorkspace({
                             URL.revokeObjectURL(url);
                           }}
                         >
-                          Export 2D Cutlist CSV
+                          Panel Cutlist CSV
                         </Button>
                         <Button
                           variant="primary" size="sm"
