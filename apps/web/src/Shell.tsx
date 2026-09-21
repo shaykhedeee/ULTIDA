@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, FolderKanban, Library, BookOpen,
-  Palette, Settings, Users, Ruler, ChevronRight, Box, Home, Wand2, CalendarDays, Receipt, Compass,
+  Settings, Users, Ruler, ChevronRight, Box, Home, Wand2, CalendarDays, Receipt, Compass,
   PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut, Sparkles, Layers,
   CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2, ArrowLeft, ArrowRight
 } from 'lucide-react';
@@ -41,33 +41,28 @@ const PRIMARY_NAV = [
 ];
 
 const TOOL_NAV = [
-  { label: 'AI & Design Tools', items: [
+  { label: 'Design Tools', items: [
     { id: 'aura-ai', label: 'AURA Design AI', path: '/tools/aura', icon: Sparkles },
-    { id: 'skp-generator', label: 'SketchUp Studio', path: '/tools/skp', icon: Layers },
     { id: 'room-builder', label: 'Room Builder', path: '/tools/room-builder', icon: Home },
     { id: 'module-planner', label: 'Module Planner', path: '/tools/modules', icon: Box },
     { id: 'render-studio', label: 'Render Studio', path: '/tools/render', icon: Wand2 },
-  ] },
-  { label: 'Production & CNC', items: [
+    { id: 'skp-generator', label: 'SketchUp Studio', path: '/tools/skp', icon: Layers },
     { id: 'cnc-studio', label: 'CNC Patterns', path: '/tools/cnc', icon: Compass },
-    { id: 'measurements', label: 'Measurements', path: '/tools/measurements', icon: Ruler },
   ] },
   { label: 'Studio Operations', items: [
+    { id: 'measurements', label: 'Measurements', path: '/tools/measurements', icon: Ruler },
     { id: 'calendar', label: 'Calendar', path: '/tools/calendar', icon: CalendarDays },
     { id: 'invoices', label: 'Invoices', path: '/tools/invoices', icon: Receipt },
   ] },
 ];
 
-// ─── Default workflow stages ──────────────────────────────────────
+// ─── Default workflow stages (5 clear steps) ─────────────────────
 export const DEFAULT_WORKFLOW_STAGES: WorkflowStageConfig[] = [
-  { id: 'brief',        label: 'Project Brief',   path: 'brief',        icon: BookOpen, status: 'not_started' },
-  { id: 'plan',         label: 'Measured Plan',   path: 'plan',         icon: Compass,  status: 'not_started' },
-  { id: 'spaces',       label: 'Rooms & Modules', path: 'spaces',       icon: Home,     status: 'not_started' },
-  { id: '3d',           label: 'Scene Studio',    path: '3d',           icon: Wand2,    status: 'not_started' },
-  { id: 'drawings',     label: 'Elevations & Cutlist', path: 'drawings', icon: Ruler,   status: 'not_started' },
-  { id: 'estimate',     label: 'Costing & BOQ',   path: 'estimate',     icon: Receipt,  status: 'not_started' },
-  { id: 'presentation', label: 'Presentation',    path: 'presentation', icon: Palette,  status: 'not_started' },
-  { id: 'production',   label: 'CAM Production',  path: 'production',   icon: Box,      status: 'not_started' },
+  { id: 'brief',    label: 'Brief & Plan',        path: 'brief',    icon: BookOpen, status: 'not_started' },
+  { id: 'spaces',   label: 'Rooms & Spaces',      path: 'spaces',   icon: Home,     status: 'not_started' },
+  { id: '3d',       label: '3D Scene',             path: '3d',       icon: Wand2,    status: 'not_started' },
+  { id: 'drawings', label: 'Cutlist & Drawings',  path: 'drawings', icon: Ruler,    status: 'not_started' },
+  { id: 'estimate', label: 'Estimate & Delivery', path: 'estimate', icon: Receipt,  status: 'not_started' },
 ];
 
 // ─── Stage status icon ─────────────────────────────────────────────

@@ -1,74 +1,108 @@
-/* ═══ PRODUCTION → CUTLIST & CNC STUDIO ═══ */
-.production-workspace { display: flex; height: 100vh; font-family: system-ui, sans-serif; font-size: 13px; color: #1f2933; background: #faf9f6; }
-.production-left-rail { width: 260px; min-width: 260px; border-right: 1px solid #d8ccbd; background: #fffdf9; display: flex; flex-direction: column; overflow-y: auto; transition: min-width 0.2s, width 0.2s; }
-.production-left-rail.collapsed { width: 0; min-width: 0; overflow: hidden; border-right: none; }
-.rail-header { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #e8ded2; font-weight: 700; font-size: 12px; text-transform: uppercase; color: #53463d; }
-.rail-content { padding: 10px 12px; display: grid; gap: 8px; }
-.production-scene-info { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
-.production-scene-info .label { color: #7a6e62; }
-.production-scene-info .value { font-weight: 600; }
-.production-manufacturing-warnings { display: flex; gap: 6px; align-items: flex-start; font-size: 11px; color: #9b2c2c; padding: 8px; background: #fef2f2; border-radius: 4px; margin-top: 8px; }
-.rail-spacer { flex: 1; }
+/* ═══ CUTLIST STUDIO — Production Workspace ═══════════════════════════════ */
+.production-workspace { display: flex; height: 100vh; font-family: system-ui, sans-serif; font-size: 13px; color: #1f2933; background: #faf9f6; flex-direction: column; }
 .production-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── Tab bar ─────────────────────────────────────────────────────────────── */
 .production-tabs { display: flex; gap: 2px; padding: 0 8px; background: #f3ece0; border-bottom: 1px solid #d8ccbd; overflow-x: auto; }
-.production-tab { display: flex; align-items: center; gap: 5px; padding: 8px 12px; border: none; background: none; font-size: 12px; font-weight: 600; color: #53463d; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+.production-tab { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border: none; background: none; font-size: 12.5px; font-weight: 600; color: #53463d; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: color 0.15s; }
 .production-tab:hover { color: #1f2933; }
 .production-tab.active { color: #1f2933; border-bottom-color: #2d5a27; }
-.production-tab-content { flex: 1; overflow-y: auto; padding: 16px; }
-.production-summary-strip { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px; }
-.production-summary-strip > div { padding: 12px 14px; border: 1px solid #e3d8ca; border-radius: 10px; background: linear-gradient(145deg, #fffefa, #f8f2e8); box-shadow: 0 8px 24px rgba(64, 48, 34, .05); }
-.production-summary-strip span { display: block; color: #7a6e62; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.production-summary-strip strong { display: block; margin-top: 5px; color: #28211c; font-size: 14px; }
-.production-summary-strip strong.ready { color: #166534; }
-.production-summary-strip strong.review { color: #92400e; }
-.production-parts-grid, .production-edges, .production-hardware, .production-operations, .production-nesting, .production-cnc, .production-exports, .production-release { display: grid; gap: 12px; }
-.production-parts-grid h4, .production-edges h4, .production-hardware h4, .production-operations h4, .production-nesting h4, .production-cnc h4, .production-exports h4, .production-release h4 { font-size: 14px; margin: 0; color: #1f2933; }
-.parts-toolbar { display: flex; justify-content: space-between; align-items: center; }
+
+/* ── Main content area ──────────────────────────────────────────────────── */
+.production-tab-content { flex: 1; overflow-y: auto; padding: 16px 20px; }
+
+/* ════ CUTLIST TAB ══════════════════════════════════════════════════════════ */
+.cutlist-view { display: grid; gap: 16px; }
+
+/* Summary cards */
+.cutlist-summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 900px) { .cutlist-summary-cards { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .cutlist-summary-cards { grid-template-columns: 1fr 1fr; } }
+
+.cutlist-stat-card { padding: 14px 16px; border: 1px solid #e3d8ca; border-radius: 12px; background: linear-gradient(145deg, #fffefa, #f8f2e8); box-shadow: 0 4px 14px rgba(64, 48, 34, .05); display: grid; gap: 3px; }
+.cutlist-stat-card .stat-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #7a6e62; }
+.cutlist-stat-card .stat-value { font-size: 22px; font-weight: 800; color: #1a1208; line-height: 1.1; }
+.cutlist-stat-card .stat-sub { font-size: 10.5px; color: #9b8c7e; }
+
+/* Toolbar */
+.parts-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+.parts-toolbar h4 { font-size: 14px; margin: 0; color: #1f2933; font-weight: 700; }
+.cutlist-search { padding: 6px 10px; border: 1px solid #d6d3d1; border-radius: 6px; font-size: 12px; min-width: 220px; background: #fff; color: #1f2933; }
+.cutlist-search:focus { outline: 2px solid #2d5a27; outline-offset: 1px; }
+
+/* Room groups */
+.cutlist-room-group { border: 1px solid #e3d8ca; border-radius: 10px; overflow: hidden; background: #fff; }
+.cutlist-room-header { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; background: #f7f0e6; border: none; cursor: pointer; font-size: 12.5px; font-weight: 700; color: #1f2933; text-align: left; transition: background 0.13s; }
+.cutlist-room-header:hover { background: #f0e6d6; }
+.room-chevron { color: #7a6e62; display: flex; }
+.room-name { flex: 1; }
+.cutlist-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.cutlist-table th { text-align: left; padding: 6px 8px; background: #f9f5ef; font-weight: 600; border-bottom: 1px solid #e8dece; font-size: 10.5px; text-transform: uppercase; color: #6b5e52; position: sticky; top: 0; z-index: 1; }
+.cutlist-table td { padding: 5px 8px; border-bottom: 1px solid #f0e9df; }
+.cutlist-table tr:last-child td { border-bottom: none; }
+.cutlist-table tr:hover { background: #fef9f0; }
+.part-id-cell { font-family: monospace; font-size: 10.5px; color: #6b5e52; }
+.dim-cell { font-variant-numeric: tabular-nums; text-align: right; color: #1a1208; font-weight: 600; }
+.grain-cell { font-size: 14px; text-align: center; color: #1a1208; }
+
+/* Board optimizer */
+.board-optimizer { border: 1px solid #d4edda; border-radius: 10px; background: #f0fdf4; padding: 14px 16px; }
+.board-optimizer h5 { margin: 0 0 4px; font-size: 12.5px; color: #166534; font-weight: 700; }
+.optimizer-note { font-size: 11px; color: #4a7c59; margin: 0 0 10px; line-height: 1.5; }
+
+/* ════ HARDWARE TAB ══════════════════════════════════════════════════════════ */
+.production-hardware { display: grid; gap: 12px; }
+.production-hardware h4 { font-size: 14px; margin: 0; color: #1f2933; font-weight: 700; }
+
+/* ════ SHARED TABLE ══════════════════════════════════════════════════════════ */
 .production-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .production-table th { text-align: left; padding: 6px 8px; background: #f3ece0; font-weight: 600; border-bottom: 1px solid #d8ccbd; font-size: 11px; text-transform: uppercase; color: #53463d; position: sticky; top: 0; z-index: 1; }
 .production-table td { padding: 5px 8px; border-bottom: 1px solid #ede5d9; }
 .production-table tr:hover { background: #fef9f0; }
-.production-release { max-width: 600px; }
+.inspector-empty { color: #9ca3af; font-size: 12px; text-align: center; padding: 24px 8px; }
+
+/* ════ RELEASE & EXPORT TAB ══════════════════════════════════════════════════ */
+.production-release-export { display: grid; gap: 20px; }
+
+.export-status-bar { background: #f0f4ff; border: 1px solid #c7d2fe; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #3730a3; margin: 0; }
+
+.release-section { display: grid; gap: 12px; }
+.release-section h4 { font-size: 14px; margin: 0; color: #1f2933; font-weight: 700; }
+
 .release-checklist { display: grid; gap: 6px; }
-.release-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 4px; font-size: 12px; }
+.release-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; font-size: 12.5px; font-weight: 500; }
 .release-item.pass { background: #f0fdf4; color: #166534; }
 .release-item.fail { background: #fef2f2; color: #991b1b; }
 .release-item.warning { background: #fffbeb; color: #92400e; }
-.release-actions { margin-top: 20px; }
-.cnc-toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
-.cnc-preflight { padding: 10px 12px; border-radius: 4px; font-size: 12px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-.cnc-preflight.running { background: #fffbeb; color: #92400e; }
-.cnc-preflight.passed { background: #f0fdf4; color: #166534; }
-.cnc-issue { padding: 2px 0; color: #991b1b; font-size: 11px; }
-.nesting-card { margin-bottom: 10px; }
-.nesting-stats { display: flex; gap: 16px; font-size: 12px; padding: 8px 0; flex-wrap: wrap; }
-.exports-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-.exports-grid p { min-height: 34px; margin: 0 0 12px; color: #74685d; font-size: 11px; line-height: 1.45; }
-.exports-grid .featured-export { border-color: #b89452; background: linear-gradient(145deg, #fffdf5, #f7ecd8); box-shadow: 0 12px 28px rgba(110, 75, 27, .1); }
-.production-review-confirmation { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; padding: 14px; border: 1px solid #d8ccbd; border-radius: 8px; background: #fffdf9; line-height: 1.5; }
-.production-review-confirmation input { margin-top: 3px; accent-color: #2d5a27; }
-.production-review-notes { display: grid; gap: 6px; color: #53463d; font-weight: 600; }
-.production-review-notes textarea { resize: vertical; min-height: 68px; padding: 10px; border: 1px solid #d8ccbd; border-radius: 6px; background: #fff; color: #1f2933; font: inherit; }
-@media (max-width: 900px) { .production-summary-strip { grid-template-columns: repeat(2, minmax(120px, 1fr)); } .production-right-inspector { display: none; } }
-@media (max-width: 640px) { .production-left-rail { display: none; } .production-summary-strip { grid-template-columns: 1fr; } .production-tab-content { padding: 10px; } }
-.inspector-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid #e8ded2; font-weight: 700; font-size: 12px; text-transform: uppercase; color: #53463d; }
-.production-right-inspector { width: 280px; min-width: 280px; border-left: 1px solid #d8ccbd; background: #fffdf9; display: flex; flex-direction: column; transition: min-width 0.2s, width 0.2s; }
-.production-right-inspector.collapsed { width: 0; min-width: 0; overflow: hidden; border-left: none; }
-.inspector-content { padding: 12px; flex: 1; overflow-y: auto; }
-.inspector-empty { color: #9ca3af; font-size: 12px; text-align: center; padding: 24px 8px; }
 
-/* ═══ 2D CAD ARCHITECTURAL ELEVATIONS SUITE ═══ */
+.production-review-confirmation { display: flex; gap: 10px; align-items: flex-start; padding: 14px; border: 1px solid #d8ccbd; border-radius: 8px; background: #fffdf9; line-height: 1.5; font-size: 13px; cursor: pointer; }
+.production-review-confirmation input { margin-top: 3px; accent-color: #2d5a27; flex-shrink: 0; }
+.production-review-notes { display: grid; gap: 6px; color: #53463d; font-weight: 600; font-size: 12.5px; }
+.production-review-notes textarea { resize: vertical; min-height: 68px; padding: 10px; border: 1px solid #d8ccbd; border-radius: 6px; background: #fff; color: #1f2933; font: inherit; }
+.release-actions { display: flex; gap: 10px; }
+
+/* Export grids */
+.exports-primary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.exports-secondary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
+.exports-primary-grid p, .exports-secondary-grid p { min-height: 36px; margin: 0 0 12px; color: #74685d; font-size: 11.5px; line-height: 1.5; }
+.featured-export { border-color: #b89452 !important; background: linear-gradient(145deg, #fffdf5, #f7ecd8) !important; box-shadow: 0 8px 24px rgba(110, 75, 27, .1) !important; }
+
+.more-exports-toggle { display: flex; align-items: center; gap: 6px; background: none; border: 1px dashed #c8b99a; color: #6b5e52; padding: 8px 12px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 600; transition: background 0.14s; }
+.more-exports-toggle:hover { background: #f7f0e6; }
+
+/* ════ CAD DRAWINGS VIEW ═══════════════════════════════════════════════════ */
+/* 2D CAD Architectural Elevations Suite */
 .production-elevations { display: grid; gap: 14px; }
 .elevations-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
 .elevations-header-title { display: flex; align-items: center; gap: 8px; }
 .elevations-header-title h4 { font-size: 15px; margin: 0; color: #1c1917; font-weight: 700; }
 .elevation-template-selector { display: flex; gap: 8px; flex-wrap: wrap; background: #eee7dc; padding: 4px; border-radius: 8px; }
 .elevation-pill { padding: 6px 12px; border-radius: 6px; border: none; background: transparent; color: #57534e; font-size: 11.5px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
-.elevation-pill:hover { color: #1c1917; background: rgba(255, 255, 255, 0.5); }
+.elevation-pill:hover { color: #1c1917; background: rgba(255,255,255,0.5); }
 .elevation-pill.active { background: #1c1917; color: #f5f5f4; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
-.elevation-view-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.elevation-view-grid { display: grid; grid-template-columns: minmax(0,1fr) 340px; gap: 16px; align-items: start; }
 @media (max-width: 1080px) { .elevation-view-grid { grid-template-columns: 1fr; } }
-.elevation-sheet-card { background: #fff; border: 1px solid #e7dfd5; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 16px rgba(40, 30, 20, 0.04); }
+.elevation-sheet-card { background: #fff; border: 1px solid #e7dfd5; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 16px rgba(40,30,20,0.04); }
 .elevation-sheet-topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #fdfbf7; border-bottom: 1px solid #eee5d8; font-size: 11.5px; }
 .elevation-badge-gold { background: #fef9ee; color: #92400e; border: 1px solid #fcd34d; padding: 2px 8px; border-radius: 999px; font-weight: 700; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; }
 .elevation-svg-stage { padding: 16px; background: #faf9f6; display: flex; justify-content: center; align-items: center; min-height: 380px; overflow: auto; }
@@ -83,3 +117,23 @@
 .elevation-spec-row strong { color: #1c1917; font-weight: 600; text-align: right; }
 .elevation-highlights-list { margin: 0; padding-left: 18px; font-size: 11px; color: #44403c; line-height: 1.5; display: grid; gap: 4px; }
 
+/* ════ PRINT STYLES ══════════════════════════════════════════════════════════ */
+@media print {
+  body * { visibility: hidden; }
+  .production-tab-content, .production-tab-content * { visibility: visible; }
+  .production-workspace { height: auto; }
+  .production-tabs, .workflow-dock, .parts-toolbar button, .board-optimizer, .inspector-empty { display: none !important; }
+  .production-tab-content { padding: 0; overflow: visible; }
+  .cutlist-summary-cards { break-inside: avoid; }
+  .cutlist-room-group { break-inside: avoid; page-break-inside: avoid; }
+  .cutlist-table { font-size: 9pt; }
+  .cutlist-table th, .cutlist-table td { padding: 3px 5px; }
+}
+
+/* ════ RESPONSIVE ════════════════════════════════════════════════════════════ */
+@media (max-width: 700px) {
+  .production-tab-content { padding: 10px 12px; }
+  .parts-toolbar { flex-direction: column; align-items: flex-start; }
+  .cutlist-search { min-width: 0; width: 100%; }
+  .exports-primary-grid { grid-template-columns: 1fr; }
+}

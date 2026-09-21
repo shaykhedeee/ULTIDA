@@ -1,22 +1,36 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FolderKanban, Package, AlertTriangle, CheckCircle2, Download, ChevronLeft, ChevronRight, Maximize2, PanelRightClose, ClipboardList, Settings, SlidersHorizontal, FileText, Compass, Sparkles, ExternalLink, ArrowLeft, ArrowRight } from 'lucide-react';
+import {
+  Package, AlertTriangle, CheckCircle2, Download, ChevronRight, ChevronDown,
+  ClipboardList, FileText, ArrowLeft, ArrowRight, Printer, RefreshCw,
+} from 'lucide-react';
 import { Badge, Button, Card, CardContent, CardHeader, WorkflowDock } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import WorkingDrawingsDossier from '../../components/drawings/WorkingDrawingsDossier';
 import './production-workspace.css';
 
-type TabId = 'parts' | 'edges' | 'hardware' | 'operations' | 'nesting' | 'cnc' | 'drawings' | 'exports' | 'release';
-type Part = { id: string; partInstanceId: string; moduleId: string; family: string; roomId: string; semanticType: string; partName: string; lengthMm: number; widthMm: number; thicknessMm: number; quantity: number; grainDirection: 'horizontal' | 'vertical' | 'none'; edging: string; edgeSchedule?: { l1Mm: number; l2Mm: number; w1Mm: number; w2Mm: number; tapeType: string }; materialCode: string; status: 'approved' | 'review_required' };
+// ─── Types ────────────────────────────────────────────────────────────────────
+type TabId = 'cutlist' | 'hardware' | 'drawings' | 'release';
+type Part = {
+  id: string; partInstanceId: string; moduleId: string; family: string; roomId: string;
+  semanticType: string; partName: string; lengthMm: number; widthMm: number; thicknessMm: number;
+  quantity: number; grainDirection: 'horizontal' | 'vertical' | 'none'; edging: string;
+  edgeSchedule?: { l1Mm: number; l2Mm: number; w1Mm: number; w2Mm: number; tapeType: string };
+  materialCode: string; status: 'approved' | 'review_required';
+};
 type HardwareItem = { name: string; category: 'hinge' | 'slide' | 'fastener' | 'handle' | 'accessory'; quantity: number; unit: string };
-type Operation = { id: string; partId: string; type: 'drill' | 'groove' | 'rebate' | 'pocket' | 'cutout'; face: string; positionMm: string; depthMm: number; diameterMm: number | null; toleranceMm: number; tool: string };
 type NestingSheet = { sheetId: string; materialCode: string; thicknessMm: number; sheetWidthMm: number; sheetHeightMm: number; placedPanels: { partId: string; xMm: number; yMm: number; widthMm: number; lengthMm: number; rotated: boolean }[]; usedAreaSqm: number; utilizationPercentage: number };
-type ProductionCutlist = { parts: Part[]; hardware: HardwareItem[]; warnings: string[]; nesting: NestingSheet[]; edgeBanding: Array<{ tapeType: string; thicknessMm: number; totalMeters: number }>; status: 'review_required' | 'approved'; fabricationRules: { version: string; sheetWidthMm: number; sheetHeightMm: number; kerfMm: number; trimMm: number } };
+type ProductionCutlist = {
+  parts: Part[]; hardware: HardwareItem[]; warnings: string[]; nesting: NestingSheet[];
+  edgeBanding: Array<{ tapeType: string; thicknessMm: number; totalMeters: number }>;
+  status: 'review_required' | 'approved';
+  fabricationRules: { version: string; sheetWidthMm: number; sheetHeightMm: number; kerfMm: number; trimMm: number };
+};
 type CncAsset = { id: string; name: string; sourceSceneId: string; modulePartId: string; svgUrl: string; dxfUrl: string; dimensionsMm: { width: number; height: number }; material: string; layer: 'CUT' | 'ENGRAVE' | 'POCKET' | 'DRILL' | 'REFERENCE'; validationStatus: 'pending' | 'passed' | 'failed'; preflightIssues: string[] };
 
 interface ProductionWorkspaceProps {
-  initialTab?: TabId | 'elevations';
+  initialTab?: TabId | 'elevations' | 'parts' | 'release';
   projectId: string;
   sceneVersionId: string | null;
   sceneApproved: boolean;
@@ -26,45 +40,65 @@ interface ProductionWorkspaceProps {
   onSceneApproved: () => Promise<void>;
 }
 
+function resolveTab(raw: string | undefined): TabId {
+  if (!raw) return 'cutlist';
+  if (raw === 'elevations' || raw === 'drawings') return 'drawings';
+  if (raw === 'parts' || raw === 'cutlist') return 'cutlist';
+  if (raw === 'release' || raw === 'exports') return 'release';
+  if (raw === 'hardware') return 'hardware';
+  return 'cutlist';
+}
+
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
-  { id: 'parts', label: 'Parts', icon: <ClipboardList size={14} /> },
-  { id: 'edges', label: 'Edges', icon: <Settings size={14} /> },
-  { id: 'hardware', label: 'Hardware', icon: <Package size={14} /> },
-  { id: 'operations', label: 'Operations', icon: <SlidersHorizontal size={14} /> },
-  { id: 'nesting', label: 'Nesting', icon: <FolderKanban size={14} /> },
-  { id: 'cnc', label: 'CNC Cutouts', icon: <Maximize2 size={14} /> },
-  { id: 'drawings', label: 'Shop Drawings', icon: <FileText size={14} /> },
-  { id: 'exports', label: 'Exports', icon: <Download size={14} /> },
-  { id: 'release', label: 'Release', icon: <CheckCircle2 size={14} /> },
+  { id: 'cutlist',  label: 'Cutlist',           icon: <ClipboardList size={14} /> },
+  { id: 'hardware', label: 'Hardware',           icon: <Package size={14} /> },
+  { id: 'drawings', label: 'Drawings',           icon: <FileText size={14} /> },
+  { id: 'release',  label: 'Release & Export',   icon: <Download size={14} /> },
 ];
 
-export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, modules, materials, onSceneCreated, onSceneApproved, initialTab = 'elevations' }: ProductionWorkspaceProps) {
+// ─── Board Optimizer ─────────────────────────────────────────────────────────
+function estimateSheets(parts: Part[], fabricationRules: ProductionCutlist['fabricationRules'] | undefined) {
+  const sw = fabricationRules?.sheetWidthMm ?? 2440;
+  const sh = fabricationRules?.sheetHeightMm ?? 1220;
+  const kerf = fabricationRules?.kerfMm ?? 4;
+  const trim = fabricationRules?.trimMm ?? 10;
+  const usable = (sw - trim * 2) * (sh - trim * 2);
+  const byMaterial: Record<string, number> = {};
+  for (const p of parts) {
+    const area = (p.lengthMm + kerf) * (p.widthMm + kerf) * p.quantity;
+    byMaterial[p.materialCode] = (byMaterial[p.materialCode] ?? 0) + area;
+  }
+  return Object.entries(byMaterial).map(([code, area]) => ({
+    code,
+    sheets: Math.ceil(area / usable),
+    sheetSize: `${sw}×${sh}`,
+  }));
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+export function ProductionWorkspace({
+  projectId, sceneVersionId, sceneApproved, modules, materials,
+  onSceneCreated: _onSceneCreated, onSceneApproved: _onSceneApproved, initialTab,
+}: ProductionWorkspaceProps) {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<TabId>(initialTab === 'elevations' ? 'drawings' : initialTab);
-  const [selectedElevationId, setSelectedElevationId] = useState<string>('tv-wall');
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [rightCollapsed, setRightCollapsed] = useState(false);
-  // Production outputs may only come from compiler-emitted PartV1 records. Module boxes are not manufacturing parts.
+  const [activeTab, setActiveTab] = useState<TabId>(resolveTab(initialTab));
   const [parts, setParts] = useState<Part[]>([]);
   const [cutlist, setCutlist] = useState<ProductionCutlist | null>(null);
-  const [cncAssets, setCncAssets] = useState<CncAsset[]>([]);
-  const [preflightResult, setPreflightResult] = useState<{ status: 'idle' | 'running' | 'passed' | 'failed'; issues: string[] } | null>(null);
+  const [cncAssets] = useState<CncAsset[]>([]);
   const [exportState, setExportState] = useState('Choose an approved scene export.');
   const [partQuery, setPartQuery] = useState('');
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewSaving, setReviewSaving] = useState(false);
+  const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
+  const [showMoreExports, setShowMoreExports] = useState(false);
 
+
+  // ─── API helpers ────────────────────────────────────────────────────────────
   async function readApprovedScene() {
-    if (!projectId || !sceneVersionId) {
-      setExportState('Save and approve a scene before exporting.');
-      return null;
-    }
+    if (!projectId || !sceneVersionId) { setExportState('Save and approve a scene before exporting.'); return null; }
     const token = (await supabase?.auth.getSession())?.data.session?.access_token;
-    if (!token) {
-      setExportState('Sign in before exporting production data.');
-      return null;
-    }
+    if (!token) { setExportState('Sign in before exporting production data.'); return null; }
     const apiBase = getApiBase();
     const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}`, { headers: { Authorization: `Bearer ${token}` } });
     const payload = await response.json().catch(() => null);
@@ -83,24 +117,15 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
       const response = await fetch(`${source.apiBase}${path}`, {
         method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${source.token}` },
-        ...(method === 'POST' ? { body: JSON.stringify({ projectId, sceneVersionId, scene: source.scene, ...bodyExtra }) } : {})
+        ...(method === 'POST' ? { body: JSON.stringify({ projectId, sceneVersionId, scene: source.scene, ...bodyExtra }) } : {}),
       });
-      if (!response.ok) {
-        const error = await response.json().catch(() => null);
-        setExportState(error?.message ?? 'The export service rejected this scene. No substitute file was created.');
-        return;
-      }
+      if (!response.ok) { const error = await response.json().catch(() => null); setExportState(error?.message ?? 'The export service rejected this scene.'); return; }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      link.click();
+      const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
       URL.revokeObjectURL(url);
       setExportState('File exported from the saved approved scene.');
-    } catch {
-      setExportState('Production export service is unavailable.');
-    }
+    } catch { setExportState('Production export service is unavailable.'); }
   }
 
   async function downloadApprovedProductionAsset(asset: 'labels.svg' | 'nesting.svg', filename: string) {
@@ -116,32 +141,20 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
       if (!response.ok) throw new Error(await response.text());
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      link.click();
+      const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
       URL.revokeObjectURL(url);
       setExportState('File exported from the saved approved scene.');
-    } catch (error) {
-      setExportState(error instanceof Error ? error.message : 'Production asset export failed.');
-    }
+    } catch (error) { setExportState(error instanceof Error ? error.message : 'Production asset export failed.'); }
   }
 
+  // ─── Load production snapshot ────────────────────────────────────────────
   useEffect(() => {
     if (!projectId || !sceneVersionId || !sceneApproved) {
-      setCutlist(null);
-      setParts([]);
-      setExportState('Approve a scene to load authoritative production data.');
-      return;
+      setCutlist(null); setParts([]); setExportState('Approve a scene to load authoritative production data.'); return;
     }
     void (async () => {
       const token = (await supabase?.auth.getSession())?.data.session?.access_token;
-      if (!token) {
-        setCutlist(null);
-        setParts([]);
-        setExportState('Sign in to load production data for this scene.');
-        return;
-      }
+      if (!token) { setCutlist(null); setParts([]); setExportState('Sign in to load production data for this scene.'); return; }
       const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production-snapshot`, { headers: { Authorization: `Bearer ${token}` } });
       const payload = await response.json().catch(() => null);
@@ -149,333 +162,472 @@ export function ProductionWorkspace({ projectId, sceneVersionId, sceneApproved, 
       setCutlist(authoritative);
       setParts(authoritative?.parts ?? []);
       setExportState(authoritative ? 'Production snapshot loaded from the approved scene.' : (payload?.message ?? 'The approved scene could not produce a manufacturing snapshot.'));
+      // Expand all rooms by default
+      const rooms = new Set<string>((authoritative?.parts ?? []).map((p: Part) => p.roomId));
+      setExpandedRooms(rooms);
     })();
   }, [projectId, sceneVersionId, sceneApproved]);
 
+  // ─── CSV download ─────────────────────────────────────────────────────────
   function downloadClientCsv() {
-    if (!sceneApproved || !parts.length) {
-      setExportState('No approved production snapshot is available to export.');
-      return;
-    }
-    const activeParts = parts;
-    const headers = ['Part Instance ID', 'Part Name', 'Module Family', 'Room', 'Length (mm)', 'Width (mm)', 'Thickness (mm)', 'Quantity', 'Material Code', 'Grain', 'Edging'];
-    const rows = activeParts.map((p) => [
-      p.partInstanceId || p.id,
-      `"${p.partName}"`,
-      p.family,
-      p.roomId,
-      p.lengthMm,
-      p.widthMm,
-      p.thicknessMm,
-      p.quantity,
-      p.materialCode,
-      p.grainDirection,
-      `"${p.edging}"`
+    if (!sceneApproved || !parts.length) { setExportState('No approved production snapshot is available to export.'); return; }
+    const headers = ['Part Instance ID', 'Part Name', 'Room', 'Module Family', 'Length (mm)', 'Width (mm)', 'Thickness (mm)', 'Quantity', 'Material Code', 'Grain', 'Edging'];
+    const rows = parts.map((p) => [
+      p.partInstanceId || p.id, `"${p.partName}"`, p.roomId, p.family,
+      p.lengthMm, p.widthMm, p.thicknessMm, p.quantity, p.materialCode, p.grainDirection, `"${p.edging}"`,
     ]);
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `ultida-${sceneVersionId ?? 'unapproved'}-panel-cutlist.csv`;
-    link.click();
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a'); link.href = url; link.download = `ultida-${sceneVersionId ?? 'unapproved'}-cutlist.csv`; link.click();
     URL.revokeObjectURL(url);
-    setExportState('Cutlist CSV downloaded with exact millimetre specifications.');
   }
 
+  // ─── Release approve ─────────────────────────────────────────────────────
   async function approveProductionReview() {
     if (!reviewConfirmed || !sceneVersionId || !parts.length) return;
-    setReviewSaving(true);
-    setExportState('Saving audited panel review...');
+    setReviewSaving(true); setExportState('Saving audited panel review...');
     try {
       const token = (await supabase?.auth.getSession())?.data.session?.access_token;
       if (!token) throw new Error('Sign in again before approving production data.');
       const apiBase = getApiBase();
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production-review`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ approvedPartIds: parts.map((part) => part.partInstanceId), notes: reviewNotes }),
+        body: JSON.stringify({ approvedPartIds: parts.map((p) => p.partInstanceId), notes: reviewNotes }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.success) throw new Error(payload?.message ?? 'Production review could not be saved.');
-      setCutlist(payload.cutlist);
-      setParts(payload.cutlist.parts);
+      setCutlist(payload.cutlist); setParts(payload.cutlist.parts);
       setExportState('Production pack approved against this exact scene version.');
-    } catch (error) {
-      setExportState(error instanceof Error ? error.message : 'Production review could not be saved.');
-    } finally { setReviewSaving(false); }
+    } catch (error) { setExportState(error instanceof Error ? error.message : 'Production review could not be saved.'); }
+    finally { setReviewSaving(false); }
   }
 
-  const activeTabIndex = TABS.findIndex((t) => t.id === activeTab);
-  const nextTab = TABS[(activeTabIndex + 1) % TABS.length];
-  const prevTab = TABS[(activeTabIndex - 1 + TABS.length) % TABS.length];
-
+  // ─── Derived state ────────────────────────────────────────────────────────
   const releaseReady = parts.length > 0 && parts.every((p) => p.status === 'approved') && sceneApproved;
+
   const visibleParts = useMemo(() => {
-    const query = partQuery.trim().toLowerCase();
-    return query ? parts.filter((part) => `${part.partInstanceId} ${part.partName} ${part.family} ${part.materialCode} ${part.semanticType}`.toLowerCase().includes(query)) : parts;
+    const q = partQuery.trim().toLowerCase();
+    return q ? parts.filter((p) => `${p.partInstanceId} ${p.partName} ${p.family} ${p.materialCode} ${p.roomId}`.toLowerCase().includes(q)) : parts;
   }, [parts, partQuery]);
 
+  // Group parts by room
+  const partsByRoom = useMemo(() => {
+    const map: Record<string, Part[]> = {};
+    for (const p of visibleParts) {
+      if (!map[p.roomId]) map[p.roomId] = [];
+      map[p.roomId].push(p);
+    }
+    return map;
+  }, [visibleParts]);
+
+  const totalEdgeBandM = useMemo(() =>
+    (cutlist?.edgeBanding ?? []).reduce((acc, e) => acc + e.totalMeters, 0),
+    [cutlist]);
+
+  const materialCount = useMemo(() =>
+    new Set(parts.map((p) => p.materialCode)).size,
+    [parts]);
+
+  const sheetEstimates = useMemo(() =>
+    estimateSheets(parts, cutlist?.fabricationRules),
+    [parts, cutlist]);
+
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="production-workspace">
-      <div className={`production-left-rail ${leftCollapsed ? 'collapsed' : ''}`}>
-        <div className="rail-header">
-          <h3>Production</h3>
-          <Button variant="ghost" size="sm" onClick={() => setLeftCollapsed(!leftCollapsed)} icon={leftCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />} />
-        </div>
-        {!leftCollapsed && (
-          <div className="rail-content">
-            <div className="production-scene-info">
-              <span className="label">Scene</span>
-              <Badge variant={sceneApproved ? 'success' : 'warning'}>{sceneVersionId ?? 'No scene'}</Badge>
-            </div>
-            <div className="production-scene-info">
-              <span className="label">Modules</span>
-              <span className="value">{modules.length}</span>
-            </div>
-            <div className="production-scene-info">
-              <span className="label">Parts</span>
-              <span className="value">{parts.length}</span>
-            </div>
-            <div className="production-scene-info">
-              <span className="label">CNC Assets</span>
-              <span className="value">{cncAssets.length}</span>
-            </div>
-            <div className="production-manufacturing-warnings">
-              <AlertTriangle size={14} />
-              <span>{parts.length ? 'Verify all parts are approved before release.' : 'Compile approved module parts before releasing production data.'}</span>
-            </div>
-            <div className="rail-spacer" />
-            <Button variant="primary" size="sm" icon={<CheckCircle2 size={14} />} disabled={!sceneApproved || !parts.length} onClick={() => setActiveTab('release')}>
-              {releaseReady ? 'View approved pack' : 'Review production pack'}
-            </Button>
-          </div>
-        )}
-      </div>
       <div className="production-main">
-        <nav className="production-tabs">
+
+        {/* ── Tab bar ── */}
+        <nav className="production-tabs" aria-label="Cutlist Studio tabs">
           {TABS.map((tab) => (
-            <button key={tab.id} className={`production-tab ${activeTab === tab.id ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
+            <button
+              key={tab.id}
+              className={`production-tab${activeTab === tab.id ? ' active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+              aria-current={activeTab === tab.id ? 'page' : undefined}
+            >
               {tab.icon}<span>{tab.label}</span>
             </button>
           ))}
         </nav>
+
         <div className="production-tab-content">
-          <div className="production-summary-strip">
-            <div><span>Scene source</span><strong>{sceneVersionId ? 'Approved scene.v1' : 'Not selected'}</strong></div>
-            <div><span>Physical panels</span><strong>{parts.length}</strong></div>
-            <div><span>Geometry Authority</span><strong style={{ color: '#10b981' }}>✓ Compiled Geometry</strong></div>
-            <div><span>Materials</span><strong>{new Set(parts.map((part) => part.materialCode)).size}</strong></div>
-            <div><span>Release state</span><strong className={releaseReady ? 'ready' : 'review'}>{releaseReady ? 'Ready' : 'Review required'}</strong></div>
-          </div>
-          {activeTab === 'parts' && (
-            <div className="production-parts-grid">
-              <div className="parts-toolbar">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <h4>Manufacturing Parts</h4>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#166534', background: '#dcfce7', padding: '2px 8px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    ✓ 100% Measured Manufacturing Geometry
-                  </span>
+
+          {/* ══════ CUTLIST TAB ══════ */}
+          {activeTab === 'cutlist' && (
+            <div className="cutlist-view">
+
+              {/* Summary cards */}
+              <div className="cutlist-summary-cards">
+                <div className="cutlist-stat-card">
+                  <span className="stat-label">Total Panels</span>
+                  <strong className="stat-value">{parts.reduce((s, p) => s + p.quantity, 0)}</strong>
+                  <span className="stat-sub">{parts.length} unique parts</span>
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input aria-label="Search cutlist parts" value={partQuery} onChange={(event) => setPartQuery(event.target.value)} placeholder="Search ID, module, material..." style={{ minWidth: 220, padding: '6px 9px', border: '1px solid #d6d3d1', borderRadius: 6, fontSize: 11 }} /><Badge variant="info">{visibleParts.length}/{parts.length} parts</Badge></div>
+                <div className="cutlist-stat-card">
+                  <span className="stat-label">Sheets Required</span>
+                  <strong className="stat-value">{sheetEstimates.reduce((s, e) => s + e.sheets, 0)}</strong>
+                  <span className="stat-sub">across {materialCount} board types</span>
+                </div>
+                <div className="cutlist-stat-card">
+                  <span className="stat-label">Materials</span>
+                  <strong className="stat-value">{materialCount}</strong>
+                  <span className="stat-sub">{new Set(parts.map((p) => p.thicknessMm)).size} thickness(es)</span>
+                </div>
+                <div className="cutlist-stat-card">
+                  <span className="stat-label">Edge Band</span>
+                  <strong className="stat-value">{totalEdgeBandM.toFixed(1)} m</strong>
+                  <span className="stat-sub">{cutlist?.edgeBanding.length ?? 0} tape type(s)</span>
+                </div>
               </div>
-              <table className="production-table">
-                <thead><tr><th>Part ID</th><th>Module</th><th>Material</th><th>L (mm)</th><th>W (mm)</th><th>T (mm)</th><th>Qty</th><th>Grain</th><th>Edge Banding</th><th>Status</th></tr></thead>
-                <tbody>
-                  {visibleParts.map((part) => (
-                    <tr key={part.id}>
-                      <td>{part.partInstanceId}</td><td>{part.family}</td><td>{part.materialCode}</td>
-                      <td>{part.lengthMm}</td><td>{part.widthMm}</td><td>{part.thicknessMm}</td><td>{part.quantity}</td>
-                      <td>{part.grainDirection}</td><td>{part.edgeSchedule?.tapeType ?? 'none'}</td>
-                      <td><Badge variant={part.status === 'approved' ? 'success' : 'warning'}>{part.status}</Badge></td>
-                    </tr>
-                  ))}
-                  {!parts.length && <tr><td colSpan={10}>No authoritative PartV1 data exists for this scene. Production release is blocked until exact module parts are compiled.</td></tr>}
-                </tbody>
-              </table>
+
+              {/* Toolbar */}
+              <div className="parts-toolbar">
+                <h4>Panel Cutlist</h4>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <input
+                    aria-label="Search cutlist"
+                    value={partQuery}
+                    onChange={(e) => setPartQuery(e.target.value)}
+                    placeholder="Search room, module, material…"
+                    className="cutlist-search"
+                  />
+                  <Badge variant="info">{visibleParts.length}/{parts.length} parts</Badge>
+                  <Button
+                    variant="secondary" size="sm"
+                    icon={<Download size={13} />}
+                    disabled={!parts.length || !sceneApproved}
+                    onClick={downloadClientCsv}
+                  >CSV</Button>
+                  <Button
+                    variant="ghost" size="sm"
+                    icon={<Printer size={13} />}
+                    onClick={() => window.print()}
+                  >Print</Button>
+                </div>
+              </div>
+
+              {/* Status message if no parts yet */}
+              {!parts.length && (
+                <p className="inspector-empty">{exportState}</p>
+              )}
+
+              {/* Room-grouped table */}
+              {Object.entries(partsByRoom).map(([roomId, roomParts]) => {
+                const isOpen = expandedRooms.has(roomId);
+                const allApproved = roomParts.every((p) => p.status === 'approved');
+                return (
+                  <div key={roomId} className="cutlist-room-group">
+                    <button
+                      className="cutlist-room-header"
+                      onClick={() => setExpandedRooms((prev) => {
+                        const next = new Set(prev);
+                        isOpen ? next.delete(roomId) : next.add(roomId);
+                        return next;
+                      })}
+                      aria-expanded={isOpen}
+                    >
+                      <span className="room-chevron">{isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+                      <span className="room-name">{roomId.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}</span>
+                      <Badge variant={allApproved ? 'success' : 'warning'}>{roomParts.length} parts</Badge>
+                    </button>
+
+                    {isOpen && (
+                      <table className="production-table cutlist-table">
+                        <thead>
+                          <tr>
+                            <th>Part ID</th>
+                            <th>Part Name</th>
+                            <th>Module</th>
+                            <th>L (mm)</th>
+                            <th>W (mm)</th>
+                            <th>T (mm)</th>
+                            <th>Qty</th>
+                            <th>Material</th>
+                            <th>Grain</th>
+                            <th>Edge</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {roomParts.map((part) => (
+                            <tr key={part.id}>
+                              <td className="part-id-cell">{part.partInstanceId}</td>
+                              <td>{part.partName}</td>
+                              <td>{part.family}</td>
+                              <td className="dim-cell">{part.lengthMm}</td>
+                              <td className="dim-cell">{part.widthMm}</td>
+                              <td className="dim-cell">{part.thicknessMm}</td>
+                              <td className="dim-cell">{part.quantity}</td>
+                              <td>{part.materialCode}</td>
+                              <td className="grain-cell">
+                                {part.grainDirection === 'horizontal' ? '↔' : part.grainDirection === 'vertical' ? '↕' : '—'}
+                              </td>
+                              <td>{part.edgeSchedule?.tapeType ?? 'none'}</td>
+                              <td>
+                                <Badge variant={part.status === 'approved' ? 'success' : 'warning'}>
+                                  {part.status === 'approved' ? '✓' : 'Review'}
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Board optimizer */}
+              {sheetEstimates.length > 0 && (
+                <div className="board-optimizer">
+                  <h5>Board Optimizer</h5>
+                  <p className="optimizer-note">Estimated sheet count based on part areas + {cutlist?.fabricationRules?.kerfMm ?? 4}mm kerf. Verify with your nesting software before ordering.</p>
+                  <table className="production-table">
+                    <thead><tr><th>Material</th><th>Sheet Size</th><th>Est. Sheets</th></tr></thead>
+                    <tbody>
+                      {sheetEstimates.map((e) => (
+                        <tr key={e.code}>
+                          <td>{e.code}</td>
+                          <td>{e.sheetSize} mm</td>
+                          <td><strong>{e.sheets}</strong></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
-          {activeTab === 'edges' && (
-            <div className="production-edges">
-              <h4>Edge-Band Schedule</h4>
-              <table className="production-table">
-                <thead><tr><th>Part ID</th><th>Side</th><th>Length (mm)</th><th>Tape Type</th><th>Thickness (mm)</th></tr></thead>
-                <tbody>
-                  {(cutlist?.edgeBanding ?? []).map((edge) => (
-                    <tr key={edge.tapeType}><td>All applicable parts</td><td>Compiler edge schedule</td><td>{Math.round(edge.totalMeters * 1000)}</td><td>{edge.tapeType}</td><td>{edge.thicknessMm}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+
+          {/* ══════ HARDWARE TAB ══════ */}
           {activeTab === 'hardware' && (
             <div className="production-hardware">
               <h4>Hardware Schedule</h4>
               <table className="production-table">
-                <thead><tr><th>Name</th><th>Category</th><th>Quantity</th><th>Unit</th><th>Part Reference</th></tr></thead>
+                <thead>
+                  <tr><th>Name</th><th>Category</th><th>Qty</th><th>Unit</th></tr>
+                </thead>
                 <tbody>
                   {(cutlist?.hardware ?? []).map((hw, i) => (
-                    <tr key={`${hw.name}-${i}`}><td>{hw.name}</td><td>{hw.category}</td><td>{hw.quantity}</td><td>{hw.unit}</td><td>scene.v1 component</td></tr>
-                  ))}
-                  {!cutlist?.hardware.length && <tr><td colSpan={5}>No verified hardware schedule exists. ULTIDA will not invent hinges, slides, or handles.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {activeTab === 'operations' && (
-            <div className="production-operations">
-              <h4>Machining Operations</h4>
-              <table className="production-table">
-                <thead><tr><th>Operation</th><th>Part</th><th>Type</th><th>Face</th><th>Position</th><th>Depth (mm)</th><th>Tool</th><th>Tolerance (mm)</th></tr></thead>
-                <tbody>
-                  <tr><td colSpan={8}>Machining operations remain blocked until explicit holes, grooves, rebates, faces, tooling, and tolerances are stored against part IDs.</td></tr>
-                </tbody>
-              </table>
-            </div>
-          )}
-          {activeTab === 'nesting' && (
-            <div className="production-nesting">
-              <h4>Nesting Sheets</h4>
-              {(cutlist?.nesting ?? []).map((sheet) => (
-                <Card key={sheet.sheetId} className="nesting-card">
-                  <CardHeader><span>{sheet.sheetId}</span><Badge variant="info">{sheet.materialCode} / {sheet.thicknessMm}mm</Badge></CardHeader>
-                  <CardContent>
-                    <div className="nesting-stats"><span>Sheet: {sheet.sheetWidthMm}&times;{sheet.sheetHeightMm} mm</span><span>Utilization: {sheet.utilizationPercentage}%</span><span>Area: {sheet.usedAreaSqm.toFixed(3)} m&sup2;</span></div>
-                    <table className="production-table"><thead><tr><th>Part</th><th>X (mm)</th><th>Y (mm)</th><th>W (mm)</th><th>L (mm)</th><th>Rotated</th></tr></thead>
-                    <tbody>{sheet.placedPanels.map((p, i) => (<tr key={i}><td>{p.partId}</td><td>{p.xMm}</td><td>{p.yMm}</td><td>{p.widthMm}</td><td>{p.lengthMm}</td><td>{p.rotated ? 'Y' : 'N'}</td></tr>))}</tbody></table>
-                  </CardContent>
-                </Card>
-              ))}
-              {!cutlist?.nesting.length && <p className="inspector-empty">Nesting is unavailable until the approved scene produces exact parts with board, grain, and edge-band data.</p>}
-            </div>
-          )}
-          {activeTab === 'cnc' && (
-            <div className="production-cnc">
-              <h4>CNC Cutouts</h4>
-              <div className="cnc-toolbar">
-                <Button variant="primary" size="sm" disabled>Run Preflight</Button>
-                <Button variant="secondary" size="sm" disabled>Upload Concept Image</Button>
-                <Button variant="secondary" size="sm" disabled>Generate Vector Candidate</Button>
-              </div>
-              {preflightResult && (
-                <div className={`cnc-preflight ${preflightResult.status}`}>
-                  {preflightResult.status === 'running' && <span>Preflight running...</span>}
-                  {preflightResult.status === 'passed' && <CheckCircle2 size={16} />}
-                  {preflightResult.issues.length > 0 && preflightResult.issues.map((issue, i) => <div key={i} className="cnc-issue">{issue}</div>)}
-                </div>
-              )}
-              <table className="production-table">
-                <thead><tr><th>Asset ID</th><th>Name</th><th>Layer</th><th>Material</th><th>Dimensions (mm)</th><th>Validation</th></tr></thead>
-                <tbody>
-                  {cncAssets.map((asset) => (
-                    <tr key={asset.id}>
-                      <td>{asset.id}</td><td>{asset.name}</td><td>{asset.layer}</td><td>{asset.material}</td>
-                      <td>{asset.dimensionsMm.width}&times;{asset.dimensionsMm.height}</td>
-                      <td><Badge variant={asset.validationStatus === 'passed' ? 'success' : asset.validationStatus === 'failed' ? 'error' : 'warning'}>{asset.validationStatus}</Badge></td>
+                    <tr key={`${hw.name}-${i}`}>
+                      <td>{hw.name}</td><td>{hw.category}</td><td>{hw.quantity}</td><td>{hw.unit}</td>
                     </tr>
                   ))}
+                  {!cutlist?.hardware.length && (
+                    <tr><td colSpan={4} className="inspector-empty">No verified hardware schedule. Approve a scene to load hardware data.</td></tr>
+                  )}
                 </tbody>
               </table>
+
+              {cncAssets.length > 0 && (
+                <>
+                  <h4 style={{ marginTop: 20 }}>CNC Assets</h4>
+                  <table className="production-table">
+                    <thead>
+                      <tr><th>Asset ID</th><th>Name</th><th>Layer</th><th>Material</th><th>Dimensions (mm)</th><th>Validation</th></tr>
+                    </thead>
+                    <tbody>
+                      {cncAssets.map((asset) => (
+                        <tr key={asset.id}>
+                          <td>{asset.id}</td><td>{asset.name}</td><td>{asset.layer}</td><td>{asset.material}</td>
+                          <td>{asset.dimensionsMm.width}×{asset.dimensionsMm.height}</td>
+                          <td><Badge variant={asset.validationStatus === 'passed' ? 'success' : asset.validationStatus === 'failed' ? 'error' : 'warning'}>{asset.validationStatus}</Badge></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+              {cncAssets.length === 0 && (
+                <p className="inspector-empty" style={{ marginTop: 16 }}>CNC cutout assets are generated from approved CNC pattern files. None linked to this scene yet.</p>
+              )}
             </div>
-        )}
-        {activeTab === 'drawings' && (
-          <div className="production-drawings-view" style={{ padding: '4px 0' }}>
-            <WorkingDrawingsDossier
-              projectId={projectId}
-              sceneVersionId={sceneVersionId}
-              sceneApproved={sceneApproved}
-              modules={modules}
-              materials={materials}
-            />
-          </div>
-        )}
-        {activeTab === 'exports' && (
-          <div className="production-exports">
-            <h4>Export Production Outputs</h4>
-            <p className="inspector-empty" role="status">{exportState}</p>
-            <div className="exports-grid">
-              <Card className="featured-export"><CardHeader>Turnkey Shop Sheet (SVG)</CardHeader><CardContent><p>Full architectural shop sheet: top casework plan with 45° masonry hatching, dual external &amp; System 32 joinery elevations, red dimension chains, and complete carcass/laminate schedules.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-shop-sheet.svg`, 'POST', { options: { viewMode: 'shop-sheet' } })}>Export Shop Sheet SVG</Button></CardContent></Card>
-              <Card><CardHeader>System 32 Carcass Section (SVG)</CardHeader><CardContent><p>Internal carcass gables, System 32 line boring, fixed &amp; adjustable shelves, drawer runners, and hardware voids.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-carcass-section.svg`, 'POST', { options: { viewMode: 'internal' } })}>Export Carcass SVG</Button></CardContent></Card>
-              <Card><CardHeader>External Shutter Elevation (SVG)</CardHeader><CardContent><p>Finished shutter panels, Gola profile grooves, fluted panels, and profile glass frames.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-external-elevation.svg`, 'POST', { options: { viewMode: 'external' } })}>Export External SVG</Button></CardContent></Card>
-              <Card><CardHeader>SVG Drawing Package (All Walls)</CardHeader><CardContent><p>Scene-linked wall and module elevations overview.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-elevations.svg`)}>Export All SVG</Button></CardContent></Card>
-              <Card><CardHeader>DXF Millimetres</CardHeader><CardContent><p>Editable millimetre geometry from the approved scene.</p><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile('/drawings/dxf', `ultida-${sceneVersionId}.dxf`)}>Export DXF</Button></CardContent></Card>
-              <Card><CardHeader>SketchUp Model (.rb Script)</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved} onClick={() => void downloadProductionFile(`/projects/${projectId}/export/sketchup?sceneVersionId=${encodeURIComponent(sceneVersionId ?? '')}`, `ultida-${projectId}-sketchup.rb`, 'GET')}>Export SketchUp .rb</Button></CardContent></Card>
-              <Card className="featured-export"><CardHeader>Complete Production Pack (PDF)</CardHeader><CardContent><p>Index, approved wall elevations, internal/end sections, fabrication rules, material summary, hardware and panel cutlist from this exact scene revision.</p><small style={{ display: 'block', marginBottom: 10, color: sceneApproved ? '#166534' : '#92400e' }}>{sceneApproved ? 'Ready: approved scene linked · production snapshot loaded' : 'Complete: approve the scene first, then review production panels'}</small><Button variant="primary" size="sm" disabled={!sceneApproved || !sceneVersionId || !parts.length} onClick={() => void downloadProductionFile(`/projects/${projectId}/scenes/${sceneVersionId}/production/package.pdf`, `ultida-${sceneVersionId}-production-pack.pdf`, 'GET')}>Download complete PDF</Button></CardContent></Card>
-              <Card className="featured-export"><CardHeader>Production Cutlist Workbook (Excel)</CardHeader><CardContent><p>Panel cutlist, print labels, material summary, edge schedule, hardware, nesting and an audit trail from this exact approved scene.</p><Button variant="primary" size="sm" disabled={!sceneApproved || !sceneVersionId || !parts.length} onClick={() => void downloadProductionFile(`/projects/${projectId}/scenes/${sceneVersionId}/production/cutlist.xlsx`, `ultida-${sceneVersionId}-production-cutlist.xlsx`, 'GET')}>Download Excel Workbook</Button></CardContent></Card>
-              <Card><CardHeader>Cutlist CSV</CardHeader><CardContent><p>Millimetre panel dimensions, grain, and edge schedule.</p><Button variant="primary" size="sm" onClick={downloadClientCsv}>📥 Download CSV Cutlist</Button></CardContent></Card>
-              <Card><CardHeader>Operation Sheet</CardHeader><CardContent><span className="inspector-empty">Unavailable until verified CNC operations are stored.</span></CardContent></Card>
-              <Card><CardHeader>Tooling Assumptions</CardHeader><CardContent><span className="inspector-empty">Unavailable until verified CNC tooling data is stored.</span></CardContent></Card>
-              <Card><CardHeader>Panel Labels</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved || !cutlist?.parts.length} onClick={() => void downloadApprovedProductionAsset('labels.svg', `ultida-${sceneVersionId}-panel-labels.svg`)}>Export labels</Button></CardContent></Card>
-              <Card><CardHeader>Nesting Sheet</CardHeader><CardContent><Button variant="primary" size="sm" disabled={!sceneApproved || !cutlist?.nesting.length} onClick={() => void downloadApprovedProductionAsset('nesting.svg', `ultida-${sceneVersionId}-nesting.svg`)}>Export nesting</Button></CardContent></Card>
+          )}
+
+          {/* ══════ DRAWINGS TAB ══════ */}
+          {activeTab === 'drawings' && (
+            <div className="production-drawings-view" style={{ padding: '4px 0' }}>
+              <WorkingDrawingsDossier
+                projectId={projectId}
+                sceneVersionId={sceneVersionId}
+                sceneApproved={sceneApproved}
+                modules={modules}
+                materials={materials}
+              />
             </div>
-          </div>
-        )}
-        {activeTab === 'release' && (
-          <div className="production-release">
-            <h4>Production Release</h4>
-            <div className="release-checklist">
-              <div className={`release-item ${parts.length > 0 ? 'pass' : 'fail'}`}><CheckCircle2 size={16} /> Part list generated ({parts.length} parts)</div>
-              <div className={`release-item ${parts.every(p => p.status === 'approved') ? 'pass' : 'fail'}`}><CheckCircle2 size={16} /> All parts approved ({parts.filter(p => p.status === 'approved').length}/{parts.length})</div>
-              <div className={`release-item ${sceneApproved ? 'pass' : 'fail'}`}><CheckCircle2 size={16} /> Scene approved</div>
-              <div className={`release-item ${preflightResult?.status === 'passed' ? 'pass' : 'warning'}`}><CheckCircle2 size={16} /> CNC preflight {preflightResult?.status ?? 'not run'}</div>
-              <div className={`release-item ${parts.length ? 'pass' : 'fail'}`}><CheckCircle2 size={16} /> Exact production part data required</div>
+          )}
+
+          {/* ══════ RELEASE & EXPORT TAB ══════ */}
+          {activeTab === 'release' && (
+            <div className="production-release-export">
+
+              {/* Status message */}
+              <p className="export-status-bar" role="status">{exportState}</p>
+
+              {/* Release checklist */}
+              <div className="release-section">
+                <h4>Production Release</h4>
+                <div className="release-checklist">
+                  <div className={`release-item ${sceneApproved ? 'pass' : 'fail'}`}><CheckCircle2 size={15} /> Scene approved</div>
+                  <div className={`release-item ${parts.length > 0 ? 'pass' : 'fail'}`}><CheckCircle2 size={15} /> Panel cutlist loaded ({parts.length} parts)</div>
+                  <div className={`release-item ${parts.every((p) => p.status === 'approved') && parts.length > 0 ? 'pass' : 'fail'}`}>
+                    <CheckCircle2 size={15} /> All parts reviewed ({parts.filter((p) => p.status === 'approved').length}/{parts.length})
+                  </div>
+                </div>
+
+                {!releaseReady && (
+                  <>
+                    <label className="production-review-confirmation">
+                      <input type="checkbox" checked={reviewConfirmed} onChange={(e) => setReviewConfirmed(e.target.checked)} />
+                      <span><strong>I have reviewed every panel.</strong> Finished sizes, board thickness, material, grain and edge schedule match this approved scene.</span>
+                    </label>
+                    <label className="production-review-notes">
+                      Review note
+                      <textarea value={reviewNotes} onChange={(e) => setReviewNotes(e.target.value)} placeholder="Optional fabrication or approval note" rows={3} />
+                    </label>
+                    <div className="release-actions">
+                      <Button
+                        variant="primary"
+                        disabled={!sceneApproved || !parts.length || !reviewConfirmed || reviewSaving}
+                        onClick={() => void approveProductionReview()}
+                      >
+                        {reviewSaving ? 'Saving review…' : 'Approve Reviewed Panels'}
+                      </Button>
+                    </div>
+                  </>
+                )}
+                {releaseReady && <Badge variant="success" style={{ marginTop: 12, display: 'inline-flex' }}>✓ Production pack approved</Badge>}
+              </div>
+
+              {/* Primary exports */}
+              <div className="release-section">
+                <h4>Export Production Outputs</h4>
+                <div className="exports-primary-grid">
+                  <Card className="featured-export">
+                    <CardHeader>Complete Production Pack (PDF)</CardHeader>
+                    <CardContent>
+                      <p>Index, wall elevations, carcass sections, fabrication rules, material summary, hardware and panel cutlist — all from this exact scene revision.</p>
+                      <Button variant="primary" size="sm"
+                        disabled={!sceneApproved || !sceneVersionId || !parts.length}
+                        onClick={() => void downloadProductionFile(`/projects/${projectId}/scenes/${sceneVersionId}/production/package.pdf`, `ultida-${sceneVersionId}-production-pack.pdf`, 'GET')}
+                      >Download PDF Pack</Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="featured-export">
+                    <CardHeader>Cutlist Workbook (Excel)</CardHeader>
+                    <CardContent>
+                      <p>Panel cutlist, print labels, material summary, edge schedule, hardware, nesting and audit trail — fully formatted for your workshop.</p>
+                      <Button variant="primary" size="sm"
+                        disabled={!sceneApproved || !sceneVersionId || !parts.length}
+                        onClick={() => void downloadProductionFile(`/projects/${projectId}/scenes/${sceneVersionId}/production/cutlist.xlsx`, `ultida-${sceneVersionId}-cutlist.xlsx`, 'GET')}
+                      >Download Excel</Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>Cutlist CSV</CardHeader>
+                    <CardContent>
+                      <p>Millimetre panel dimensions, room, grain and edge schedule. Ready for any CNC or spreadsheet tool.</p>
+                      <Button variant="primary" size="sm" onClick={downloadClientCsv} disabled={!sceneApproved || !parts.length}>Download CSV</Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="featured-export">
+                    <CardHeader>Turnkey Shop Sheet (SVG)</CardHeader>
+                    <CardContent>
+                      <p>Full architectural shop sheet: top casework plan, dual elevations, dimension chains, and carcass/laminate schedules.</p>
+                      <Button variant="primary" size="sm"
+                        disabled={!sceneApproved}
+                        onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-shop-sheet.svg`, 'POST', { options: { viewMode: 'shop-sheet' } })}
+                      >Export Shop Sheet SVG</Button>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* More exports toggle */}
+                <button className="more-exports-toggle" onClick={() => setShowMoreExports((v) => !v)}>
+                  {showMoreExports ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                  {showMoreExports ? 'Hide additional exports' : 'Show more exports (DXF, Labels, Nesting, SketchUp…)'}
+                </button>
+
+                {showMoreExports && (
+                  <div className="exports-secondary-grid">
+                    <Card>
+                      <CardHeader>DXF Millimetres</CardHeader>
+                      <CardContent>
+                        <Button variant="primary" size="sm" disabled={!sceneApproved}
+                          onClick={() => void downloadProductionFile('/drawings/dxf', `ultida-${sceneVersionId}.dxf`)}
+                        >Export DXF</Button>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader>System 32 Carcass Section (SVG)</CardHeader>
+                      <CardContent>
+                        <Button variant="primary" size="sm" disabled={!sceneApproved}
+                          onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-carcass-section.svg`, 'POST', { options: { viewMode: 'internal' } })}
+                        >Export Carcass SVG</Button>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader>External Elevation (SVG)</CardHeader>
+                      <CardContent>
+                        <Button variant="primary" size="sm" disabled={!sceneApproved}
+                          onClick={() => void downloadProductionFile('/drawings/elevations.svg', `ultida-${sceneVersionId}-external-elevation.svg`, 'POST', { options: { viewMode: 'external' } })}
+                        >Export External SVG</Button>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader>SketchUp Model (.rb)</CardHeader>
+                      <CardContent>
+                        <Button variant="primary" size="sm" disabled={!sceneApproved}
+                          onClick={() => void downloadProductionFile(`/projects/${projectId}/export/sketchup?sceneVersionId=${encodeURIComponent(sceneVersionId ?? '')}`, `ultida-${projectId}-sketchup.rb`, 'GET')}
+                        >Export SketchUp .rb</Button>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader>Panel Labels (SVG)</CardHeader>
+                      <CardContent>
+                        <Button variant="primary" size="sm" disabled={!sceneApproved || !cutlist?.parts.length}
+                          onClick={() => void downloadApprovedProductionAsset('labels.svg', `ultida-${sceneVersionId}-panel-labels.svg`)}
+                        >Export Labels</Button>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader>Nesting Sheet (SVG)</CardHeader>
+                      <CardContent>
+                        <Button variant="primary" size="sm" disabled={!sceneApproved || !cutlist?.nesting.length}
+                          onClick={() => void downloadApprovedProductionAsset('nesting.svg', `ultida-${sceneVersionId}-nesting.svg`)}
+                        >Export Nesting</Button>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+              </div>
             </div>
-            <label className="production-review-confirmation">
-              <input type="checkbox" checked={reviewConfirmed} onChange={(event) => setReviewConfirmed(event.target.checked)} />
-              <span><strong>I reviewed every panel.</strong> Finished sizes, board thickness, material, grain and edge schedule match this approved scene.</span>
-            </label>
-            <label className="production-review-notes">Review note<textarea value={reviewNotes} onChange={(event) => setReviewNotes(event.target.value)} placeholder="Optional fabrication or approval note" rows={3} /></label>
-            <div className="release-actions">
-              {releaseReady
-                ? <Badge variant="success">Production pack approved</Badge>
-                : <Button variant="primary" disabled={!sceneApproved || !parts.length || !reviewConfirmed || reviewSaving} onClick={() => void approveProductionReview()}>{reviewSaving ? 'Saving review...' : 'Approve reviewed panels'}</Button>}
-            </div>
-          </div>
-        )}
-      </div>
-      </div>
-      <div className={`production-right-inspector ${rightCollapsed ? 'collapsed' : ''}`}>
-        <div className="inspector-header">
-          <h4>Inspector</h4>
-          <Button variant="ghost" size="sm" onClick={() => setRightCollapsed(!rightCollapsed)} icon={rightCollapsed ? <ChevronLeft size={14} /> : <PanelRightClose size={14} />} />
+          )}
+
         </div>
-        {!rightCollapsed && (
-          <div className="inspector-content">
-            <p className="inspector-empty">Select a part, sheet, or CNC asset to inspect its full specifications, machining operations, and provenance chain.</p>
-          </div>
-        )}
       </div>
+
+      {/* ── Workflow dock ── */}
       <WorkflowDock
-        currentStageIndex={activeTab === 'release' ? 8 : 5}
-        stageTitle={activeTab === 'release' ? 'Production Release & CAM Export' : 'Architectural Elevations & Cutlists'}
+        currentStageIndex={activeTab === 'release' ? 4 : 3}
+        stageTitle={activeTab === 'release' ? 'Release & Export' : 'Cutlist & Drawings'}
         stageSummary={activeTab === 'release'
-          ? 'Final approval, CNC post-processing, and fabrication pack release'
-          : 'System 32 CAD elevations · Panel cutting lists · Nesting sheets · Edge banding schedules'}
+          ? 'Approve reviewed panels · Download production PDF, Excel and exports'
+          : 'Panel cutlist by room · Shop drawings · Board optimizer · Hardware schedule'}
         beaconTone={activeTab === 'release' ? 'success' : 'gold'}
         prevAction={{
-          label: activeTab === 'release' ? 'Back to Presentation' : 'Back to 3D Scene',
+          label: 'Back to 3D Scene',
           icon: <ArrowLeft size={14} />,
-          onClick: () => {
-            if (projectId) {
-              if (activeTab === 'release') {
-                navigate(`/projects/${projectId}/presentation`);
-              } else {
-                navigate(`/projects/${projectId}/3d`);
-              }
-            }
-          },
+          onClick: () => { if (projectId) navigate(`/projects/${projectId}/3d`); },
         }}
         nextAction={{
-          label: activeTab === 'release' ? 'View Technical CAD Drawings' : 'Proceed to Commercial Estimate',
+          label: 'Estimate & Delivery',
           icon: <ArrowRight size={14} />,
-          onClick: () => {
-            if (projectId) {
-              if (activeTab === 'release') {
-                navigate(`/projects/${projectId}/drawings`);
-              } else {
-                navigate(`/projects/${projectId}/estimate`);
-              }
-            }
-          },
+          onClick: () => { if (projectId) navigate(`/projects/${projectId}/estimate`); },
         }}
       />
     </div>

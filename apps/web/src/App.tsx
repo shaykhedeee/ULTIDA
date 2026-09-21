@@ -1399,8 +1399,13 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         } />
         <Route path="design" element={<Navigate to={`/projects/${projectId}/spaces?pendingModule=1`} replace />} />
         <Route path="design-legacy" element={<Navigate to={`/projects/${projectId}/spaces?pendingModule=1`} replace />} />
-        <Route path="production" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} initialTab="release" />} />
-        <Route path="drawings" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} initialTab="elevations" />} />
+        {/* /production → silent redirect to Cutlist & Drawings */}
+        <Route path="production" element={<Navigate to={`/projects/${projectId}/drawings`} replace />} />
+        {/* /plan → silent redirect to Brief & Plan */}
+        <Route path="plan" element={<Navigate to={`/projects/${projectId}/brief`} replace />} />
+        {/* /drawings = primary Cutlist Studio */}
+        <Route path="drawings" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} initialTab="cutlist" />} />
+
         <Route path="estimate" element={
           <CommercialWorkspace
             projectId={projectId ?? null}
@@ -1410,19 +1415,12 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             moduleCount={sceneModules.length}
           />
         } />
-        <Route path="presentation" element={
-          <DeliveryWorkspace
-            briefSaved={briefSaved}
-            planApproved={planApproved}
-            sceneVersionId={sceneVersionId}
-            moduleCount={sceneModules.length}
-            providerReady={providerStatuses.some((p) => p.configured)}
-            projectId={projectId ?? null}
-          />
-        } />
+        {/* /presentation → redirect to estimate (Estimate & Delivery) */}
+        <Route path="presentation" element={<Navigate to={`/projects/${projectId}/estimate`} replace />} />
         {/* Default: redirect to brief */}
         <Route index element={<Navigate to="brief" replace />} />
         <Route path="*" element={<Navigate to="brief" replace />} />
+
       </Routes></Suspense>
     </Shell>
   );
