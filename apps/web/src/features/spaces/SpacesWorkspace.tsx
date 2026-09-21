@@ -499,6 +499,8 @@ export function SpacesWorkspace() {
   }, [projectId, aiProposalRoomId, aiProposals]);
   useEffect(() => { if (aiProposalRoomId !== selectedRoom) setAiProposals([]); }, [selectedRoom, aiProposalRoomId]);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
+  const [showScopeModal, setShowScopeModal] = useState(false);
+  const [scopeFilterView, setScopeFilterView] = useState<'active' | 'all'>('active');
   const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'modules' | 'flooring' | 'brief' | 'scene'>(() => {
     const tab = searchParams.get('tab');
     if (tab === 'flooring') return 'flooring';
@@ -874,14 +876,32 @@ export function SpacesWorkspace() {
     };
   }), [rooms, walls, openings, columns, issues, ceilingHeightMm, geometryMode, scaleVerified, roomFurnitureMap, roomVastuMap, selectedRoom, aiProposals]);
 
+  function setScopePreset(preset: 'all' | 'none' | 'living_kitchen' | 'bedrooms' | 'master_only') {
+    snapshot();
+    const updated = rooms.map((r) => {
+      let inc = false;
+      if (preset === 'all') inc = true;
+      else if (preset === 'none') inc = false;
+      else if (preset === 'living_kitchen') inc = ['living', 'dining', 'kitchen', 'foyer', 'powder_room'].includes(r.roomType);
+      else if (preset === 'bedrooms') inc = ['bedroom', 'master_bedroom', 'kids_bedroom', 'guest_bedroom'].includes(r.roomType);
+      else if (preset === 'master_only') inc = ['master_bedroom', 'walk_in_closet', 'master_bathroom'].includes(r.roomType);
+      return { ...r, included: inc };
+    });
+    setRooms(updated);
+    setSaveState(`Applied "${preset.replace('_', ' ')}" scope preset.`);
+  }
+
   const filteredRoomMetrics = useMemo(() => {
-    if (!roomSearchQuery.trim()) return roomMetrics;
+    const list = scopeFilterView === 'active'
+      ? roomMetrics.filter(({ room }) => room.included !== false)
+      : roomMetrics;
+    if (!roomSearchQuery.trim()) return list;
     const q = roomSearchQuery.toLowerCase().trim();
-    return roomMetrics.filter(({ room }) =>
+    return list.filter(({ room }) =>
       room.name.toLowerCase().includes(q) ||
       room.roomType.toLowerCase().includes(q)
     );
-  }, [roomMetrics, roomSearchQuery]);
+  }, [roomMetrics, roomSearchQuery, scopeFilterView]);
 
   const includedMetrics = useMemo(() => roomMetrics.filter(({ room }) => room.included !== false), [roomMetrics]);
   const overallReadiness = useMemo(() => {
@@ -2420,9 +2440,14 @@ export function SpacesWorkspace() {
       {/* ── Active Scope Strip (Pick Only What is Needed) ── */}
       <div className="spaces-active-scope-strip" role="region" aria-label="Room and wall focus selector">
         <div className="scope-strip-left">
-          <span className="scope-badge-label">
-            <Filter size={13} /> Active Scope:
-          </span>
+          <button
+            type="button"
+            className="btn-scope-manage"
+            onClick={() => setShowScopeModal(true)}
+            title="Pick only the rooms and walls needed for this project"
+          >
+            <Sliders size={12} /> Scope ({includedMetrics.length}/{rooms.length})
+          </button>
           <div className="scope-room-pills">
             <button
               type="button"
@@ -2433,9 +2458,9 @@ export function SpacesWorkspace() {
                 setCanvasFocus('plan');
               }}
             >
-              All Rooms ({rooms.length})
+              All Active ({includedMetrics.length})
             </button>
-            {rooms.map((rm) => (
+            {includedMetrics.map(({ room: rm }) => (
               <button
                 key={rm.id}
                 type="button"
@@ -2452,42 +2477,100 @@ export function SpacesWorkspace() {
           </div>
         </div>
 
-        {selectedRoom && (
-          <div className="scope-strip-right">
-            <span className="scope-wall-label">Focus Wall:</span>
-            <div className="scope-wall-pills">
+        {selectedRoom && (() => {
+          const selRoom = rooms.find((r) => r.id === selectedRoom);
+          const roomWalls = selRoom ? wallsForRoom(selRoom) : [];
+          return (
+            <div className="scope-strip-right">
+              <span className="scope-wall-label">Focus Wall:</span>
+              <div className="scope-wall-pills">
+                <button
+                  type="button"
+                  className={`btn-wall-pill${!selectedWall ? ' active' : ''}`}
+                  onClick={() => setSelectedWall(null)}
+                >
+                  All Walls
+                </button>
+                {roomWalls.map((w, i) => {
+                  const wallLetter = String.fromCharCode(65 + i);
+                  const lenMm = Math.round(wallLen(w));
+                  return (
+                    <button
+                      key={w.id}
+                      type="button"
+                      className={`btn-wall-pill${selectedWall === w.id ? ' active' : ''}`}
+                      onClick={() => setSelectedWall(w.id)}
+                      title={`Focus on Wall ${wallLetter} (${lenMm} mm)`}
+                    >
+                      Wall {wallLetter} ({lenMm} mm)
+                    </button>
+                  );
+                })}
+              </div>
               <button
                 type="button"
-                className={`btn-wall-pill${!selectedWall ? ' active' : ''}`}
-                onClick={() => setSelectedWall(null)}
+                className="btn-scope-reset"
+                onClick={() => {
+                  setSelectedRoom(null);
+                  setSelectedWall(null);
+                  setCanvasFocus('plan');
+                }}
               >
-                All Walls
+                View Full Plan
               </button>
-              {walls.slice(0, 6).map((w, i) => (
-                <button
-                  key={w.id}
-                  type="button"
-                  className={`btn-wall-pill${selectedWall === w.id ? ' active' : ''}`}
-                  onClick={() => setSelectedWall(w.id)}
-                >
-                  Wall {String.fromCharCode(65 + i)}
-                </button>
-              ))}
             </div>
-            <button
-              type="button"
-              className="btn-scope-reset"
-              onClick={() => {
-                setSelectedRoom(null);
-                setSelectedWall(null);
-                setCanvasFocus('plan');
-              }}
-            >
-              View Full Plan
-            </button>
-          </div>
-        )}
+          );
+        })()}
       </div>
+
+      {/* ── Active Wall Action Bar ── */}
+      {selectedRoom && selectedWall && (() => {
+        const selRoom = rooms.find((r) => r.id === selectedRoom);
+        const roomWalls = selRoom ? wallsForRoom(selRoom) : [];
+        const wallIdx = roomWalls.findIndex((w) => w.id === selectedWall);
+        const curWall = walls.find((w) => w.id === selectedWall) ?? roomWalls[wallIdx];
+        const curWallLen = curWall ? Math.round(wallLen(curWall)) : 0;
+        const curWallOpenings = curWall ? openings.filter((o) => o.wallId === curWall.id) : [];
+        const wallLetter = wallIdx >= 0 ? String.fromCharCode(65 + wallIdx) : 'A';
+        return (
+          <div className="active-wall-action-bar" role="region" aria-label="Focused wall actions">
+            <div className="wall-action-info">
+              <span className="wall-action-badge">Active Wall</span>
+              <strong>Wall {wallLetter} • {selRoom?.name}</strong>
+              <span className="wall-action-metric">{curWallLen} mm length • {curWallOpenings.length} opening{curWallOpenings.length === 1 ? '' : 's'}</span>
+            </div>
+            <div className="wall-action-btns">
+              <button
+                type="button"
+                className="btn-wall-action primary"
+                onClick={() => {
+                  setShowDesignLibrary(true);
+                  setSpacePanel('modules');
+                }}
+                title="Place modular cabinetry or furniture on this wall"
+              >
+                <BookOpen size={13} /> Add Joinery to Wall {wallLetter}
+              </button>
+              <button
+                type="button"
+                className="btn-wall-action"
+                onClick={() => setShowWallElevationModal(true)}
+                title="Open 2D architectural elevation drawing for this wall"
+              >
+                <Compass size={13} /> 2D Wall Elevation
+              </button>
+              <button
+                type="button"
+                className="btn-wall-action ghost"
+                onClick={() => setSelectedWall(null)}
+                title="Clear active wall focus"
+              >
+                <X size={13} /> Clear Focus
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Plan overlay & visual controls bar */}
       <div className="spaces-flow-note spaces-guidance-bar" role="note">
@@ -2601,6 +2684,26 @@ export function SpacesWorkspace() {
                 title="Add a new room or select from villa architectural presets"
               >
                 <Plus size={13} /> Add Room
+              </button>
+            </div>
+
+            {/* Scope filter toggle */}
+            <div className="scope-filter-toggle" role="tablist">
+              <button
+                type="button"
+                className={scopeFilterView === 'active' ? 'active' : ''}
+                onClick={() => setScopeFilterView('active')}
+                title="Show only rooms included in project scope"
+              >
+                Active Scope ({includedMetrics.length})
+              </button>
+              <button
+                type="button"
+                className={scopeFilterView === 'all' ? 'active' : ''}
+                onClick={() => setScopeFilterView('all')}
+                title="Show all rooms detected on floor plan"
+              >
+                All Rooms ({rooms.length})
               </button>
             </div>
 
@@ -3147,6 +3250,17 @@ export function SpacesWorkspace() {
                         strokeWidth={scaledThickness + 2}
                         strokeLinecap="square"
                         strokeOpacity={0.4}
+                      />
+                    )}
+                    {/* Glowing highlight for active focus wall */}
+                    {isSel && (
+                      <line
+                        x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                        stroke="#c59c2d"
+                        strokeWidth={scaledThickness + 8}
+                        strokeLinecap="round"
+                        strokeOpacity={0.45}
+                        style={{ filter: 'drop-shadow(0 0 8px rgba(197, 156, 45, 0.9))' }}
                       />
                     )}
                     {/* Architectural Core Wall */}
@@ -5013,18 +5127,80 @@ export function SpacesWorkspace() {
         </div>
       )}
 
+      {/* ── Project Scope Manager Modal ── */}
+      {showScopeModal && (
+        <div className="scope-modal-backdrop" onClick={() => setShowScopeModal(false)}>
+          <div className="scope-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="scope-modal-header">
+              <h3><Filter size={16} /> Customize Project Scope</h3>
+              <button className="icon-btn" onClick={() => setShowScopeModal(false)}><X size={16} /></button>
+            </div>
+            <div className="scope-modal-body">
+              <p className="scope-modal-intro">
+                Select only the rooms and walls needed for this design job. Excluded spaces are saved safely in the background but kept out of your workflow.
+              </p>
+              <div className="scope-preset-row">
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: '#786d5e' }}>Presets:</span>
+                <button type="button" className="scope-preset-btn" onClick={() => setScopePreset('all')}>Full Home (All)</button>
+                <button type="button" className="scope-preset-btn" onClick={() => setScopePreset('living_kitchen')}>Living + Kitchen</button>
+                <button type="button" className="scope-preset-btn" onClick={() => setScopePreset('bedrooms')}>Bedrooms Only</button>
+                <button type="button" className="scope-preset-btn" onClick={() => setScopePreset('master_only')}>Master Suite Only</button>
+                <button type="button" className="scope-preset-btn" onClick={() => setScopePreset('none')}>Clear All</button>
+              </div>
+              <div className="scope-rooms-grid">
+                {rooms.map((r) => {
+                  const isInc = r.included !== false;
+                  const rWalls = wallsForRoom(r);
+                  return (
+                    <div
+                      key={r.id}
+                      className={`scope-room-card${isInc ? ' selected' : ''}`}
+                      onClick={() => void includeRoom(r.id, !isInc)}
+                    >
+                      <div className="scope-room-card-left">
+                        <input
+                          type="checkbox"
+                          checked={isInc}
+                          onChange={() => {}}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="scope-room-info">
+                          <strong>{r.name}</strong>
+                          <span>{r.areaSqm.toFixed(1)} m² ({Math.round(r.areaSqm * 10.764)} sq.ft) • {rWalls.length} walls</span>
+                        </div>
+                      </div>
+                      <div className="scope-room-card-meta">
+                        <span className="scope-room-tag">{r.roomType.replace(/_/g, ' ')}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="scope-modal-footer">
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#57483b' }}>
+                {rooms.filter(r => r.included !== false).length} of {rooms.length} rooms active
+              </span>
+              <Button variant="primary" size="sm" onClick={() => setShowScopeModal(false)}>
+                Done &amp; Continue
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <WorkflowDock
-        currentStageIndex={3}
-        totalStages={8}
-        stageTitle="Rooms &amp; 2D Space Layout"
+        currentStageIndex={2}
+        totalStages={5}
+        stageTitle="Rooms &amp; Spaces"
         stageSummary={`${rooms.filter((r) => r.included !== false).length} room${rooms.filter((r) => r.included !== false).length === 1 ? '' : 's'} configured • Next: review the saved design in 3D.`}
         prevAction={{
-          label: 'Measured Plan',
+          label: 'Client Brief',
           icon: <ArrowLeft size={13} />,
-          onClick: () => navigate(`/projects/${projectId}/plan`),
+          onClick: () => navigate(`/projects/${projectId}/brief`),
         }}
         nextAction={{
-          label: 'Review in 3D',
+          label: 'Proceed to Step 3: 3D Scene',
           icon: <ArrowRight size={14} />,
           onClick: () => navigate(`/projects/${projectId}/3d`),
         }}

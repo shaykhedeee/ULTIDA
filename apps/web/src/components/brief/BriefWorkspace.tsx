@@ -239,9 +239,9 @@ export function BriefWorkspace({ projectId, initialBrief, fileName, status, onSa
       {/* Unified Workflow Dock */}
       <WorkflowDock
         currentStageIndex={1}
-        totalStages={8}
+        totalStages={5}
         stageTitle="Client Intake &amp; Project Brief"
-        stageSummary="Complete design direction, property details, and budget requirements, then proceed to floor plan vector calibration."
+        stageSummary="Complete design direction, property details, and budget requirements, then proceed to Rooms & Spaces."
         secondaryAction={{
           label: 'Skip to 3D & AI Render',
           icon: <Sparkles size={13} style={{ color: '#c59c2d' }} />,
@@ -250,10 +250,10 @@ export function BriefWorkspace({ projectId, initialBrief, fileName, status, onSa
           },
         }}
         nextAction={{
-          label: 'Proceed to Step 2: Floor Plan',
+          label: 'Proceed to Step 2: Rooms & Spaces',
           icon: <ArrowRight size={14} />,
           onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/plan`);
+            if (projectId) navigate(`/projects/${projectId}/spaces`);
           },
         }}
       />

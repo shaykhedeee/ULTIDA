@@ -132,6 +132,271 @@
   color: #1f2933;
 }
 
+/* ─── Scope Manager Modal & Wall Focus Action Bar ─── */
+.btn-scope-manage {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #c59c2d;
+  background: rgba(197, 156, 45, 0.1);
+  color: #8c6218;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-scope-manage:hover {
+  background: rgba(197, 156, 45, 0.2);
+}
+
+.scope-filter-toggle {
+  display: flex;
+  background: #f0ebe4;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+  margin: 6px 0 10px;
+}
+.scope-filter-toggle button {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #786d5e;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.scope-filter-toggle button.active {
+  background: #ffffff;
+  color: #261e17;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+/* Active Wall Action Bar */
+.active-wall-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: -6px 0 16px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #261e17 0%, #3a2e22 100%);
+  border-radius: 10px;
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  border: 1px solid rgba(197, 156, 45, 0.4);
+  animation: slideDownFade 0.2s ease-out;
+}
+.wall-action-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wall-action-badge {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: #c59c2d;
+  color: #000;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.wall-action-metric {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.wall-action-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn-wall-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-wall-action:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.btn-wall-action.primary {
+  background: #c59c2d;
+  color: #000000;
+  border-color: #c59c2d;
+  font-weight: 700;
+}
+.btn-wall-action.primary:hover {
+  background: #d6ac3d;
+}
+.btn-wall-action.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: rgba(255, 255, 255, 0.6);
+}
+.btn-wall-action.ghost:hover {
+  color: #fff;
+}
+
+/* Scope Manager Modal */
+.scope-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 20px;
+}
+.scope-modal {
+  width: 100%;
+  max-width: 640px;
+  max-height: 85vh;
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #dcd1c2;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: zoomFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.scope-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #ede5d8;
+  background: #faf8f5;
+}
+.scope-modal-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #261e17;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.scope-modal-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.scope-modal-intro {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: #6f5a49;
+  line-height: 1.5;
+}
+.scope-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #ede5d8;
+}
+.scope-preset-btn {
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid #dcd1c2;
+  background: #fdfbf7;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #57483b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.scope-preset-btn:hover {
+  background: #f0e6d6;
+  border-color: #bfae98;
+}
+.scope-rooms-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.scope-room-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #e5dbcd;
+  background: #faf7f2;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.scope-room-card:hover {
+  border-color: #c59c2d;
+  background: #fffdf9;
+}
+.scope-room-card.selected {
+  border-color: #2d5a27;
+  background: #f4f9f2;
+}
+.scope-room-card-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.scope-room-card-left input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #2d5a27;
+  cursor: pointer;
+}
+.scope-room-info strong {
+  display: block;
+  font-size: 13px;
+  color: #261e17;
+}
+.scope-room-info span {
+  font-size: 11px;
+  color: #786d5e;
+}
+.scope-room-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.scope-room-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #ede5d8;
+  color: #57483b;
+}
+.scope-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-top: 1px solid #ede5d8;
+  background: #faf8f5;
+}
+
 
 .spaces-grid {
   display: grid;

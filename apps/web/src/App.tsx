@@ -1401,8 +1401,6 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         <Route path="design-legacy" element={<Navigate to={`/projects/${projectId}/spaces?pendingModule=1`} replace />} />
         {/* /production → silent redirect to Cutlist & Drawings */}
         <Route path="production" element={<Navigate to={`/projects/${projectId}/drawings`} replace />} />
-        {/* /plan → silent redirect to Brief & Plan */}
-        <Route path="plan" element={<Navigate to={`/projects/${projectId}/brief`} replace />} />
         {/* /drawings = primary Cutlist Studio */}
         <Route path="drawings" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} initialTab="cutlist" />} />
 

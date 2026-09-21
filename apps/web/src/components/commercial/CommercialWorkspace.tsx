@@ -328,22 +328,23 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
 
       {/* Bottom Stage Progression */}
       <WorkflowDock
-        currentStageIndex={6}
-        stageTitle="Commercial Turnkey BOM & Pricing"
-        stageSummary="BOM calculated · Ready for Client Presentation or Technical Drawings"
-        beaconTone="gold"
+        currentStageIndex={5}
+        totalStages={5}
+        stageTitle="Estimate & Delivery Commercials"
+        stageSummary="Turnkey Bill of Materials (BOM), line-item pricing, labor schedules, and delivery handover ready."
+        beaconTone="success"
         prevAction={{
-          label: 'Drawings & Cutlists',
+          label: 'Cutlist & Drawings',
           icon: <ArrowLeft size={14} />,
           onClick: () => {
             if (projectId) navigate(`/projects/${projectId}/drawings`);
           },
         }}
         nextAction={{
-          label: 'Client Presentation & Delivery',
+          label: 'Return to 3D Scene',
           icon: <ArrowRight size={14} />,
           onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/presentation`);
+            if (projectId) navigate(`/projects/${projectId}/3d`);
           },
         }}
       />

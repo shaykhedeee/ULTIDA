@@ -1012,7 +1012,8 @@ export function ProductionWorkspace({
 
       {/* ── Workflow dock ── */}
       <WorkflowDock
-        currentStageIndex={activeTab === 'release' ? 4 : 3}
+        currentStageIndex={4}
+        totalStages={5}
         stageTitle={activeTab === 'release' ? 'Release & Export' : 'Cutlist & Drawings'}
         stageSummary={activeTab === 'release'
           ? 'Approve reviewed panels · Download production PDF, Excel and exports'
@@ -1024,7 +1025,7 @@ export function ProductionWorkspace({
           onClick: () => { if (projectId) navigate(`/projects/${projectId}/3d`); },
         }}
         nextAction={{
-          label: 'Estimate & Delivery',
+          label: 'Proceed to Step 5: Estimate & Delivery',
           icon: <ArrowRight size={14} />,
           onClick: () => { if (projectId) navigate(`/projects/${projectId}/estimate`); },
         }}

@@ -3260,17 +3260,17 @@ export function PlanReviewWorkspace({
 
       {/* Unified Workflow Dock */}
       <WorkflowDock
-        currentStageIndex={2}
-        totalStages={8}
+        currentStageIndex={1}
+        totalStages={5}
         stageTitle="Measured Plan Analysis &amp; Vector Calibration"
-        stageSummary="Review architectural boundary walls, calibrate metric scale, and verify door/window openings before proceeding to Rooms."
+        stageSummary="Review architectural boundary walls, calibrate metric scale, and verify door/window openings before proceeding to Rooms &amp; Spaces."
         prevAction={{
           label: 'Back to Brief',
           icon: <ArrowLeft size={13} />,
           onClick: () => navigate(-1),
         }}
         nextAction={{
-          label: 'Proceed to Step 3: Spaces',
+          label: 'Proceed to Step 2: Spaces',
           icon: <ArrowRight size={14} />,
           onClick: async () => {
             try {

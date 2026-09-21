@@ -187,7 +187,7 @@ export interface WorkflowDockProps {
 
 export function WorkflowDock({
   currentStageIndex,
-  totalStages = 8,
+  totalStages = 5,
   stageTitle,
   stageSummary,
   prevAction,

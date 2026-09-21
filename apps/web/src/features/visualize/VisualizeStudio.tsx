@@ -845,19 +845,20 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
 
       {/* Bottom Stage Progression */}
       <WorkflowDock
-        currentStageIndex={4}
+        currentStageIndex={3}
+        totalStages={5}
         stageTitle="3D Scene Studio & Visual Intelligence"
         stageSummary="Geometry-locked WebGL viewport · AI spatial object scans · Deterministic seed-locked A/B comparisons"
         beaconTone="gold"
         prevAction={{
-          label: 'Back to Rooms & Bay Layout',
+          label: 'Back to Rooms & Spaces',
           icon: <ArrowLeft size={14} />,
           onClick: () => {
             if (projectId) navigate(`/projects/${projectId}/spaces`);
           },
         }}
         nextAction={{
-          label: 'Proceed to Production Drawings & CAD',
+          label: 'Proceed to Step 4: Cutlist & Drawings',
           icon: <ArrowRight size={14} />,
           onClick: () => {
             if (projectId) navigate(`/projects/${projectId}/drawings`);

@@ -29,21 +29,21 @@ export function RoomDesignStudio({ projectId, spaces }: Props) {
 
       {/* Bottom Stage Progression */}
       <WorkflowDock
-        currentStageIndex={3}
-        totalStages={8}
-        stageTitle="Room design"
+        currentStageIndex={2}
+        totalStages={5}
+        stageTitle="Rooms &amp; Spaces"
         stageSummary="Place and refine furniture against measured walls, then review the saved design in 3D."
         beaconTone="gold"
         prevAction={{
-          label: 'Back to Measured Plan',
+          label: 'Client Brief',
           icon: <ArrowLeft size={14} />,
           onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/plan`);
+            if (projectId) navigate(`/projects/${projectId}/brief`);
             else navigate(-1);
           },
         }}
         nextAction={{
-          label: 'Proceed to Step 4: 3D Scene',
+          label: 'Proceed to Step 3: 3D Scene',
           icon: <ArrowRight size={14} />,
           onClick: () => {
             if (projectId) navigate(`/projects/${projectId}/3d`);
