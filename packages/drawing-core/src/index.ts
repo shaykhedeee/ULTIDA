@@ -1689,3 +1689,4 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
 
 export { generateSketchUpRubyScript } from './sketchup-exporter.js';
 export { generateArchitecturalShopSheetSvg, type ShopDrawingOptions } from './shop-drawing-renderer.js';
+export * from './drawing-cutlist-analyzer.js';

@@ -3,12 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import {
   Package, AlertTriangle, CheckCircle2, Download, ChevronRight, ChevronDown,
   ClipboardList, FileText, ArrowLeft, ArrowRight, Printer, RefreshCw,
+  Sliders, Compass, Eye, X, Check, Layers, Sparkles, Filter,
 } from 'lucide-react';
+
+import {
+  analyze2DDrawingsToCutlist,
+  extractDrawingCutlistFromScene,
+  type DrawingCutlistAnalysisResult,
+  type DrawingCutlistInput,
+} from '@ultida/drawing-core/browser';
 import { Badge, Button, Card, CardContent, CardHeader, WorkflowDock } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import WorkingDrawingsDossier from '../../components/drawings/WorkingDrawingsDossier';
 import './production-workspace.css';
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type TabId = 'cutlist' | 'hardware' | 'drawings' | 'release';
@@ -93,6 +102,12 @@ export function ProductionWorkspace({
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
   const [showMoreExports, setShowMoreExports] = useState(false);
 
+  // Active Scope & 2D Drawing Cutlist Analyzer states
+  const [activeRoomScope, setActiveRoomScope] = useState<string>('all');
+  const [showDrawingAnalyzer, setShowDrawingAnalyzer] = useState(false);
+  const [drawingAnalysisResult, setDrawingAnalysisResult] = useState<DrawingCutlistAnalysisResult | null>(null);
+  const [drawingViewTab, setDrawingViewTab] = useState<'panels' | 'hardware' | 'audit'>('panels');
+  const [rawScene, setRawScene] = useState<any>(null);
 
   // ─── API helpers ────────────────────────────────────────────────────────────
   async function readApprovedScene() {
@@ -106,8 +121,10 @@ export function ProductionWorkspace({
       setExportState(payload?.message ?? 'This exact scene is not approved or could not be read.');
       return null;
     }
+    setRawScene(payload.sceneVersion.scene);
     return { apiBase, token, scene: payload.sceneVersion.scene };
   }
+
 
   async function downloadProductionFile(path: string, filename: string, method: 'POST' | 'GET' = 'POST', bodyExtra: Record<string, any> = {}) {
     setExportState('Preparing exact scene output...');
@@ -172,13 +189,15 @@ export function ProductionWorkspace({
   function downloadClientCsv() {
     if (!sceneApproved || !parts.length) { setExportState('No approved production snapshot is available to export.'); return; }
     const headers = ['Part Instance ID', 'Part Name', 'Room', 'Module Family', 'Length (mm)', 'Width (mm)', 'Thickness (mm)', 'Quantity', 'Material Code', 'Grain', 'Edging'];
-    const rows = parts.map((p) => [
+    const targetParts = scopedParts.length > 0 ? scopedParts : parts;
+    const rows = targetParts.map((p) => [
       p.partInstanceId || p.id, `"${p.partName}"`, p.roomId, p.family,
       p.lengthMm, p.widthMm, p.thicknessMm, p.quantity, p.materialCode, p.grainDirection, `"${p.edging}"`,
     ]);
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    const link = document.createElement('a'); link.href = url; link.download = `ultida-${sceneVersionId ?? 'unapproved'}-cutlist.csv`; link.click();
+    const suffix = activeRoomScope !== 'all' ? `-${activeRoomScope}` : '';
+    const link = document.createElement('a'); link.href = url; link.download = `ultida-${sceneVersionId ?? 'unapproved'}${suffix}-cutlist.csv`; link.click();
     URL.revokeObjectURL(url);
   }
 
@@ -205,10 +224,24 @@ export function ProductionWorkspace({
   // ─── Derived state ────────────────────────────────────────────────────────
   const releaseReady = parts.length > 0 && parts.every((p) => p.status === 'approved') && sceneApproved;
 
+  const uniqueRooms = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of parts) if (p.roomId) set.add(p.roomId);
+    for (const m of modules) if (m.roomId) set.add(m.roomId);
+    return Array.from(set);
+  }, [parts, modules]);
+
+  const scopedParts = useMemo(() => {
+    if (activeRoomScope === 'all') return parts;
+    return parts.filter((p) => p.roomId === activeRoomScope);
+  }, [parts, activeRoomScope]);
+
   const visibleParts = useMemo(() => {
     const q = partQuery.trim().toLowerCase();
-    return q ? parts.filter((p) => `${p.partInstanceId} ${p.partName} ${p.family} ${p.materialCode} ${p.roomId}`.toLowerCase().includes(q)) : parts;
-  }, [parts, partQuery]);
+    return q
+      ? scopedParts.filter((p) => `${p.partInstanceId} ${p.partName} ${p.family} ${p.materialCode} ${p.roomId}`.toLowerCase().includes(q))
+      : scopedParts;
+  }, [scopedParts, partQuery]);
 
   // Group parts by room
   const partsByRoom = useMemo(() => {
@@ -220,17 +253,101 @@ export function ProductionWorkspace({
     return map;
   }, [visibleParts]);
 
-  const totalEdgeBandM = useMemo(() =>
-    (cutlist?.edgeBanding ?? []).reduce((acc, e) => acc + e.totalMeters, 0),
-    [cutlist]);
+  const totalEdgeBandM = useMemo(() => {
+    let totalMm = 0;
+    for (const p of scopedParts) {
+      if (p.edgeSchedule) {
+        totalMm += (p.edgeSchedule.l1Mm + p.edgeSchedule.l2Mm + p.edgeSchedule.w1Mm + p.edgeSchedule.w2Mm) * p.quantity;
+      }
+    }
+    return totalMm > 0
+      ? totalMm / 1000
+      : (cutlist?.edgeBanding ?? []).reduce((acc, e) => acc + e.totalMeters, 0);
+  }, [scopedParts, cutlist]);
 
   const materialCount = useMemo(() =>
-    new Set(parts.map((p) => p.materialCode)).size,
-    [parts]);
+    new Set(scopedParts.map((p) => p.materialCode)).size,
+    [scopedParts]);
 
   const sheetEstimates = useMemo(() =>
-    estimateSheets(parts, cutlist?.fabricationRules),
-    [parts, cutlist]);
+    estimateSheets(scopedParts, cutlist?.fabricationRules),
+    [scopedParts, cutlist]);
+
+  // ─── 2D Drawing Analysis Actions ──────────────────────────────────────────
+  function run2DDrawingAnalysis(targetRoom?: string) {
+    const targetRoomId = targetRoom || (activeRoomScope !== 'all' ? activeRoomScope : uniqueRooms[0] || 'room-main');
+    let input: DrawingCutlistInput;
+    if (rawScene) {
+      input = extractDrawingCutlistFromScene(rawScene);
+    } else {
+      const roomMods = modules.filter((m) => !targetRoomId || m.roomId === targetRoomId);
+      const primaryMod = roomMods[0] || modules[0];
+      const w = primaryMod?.widthMm || 2400;
+      const h = primaryMod?.heightMm || 2400;
+      const d = primaryMod?.depthMm || 580;
+      const bayCount = Math.max(1, Math.round(w / 600));
+      const bayW = Math.round(w / bayCount);
+      input = {
+        unitId: primaryMod?.id || 'unit-001',
+        unitTitle: primaryMod?.family ? primaryMod.family.replace(/-/g, ' ').toUpperCase() : 'CASEWORK ELEVATION',
+        roomId: targetRoomId,
+        wallId: 'wall-01',
+        overallWidthMm: w,
+        overallHeightMm: h,
+        depthMm: d,
+        plinthHeightMm: 100,
+        loftHeightMm: h > 2400 ? 500 : 0,
+        bays: Array.from({ length: bayCount }).map((_, i) => ({
+          id: `bay-${i + 1}`,
+          label: `Bay ${i + 1}`,
+          widthMm: i === bayCount - 1 ? w - bayW * (bayCount - 1) : bayW,
+          type: i === 0 ? 'drawers' : 'wardrobe-shelves',
+          shelvesCount: 1,
+          adjustableShelvesCount: 3,
+          drawerCount: i === 0 ? 3 : 0,
+          hasHangingRod: i !== 0,
+          shutterType: bayW > 550 ? 'double-door' : 'single-door',
+        })),
+        dummyFillerLeftMm: 30,
+        dummyFillerRightMm: 30,
+      };
+    }
+    const result = analyze2DDrawingsToCutlist(input);
+    setDrawingAnalysisResult(result);
+    setShowDrawingAnalyzer(true);
+  }
+
+  function applyDrawingAnalysisToCutlist() {
+    if (!drawingAnalysisResult) return;
+    const newParts: Part[] = drawingAnalysisResult.panels.map((p) => ({
+      id: p.id,
+      partInstanceId: p.partInstanceId,
+      moduleId: p.moduleId,
+      family: 'analyzed-casework',
+      roomId: p.roomId,
+      semanticType: p.semanticType,
+      partName: p.partName,
+      lengthMm: p.lengthMm,
+      widthMm: p.widthMm,
+      thicknessMm: p.thicknessMm,
+      quantity: p.quantity,
+      grainDirection: p.grainDirection,
+      edging: p.edging,
+      edgeSchedule: {
+        l1Mm: p.edgeSchedule.l1Mm,
+        l2Mm: p.edgeSchedule.l2Mm,
+        w1Mm: p.edgeSchedule.w1Mm,
+        w2Mm: p.edgeSchedule.w2Mm,
+        tapeType: p.edgeSchedule.tapeType,
+      },
+      materialCode: p.materialCode,
+      status: 'approved' as const,
+    }));
+    setParts((prev) => [...prev, ...newParts]);
+    setShowDrawingAnalyzer(false);
+    setExportState(`Merged ${newParts.length} analyzed panels into the cutlist.`);
+  }
+
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -257,12 +374,51 @@ export function ProductionWorkspace({
           {activeTab === 'cutlist' && (
             <div className="cutlist-view">
 
+              {/* ── Active Scope Selector (Pick Only Needed Rooms / Walls) ── */}
+              <div className="cutlist-scope-bar">
+                <div className="scope-bar-left">
+                  <span className="scope-label"><Filter size={13} /> Active Scope:</span>
+                  <div className="scope-pills">
+                    <button
+                      type="button"
+                      className={`scope-pill${activeRoomScope === 'all' ? ' active' : ''}`}
+                      onClick={() => setActiveRoomScope('all')}
+                    >
+                      All Rooms ({parts.length})
+                    </button>
+                    {uniqueRooms.map((rId) => {
+                      const count = parts.filter((p) => p.roomId === rId).length;
+                      return (
+                        <button
+                          key={rId}
+                          type="button"
+                          className={`scope-pill${activeRoomScope === rId ? ' active' : ''}`}
+                          onClick={() => setActiveRoomScope(rId)}
+                        >
+                          {rId.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="scope-bar-right">
+                  <Button
+                    variant="primary" size="sm"
+                    icon={<Compass size={13} />}
+                    onClick={() => run2DDrawingAnalysis()}
+                  >
+                    2D Drawing Cutlist Analyzer
+                  </Button>
+                </div>
+              </div>
+
               {/* Summary cards */}
               <div className="cutlist-summary-cards">
                 <div className="cutlist-stat-card">
                   <span className="stat-label">Total Panels</span>
-                  <strong className="stat-value">{parts.reduce((s, p) => s + p.quantity, 0)}</strong>
-                  <span className="stat-sub">{parts.length} unique parts</span>
+                  <strong className="stat-value">{scopedParts.reduce((s, p) => s + p.quantity, 0)}</strong>
+                  <span className="stat-sub">{scopedParts.length} unique parts {activeRoomScope !== 'all' ? `(${activeRoomScope})` : ''}</span>
                 </div>
                 <div className="cutlist-stat-card">
                   <span className="stat-label">Sheets Required</span>
@@ -272,7 +428,7 @@ export function ProductionWorkspace({
                 <div className="cutlist-stat-card">
                   <span className="stat-label">Materials</span>
                   <strong className="stat-value">{materialCount}</strong>
-                  <span className="stat-sub">{new Set(parts.map((p) => p.thicknessMm)).size} thickness(es)</span>
+                  <span className="stat-sub">{new Set(scopedParts.map((p) => p.thicknessMm)).size} thickness(es)</span>
                 </div>
                 <div className="cutlist-stat-card">
                   <span className="stat-label">Edge Band</span>
@@ -283,7 +439,7 @@ export function ProductionWorkspace({
 
               {/* Toolbar */}
               <div className="parts-toolbar">
-                <h4>Panel Cutlist</h4>
+                <h4>Panel Cutlist {activeRoomScope !== 'all' ? `— ${activeRoomScope.replace(/-/g, ' ').toUpperCase()}` : ''}</h4>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <input
                     aria-label="Search cutlist"
@@ -292,11 +448,11 @@ export function ProductionWorkspace({
                     placeholder="Search room, module, material…"
                     className="cutlist-search"
                   />
-                  <Badge variant="info">{visibleParts.length}/{parts.length} parts</Badge>
+                  <Badge variant="info">{visibleParts.length}/{scopedParts.length} parts</Badge>
                   <Button
                     variant="secondary" size="sm"
                     icon={<Download size={13} />}
-                    disabled={!parts.length || !sceneApproved}
+                    disabled={!scopedParts.length || !sceneApproved}
                     onClick={downloadClientCsv}
                   >CSV</Button>
                   <Button
@@ -311,6 +467,7 @@ export function ProductionWorkspace({
               {!parts.length && (
                 <p className="inspector-empty">{exportState}</p>
               )}
+
 
               {/* Room-grouped table */}
               {Object.entries(partsByRoom).map(([roomId, roomParts]) => {
@@ -397,8 +554,250 @@ export function ProductionWorkspace({
                   </table>
                 </div>
               )}
+
+              {/* ── 2D Drawing Cutlist Analyzer Modal ── */}
+              {showDrawingAnalyzer && (
+                <div className="drawing-analyzer-backdrop" onClick={() => setShowDrawingAnalyzer(false)}>
+                  <div className="drawing-analyzer-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="drawing-analyzer-header">
+                      <h3><Compass size={18} /> 2D Drawing Cutlist &amp; Job List Engine</h3>
+                      <button className="analyzer-close-btn" onClick={() => setShowDrawingAnalyzer(false)}>
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    <div className="drawing-analyzer-body">
+                      {/* Top Bar with Room Selector and View Mode */}
+                      <div className="analyzer-subnav">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 11.5, fontWeight: 700, color: '#57534e' }}>Target Room:</span>
+                          <select
+                            value={drawingAnalysisResult?.roomId || activeRoomScope}
+                            onChange={(e) => run2DDrawingAnalysis(e.target.value)}
+                            style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #dcd1c2', fontSize: 12, background: '#fff' }}
+                          >
+                            {uniqueRooms.map((rId) => (
+                              <option key={rId} value={rId}>
+                                {rId.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                              </option>
+                            ))}
+                          </select>
+                          <span style={{ fontSize: 11.5, color: '#78716c' }}>
+                            {drawingAnalysisResult?.overallWidthMm} × {drawingAnalysisResult?.depthMm} × {drawingAnalysisResult?.overallHeightMm} mm
+                          </span>
+                        </div>
+
+                        <div className="analyzer-view-tabs">
+                          <button
+                            type="button"
+                            className={`analyzer-tab-btn${drawingViewTab === 'panels' ? ' active' : ''}`}
+                            onClick={() => setDrawingViewTab('panels')}
+                          >
+                            📋 Panels ({drawingAnalysisResult?.panels.length ?? 0})
+                          </button>
+                          <button
+                            type="button"
+                            className={`analyzer-tab-btn${drawingViewTab === 'hardware' ? ' active' : ''}`}
+                            onClick={() => setDrawingViewTab('hardware')}
+                          >
+                            🔩 Hardware &amp; Job List ({drawingAnalysisResult?.hardware.length ?? 0})
+                          </button>
+                          <button
+                            type="button"
+                            className={`analyzer-tab-btn${drawingViewTab === 'audit' ? ' active' : ''}`}
+                            onClick={() => setDrawingViewTab('audit')}
+                          >
+                            📏 Audit &amp; Sheets ({drawingAnalysisResult?.sheetEstimates.length ?? 0})
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Summary metrics strip */}
+                      {drawingAnalysisResult && (
+                        <div className="analyzer-summary-grid">
+                          <div className="analyzer-metric-card">
+                            <span className="label">Panels</span>
+                            <span className="value">{drawingAnalysisResult.summary.totalPanels}</span>
+                            <span className="sub">{drawingAnalysisResult.summary.uniqueParts} parts</span>
+                          </div>
+                          <div className="analyzer-metric-card">
+                            <span className="label">Total Area</span>
+                            <span className="value">{drawingAnalysisResult.summary.totalAreaSqm} m²</span>
+                            <span className="sub">all surfaces</span>
+                          </div>
+                          <div className="analyzer-metric-card">
+                            <span className="label">Est. Sheets</span>
+                            <span className="value">{drawingAnalysisResult.summary.estimatedSheetsTotal}</span>
+                            <span className="sub">2440×1220 mm</span>
+                          </div>
+                          <div className="analyzer-metric-card">
+                            <span className="label">Edge Banding</span>
+                            <span className="value">{drawingAnalysisResult.summary.totalEdgeBandMeters} m</span>
+                            <span className="sub">PVC 0.8 &amp; 2mm</span>
+                          </div>
+                          <div className="analyzer-metric-card">
+                            <span className="label">Hardware</span>
+                            <span className="value">{drawingAnalysisResult.hardware.reduce((s, h) => s + h.quantity, 0)}</span>
+                            <span className="sub">{drawingAnalysisResult.hardware.length} items</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tab 1: Panels Cutlist */}
+                      {drawingViewTab === 'panels' && drawingAnalysisResult && (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table className="production-table cutlist-table">
+                            <thead>
+                              <tr>
+                                <th>Part ID</th>
+                                <th>Name &amp; Anatomy</th>
+                                <th>L (mm)</th>
+                                <th>W (mm)</th>
+                                <th>T (mm)</th>
+                                <th>Qty</th>
+                                <th>Material</th>
+                                <th>Grain</th>
+                                <th>Edging Schedule</th>
+                                <th>Notes</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {drawingAnalysisResult.panels.map((p) => (
+                                <tr key={p.id}>
+                                  <td className="part-id-cell">{p.partInstanceId}</td>
+                                  <td><strong>{p.partName}</strong></td>
+                                  <td className="dim-cell">{p.lengthMm}</td>
+                                  <td className="dim-cell">{p.widthMm}</td>
+                                  <td className="dim-cell">{p.thicknessMm}</td>
+                                  <td className="dim-cell">{p.quantity}</td>
+                                  <td>{p.materialCode}</td>
+                                  <td className="grain-cell">{p.grainDirection === 'horizontal' ? '↔' : p.grainDirection === 'vertical' ? '↕' : '—'}</td>
+                                  <td>{p.edging}</td>
+                                  <td style={{ color: '#78716c', fontSize: 11 }}>{p.notes ?? '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* Tab 2: Hardware & Consumables Job Schedule */}
+                      {drawingViewTab === 'hardware' && drawingAnalysisResult && (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table className="production-table">
+                            <thead>
+                              <tr>
+                                <th>Hardware Name &amp; Spec</th>
+                                <th>Category</th>
+                                <th>Qty</th>
+                                <th>Unit</th>
+                                <th>Location / Notes</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {drawingAnalysisResult.hardware.map((hw) => (
+                                <tr key={hw.id}>
+                                  <td>
+                                    <strong>{hw.name}</strong>
+                                    <div style={{ fontSize: 11, color: '#78716c' }}>{hw.specification}</div>
+                                  </td>
+                                  <td><Badge variant="info">{hw.category}</Badge></td>
+                                  <td className="dim-cell">{hw.quantity}</td>
+                                  <td>{hw.unit}</td>
+                                  <td style={{ color: '#57534e', fontSize: 11 }}>{hw.assignedBay ? `${hw.assignedBay} · ` : ''}{hw.notes ?? 'System 32 verified'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* Tab 3: Sheet Optimization & Audit */}
+                      {drawingViewTab === 'audit' && drawingAnalysisResult && (
+                        <div style={{ display: 'grid', gap: 14 }}>
+                          <h5>Board Optimization &amp; Cutting Yields</h5>
+                          <table className="production-table">
+                            <thead>
+                              <tr>
+                                <th>Material Code</th>
+                                <th>Thickness</th>
+                                <th>Net Area</th>
+                                <th>Sheet Size</th>
+                                <th>Est. Boards</th>
+                                <th>Yield Efficiency</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {drawingAnalysisResult.sheetEstimates.map((s) => (
+                                <tr key={s.materialCode}>
+                                  <td><strong>{s.materialCode}</strong></td>
+                                  <td>{s.thicknessMm} mm</td>
+                                  <td>{s.totalAreaSqm} m²</td>
+                                  <td>{s.sheetWidthMm} × {s.sheetHeightMm} mm</td>
+                                  <td className="dim-cell"><strong>{s.estimatedSheets}</strong></td>
+                                  <td><Badge variant="success">{s.yieldEfficiencyPercent}%</Badge></td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+
+                          {drawingAnalysisResult.auditIssues.length > 0 && (
+                            <div style={{ marginTop: 8 }}>
+                              <h5>Joinery &amp; Clearance Audit</h5>
+                              <div style={{ display: 'grid', gap: 6 }}>
+                                {drawingAnalysisResult.auditIssues.map((issue, idx) => (
+                                  <div key={idx} className={`release-item ${issue.severity === 'error' ? 'fail' : 'warning'}`}>
+                                    <AlertTriangle size={14} />
+                                    <span><strong>{issue.code}:</strong> {issue.message}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="drawing-analyzer-footer">
+                      <Button variant="ghost" size="sm" onClick={() => setShowDrawingAnalyzer(false)}>
+                        Close
+                      </Button>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Button
+                          variant="secondary" size="sm"
+                          icon={<Download size={13} />}
+                          onClick={() => {
+                            if (!drawingAnalysisResult) return;
+                            const headers = ['Part Instance ID', 'Part Name', 'Semantic Type', 'Length (mm)', 'Width (mm)', 'Thickness (mm)', 'Quantity', 'Material', 'Grain', 'Edging', 'Notes'];
+                            const rows = drawingAnalysisResult.panels.map((p) => [
+                              p.partInstanceId, `"${p.partName}"`, p.semanticType, p.lengthMm, p.widthMm, p.thicknessMm, p.quantity, p.materialCode, p.grainDirection, `"${p.edging}"`, `"${p.notes ?? ''}"`
+                            ]);
+                            const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+                            const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = `ultida-2d-drawing-cutlist-${drawingAnalysisResult.roomId}.csv`;
+                            link.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                        >
+                          Export 2D Cutlist CSV
+                        </Button>
+                        <Button
+                          variant="primary" size="sm"
+                          icon={<Check size={13} />}
+                          onClick={applyDrawingAnalysisToCutlist}
+                        >
+                          Apply to Master Cutlist
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
+
 
           {/* ══════ HARDWARE TAB ══════ */}
           {activeTab === 'hardware' && (

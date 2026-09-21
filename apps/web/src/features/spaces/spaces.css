@@ -25,6 +25,114 @@
 .spaces-guidance-bar > div { max-width:920px; }
 .spaces-guidance-bar button { flex:0 0 auto; }
 
+/* Active Scope Strip (Pick Only What is Needed) */
+.spaces-active-scope-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0 16px;
+  padding: 10px 16px;
+  background: #ffffff;
+  border: 1px solid #e7ded3;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+}
+.scope-strip-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.scope-badge-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #786d5e;
+}
+.scope-room-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.btn-scope-pill {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid #dcd1c2;
+  background: #faf8f5;
+  color: #4a3f35;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-scope-pill:hover {
+  background: #f0e6d6;
+  border-color: #bfae98;
+}
+.btn-scope-pill.active {
+  background: #2d5a27;
+  color: #ffffff;
+  border-color: #2d5a27;
+  box-shadow: 0 2px 6px rgba(45, 90, 39, 0.25);
+}
+.scope-strip-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.scope-wall-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #786d5e;
+  text-transform: uppercase;
+}
+.scope-wall-pills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.btn-wall-pill {
+  padding: 3px 9px;
+  border-radius: 5px;
+  border: 1px solid #e0d6c8;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  color: #53463d;
+  cursor: pointer;
+}
+.btn-wall-pill:hover {
+  background: #f5eedf;
+}
+.btn-wall-pill.active {
+  background: #c59c2d;
+  color: #000000;
+  border-color: #c59c2d;
+  font-weight: 700;
+}
+.btn-scope-reset {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px dashed #c4b5a0;
+  background: transparent;
+  color: #786d5e;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-scope-reset:hover {
+  background: #f5eedf;
+  color: #1f2933;
+}
+
+
 .spaces-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));

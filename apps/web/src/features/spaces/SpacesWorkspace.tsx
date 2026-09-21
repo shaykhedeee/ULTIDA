@@ -9,8 +9,9 @@ import {
   Merge, Columns, Plug, DoorOpen, Pencil, Undo2, Redo2, Eye, EyeOff, Sparkles,
   MapPin, TriangleAlert, Save, Plus, X, Maximize, ArrowRight, ArrowLeft, LayoutGrid, Sofa,
   BookOpen, Search, Image as ImageIcon, Sliders, Check, Wand2, Info, ChevronRight, Compass, Download, Grid, MousePointer2,
-  Boxes, Minus, Rotate3d
+  Boxes, Minus, Rotate3d, Filter
 } from 'lucide-react';
+
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Badge, Button, WorkflowDock } from '../../components/ui/primitives';
@@ -2416,8 +2417,81 @@ export function SpacesWorkspace() {
 
       {saveState && <p role="status" className="save-state">{saveState}</p>}
 
+      {/* ── Active Scope Strip (Pick Only What is Needed) ── */}
+      <div className="spaces-active-scope-strip" role="region" aria-label="Room and wall focus selector">
+        <div className="scope-strip-left">
+          <span className="scope-badge-label">
+            <Filter size={13} /> Active Scope:
+          </span>
+          <div className="scope-room-pills">
+            <button
+              type="button"
+              className={`btn-scope-pill${!selectedRoom ? ' active' : ''}`}
+              onClick={() => {
+                setSelectedRoom(null);
+                setSelectedWall(null);
+                setCanvasFocus('plan');
+              }}
+            >
+              All Rooms ({rooms.length})
+            </button>
+            {rooms.map((rm) => (
+              <button
+                key={rm.id}
+                type="button"
+                className={`btn-scope-pill${selectedRoom === rm.id ? ' active' : ''}`}
+                onClick={() => {
+                  setSelectedRoom(rm.id);
+                  setSelectedWall(null);
+                  setCanvasFocus('room');
+                }}
+              >
+                {rm.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {selectedRoom && (
+          <div className="scope-strip-right">
+            <span className="scope-wall-label">Focus Wall:</span>
+            <div className="scope-wall-pills">
+              <button
+                type="button"
+                className={`btn-wall-pill${!selectedWall ? ' active' : ''}`}
+                onClick={() => setSelectedWall(null)}
+              >
+                All Walls
+              </button>
+              {walls.slice(0, 6).map((w, i) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  className={`btn-wall-pill${selectedWall === w.id ? ' active' : ''}`}
+                  onClick={() => setSelectedWall(w.id)}
+                >
+                  Wall {String.fromCharCode(65 + i)}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="btn-scope-reset"
+              onClick={() => {
+                setSelectedRoom(null);
+                setSelectedWall(null);
+                setCanvasFocus('plan');
+              }}
+            >
+              View Full Plan
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Plan overlay & visual controls bar */}
       <div className="spaces-flow-note spaces-guidance-bar" role="note">
+
         <div className="plan-overlay-controls">
           <span className="overlay-indicator"><ImageIcon size={14} /> <strong>Floor Plan Layer:</strong></span>
           <button type="button" className={`btn-chip ${showPlanOverlay ? 'active' : ''}`} onClick={() => setShowPlanOverlay(!showPlanOverlay)}>
