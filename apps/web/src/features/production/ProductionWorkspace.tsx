@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Package, AlertTriangle, CheckCircle2, Download, ChevronRight, ChevronDown,
   ClipboardList, FileText, ArrowLeft, ArrowRight, Printer, RefreshCw,
-  Sliders, Compass, Eye, X, Check, Layers, Sparkles, Filter,
+  Sliders, Compass, Eye, X, Check, Layers, Sparkles, Filter, LayoutGrid, Maximize2, Scissors,
 } from 'lucide-react';
 
 import {
@@ -105,6 +105,11 @@ export function ProductionWorkspace({
   const [showMoreExports, setShowMoreExports] = useState(false);
 
   // Active Scope & 2D Drawing Cutlist Analyzer states
+  // Cutlist Sub-View & Nesting states
+  const [cutlistViewMode, setCutlistViewMode] = useState<'table' | 'nesting' | 'edgebanding'>('table');
+  const [kerfMm, setKerfMm] = useState<number>(4);
+  const [trimMm, setTrimMm] = useState<number>(10);
+  const [selectedSheetIdx, setSelectedSheetIdx] = useState<number>(0);
   const [activeRoomScope, setActiveRoomScope] = useState<string>('all');
   const [showDrawingAnalyzer, setShowDrawingAnalyzer] = useState(false);
   const [drawingInput, setDrawingInput] = useState<DrawingCutlistInput | null>(null);
@@ -273,6 +278,242 @@ export function ProductionWorkspace({
   const materialCount = useMemo(() =>
     new Set(scopedParts.map((p) => p.materialCode)).size,
     [scopedParts]);
+
+
+  function sendPartToCnc(part: Part) {
+    const cncData = {
+      partId: part.partInstanceId || part.id,
+      partName: part.partName,
+      lengthMm: part.lengthMm,
+      widthMm: part.widthMm,
+      thicknessMm: part.thicknessMm,
+      materialCode: part.materialCode,
+      grain: part.grainDirection,
+    };
+    window.localStorage.setItem('ultida_active_cnc_panel', JSON.stringify(cncData));
+    navigate('/tools/cnc');
+  }
+
+  function updatePartGrain(partId: string, grain: 'vertical' | 'horizontal' | 'none') {
+    setParts((prev) => prev.map((p) => (p.id === partId || p.partInstanceId === partId ? { ...p, grainDirection: grain } : p)));
+  }
+
+  // ─── 2D Sheet Nesting Optimizer ──────────────────────────────────────────
+  const nestedSheets = useMemo(() => {
+    const effectiveParts = scopedParts.length > 0 ? scopedParts : (parts.length > 0 ? parts : []);
+    if (!effectiveParts.length) return [];
+
+    const sheetW = 2440;
+    const sheetH = 1220;
+    const usableW = sheetW - trimMm * 2;
+    const usableH = sheetH - trimMm * 2;
+
+    const byMaterial: Record<string, Part[]> = {};
+    for (const p of effectiveParts) {
+      const mat = p.materialCode || 'CORE-HDHMR-18';
+      if (!byMaterial[mat]) byMaterial[mat] = [];
+      byMaterial[mat].push(p);
+    }
+
+    const sheets: Array<{
+      sheetNumber: number;
+      materialCode: string;
+      widthMm: number;
+      heightMm: number;
+      placedPanels: Array<{
+        id: string;
+        name: string;
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+        grain: string;
+        color: string;
+        partRef: Part;
+      }>;
+      usedAreaSqm: number;
+      totalAreaSqm: number;
+      yieldPct: number;
+      scrapPct: number;
+    }> = [];
+
+    let globalSheetNum = 1;
+    const palette = ['#c59c2d', '#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#65a30d'];
+
+    for (const [mat, matParts] of Object.entries(byMaterial)) {
+      const items: Array<{ id: string; name: string; w: number; h: number; grain: string; partRef: Part }> = [];
+      for (const p of matParts) {
+        for (let q = 0; q < Math.max(1, p.quantity); q++) {
+          items.push({
+            id: `${p.partInstanceId || p.id}-${q + 1}`,
+            name: p.partName,
+            w: Math.min(p.lengthMm, p.widthMm),
+            h: Math.max(p.lengthMm, p.widthMm),
+            grain: p.grainDirection,
+            partRef: p,
+          });
+        }
+      }
+
+      items.sort((a, b) => b.h - a.h || b.w - a.w);
+
+      let currentSheetPlaced: Array<{
+        id: string;
+        name: string;
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+        grain: string;
+        color: string;
+        partRef: Part;
+      }> = [];
+      let currentX = trimMm;
+      let currentY = trimMm;
+      let currentShelfH = 0;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        let pW = item.w;
+        let pH = item.h;
+
+        if (item.grain === 'horizontal') {
+          pW = item.h;
+          pH = item.w;
+        }
+
+        if (currentX + pW + kerfMm <= sheetW - trimMm) {
+          currentSheetPlaced.push({
+            id: item.id,
+            name: item.name,
+            x: currentX,
+            y: currentY,
+            w: pW,
+            h: pH,
+            grain: item.grain,
+            color: palette[currentSheetPlaced.length % palette.length],
+            partRef: item.partRef,
+          });
+          currentX += pW + kerfMm;
+          currentShelfH = Math.max(currentShelfH, pH);
+        } else if (currentY + currentShelfH + kerfMm + pH <= sheetH - trimMm) {
+          currentY += currentShelfH + kerfMm;
+          currentX = trimMm;
+          currentShelfH = pH;
+          currentSheetPlaced.push({
+            id: item.id,
+            name: item.name,
+            x: currentX,
+            y: currentY,
+            w: pW,
+            h: pH,
+            grain: item.grain,
+            color: palette[currentSheetPlaced.length % palette.length],
+            partRef: item.partRef,
+          });
+          currentX += pW + kerfMm;
+        } else {
+          const usedArea = currentSheetPlaced.reduce((sum, p) => sum + (p.w * p.h) / 1e6, 0);
+          const totalArea = (sheetW * sheetH) / 1e6;
+          const yieldPct = Math.min(100, Math.round((usedArea / totalArea) * 1000) / 10);
+          sheets.push({
+            sheetNumber: globalSheetNum++,
+            materialCode: mat,
+            widthMm: sheetW,
+            heightMm: sheetH,
+            placedPanels: currentSheetPlaced,
+            usedAreaSqm: Math.round(usedArea * 100) / 100,
+            totalAreaSqm: Math.round(totalArea * 100) / 100,
+            yieldPct,
+            scrapPct: Math.round((100 - yieldPct) * 10) / 10,
+          });
+
+          currentSheetPlaced = [];
+          currentX = trimMm;
+          currentY = trimMm;
+          currentShelfH = pH;
+          currentSheetPlaced.push({
+            id: item.id,
+            name: item.name,
+            x: currentX,
+            y: currentY,
+            w: pW,
+            h: pH,
+            grain: item.grain,
+            color: palette[0],
+            partRef: item.partRef,
+          });
+          currentX += pW + kerfMm;
+        }
+      }
+
+      if (currentSheetPlaced.length > 0) {
+        const usedArea = currentSheetPlaced.reduce((sum, p) => sum + (p.w * p.h) / 1e6, 0);
+        const totalArea = (sheetW * sheetH) / 1e6;
+        const yieldPct = Math.min(100, Math.round((usedArea / totalArea) * 1000) / 10);
+        sheets.push({
+          sheetNumber: globalSheetNum++,
+          materialCode: mat,
+          widthMm: sheetW,
+          heightMm: sheetH,
+          placedPanels: currentSheetPlaced,
+          usedAreaSqm: Math.round(usedArea * 100) / 100,
+          totalAreaSqm: Math.round(totalArea * 100) / 100,
+          yieldPct,
+          scrapPct: Math.round((100 - yieldPct) * 10) / 10,
+        });
+      }
+    }
+
+    return sheets;
+  }, [scopedParts, parts, trimMm, kerfMm]);
+
+  // ─── Comprehensive Edge Banding Schedule ─────────────────────────────────
+  const edgeBandingSchedule = useMemo(() => {
+    const effectiveParts = scopedParts.length > 0 ? scopedParts : parts;
+    let m08 = 0;
+    let m20 = 0;
+    let mAcrylic = 0;
+
+    for (const p of effectiveParts) {
+      const perimMm = (p.lengthMm * 2 + p.widthMm * 2) * (p.quantity || 1);
+      const tape = (p.edgeSchedule?.tapeType || p.edging || '').toLowerCase();
+      if (tape.includes('2') || tape.includes('shutter') || tape.includes('impact')) {
+        m20 += perimMm / 1000;
+      } else if (tape.includes('acrylic') || tape.includes('1.0')) {
+        mAcrylic += perimMm / 1000;
+      } else {
+        m08 += perimMm / 1000;
+      }
+    }
+
+    return [
+      {
+        type: '0.8mm Carcass PVC (Internal Shelves & Partitions)',
+        thickness: '0.8 mm',
+        metersNet: Math.round(m08 * 10) / 10,
+        metersWithWaste: Math.round(m08 * 1.1 * 10) / 10,
+        rolls50m: Math.max(1, Math.ceil((m08 * 1.1) / 50)),
+        usage: 'Concealed carcass edges, adjustable shelf perimeters',
+      },
+      {
+        type: '2.0mm High-Impact PVC (External Shutters & Drawers)',
+        thickness: '2.0 mm',
+        metersNet: Math.round(m20 * 10) / 10,
+        metersWithWaste: Math.round(m20 * 1.1 * 10) / 10,
+        rolls50m: Math.max(1, Math.ceil((m20 * 1.1) / 50)),
+        usage: 'External shutter perimeters, tandem drawer fronts, exposed gables',
+      },
+      {
+        type: '1.0mm Acrylic Dual-Tone (Feature & Showcase Units)',
+        thickness: '1.0 mm',
+        metersNet: Math.round(mAcrylic * 10) / 10,
+        metersWithWaste: Math.round(mAcrylic * 1.1 * 10) / 10,
+        rolls50m: Math.max(1, Math.ceil((mAcrylic * 1.1) / 50)),
+        usage: 'High-gloss acrylic shutters, profile glass edge wraps',
+      },
+    ];
+  }, [scopedParts, parts]);
 
   const sheetEstimates = useMemo(() =>
     estimateSheets(scopedParts, cutlist?.fabricationRules),
@@ -497,7 +738,64 @@ export function ProductionWorkspace({
 
               {/* Toolbar */}
               <div className="parts-toolbar">
-                <h4>Panel Cutlist {activeRoomScope !== 'all' ? `— ${activeRoomScope.replace(/-/g, ' ').toUpperCase()}` : ''}</h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <h4 style={{ margin: 0 }}>Panel Cutlist {activeRoomScope !== 'all' ? `— ${activeRoomScope.replace(/-/g, ' ').toUpperCase()}` : ''}</h4>
+                  
+                  {/* Cutlist Sub-View Switcher */}
+                  <div style={{ display: 'flex', gap: 4, background: '#f5eee3', padding: 3, borderRadius: 7 }}>
+                    <button
+                      type="button"
+                      onClick={() => setCutlistViewMode('table')}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 5,
+                        border: 0,
+                        fontSize: 11.5,
+                        fontWeight: cutlistViewMode === 'table' ? 800 : 600,
+                        background: cutlistViewMode === 'table' ? '#fff' : 'transparent',
+                        color: cutlistViewMode === 'table' ? '#1c1917' : '#78716c',
+                        cursor: 'pointer',
+                        boxShadow: cutlistViewMode === 'table' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                      }}
+                    >
+                      <LayoutGrid size={12} style={{ display: 'inline', marginRight: 4 }} /> Parts Table
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCutlistViewMode('nesting')}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 5,
+                        border: 0,
+                        fontSize: 11.5,
+                        fontWeight: cutlistViewMode === 'nesting' ? 800 : 600,
+                        background: cutlistViewMode === 'nesting' ? '#fff' : 'transparent',
+                        color: cutlistViewMode === 'nesting' ? '#1c1917' : '#78716c',
+                        cursor: 'pointer',
+                        boxShadow: cutlistViewMode === 'nesting' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                      }}
+                    >
+                      <Maximize2 size={12} style={{ display: 'inline', marginRight: 4 }} /> 2D Sheet Nesting ({nestedSheets.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCutlistViewMode('edgebanding')}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 5,
+                        border: 0,
+                        fontSize: 11.5,
+                        fontWeight: cutlistViewMode === 'edgebanding' ? 800 : 600,
+                        background: cutlistViewMode === 'edgebanding' ? '#fff' : 'transparent',
+                        color: cutlistViewMode === 'edgebanding' ? '#1c1917' : '#78716c',
+                        cursor: 'pointer',
+                        boxShadow: cutlistViewMode === 'edgebanding' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                      }}
+                    >
+                      <Scissors size={12} style={{ display: 'inline', marginRight: 4 }} /> Edge Banding Schedule
+                    </button>
+                  </div>
+                </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <input
                     aria-label="Search cutlist"
@@ -527,7 +825,171 @@ export function ProductionWorkspace({
               )}
 
 
-              {/* Room-grouped table */}
+              {/* ══════ VIEW A: 2D SHEET NESTING OPTIMIZER ══════ */}
+              {cutlistViewMode === 'nesting' && (
+                <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Nesting Parameters Bar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, padding: '10px 14px', background: '#faf6f0', borderRadius: 8, border: '1px solid #e7ded4' }}>
+                    <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                        Sheet Stock: <strong>2440 × 1220 mm</strong>
+                      </span>
+                      <span style={{ fontSize: 12, color: '#78716c' }}>
+                        Saw Kerf: <strong>{kerfMm}mm</strong> · Edge Trim: <strong>{trimMm}mm</strong>
+                      </span>
+                      <Badge variant="success">Total Sheets: {nestedSheets.length}</Badge>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {nestedSheets.map((s, idx) => (
+                        <button
+                          key={s.sheetNumber}
+                          onClick={() => setSelectedSheetIdx(idx)}
+                          style={{
+                            padding: '5px 10px',
+                            borderRadius: 6,
+                            border: selectedSheetIdx === idx ? '1px solid #c59c2d' : '1px solid #d8cabb',
+                            background: selectedSheetIdx === idx ? '#fff9e6' : '#fff',
+                            color: selectedSheetIdx === idx ? '#92400e' : '#44403c',
+                            fontSize: 11.5,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Sheet {s.sheetNumber} ({s.yieldPct}%)
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Active Nested Sheet Visual Canvas */}
+                  {nestedSheets[selectedSheetIdx] && (() => {
+                    const sheet = nestedSheets[selectedSheetIdx];
+                    return (
+                      <div style={{ background: '#1c1917', borderRadius: 12, padding: 18, color: '#f5f5f4', border: '1px solid #44403c' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                          <div>
+                            <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#c59c2d', fontWeight: 800 }}>
+                              Sheet {sheet.sheetNumber} of {nestedSheets.length} · {sheet.materialCode}
+                            </span>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>
+                              Placed Area: {sheet.usedAreaSqm} m² · Total: {sheet.totalAreaSqm} m² (Yield: {sheet.yieldPct}% · Scrap: {sheet.scrapPct}%)
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => window.print()}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              border: '1px solid #d8cabb',
+                              background: '#fff',
+                              color: '#1c1917',
+                              fontSize: 12,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Print Workshop Sheet
+                          </button>
+                        </div>
+
+                        {/* Interactive SVG Sheet */}
+                        <div style={{ width: '100%', maxHeight: 380, overflow: 'hidden', background: '#141210', borderRadius: 8, padding: 10, display: 'flex', justifyContent: 'center' }}>
+                          <svg viewBox="0 0 2440 1220" style={{ width: '100%', height: 'auto', maxHeight: 360 }}>
+                            {/* Sheet Perimeter */}
+                            <rect x="0" y="0" width="2440" height="1220" fill="#24201c" stroke="#57534e" strokeWidth="4" />
+                            {/* Trim Line */}
+                            <rect x="10" y="10" width="2420" height="1200" fill="none" stroke="#78716c" strokeWidth="1" strokeDasharray="10 5" />
+
+                            {/* Placed Panels */}
+                            {sheet.placedPanels.map((p) => (
+                              <g key={p.id} style={{ cursor: 'pointer' }} onClick={() => sendPartToCnc(p.partRef)}>
+                                <rect
+                                  x={p.x}
+                                  y={p.y}
+                                  width={p.w}
+                                  height={p.h}
+                                  fill={p.color}
+                                  fillOpacity="0.82"
+                                  stroke="#fff"
+                                  strokeWidth="2"
+                                  rx="2"
+                                />
+                                <text
+                                  x={p.x + p.w / 2}
+                                  y={p.y + p.h / 2 - 10}
+                                  fill="#fff"
+                                  fontSize={Math.max(16, Math.min(32, p.w * 0.08))}
+                                  fontWeight="bold"
+                                  textAnchor="middle"
+                                >
+                                  {p.name}
+                                </text>
+                                <text
+                                  x={p.x + p.w / 2}
+                                  y={p.y + p.h / 2 + 20}
+                                  fill="#fff"
+                                  fontSize={Math.max(14, Math.min(26, p.w * 0.07))}
+                                  textAnchor="middle"
+                                  opacity="0.9"
+                                >
+                                  {p.w} × {p.h} mm {p.grain === 'vertical' ? '↕' : p.grain === 'horizontal' ? '↔' : ''}
+                                </text>
+                              </g>
+                            ))}
+                          </svg>
+                        </div>
+
+                        <div style={{ marginTop: 10, fontSize: 11, color: '#a8a29e', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Tip: Click any nested panel to open its System 32 CNC boring toolpath simulator</span>
+                          <span>Kerf 4mm · 10mm perimeter trim included</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* ══════ VIEW B: COMPREHENSIVE EDGE BANDING SCHEDULE ══════ */}
+              {cutlistViewMode === 'edgebanding' && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ marginBottom: 12 }}>
+                    <h5 style={{ margin: '0 0 4px', fontSize: 14, color: '#1c1917' }}>Production Edge Banding Tape Schedule</h5>
+                    <p style={{ margin: 0, fontSize: 12, color: '#78716c' }}>
+                      Detailed tape breakdown with +10% trimming waste allowance and factory 50-meter roll procurement count.
+                    </p>
+                  </div>
+
+                  <table className="production-table" style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th>Tape Type &amp; Profile</th>
+                        <th>Thickness</th>
+                        <th>Net Meters</th>
+                        <th>Gross (+10% Waste)</th>
+                        <th>50m Rolls</th>
+                        <th>Application Usage</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {edgeBandingSchedule.map((eb, idx) => (
+                        <tr key={idx}>
+                          <td><strong>{eb.type}</strong></td>
+                          <td><Badge variant="info">{eb.thickness}</Badge></td>
+                          <td className="dim-cell">{eb.metersNet} m</td>
+                          <td className="dim-cell"><strong>{eb.metersWithWaste} m</strong></td>
+                          <td className="dim-cell"><Badge variant="success">{eb.rolls50m} rolls</Badge></td>
+                          <td style={{ fontSize: 11.5, color: '#78716c' }}>{eb.usage}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ══════ VIEW C: ROOM-GROUPED PARTS TABLE ══════ */}
+              {cutlistViewMode === 'table' && (
+                <div>
               {Object.entries(partsByRoom).map(([roomId, roomParts]) => {
                 const isOpen = expandedRooms.has(roomId);
                 const allApproved = roomParts.every((p) => p.status === 'approved');
@@ -592,6 +1054,9 @@ export function ProductionWorkspace({
                   </div>
                 );
               })}
+
+              </div>
+              )}
 
               {/* Board optimizer */}
               {sheetEstimates.length > 0 && (

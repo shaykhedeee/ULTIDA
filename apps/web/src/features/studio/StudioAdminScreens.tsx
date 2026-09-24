@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { getSupabaseBrowserClient } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
+import { getPricingRates, savePricingRates, resetPricingRates, estimateWardrobeUnitCost, type PricingRateCard } from '../../lib/pricing-rates';
 
 const card: CSSProperties = {
   background: '#fff',
@@ -339,7 +340,7 @@ export function RulesWorkspace({ organizationId }: { organizationId: string | nu
 
 export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySaved }: { organizationId: string | null; orgName: string; onStudioIdentitySaved?: (name: string) => void }) {
   const [health, setHealth] = useState<any>(null);
-  const [tab, setTab] = useState<'workspace' | 'standards' | 'rules' | 'rendering' | 'providers' | 'account'>('workspace');
+  const [tab, setTab] = useState<'workspace' | 'standards' | 'rules' | 'rendering' | 'pricing' | 'providers' | 'account'>('workspace');
   const [status, setStatus] = useState('');
   const [checking, setChecking] = useState(false);
 
@@ -363,6 +364,37 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
   const [renderQuality, setRenderQuality] = useState(() => window.localStorage.getItem('ultida_render_quality') || 'ultra_photoreal');
   const [lightingPreset, setLightingPreset] = useState(() => window.localStorage.getItem('ultida_lighting_preset') || 'warm_daylight');
   const [cameraFOV, setCameraFOV] = useState(() => window.localStorage.getItem('ultida_camera_fov') || '65');
+
+  // Pricing & Commercial Rate Card State
+  const [rates, setRates] = useState<PricingRateCard>(() => getPricingRates());
+  const [pricingSavedToast, setPricingSavedToast] = useState('');
+  const [previewShutter, setPreviewShutter] = useState<keyof PricingRateCard['shutterFinishes']>('matteLaminate');
+  const [previewCarcass, setPreviewCarcass] = useState<keyof PricingRateCard['carcassMaterials']>('hdhmr');
+
+  const updateRateField = <K extends keyof PricingRateCard>(section: K, field: keyof PricingRateCard[K], value: number) => {
+    setRates((prev) => ({
+      ...prev,
+      [section]: {
+        ...(prev[section] as object),
+        [field]: Number.isFinite(value) && value >= 0 ? value : 0,
+      },
+    }));
+  };
+
+  const handleSaveRates = () => {
+    savePricingRates(rates);
+    setPricingSavedToast('✨ Pricing rate card saved! Invoices and BOM estimates now use your custom rates.');
+    setTimeout(() => setPricingSavedToast(''), 4000);
+  };
+
+  const handleResetRates = () => {
+    const baseline = resetPricingRates();
+    setRates(baseline);
+    setPricingSavedToast('Baseline factory rates restored.');
+    setTimeout(() => setPricingSavedToast(''), 4000);
+  };
+
+  const sampleWardrobe = estimateWardrobeUnitCost(2400, 2400, 600, previewShutter, previewCarcass, rates);
 
   useEffect(() => {
     if (orgName && !window.localStorage.getItem('ultida_studio_name')) {
@@ -478,6 +510,7 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
           ['standards', '📐 Modular & Material Standards'],
           ['rules', '📋 Company Rules'],
           ['rendering', '✨ AI Rendering & 3D Optics'],
+          ['pricing', '💰 Rates & Pricing Card'],
           ['providers', '🔌 Infrastructure Readiness'],
           ['account', '🔒 Security & Access'],
         ].map(([id, label]) => (
@@ -700,6 +733,519 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
             </button>
           </div>
         </section>
+      )}
+
+      {/* TAB: PRICING RATE CARD */}
+      {tab === 'pricing' && (
+        <div style={{ display: 'grid', gap: 20 }}>
+          {pricingSavedToast && (
+            <div
+              role="status"
+              style={{
+                padding: '12px 18px',
+                borderRadius: 8,
+                background: '#ecfdf5',
+                border: '1px solid #6ee7b7',
+                color: '#065f46',
+                fontWeight: 700,
+                fontSize: 13.5,
+              }}
+            >
+              {pricingSavedToast}
+            </div>
+          )}
+
+          {/* Section 1: Core Carcass Materials */}
+          <section style={card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div>
+                <h3 style={{ fontSize: 16, margin: 0, color: '#1c1917' }}>🪵 Core Carcass Board Materials (₹ per sq.ft)</h3>
+                <p style={{ fontSize: 12.5, color: '#78716c', margin: '3px 0 0' }}>
+                  Base rates applied for cabinet carcasses, internal gables, partitions, and bottom plinths.
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Action TESA HDHMR (Moisture Resistant)
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.carcassMaterials.hdhmr}
+                    onChange={(e) => updateRateField('carcassMaterials', 'hdhmr', Number(e.target.value))}
+                    min={0}
+                    step={5}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/sq.ft</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                IS 710 Marine BWP Plywood
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.carcassMaterials.marineBwp}
+                    onChange={(e) => updateRateField('carcassMaterials', 'marineBwp', Number(e.target.value))}
+                    min={0}
+                    step={5}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/sq.ft</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Commercial MR Plywood
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.carcassMaterials.commercialMr}
+                    onChange={(e) => updateRateField('carcassMaterials', 'commercialMr', Number(e.target.value))}
+                    min={0}
+                    step={5}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/sq.ft</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Prelam Particle Board
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.carcassMaterials.particleBoard}
+                    onChange={(e) => updateRateField('carcassMaterials', 'particleBoard', Number(e.target.value))}
+                    min={0}
+                    step={5}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/sq.ft</span>
+                </div>
+              </label>
+            </div>
+          </section>
+
+          {/* Section 2: Shutter Finishes */}
+          <section style={card}>
+            <div style={{ marginBottom: 12 }}>
+              <h3 style={{ fontSize: 16, margin: 0, color: '#1c1917' }}>✨ Shutter &amp; Facia Finishes (₹ per sq.ft)</h3>
+              <p style={{ fontSize: 12.5, color: '#78716c', margin: '3px 0 0' }}>
+                Surface cladding and external shutter finish applied across wardrobes, kitchens, and consoles.
+              </p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                1mm Matte Laminate
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.shutterFinishes.matteLaminate}
+                    onChange={(e) => updateRateField('shutterFinishes', 'matteLaminate', Number(e.target.value))}
+                    min={0}
+                    step={5}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/sq.ft</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                2mm High Gloss Acrylic
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.shutterFinishes.glossAcrylic}
+                    onChange={(e) => updateRateField('shutterFinishes', 'glossAcrylic', Number(e.target.value))}
+                    min={0}
+                    step={5}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/sq.ft</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Multi-coat PU Duco Paint
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.shutterFinishes.puDucoPaint}
+                    onChange={(e) => updateRateField('shutterFinishes', 'puDucoPaint', Number(e.target.value))}
+                    min={0}
+                    step={10}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/sq.ft</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Natural Wood Veneer (Polished)
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.shutterFinishes.naturalVeneer}
+                    onChange={(e) => updateRateField('shutterFinishes', 'naturalVeneer', Number(e.target.value))}
+                    min={0}
+                    step={10}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/sq.ft</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Fluted Profile Glass
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.shutterFinishes.profileGlass}
+                    onChange={(e) => updateRateField('shutterFinishes', 'profileGlass', Number(e.target.value))}
+                    min={0}
+                    step={10}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/sq.ft</span>
+                </div>
+              </label>
+            </div>
+          </section>
+
+          {/* Section 3: Hardware & Motion Units */}
+          <section style={card}>
+            <div style={{ marginBottom: 12 }}>
+              <h3 style={{ fontSize: 16, margin: 0, color: '#1c1917' }}>🔩 Hardware &amp; Motion Fittings (₹ per unit)</h3>
+              <p style={{ fontSize: 12.5, color: '#78716c', margin: '3px 0 0' }}>
+                System 32 compatible premium architectural hardware rates.
+              </p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Soft-Close Hinge Pair
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.hardware.softCloseHingePair}
+                    onChange={(e) => updateRateField('hardware', 'softCloseHingePair', Number(e.target.value))}
+                    min={0}
+                    step={25}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/pair</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Tandembox Drawer Runner Set
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.hardware.tandemboxSlideSet}
+                    onChange={(e) => updateRateField('hardware', 'tandemboxSlideSet', Number(e.target.value))}
+                    min={0}
+                    step={100}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/set</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Telescopic Channel Set
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.hardware.telescopicChannelSet}
+                    onChange={(e) => updateRateField('hardware', 'telescopicChannelSet', Number(e.target.value))}
+                    min={0}
+                    step={50}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/set</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Architectural Handle (160-224mm)
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.hardware.architecturalHandle}
+                    onChange={(e) => updateRateField('hardware', 'architecturalHandle', Number(e.target.value))}
+                    min={0}
+                    step={25}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/pc</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Minifix Cam + Pin Set
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.hardware.minifixCamPinSet}
+                    onChange={(e) => updateRateField('hardware', 'minifixCamPinSet', Number(e.target.value))}
+                    min={0}
+                    step={2}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/set</span>
+                </div>
+              </label>
+
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                Plinth Leveler Leg
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                  <input
+                    type="number"
+                    style={input}
+                    value={rates.hardware.plinthLevelerLeg}
+                    onChange={(e) => updateRateField('hardware', 'plinthLevelerLeg', Number(e.target.value))}
+                    min={0}
+                    step={5}
+                  />
+                  <span style={{ fontSize: 11, color: '#a8a29e' }}>/pc</span>
+                </div>
+              </label>
+            </div>
+          </section>
+
+          {/* Section 4: Labor, Installation & Margins */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
+            <section style={card}>
+              <h3 style={{ fontSize: 16, marginBottom: 12, color: '#1c1917' }}>🔨 Fabrication &amp; Erection Labor</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                  Factory Millwork Fabrication
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                    <input
+                      type="number"
+                      style={input}
+                      value={rates.labor.millworkFabricationPerSqft}
+                      onChange={(e) => updateRateField('labor', 'millworkFabricationPerSqft', Number(e.target.value))}
+                      min={0}
+                      step={5}
+                    />
+                    <span style={{ fontSize: 11, color: '#a8a29e' }}>/sq.ft</span>
+                  </div>
+                </label>
+
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                  On-Site Carpenter Assembly &amp; Erection
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                    <input
+                      type="number"
+                      style={input}
+                      value={rates.labor.onsiteAssemblyPerSqft}
+                      onChange={(e) => updateRateField('labor', 'onsiteAssemblyPerSqft', Number(e.target.value))}
+                      min={0}
+                      step={5}
+                    />
+                    <span style={{ fontSize: 11, color: '#a8a29e' }}>/sq.ft</span>
+                  </div>
+                </label>
+
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                  LED Strip Channel Routing &amp; Electrical Point
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 13, color: '#78716c' }}>₹</span>
+                    <input
+                      type="number"
+                      style={input}
+                      value={rates.labor.electricalPointRate}
+                      onChange={(e) => updateRateField('labor', 'electricalPointRate', Number(e.target.value))}
+                      min={0}
+                      step={25}
+                    />
+                    <span style={{ fontSize: 11, color: '#a8a29e' }}>/point</span>
+                  </div>
+                </label>
+              </div>
+            </section>
+
+            <section style={card}>
+              <h3 style={{ fontSize: 16, marginBottom: 12, color: '#1c1917' }}>📈 Commercial Markup &amp; GST</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                  Studio Overhead &amp; Operational Margin (%)
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <input
+                      type="number"
+                      style={input}
+                      value={rates.commercial.studioMarkupPercent}
+                      onChange={(e) => updateRateField('commercial', 'studioMarkupPercent', Number(e.target.value))}
+                      min={0}
+                      max={100}
+                      step={1}
+                    />
+                    <span style={{ fontSize: 13, color: '#78716c' }}>%</span>
+                  </div>
+                </label>
+
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
+                  GST Tax Rate (Standard: 18% = 9% CGST + 9% SGST)
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <input
+                      type="number"
+                      style={input}
+                      value={rates.commercial.gstRatePercent}
+                      onChange={(e) => updateRateField('commercial', 'gstRatePercent', Number(e.target.value))}
+                      min={0}
+                      max={28}
+                      step={1}
+                    />
+                    <span style={{ fontSize: 13, color: '#78716c' }}>%</span>
+                  </div>
+                </label>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+                <button
+                  type="button"
+                  onClick={handleSaveRates}
+                  style={{
+                    flex: 1,
+                    padding: '11px 18px',
+                    border: 0,
+                    borderRadius: 8,
+                    background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+                    color: '#1c1917',
+                    fontWeight: 800,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
+                  }}
+                >
+                  Save Rate Card
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetRates}
+                  style={{
+                    padding: '11px 16px',
+                    border: '1px solid #d6d3d1',
+                    borderRadius: 8,
+                    background: '#fff',
+                    color: '#57534e',
+                    fontWeight: 700,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Reset Defaults
+                </button>
+              </div>
+            </section>
+          </div>
+
+          {/* Section 5: Real-Time Benchmark Cost Simulator */}
+          <section style={{ ...card, background: '#faf8f5', border: '1.5px solid #d8cabb' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: '#a88220', letterSpacing: 1 }}>
+                  LIVE ESTIMATE SIMULATOR
+                </span>
+                <h3 style={{ fontSize: 16, margin: '2px 0 0', color: '#1c1917' }}>
+                  4-Door Master Wardrobe (2400 × 2400 × 600 mm)
+                </h3>
+              </div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <select
+                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d8cabb', fontSize: 12, background: '#fff' }}
+                  value={previewCarcass}
+                  onChange={(e) => setPreviewCarcass(e.target.value as any)}
+                >
+                  <option value="hdhmr">Action TESA HDHMR</option>
+                  <option value="marineBwp">IS 710 Marine Ply</option>
+                  <option value="commercialMr">Commercial MR Ply</option>
+                  <option value="particleBoard">Particle Board</option>
+                </select>
+                <select
+                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d8cabb', fontSize: 12, background: '#fff' }}
+                  value={previewShutter}
+                  onChange={(e) => setPreviewShutter(e.target.value as any)}
+                >
+                  <option value="matteLaminate">1mm Matte Laminate</option>
+                  <option value="glossAcrylic">2mm Acrylic Gloss</option>
+                  <option value="puDucoPaint">Multi-coat PU Paint</option>
+                  <option value="naturalVeneer">Natural Wood Veneer</option>
+                  <option value="profileGlass">Fluted Glass Profile</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 14 }}>
+              <div style={{ background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #e7dfd4' }}>
+                <span style={{ fontSize: 11, color: '#78716c' }}>Carcass Material</span>
+                <strong style={{ display: 'block', fontSize: 15, color: '#1c1917', marginTop: 3 }}>
+                  ₹{sampleWardrobe.carcassCost.toLocaleString('en-IN')}
+                </strong>
+                <small style={{ fontSize: 10.5, color: '#a8a29e' }}>{sampleWardrobe.carcassSqft} sq.ft</small>
+              </div>
+              <div style={{ background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #e7dfd4' }}>
+                <span style={{ fontSize: 11, color: '#78716c' }}>Shutter Finish</span>
+                <strong style={{ display: 'block', fontSize: 15, color: '#1c1917', marginTop: 3 }}>
+                  ₹{sampleWardrobe.shutterCost.toLocaleString('en-IN')}
+                </strong>
+                <small style={{ fontSize: 10.5, color: '#a8a29e' }}>{sampleWardrobe.shutterSqft} sq.ft</small>
+              </div>
+              <div style={{ background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #e7dfd4' }}>
+                <span style={{ fontSize: 11, color: '#78716c' }}>Hardware Motion</span>
+                <strong style={{ display: 'block', fontSize: 15, color: '#1c1917', marginTop: 3 }}>
+                  ₹{sampleWardrobe.hardwareCost.toLocaleString('en-IN')}
+                </strong>
+                <small style={{ fontSize: 10.5, color: '#a8a29e' }}>Hinges, Tandems, Legs</small>
+              </div>
+              <div style={{ background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #e7dfd4' }}>
+                <span style={{ fontSize: 11, color: '#78716c' }}>Millwork &amp; Erection</span>
+                <strong style={{ display: 'block', fontSize: 15, color: '#1c1917', marginTop: 3 }}>
+                  ₹{sampleWardrobe.laborCost.toLocaleString('en-IN')}
+                </strong>
+                <small style={{ fontSize: 10.5, color: '#a8a29e' }}>Fabrication + Site</small>
+              </div>
+              <div style={{ background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #e7dfd4' }}>
+                <span style={{ fontSize: 11, color: '#78716c' }}>Studio Margin ({rates.commercial.studioMarkupPercent}%)</span>
+                <strong style={{ display: 'block', fontSize: 15, color: '#b45309', marginTop: 3 }}>
+                  ₹{sampleWardrobe.markup.toLocaleString('en-IN')}
+                </strong>
+                <small style={{ fontSize: 10.5, color: '#a8a29e' }}>Overheads &amp; Profit</small>
+              </div>
+              <div style={{ background: '#1c1917', color: '#fff', padding: 12, borderRadius: 8 }}>
+                <span style={{ fontSize: 11, color: '#e8c45a' }}>Grand Total (incl. GST)</span>
+                <strong style={{ display: 'block', fontSize: 17, color: '#fff', marginTop: 3 }}>
+                  ₹{sampleWardrobe.grandTotal.toLocaleString('en-IN')}
+                </strong>
+                <small style={{ fontSize: 10.5, color: '#a8a29e' }}>CGST: ₹{sampleWardrobe.cgst} + SGST: ₹{sampleWardrobe.sgst}</small>
+              </div>
+            </div>
+            <p style={{ margin: 0, fontSize: 11.5, color: '#78716c' }}>
+              💡 All rates configured above update automatically in real time across the Invoice Generator and Commercial Estimator.
+            </p>
+          </section>
+        </div>
       )}
 
       {/* TAB 4: PROVIDERS */}

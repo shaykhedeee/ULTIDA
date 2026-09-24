@@ -2,7 +2,7 @@ import {
   LayoutDashboard, FolderKanban, Library, BookOpen,
   Settings, Users, Ruler, ChevronRight, Box, Home, Wand2, CalendarDays, Receipt, Compass,
   PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut, Sparkles, Layers,
-  CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2, ArrowLeft, ArrowRight
+  Check, CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2, ArrowLeft, ArrowRight, Eye
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -45,6 +45,7 @@ const TOOL_NAV = [
     { id: 'aura-ai', label: 'AURA Design AI', path: '/tools/aura', icon: Sparkles },
     { id: 'room-builder', label: 'Room Builder', path: '/tools/room-builder', icon: Home },
     { id: 'module-planner', label: 'Module Planner', path: '/tools/modules', icon: Box },
+    { id: 'render-gallery', label: 'Render Gallery & Client Deck', path: '/renders', icon: Eye },
     { id: 'render-studio', label: 'Render Studio', path: '/tools/render', icon: Wand2 },
     { id: 'skp-generator', label: 'SketchUp Studio', path: '/tools/skp', icon: Layers },
     { id: 'cnc-studio', label: 'CNC Patterns', path: '/tools/cnc', icon: Compass },
@@ -198,10 +199,7 @@ export function Shell({
               </span>
             </div>
 
-            {/* Workflow Progress Bar */}
-            <div className="workflow-progress-track" title={`${workflowProgressPct}% complete`}>
-              <div className="workflow-progress-bar" style={{ width: `${workflowProgressPct}%` }} />
-            </div>
+            
 
             {workflowStages.map((stage) => {
               const isActive = location.pathname.includes(`/${stage.path}`);
@@ -308,28 +306,51 @@ export function Shell({
             </Link>
 
             {inProject && projectId && (
-              <button
-                type="button"
-                onClick={() => navigate(`/projects/${projectId}/3d?tab=render`)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '5px 12px',
-                  background: 'linear-gradient(135deg, #c59c2d, #a88220)',
-                  color: '#1c1917',
-                  border: 0,
-                  borderRadius: 7,
-                  fontSize: '12px',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 8px rgba(197, 156, 45, 0.3)',
-                }}
-                title="Jump directly to 3D Scene & AI Render"
-              >
-                <Sparkles size={13} />
-                <span>3D &amp; AI Render</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/projects/${projectId}/renders`)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '5px 11px',
+                    background: '#fff',
+                    color: '#92400e',
+                    border: '1px solid #c59c2d',
+                    borderRadius: 7,
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                  title="Client Render Showcase & Attached References"
+                >
+                  <Eye size={13} />
+                  <span>Client Renders</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/projects/${projectId}/3d?tab=render`)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '5px 12px',
+                    background: 'linear-gradient(135deg, #c59c2d, #a88220)',
+                    color: '#1c1917',
+                    border: 0,
+                    borderRadius: 7,
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 8px rgba(197, 156, 45, 0.3)',
+                  }}
+                  title="Jump directly to 3D Scene & AI Render"
+                >
+                  <Sparkles size={13} />
+                  <span>3D &amp; AI Render</span>
+                </button>
+              </>
             )}
 
             {!inProject && onNewProject && (
@@ -343,94 +364,76 @@ export function Shell({
           </div>
         </div>
 
-        {/* Stage Forward/Back Continuity Bar */}
+        {/* Authoritative Single Project Stage Progress Bar */}
         {inProject && activeStage && (
-          <div
-            className="workflow-continuity-strip"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '10px 24px',
-              background: '#181614',
-              borderBottom: '1px solid #2d2925',
-              fontSize: '12px',
-              color: '#a8a29e',
-              flexWrap: 'wrap',
-              gap: 12,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ color: '#78716c', fontWeight: 600 }}>Stage {activeStageIdx + 1} of {workflowStages.length}:</span>
-              <span style={{ color: '#fff', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <StageIcon status={activeStage.status} />
-                {activeStage.label}
-              </span>
-              <span
-                style={{
-                  fontSize: '10px',
-                  padding: '2px 8px',
-                  borderRadius: 12,
-                  background: activeStage.status === 'done' ? 'rgba(52, 211, 153, 0.15)' : 'rgba(255, 255, 255, 0.08)',
-                  color: activeStage.status === 'done' ? '#34d399' : '#d6d3d1',
-                  textTransform: 'uppercase',
-                  fontWeight: 700,
-                  letterSpacing: '0.04em',
-                }}
-              >
-                {stageStatusLabel(activeStage.status)}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="unified-stage-progress-bar">
+            {/* Left: Previous Stage */}
+            <div className="stage-nav-control left">
               {prevStage ? (
                 <button
                   type="button"
                   onClick={() => navigate(`/projects/${projectId}/${prevStage.path}`)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 14px',
-                    background: '#24211e',
-                    border: '1px solid #3d3731',
-                    borderRadius: 7,
-                    color: '#e7e5e4',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
+                  className="stage-nav-btn prev"
                   title={`Return to previous stage: ${prevStage.label}`}
                 >
-                  <ArrowLeft size={13} /> {prevStage.label}
+                  <ArrowLeft size={13} />
+                  <span className="stage-nav-btn-text">{prevStage.label}</span>
                 </button>
-              ) : null}
+              ) : (
+                <div className="stage-origin-badge">
+                  <span>Stage 1: Intake</span>
+                </div>
+              )}
+            </div>
 
+            {/* Center: Connected 5-Step Stepper */}
+            <div className="stage-stepper-track" role="navigation" aria-label="Project stages">
+              {workflowStages.map((stage, idx) => {
+                const isActive = activeStageIdx === idx;
+                const isDone = stage.status === 'done';
+                const isLocked = stage.status === 'locked';
+                return (
+                  <div key={stage.id} className="stage-step-unit">
+                    {idx > 0 && (
+                      <div className={`stage-step-line ${idx <= activeStageIdx ? 'completed' : ''}`} />
+                    )}
+                    <button
+                      type="button"
+                      className={`stage-step-node ${isActive ? 'active' : ''} ${isDone ? 'done' : ''} ${isLocked ? 'locked' : ''}`}
+                      disabled={isLocked}
+                      onClick={() => {
+                        if (!isLocked && projectId) navigate(`/projects/${projectId}/${stage.path}`);
+                      }}
+                      title={isLocked ? stage.lockReason ?? 'Stage locked' : `Go to Stage ${idx + 1}: ${stage.label}`}
+                    >
+                      <span className="stage-step-indicator">
+                        {isDone ? <Check size={12} strokeWidth={3} /> : idx + 1}
+                      </span>
+                      <span className="stage-step-title">{stage.label}</span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Right: Next Stage */}
+            <div className="stage-nav-control right">
               {nextStage ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    navigate(`/projects/${projectId}/${nextStage.path}`);
-                  }}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 16px',
-                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                    border: '0',
-                    borderRadius: 7,
-                    color: '#000',
-                    fontSize: '12px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)',
-                  }}
+                  onClick={() => navigate(`/projects/${projectId}/${nextStage.path}`)}
+                  className="stage-nav-btn next"
                   title={`Proceed to next stage: ${nextStage.label}`}
                 >
-                  Next: {nextStage.label} <ArrowRight size={13} />
+                  <span className="stage-nav-btn-text">Next: {nextStage.label}</span>
+                  <ArrowRight size={13} />
                 </button>
-              ) : null}
+              ) : (
+                <div className="stage-completed-badge" title="All design & commercial stages complete">
+                  <CheckCircle2 size={13} />
+                  <span>Handover Ready</span>
+                </div>
+              )}
             </div>
           </div>
         )}

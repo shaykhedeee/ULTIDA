@@ -241,6 +241,25 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
                   >
                     📥 Export CSV
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/tools/invoices?tab=proposals')}
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: 8,
+                      border: '1px solid #16a34a',
+                      background: '#16a34a',
+                      color: '#ffffff',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    ✨ Client Proposal &amp; Invoice &rarr;
+                  </button>
                 </div>
               </div>
             )}
@@ -251,6 +270,26 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
                   Subtotal: INR {quote.subtotalInr.toLocaleString('en-IN')} · GST (18%): INR {quote.gstInr.toLocaleString('en-IN')}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => navigate('/tools/invoices?tab=proposals')}
+                  style={{
+                    marginTop: 12,
+                    padding: '9px 18px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #1c1917 0%, #292524 100%)',
+                    color: '#c59c2d',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  ✨ Open in Client Proposal &amp; Sign-Off Studio &rarr;
+                </button>
               </div>
             )}
             <p className="inline-message" style={{ marginTop: 12 }}>{quoteState}</p>
@@ -341,10 +380,10 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
           },
         }}
         nextAction={{
-          label: 'Return to 3D Scene',
-          icon: <ArrowRight size={14} />,
+          label: 'Client Proposal',
+          icon: <FileText size={14} />,
           onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/3d`);
+            navigate('/tools/invoices?tab=proposals');
           },
         }}
       />

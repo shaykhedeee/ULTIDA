@@ -16,7 +16,7 @@ export {
 // Fixtures are source evidence (for example a visible toilet, sink, stove or
 // refrigerator), not production furniture. They inform Spaces without
 // silently creating manufacturing geometry.
-export const ProposalKindSchema = z.enum(['wall', 'opening', 'room', 'dimension', 'fixture']);
+export const ProposalKindSchema = z.enum(['wall', 'opening', 'room', 'dimension', 'fixture', 'column', 'beam', 'service']);
 export const PlanProposalSchema = z.object({
   id: z.string(),
   kind: ProposalKindSchema,
@@ -154,3 +154,4 @@ export * from './coordinate-system.js';
 export * from './scale-engine.js';
 export * from './vector-extractor.js';
 export { geometryCore } from './geometry-shim.js';
+export * from './vastu-engine.js';

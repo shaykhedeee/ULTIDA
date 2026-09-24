@@ -76,7 +76,15 @@ export function compileBriefContext(brief?: Record<string, unknown>): string {
 export function buildPlanPrompt(brief?: Record<string, unknown>, analysisGuides: AnalysisGuideRegion[] = []) {
   const base = `You are the extraction stage of a professional interior floor-plan review system. Read the supplied source without redesigning it.
 
-Extract only visible evidence: walls, room zones, doors/windows/passages, room labels, written dimensions, and existing plan symbols. A fixture proposal may represent a fixed fixture (toilet, sink, bathtub, shower, stove, refrigerator) or a clearly drawn existing furniture symbol (bed, sofa, dining table, wardrobe, desk). Label it exactly as visible evidence, for example "Existing bed symbol". These are review-only context; never turn them into modular furniture, manufacturing geometry, or inferred dimensions. Never invent a dimension, wall, opening or fixture. Preserve uncertainty.
+Extract visible architectural evidence:
+- Walls: External load-bearing walls and internal partitions (line x1,y1,x2,y2).
+- Rooms: Enclosed spaces with visible labels (e.g. Master Bed, Kitchen, Living, Dining, Pooja, Toilet, Balcony) with bounds x,y,width,height.
+- Openings: Doors (kind=0) with swing arcs, and windows (kind=1) with sill/head clearances.
+- Columns & Pillars: Structural RCC columns (kind="column", x,y,width,depth).
+- Beams: Drop-beams and structural lintels (kind="beam", x1,y1,x2,y2).
+- Services: Plumbing shafts, electrical stacks, duct risers (kind="service", x,y).
+- Dimensions: Written dimension lines and OCR numbers (x1,y1,x2,y2,valueMm).
+- Fixtures & symbols: Review-only context (toilet, sink, bathtub, shower, stove, refrigerator, or a clearly drawn existing furniture symbol like bed, sofa, dining table, wardrobe, desk). These are review-only context; never turn them into modular furniture, manufacturing geometry, or inferred dimensions. Never invent a dimension, wall, opening or fixture. Preserve uncertainty.
 
 OPENING DETECTION (CRITICAL):
 - Doors: Every doorway, swing arc, sliding track, pocket frame, or entry opening must be extracted as an opening with kind=0.
@@ -85,24 +93,20 @@ OPENING DETECTION (CRITICAL):
 
 COORDINATES
 - Return every coordinate on a source-relative 0..1000 grid: x=0 left, x=1000 right, y=0 top, y=1000 bottom.
-- Walls use x1,y1,x2,y2. Rooms use x,y,width,height. Openings use x,y,width,kind where kind 0=door and 1=window. Dimensions use x1,y1,x2,y2,valueMm. Fixtures use x,y,width,depth only when their outline is visible.
+- Walls use x1,y1,x2,y2. Rooms use x,y,width,height. Openings use x,y,width,kind where kind 0=door and 1=window. Dimensions use x1,y1,x2,y2,valueMm. Columns use x,y,width,depth. Beams use x1,y1,x2,y2. Services use x,y. Fixtures use x,y,width,depth.
 - Set confidence below 0.70 for occluded, faint, ambiguous or inferred entities.
 - A dimension may be returned only when its text is legible; otherwise omit it.
-- Do not merge separate parallel wall faces into arbitrary geometry.
 
 SELF CHECK
 1. All coordinates are finite and within 0..1000.
 2. Walls have non-zero length.
 3. Rooms have positive width and height.
 4. Doors (kind=0) and windows (kind=1) are captured with their true location and width.
-5. Notes state the visible evidence or uncertainty.
-6. Return only entities supported by visible evidence. There is no minimum count. Omit an entity class when the drawing does not show it clearly.
-7. Do not split a straight wall into redundant collinear fragments and never repeat the same wall candidate. Prefer fewer, well-evidenced candidates over guessed completeness.
-8. Keep each note to 12 words or fewer and identify the visible evidence or uncertainty.
-9. Start with every clearly enclosed room zone and its enclosing walls. Then add internal partitions, doors/windows, legible dimensions and only clearly drawn existing symbols. Do not sacrifice a whole room merely to describe a minor fixture or furniture symbol. For a multi-room plan, returning one wall or one room is incomplete evidence, not a valid result. Return at most 48 proposals.
-10. A wall must contain exactly numeric x1,y1,x2,y2. A room must contain exactly numeric x,y,width,height. Do not use numbered keys, arrays, prose, units, or nested objects inside geometry.
-11. Output one JSON object only, with no markdown and no explanatory text:
-{"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"},{"kind":"opening","confidence":0.88,"geometry":{"x":340,"y":180,"width":40,"kind":0},"note":"Door with swing arc"}]}`;
+5. Columns, beams, and services are extracted when visible.
+6. Notes state visible evidence in 12 words or fewer.
+7. Return at most 48 proposals.
+8. Output one JSON object only, with no markdown and no explanatory text:
+{"proposals":[{"kind":"wall","confidence":0.82,"geometry":{"x1":120,"y1":180,"x2":680,"y2":180},"note":"Visible external wall"},{"kind":"room","confidence":0.92,"geometry":{"x":120,"y":180,"width":320,"height":280},"note":"Master bedroom"},{"kind":"opening","confidence":0.88,"geometry":{"x":340,"y":180,"width":40,"kind":0},"note":"Door with swing arc"},{"kind":"column","confidence":0.90,"geometry":{"x":120,"y":180,"width":20,"depth":20},"note":"RCC corner column"}]}`;
 
   const briefContext = compileBriefContext(brief);
   const guideContext = analysisGuides.length
@@ -131,7 +135,7 @@ const CLOUDFLARE_PLAN_RESPONSE_FORMAT = {
           additionalProperties: false,
           required: ['kind', 'confidence', 'geometry', 'note'],
           properties: {
-            kind: { type: 'string', enum: ['wall', 'opening', 'room', 'dimension', 'fixture'] },
+            kind: { type: 'string', enum: ['wall', 'opening', 'room', 'dimension', 'fixture', 'column', 'beam', 'service'] },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
             geometry: { type: 'object', additionalProperties: { type: 'number' } },
             note: { type: 'string', maxLength: 160 },
@@ -150,9 +154,12 @@ const GEOMETRY_KEYS: Record<PlanProposal['kind'], readonly string[]> = {
   opening: ['x', 'y', 'width', 'height', 'kind'],
   dimension: ['x1', 'y1', 'x2', 'y2', 'valueMm'],
   fixture: ['x', 'y', 'width', 'depth'],
+  column: ['x', 'y', 'width', 'depth'],
+  beam: ['x1', 'y1', 'x2', 'y2'],
+  service: ['x', 'y'],
 };
 
-const PLAN_ENTITY_KINDS = new Set<PlanProposal['kind']>(['wall', 'room', 'opening', 'dimension', 'fixture']);
+const PLAN_ENTITY_KINDS = new Set<PlanProposal['kind']>(['wall', 'room', 'opening', 'dimension', 'fixture', 'column', 'beam', 'service']);
 
 function normalizeGeometry(kind: PlanProposal['kind'], geometry: Record<string, unknown>) {
   const normalized: Record<string, number> = {};
@@ -176,6 +183,8 @@ function hasUsableGeometry(proposal: PlanProposal) {
   if (proposal.kind === 'room') return (geometry.width ?? 0) >= 20 && (geometry.height ?? 0) >= 20;
   if (proposal.kind === 'opening') return (geometry.width ?? 0) >= 8;
   if (proposal.kind === 'dimension') return Math.hypot((geometry.x2 ?? 0) - (geometry.x1 ?? 0), (geometry.y2 ?? 0) - (geometry.y1 ?? 0)) >= 8;
+  if (proposal.kind === 'beam') return Math.hypot((geometry.x2 ?? 0) - (geometry.x1 ?? 0), (geometry.y2 ?? 0) - (geometry.y1 ?? 0)) >= 12;
+  if (proposal.kind === 'column' || proposal.kind === 'service') return geometry.x !== undefined && geometry.y !== undefined;
   return geometry.x !== undefined && geometry.y !== undefined;
 }
 

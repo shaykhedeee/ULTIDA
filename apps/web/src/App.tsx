@@ -47,6 +47,7 @@ const ProductionWorkspace = lazy(() => import('./features/production/ProductionW
 const TeamWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.TeamWorkspace })));
 const RulesWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.RulesWorkspace })));
 const SettingsWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.SettingsWorkspace })));
+const RenderedSpacesLibrary = lazy(() => import('./features/library/RenderedSpacesLibrary').then((module) => ({ default: module.RenderedSpacesLibrary })));
 
 import './intake.css';
 
@@ -428,6 +429,38 @@ function SignInScreen({ onSuccess }: { onSuccess: (email: string) => void }) {
           >
             {mode === 'signin' ? 'Need a studio account? Register here' : 'Already registered? Sign in to studio'}
           </button>
+
+          <div style={{ marginTop: 16, textAlign: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', margin: '14px 0', color: '#9ca3af', fontSize: 11 }}>
+              <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+              <span style={{ padding: '0 10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>or explore instantly</span>
+              <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+            </div>
+            <button
+              type="button"
+              onClick={() => onSuccess('architect-demo@ultida.studio')}
+              style={{
+                width: '100%',
+                padding: '10px 16px',
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 700,
+                color: '#334155',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                transition: 'all 0.15s ease',
+              }}
+              title="Instantly explore the app with pre-loaded demo 3BHK villa projects, 3D scenes, and cutlists"
+            >
+              <Sparkles size={14} style={{ color: 'var(--gold, #d4af37)' }} />
+              Instant Studio Demo Access
+            </button>
+          </div>
         </form>
 
         {/* Studio Capabilities Showcase Pills */}
@@ -1374,8 +1407,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         <Route path="modules-legacy" element={<Navigate to="../modules" replace />} />
         <Route path="materials" element={<Navigate to={`/projects/${projectId}/spaces?pendingModule=1`} replace />} />
         <Route path="materials-legacy" element={<Navigate to="../materials" replace />} />
-        <Route path="renders" element={<Navigate to="../3d?tab=render" replace />} />
-        <Route path="render" element={<Navigate to="../3d?tab=render" replace />} />
+        <Route path="renders" element={<RenderedSpacesLibrary />} />
+        <Route path="render" element={<Navigate to="renders" replace />} />
         <Route path="visualize" element={<Navigate to="../3d" replace />} />
         <Route path="visual" element={<Navigate to="../3d" replace />} />
         <Route path="3d" element={
@@ -1443,6 +1476,8 @@ function DashboardShell({ sessionEmail, orgName, onStudioIdentitySaved }: { sess
         <Route path="tools/skp" element={<SketchupCodeStudio />} />
         <Route path="tools/sketchup-generator" element={<SketchupCodeStudio />} />
         <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={null} />} />
+        <Route path="renders" element={<RenderedSpacesLibrary />} />
+        <Route path="library/renders" element={<RenderedSpacesLibrary />} />
         <Route path="templates" element={<Navigate to="/library" replace />} />
         <Route path="modules" element={<Navigate to="/library" replace />} />
         <Route path="materials" element={<Navigate to="/library" replace />} />
