@@ -4679,26 +4679,63 @@ export function SpacesWorkspace() {
             <div className="dld-search-bar">
               <div className="search-input-wrap">
                 <Search size={15} />
-                <input placeholder="Search TV units, wardrobes, kitchens, crockery..." value={catalogQuery} onChange={(e) => setCatalogQuery(e.target.value)} />
+                <input
+                  placeholder="Search TV units, wardrobes, kitchens, crockery..."
+                  value={catalogQuery}
+                  onChange={(e) => setCatalogQuery(e.target.value)}
+                  aria-label="Search module library"
+                />
+                {catalogQuery && (
+                  <button type="button" className="dld-clear-btn" onClick={() => setCatalogQuery('')} aria-label="Clear search">
+                    <X size={12} />
+                  </button>
+                )}
               </div>
-              <select value={catalogFilterFamily} onChange={(e) => setCatalogFilterFamily(e.target.value)}>
-                <option value="all">All Families</option>
-                <option value="tv-unit">TV Units</option>
-                <option value="wardrobe">Wardrobes</option>
-                <option value="kitchen-base">Kitchen Base</option>
-                <option value="kitchen-wall">Kitchen Wall</option>
-                <option value="kitchen-tall">Kitchen Tall</option>
-                <option value="crockery">Crockery Units</option>
-                <option value="bed">Beds &amp; Storage</option>
-                <option value="study">Study Desks</option>
-                <option value="pooja">Pooja Units</option>
-                <option value="utility">Utility &amp; Vanity</option>
-                <option value="storage">Storage &amp; Foyer</option>
-              </select>
-              <select value={catalogFitFilter} onChange={(e) => setCatalogFitFilter(e.target.value as 'all' | 'fits')} aria-label="Filter by measured wall fit">
-                <option value="all">All fit states</option>
-                <option value="fits">Fits current wall</option>
-              </select>
+              <div className="dld-filter-selects">
+                <select value={catalogFilterFamily} onChange={(e) => setCatalogFilterFamily(e.target.value)} aria-label="Filter by module family">
+                  <option value="all">All Families ({IndianModularCatalog.length})</option>
+                  <option value="tv-unit">TV Units &amp; Consoles</option>
+                  <option value="wardrobe">Wardrobes &amp; Closets</option>
+                  <option value="kitchen-base">Kitchen Base</option>
+                  <option value="kitchen-wall">Kitchen Wall</option>
+                  <option value="kitchen-tall">Kitchen Tall</option>
+                  <option value="crockery">Crockery Units</option>
+                  <option value="bed">Beds &amp; Storage</option>
+                  <option value="study">Study Desks</option>
+                  <option value="pooja">Pooja Units</option>
+                  <option value="utility">Utility &amp; Vanity</option>
+                  <option value="storage">Storage &amp; Foyer</option>
+                </select>
+                <select value={catalogFitFilter} onChange={(e) => setCatalogFitFilter(e.target.value as 'all' | 'fits')} aria-label="Filter by measured wall fit">
+                  <option value="all">All fit states</option>
+                  <option value="fits">Fits current wall</option>
+                </select>
+              </div>
+              <div className="dld-category-chips" role="tablist" aria-label="Quick category filters">
+                {[
+                  { id: 'all', label: 'All' },
+                  { id: 'tv-unit', label: 'TV Units' },
+                  { id: 'wardrobe', label: 'Wardrobes' },
+                  { id: 'kitchen-base', label: 'Base' },
+                  { id: 'kitchen-wall', label: 'Wall' },
+                  { id: 'kitchen-tall', label: 'Tall' },
+                  { id: 'crockery', label: 'Crockery' },
+                  { id: 'bed', label: 'Beds' },
+                  { id: 'study', label: 'Study' },
+                  { id: 'pooja', label: 'Pooja' },
+                  { id: 'utility', label: 'Vanity' },
+                  { id: 'storage', label: 'Storage' },
+                ].map(chip => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    className={`dld-chip${catalogFilterFamily === chip.id ? ' dld-chip--active' : ''}`}
+                    onClick={() => setCatalogFilterFamily(chip.id)}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="spaces-flow-note" role="status" style={{ margin: '10px 0 0' }}>
@@ -4728,38 +4765,46 @@ export function SpacesWorkspace() {
                   onDragEnd={cancelPlacementDrag}
                 >
                   <div className="dld-preview-wrap">
-                    <ModulePreview module={mod} compact />
+                    <ModulePreview module={mod} interactive defaultView="real" />
                   </div>
                   <div className="dld-card-body">
                     <div className="dld-card-tags">
                       <Badge tone="neutral">{mod.family}</Badge>
                       <small className="dld-sku">{mod.sku}</small>
                     </div>
-                    <div className="dld-card-tags">
-                      <Badge tone={productionCertified || fitVerified ? 'success' : fit ? 'warn' : 'neutral'}>{productionCertified ? 'Production certified' : fitVerified ? 'Fit verified · confirm scene' : fit && !fit.fits ? 'Blocked by measured geometry' : 'Visual draft'}</Badge>
-                      {fit?.fits && <small className="dld-sku">Placeable at {Math.round(fit.suggestedOffsetMm ?? 0)} mm</small>}
-                    </div>
                     <h4>{mod.name}</h4>
-                    <p className="dld-card-dims"><strong>{mod.widthMm}</strong> W × <strong>{mod.depthMm}</strong> D × <strong>{mod.heightMm}</strong> H mm</p>
+                    <div className="dld-dim-pill">
+                      <span className="dld-dim-item"><strong>{mod.widthMm}</strong> W</span>
+                      <span className="dld-dim-sep">×</span>
+                      <span className="dld-dim-item"><strong>{mod.depthMm}</strong> D</span>
+                      <span className="dld-dim-sep">×</span>
+                      <span className="dld-dim-item"><strong>{mod.heightMm}</strong> H mm</span>
+                    </div>
+                    <div className="dld-card-tags">
+                      <Badge tone={productionCertified || fitVerified ? 'success' : fit ? 'warn' : 'neutral'}>
+                        {productionCertified ? 'Production certified' : fitVerified ? 'Fit verified · confirm scene' : fit && !fit.fits ? 'Blocked by measured geometry' : 'Visual draft'}
+                      </Badge>
+                      {fit?.fits && <small className="dld-placeable-tag">Placeable at {Math.round(fit.suggestedOffsetMm ?? 0)} mm</small>}
+                    </div>
                     {mod.description && <p className="dld-desc">{mod.description}</p>}
-                    {fit && !fit.fits && <p className="dld-desc" role="alert">{fit.issues[0]}</p>}
+                    {fit && !fit.fits && <p className="dld-desc dld-desc--alert" role="alert">{fit.issues[0]}</p>}
                     <div className="dld-slots">
-                      <span>Slots:</span>
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Finish Slots:</span>
                       {mod.materialSlots.map((slot) => <Badge key={slot} tone="accent">{slot}</Badge>)}
                     </div>
                     {sel && (
                       <div className="dld-card-actions">
                         <button
                           type="button"
-                          className={`btn-sm btn-full ${armed ? 'btn-outline' : 'btn-ghost'}`}
+                          className={`btn-sm btn-full dld-btn-arm ${armed ? 'dld-btn-arm--active' : 'btn-ghost'}`}
                           title={armed ? 'Cancel placement (Escape).' : 'Arm this module, then click a measured wall on the plan.'}
                           onClick={() => (armed ? cancelPlacementDrag() : setDraggingModule(mod))}
                         >
-                          <MousePointer2 size={13} /> {armed ? 'Cancel placement' : 'Click to place'}
+                          <MousePointer2 size={13} /> {armed ? 'Placement armed' : 'Click to place'}
                         </button>
                         <button
                           type="button"
-                          className="btn-primary btn-sm btn-full"
+                          className="btn-primary btn-sm btn-full dld-btn-place"
                           disabled={!activeCatalogWall || blocked}
                           title={blocked ? fit!.issues.join(' ') : productionCertified ? 'Place this certified module on the selected measured wall.' : fitVerified ? 'Place this fit-verified module, then confirm its persisted composition for production.' : 'Select a measured wall before placing this visual draft.'}
                           onClick={() => void placeCatalogModuleOnSelectedWall(mod)}
