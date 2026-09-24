@@ -17,6 +17,8 @@ export default defineConfig({
       '@ultida/scene-core': resolve(webDir, '../../packages/scene-core/src'),
       '@ultida/scene-compiler': resolve(webDir, '../../packages/scene-compiler/src'),
       '@ultida/catalog-core': resolve(webDir, '../../packages/catalog-core/src'),
+      '@ultida/plan-core': resolve(webDir, '../../packages/plan-core/src'),
+      '@ultida/design-core': resolve(webDir, '../../packages/design-core/src'),
     },
   },
   cacheDir: '.vite',

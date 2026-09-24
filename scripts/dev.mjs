@@ -1,32 +1,53 @@
 import { spawn } from 'node:child_process';
-import dotenv from 'dotenv';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, delimiter } from 'node:path';
+
+function loadEnvFileSafe(envPath) {
+  if (existsSync(envPath)) {
+    if (typeof process.loadEnvFile === 'function') {
+      try { process.loadEnvFile(envPath); } catch {}
+    }
+  }
+}
 
 const rootEnv = resolve(process.cwd(), '.env');
-if (existsSync(rootEnv)) {
-  dotenv.config({ path: rootEnv });
-}
+loadEnvFileSafe(rootEnv);
 
 // Local browser configuration is intentionally separate from server secrets.
 // The API can use the publishable key for caller-scoped JWT validation in development.
 const localEnv = resolve(process.cwd(), '.env.local');
-if (existsSync(localEnv)) {
-  dotenv.config({ path: localEnv });
-  process.env.SUPABASE_URL ||= process.env.VITE_SUPABASE_URL;
-  process.env.SUPABASE_PUBLISHABLE_KEY ||= process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-}
+loadEnvFileSafe(localEnv);
 
-const commands = [
-  ['api', ['run', 'dev', '--workspace', '@ultida/api']],
-  ['web', ['run', 'dev', '--workspace', '@ultida/web']],
-  ['worker', ['run', 'dev', '--workspace', '@ultida/worker']]
+process.env.SUPABASE_URL ||= process.env.VITE_SUPABASE_URL;
+process.env.SUPABASE_PUBLISHABLE_KEY ||= process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+const hermesNpm = process.platform === 'win32' && process.env.LOCALAPPDATA
+  ? resolve(process.env.LOCALAPPDATA, 'hermes/node/npm.cmd')
+  : null;
+const npm = (hermesNpm && existsSync(hermesNpm))
+  ? hermesNpm
+  : (process.platform === 'win32' ? 'npm.cmd' : 'npm');
+
+const binDir = resolve(process.cwd(), 'node_modules/.bin');
+const pathEnv = `${binDir}${delimiter}${process.env.PATH || process.env.Path || ''}`;
+
+const services = [
+  { name: 'api', cwd: resolve(process.cwd(), 'apps/api') },
+  { name: 'web', cwd: resolve(process.cwd(), 'apps/web') },
+  { name: 'worker', cwd: resolve(process.cwd(), 'apps/worker') }
 ];
 
-const children = commands.map(([name, args]) => {
-  const npmCli = process.env.npm_execpath;
-  if (!npmCli) throw new Error('npm_execpath is unavailable; start with npm run dev.');
-  const child = spawn(process.execPath, [npmCli, ...args], { stdio: 'inherit', env: process.env });
+const children = services.map(({ name, cwd }) => {
+  const child = spawn(npm, ['run', 'dev'], {
+    stdio: 'inherit',
+    cwd,
+    shell: process.platform === 'win32',
+    env: {
+      ...process.env,
+      PATH: pathEnv,
+      Path: pathEnv,
+    }
+  });
   child.on('exit', (code) => { if (code) console.error(`[${name}] exited with ${code}`); });
   return child;
 });
