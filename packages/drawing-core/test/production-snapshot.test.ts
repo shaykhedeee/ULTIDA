@@ -168,3 +168,51 @@ test('generateCncPanelDxf writes System 32 line boring and hinge cup layers', as
   // Verify 35mm hinge cup radius (17.5mm) is emitted as CIRCLE
   assert.match(shutterDxf, /CIRCLE[\r\n]+8[\r\n]+A-DRILL-HINGE[\r\n]+10[\r\n]+21.5[\r\n]+20[\r\n]+\d+[\r\n]+30[\r\n]+0[\r\n]+40[\r\n]+17.5/);
 });
+
+test('certification gating withholds orphaned parts referencing unregistered modules', () => {
+  const scene = {
+    projectId: 'project-orphan-test',
+    modules: [
+      { id: 'kitchen-base-1', family: 'kitchen-base', name: 'Base Unit' },
+    ],
+    moduleParts: [
+      { id: 'kb-part-1', moduleId: 'kitchen-base-1', roomId: 'kitchen', semanticType: 'shutter', name: 'Valid Shutter', widthMm: 500, depthMm: 18, heightMm: 700, position: { xMm: 0, yMm: 0, zMm: 0 }, rotationDeg: 0, materialId: 'hdhmr-18', confidence: 1 },
+      { id: 'orphan-part-1', moduleId: 'rogue-unregistered-module', roomId: 'living', semanticType: 'panel', name: 'Loose Panel', widthMm: 600, depthMm: 18, heightMm: 1200, position: { xMm: 0, yMm: 0, zMm: 0 }, rotationDeg: 0, materialId: 'ply-18', confidence: 1 },
+    ],
+    metadata: { status: 'approved', designVersion: 'scene-orphan-1' },
+  } as any;
+
+  const snapshot = buildProductionSnapshot(scene);
+  assert.equal(snapshot.parts.length, 1);
+  assert.equal(snapshot.parts[0].id, 'kb-part-1');
+  assert.equal(snapshot.parts.some((p) => p.id === 'orphan-part-1'), false);
+  assert.ok(snapshot.excludedModules?.some((m) => m.moduleId === 'rogue-unregistered-module'));
+  assert.ok(snapshot.warnings.some((w) => w.includes('rogue-unregistered-module')));
+});
+
+test('certification gating checks external catalog lookup and filters modules where cutlistSupported !== true', () => {
+  const catalog = [
+    { id: 'custom-wardrobe-mockup', family: 'wardrobe', name: 'Visual Wardrobe Proxy', production: { cutlistSupported: false } },
+    { id: 'certified-cabinet-1', family: 'kitchen-wall', name: 'Standard Wall Cabinet', production: { cutlistSupported: true } },
+  ];
+
+  const scene = {
+    projectId: 'project-cat-lookup-test',
+    modules: [
+      { id: 'mod-certified', catalogItemId: 'certified-cabinet-1', family: 'kitchen-wall', name: 'Real Wall Cabinet' },
+      { id: 'mod-proxy', catalogItemId: 'custom-wardrobe-mockup', family: 'wardrobe', name: 'Visual Proxy' },
+    ],
+    moduleParts: [
+      { id: 'p-cert', moduleId: 'mod-certified', roomId: 'kitchen', semanticType: 'shutter', name: 'Wall Door', widthMm: 450, depthMm: 18, heightMm: 720, position: { xMm: 0, yMm: 0, zMm: 0 }, rotationDeg: 0, materialId: 'm1', confidence: 1 },
+      { id: 'p-proxy', moduleId: 'mod-proxy', roomId: 'bedroom', semanticType: 'shutter', name: 'Proxy Door', widthMm: 500, depthMm: 18, heightMm: 2100, position: { xMm: 0, yMm: 0, zMm: 0 }, rotationDeg: 0, materialId: 'm2', confidence: 1 },
+    ],
+    metadata: { status: 'approved', designVersion: 'scene-lookup-1' },
+  } as any;
+
+  const snapshot = buildProductionSnapshot(scene, undefined, catalog);
+  assert.equal(snapshot.parts.length, 1);
+  assert.equal(snapshot.parts[0].id, 'p-cert');
+  assert.equal(snapshot.parts.some((p) => p.moduleId === 'mod-proxy'), false);
+  assert.ok(snapshot.excludedModules?.some((m) => m.moduleId === 'mod-proxy' && /cutlistSupported: false/.test(m.reason)));
+});
+

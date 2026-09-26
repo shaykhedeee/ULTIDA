@@ -113,7 +113,7 @@ function dxfLine(x1: number, y1: number, x2: number, y2: number, layer: string) 
 }
 
 export function buildCutlist(scene: ReturnType<typeof migrateScene>) {
-  const snapshot = buildProductionSnapshot(scene);
+  const snapshot = buildProductionSnapshot(scene, undefined, IndianModularCatalog);
   const nested = nestPanels2D(snapshot.parts, snapshot.fabricationRules.sheetWidthMm, snapshot.fabricationRules.sheetHeightMm, snapshot.fabricationRules.kerfMm, snapshot.fabricationRules.trimMm);
   const multiSheetOptimization = optimizeMultiSheetNesting(snapshot.parts);
   return {

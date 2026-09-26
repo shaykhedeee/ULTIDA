@@ -217,6 +217,7 @@ export const MaterialLibraryItemV1Schema = z.object({
   transparency: z.number().min(0).max(1).nullable().optional(),
   thicknessMm: z.number().nonnegative().nullable().optional(),
   unitCost: z.number().nonnegative().nullable().optional(),
+  pricingUnit: z.enum(['sqft', 'sheet', 'sqm', 'running_meter', 'piece', 'set']).default('sqft').optional(),
   availability: z.enum(['available', 'limited', 'discontinued']).default('available'),
   metadata: z.record(z.unknown()).default({}),
 });

@@ -926,8 +926,27 @@ function edgePolicy(semanticType: string, lengthMm: number, widthMm: number, rul
   return { edging: 'front_only', edgeSchedule: { l1Mm: lengthMm, l2Mm: 0, w1Mm: 0, w2Mm: 0, tapeType: `${rules.internalEdgeBandMm}mm PVC` } };
 }
 
+export type CatalogLookupSource =
+  | Record<string, { production?: { cutlistSupported?: boolean }; family?: string; name?: string }>
+  | Map<string, { production?: { cutlistSupported?: boolean }; family?: string; name?: string }>
+  | Array<{ id: string; production?: { cutlistSupported?: boolean }; family?: string; name?: string; sku?: string }>
+  | ((id: string) => { production?: { cutlistSupported?: boolean }; family?: string; name?: string } | undefined);
+
+function resolveCatalogEntry(lookup: CatalogLookupSource | undefined, key: string) {
+  if (!lookup || !key) return undefined;
+  if (typeof lookup === 'function') return lookup(key);
+  if (lookup instanceof Map) return lookup.get(key);
+  if (Array.isArray(lookup)) return lookup.find((item) => item.id === key || (item as any).sku === key);
+  if (typeof lookup === 'object') return (lookup as Record<string, any>)[key];
+  return undefined;
+}
+
 /** Build the sole manufacturing snapshot from exact scene.v1 component geometry. */
-export function buildProductionSnapshot(scene: SceneV1, rules: FabricationRulesV1 = DEFAULT_FABRICATION_RULES_V1): ProductionSnapshotV1 {
+export function buildProductionSnapshot(
+  scene: SceneV1,
+  rules: FabricationRulesV1 = DEFAULT_FABRICATION_RULES_V1,
+  catalogLookup?: CatalogLookupSource
+): ProductionSnapshotV1 {
   if (!['approved', 'locked'].includes(scene.metadata.status)) throw new Error('SCENE_NOT_PRODUCTION_READY');
   if (!scene.moduleParts?.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
 
@@ -938,8 +957,21 @@ export function buildProductionSnapshot(scene: SceneV1, rules: FabricationRulesV
   for (const module of scene.modules ?? []) {
     const rawMod = module as any;
     const fam = String(module.family || '').toLowerCase();
-    const isExplicitlySupported = rawMod?.production?.cutlistSupported === true || rawMod?.cutlistSupported === true;
-    const isExplicitlyUnsupported = rawMod?.production?.cutlistSupported === false || rawMod?.cutlistSupported === false;
+
+    // Look up catalog item if lookup provided
+    const catalogItem = catalogLookup
+      ? (resolveCatalogEntry(catalogLookup, module.id) ??
+         (rawMod.catalogItemId ? resolveCatalogEntry(catalogLookup, rawMod.catalogItemId) : undefined) ??
+         (rawMod.templateId ? resolveCatalogEntry(catalogLookup, rawMod.templateId) : undefined) ??
+         (rawMod.sku ? resolveCatalogEntry(catalogLookup, rawMod.sku) : undefined))
+      : undefined;
+
+    const catalogCutlistSupported = catalogItem?.production?.cutlistSupported;
+    const moduleCutlistSupported = rawMod?.production?.cutlistSupported ?? rawMod?.cutlistSupported;
+    const catalogEntryCutlistSupported = rawMod?.catalogEntry?.production?.cutlistSupported ?? rawMod?.catalog?.production?.cutlistSupported;
+
+    const isExplicitlySupported = moduleCutlistSupported === true || catalogEntryCutlistSupported === true || catalogCutlistSupported === true;
+    const isExplicitlyUnsupported = moduleCutlistSupported === false || catalogEntryCutlistSupported === false || catalogCutlistSupported === false;
     const isCertifiedFamily = FABRICATION_CERTIFIED_FAMILIES.has(fam);
     const isUncertifiedFamily = UNCERTIFIED_MODULE_FAMILIES.has(fam);
 
@@ -948,7 +980,7 @@ export function buildProductionSnapshot(scene: SceneV1, rules: FabricationRulesV
       excludedModules.push({
         moduleId: module.id,
         family: module.family,
-        moduleName: rawMod.name ?? module.id,
+        moduleName: rawMod.name ?? catalogItem?.name ?? module.id,
         reason: isExplicitlyUnsupported
           ? `Module '${module.id}' catalog definition declares cutlistSupported: false.`
           : `Module family '${module.family}' is uncertified for panel cutlist generation (loose/accent furniture). Withheld from nesting.`,
@@ -967,8 +999,24 @@ export function buildProductionSnapshot(scene: SceneV1, rules: FabricationRulesV
     if (excludedModuleIds.has(part.moduleId)) {
       continue;
     }
+
+    // Safety check: every part MUST map to a declared, certified module in scene.modules
+    if (!moduleFamily.has(part.moduleId)) {
+      warnings.push(`Part '${part.name}' (${part.id}) references unknown module '${part.moduleId}' not declared in scene modules. Withheld from cutlist.`);
+      if (!excludedModuleIds.has(part.moduleId)) {
+        excludedModuleIds.add(part.moduleId);
+        excludedModules.push({
+          moduleId: part.moduleId,
+          family: 'unknown',
+          moduleName: part.name,
+          reason: `Part '${part.id}' references module '${part.moduleId}' which is not registered in scene modules.`,
+        });
+      }
+      continue;
+    }
+
     const partFam = (moduleFamily.get(part.moduleId) ?? '').toLowerCase();
-    if (UNCERTIFIED_MODULE_FAMILIES.has(partFam)) {
+    if (UNCERTIFIED_MODULE_FAMILIES.has(partFam) || !FABRICATION_CERTIFIED_FAMILIES.has(partFam)) {
       continue;
     }
 

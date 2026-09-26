@@ -112,4 +112,39 @@ test('Pricing Calculations: accurately computes live cutlist cost rollup from sh
   assert.equal(rollup.taxableTotal, rollup.manufacturingSubtotal + rollup.studioMarkup);
   assert.equal(rollup.estimatedGrandTotal, rollup.taxableTotal + rollup.totalGst);
   assert.ok(rollup.costPerSqft > 0, 'Cost per sq.ft must be positive');
+  assert.equal(rollup.pricingVerification.verified, true);
 });
+
+test('Pricing Safety Guard: normalizeMaterialUnitCost rejects unspecified unitCost as sheet price and requires explicit unit', async () => {
+  const { normalizeMaterialUnitCost, calculateCutlistCostRollup } = await import('../src/lib/pricing-rates.ts');
+
+  // 1. Explicit 'sqft' rate works directly
+  const sqftNorm = normalizeMaterialUnitCost({ name: 'Action TESA HDHMR', unitCost: 95, pricingUnit: 'sqft' });
+  assert.equal(sqftNorm.isValid, true);
+  assert.equal(sqftNorm.ratePerSqft, 95);
+  assert.ok(sqftNorm.ratePerSheet > 3000, 'Sheet rate should be 95 * ~32 sqft');
+
+  // 2. Explicit 'sheet' rate converts to rate per sq.ft
+  const sheetNorm = normalizeMaterialUnitCost({ name: 'Marine Ply 8x4', unitCost: 3200, pricingUnit: 'sheet' }, 2440, 1220);
+  assert.equal(sheetNorm.isValid, true);
+  assert.equal(sheetNorm.ratePerSheet, 3200);
+  // ~3200 / 32.04 = ~99.87 / sq.ft
+  assert.ok(sheetNorm.ratePerSqft >= 99 && sheetNorm.ratePerSqft <= 101);
+
+  // 3. Unspecified pricing unit is flagged as invalid and never assumed to be sheet price!
+  const ambiguous = normalizeMaterialUnitCost({ name: 'Mystery Laminate', unitCost: 1800, pricingUnit: null });
+  assert.equal(ambiguous.isValid, false);
+  assert.match(ambiguous.warning ?? '', /unspecified pricing unit/);
+  assert.match(ambiguous.warning ?? '', /cannot safely be treated as a price per sheet/);
+
+  // 4. Rollup surfaces warnings when unverified pricing units are supplied
+  const rollupWithWarning = calculateCutlistCostRollup({
+    sheetCount: 4,
+    edgeBandingLinearMeters: 20,
+    carcassMaterialCost: { name: 'Ambiguous Ply', unitCost: 2400, pricingUnit: undefined },
+  });
+  assert.equal(rollupWithWarning.pricingVerification.verified, false);
+  assert.equal(rollupWithWarning.pricingWarnings.length, 1);
+  assert.match(rollupWithWarning.pricingWarnings[0], /cannot safely be treated as a price per sheet/);
+});
+

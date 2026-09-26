@@ -864,6 +864,44 @@ export function ProductionWorkspace({
                 </div>
               )}
 
+              {/* ─── Fabrication Safety & Certification Gating Banner ─── */}
+              {Boolean(cutlist?.excludedModules?.length) && (
+                <div style={{ margin: '14px 0', padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#92400e', fontWeight: 700, fontSize: 13 }}>
+                    <AlertTriangle size={16} color="#d97706" />
+                    <span>{cutlist!.excludedModules!.length} Module(s) Withheld from Panel Cutlist (Fabrication Gated)</span>
+                    <Badge variant="warning" style={{ marginLeft: 'auto' }}>Certification Gate Active</Badge>
+                  </div>
+                  <p style={{ margin: '6px 0 10px', fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
+                    Per ULTIDA manufacturing safety rules, uncertified decorative, accent, or loose furniture items (e.g. sofas, dining tables, freestanding lighting) are strictly excluded from automated sheet nesting and panel cutlists.
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {cutlist!.excludedModules!.map((excl, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#fef3c7', borderRadius: 6, fontSize: 11.5 }}>
+                        <strong style={{ color: '#78350f' }}>{excl.moduleName || excl.moduleId}</strong>
+                        <span style={{ color: '#b45309' }}>({excl.family})</span>
+                        <span style={{ color: '#92400e', marginLeft: 'auto', fontStyle: 'italic' }}>{excl.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ─── Pricing Safety Alert Banner ─── */}
+              {Boolean(liveCostRollup.pricingWarnings?.length) && (
+                <div style={{ margin: '14px 0', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#991b1b', fontWeight: 700, fontSize: 12.5 }}>
+                    <AlertTriangle size={15} color="#dc2626" />
+                    <span>Pricing Safety Alert: Unverified Material Pricing Units</span>
+                  </div>
+                  <ul style={{ margin: '6px 0 0 18px', padding: 0, fontSize: 11.5, color: '#b91c1c' }}>
+                    {liveCostRollup.pricingWarnings.map((w, idx) => (
+                      <li key={idx}>{w}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Toolbar */}
               <div className="parts-toolbar">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>

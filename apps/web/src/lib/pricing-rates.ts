@@ -233,6 +233,100 @@ export function estimateWardrobeUnitCost(
   };
 }
 
+export type PricingUnit = 'sqft' | 'sheet' | 'sqm' | 'running_meter' | 'piece' | 'set';
+
+export interface MaterialCostInput {
+  name?: string;
+  category?: string;
+  unitCost?: number | null;
+  pricingUnit?: PricingUnit | string | null;
+}
+
+export interface NormalizedMaterialRate {
+  ratePerSqft: number;
+  ratePerSheet: number;
+  unit: PricingUnit;
+  isValid: boolean;
+  warning?: string;
+}
+
+/**
+ * Validates and converts an external or library material unit cost into normalized
+ * per-sqft and per-sheet rates.
+ *
+ * CRITICAL SAFETY GUARD:
+ * An unspecified unitCost or a unitCost with an unspecified / ambiguous pricingUnit
+ * MUST NEVER be blindly assumed to be a price-per-sheet (which could lead to a 32x
+ * underestimation or overestimation error).
+ */
+export function normalizeMaterialUnitCost(
+  input: MaterialCostInput,
+  sheetWidthMm = 2440,
+  sheetHeightMm = 1220,
+  fallbackRatePerSqft = 95
+): NormalizedMaterialRate {
+  const sqftPerSheet = mmToSqft(sheetWidthMm, sheetHeightMm);
+
+  if (input.unitCost == null || !Number.isFinite(input.unitCost) || input.unitCost <= 0) {
+    return {
+      ratePerSqft: fallbackRatePerSqft,
+      ratePerSheet: Math.round(fallbackRatePerSqft * sqftPerSheet),
+      unit: 'sqft',
+      isValid: false,
+      warning: `Material '${input.name || 'unnamed'}' has no valid unit cost specified. Using fallback rate of ₹${fallbackRatePerSqft}/sq.ft.`,
+    };
+  }
+
+  const rawUnit = String(input.pricingUnit || '').trim().toLowerCase();
+  if (!rawUnit) {
+    // Unspecified pricing unit! Per safety rule: NEVER assume per-sheet!
+    return {
+      ratePerSqft: fallbackRatePerSqft,
+      ratePerSheet: Math.round(fallbackRatePerSqft * sqftPerSheet),
+      unit: 'sqft',
+      isValid: false,
+      warning: `Material '${input.name || 'unnamed'}' specifies unitCost (${input.unitCost}) but has an unspecified pricing unit. An unspecified unitCost cannot safely be treated as a price per sheet. Fallback rate applied.`,
+    };
+  }
+
+  if (rawUnit === 'sqft' || rawUnit === 'sq.ft' || rawUnit === 'sq_ft' || rawUnit === 'ft2') {
+    return {
+      ratePerSqft: input.unitCost,
+      ratePerSheet: Math.round(input.unitCost * sqftPerSheet),
+      unit: 'sqft',
+      isValid: true,
+    };
+  }
+
+  if (rawUnit === 'sheet' || rawUnit === 'board') {
+    return {
+      ratePerSqft: Math.round((input.unitCost / sqftPerSheet) * 100) / 100,
+      ratePerSheet: input.unitCost,
+      unit: 'sheet',
+      isValid: true,
+    };
+  }
+
+  if (rawUnit === 'sqm' || rawUnit === 'sq.m' || rawUnit === 'm2') {
+    const ratePerSqft = Math.round((input.unitCost / 10.7639) * 100) / 100;
+    return {
+      ratePerSqft,
+      ratePerSheet: Math.round(ratePerSqft * sqftPerSheet),
+      unit: 'sqm',
+      isValid: true,
+    };
+  }
+
+  // Unknown unit
+  return {
+    ratePerSqft: fallbackRatePerSqft,
+    ratePerSheet: Math.round(fallbackRatePerSqft * sqftPerSheet),
+    unit: 'sqft',
+    isValid: false,
+    warning: `Material '${input.name || 'unnamed'}' has unrecognized pricing unit '${input.pricingUnit}'. Expected 'sqft', 'sheet', or 'sqm'. Fallback rate applied.`,
+  };
+}
+
 export interface CutlistCostRollupInput {
   sheetCount: number;
   sheetWidthMm?: number;
@@ -242,6 +336,8 @@ export interface CutlistCostRollupInput {
   hardwareItems?: Array<{ name: string; category?: string; quantity: number }>;
   carcassMaterialKey?: keyof PricingRateCard['carcassMaterials'];
   shutterFinishKey?: keyof PricingRateCard['shutterFinishes'];
+  carcassMaterialCost?: MaterialCostInput;
+  shutterFinishCost?: MaterialCostInput;
   rates?: PricingRateCard;
 }
 
@@ -266,6 +362,11 @@ export interface CutlistCostRollupResult {
   totalGst: number;
   estimatedGrandTotal: number;
   costPerSqft: number;
+  pricingWarnings: string[];
+  pricingVerification: {
+    verified: boolean;
+    issues: string[];
+  };
 }
 
 export function calculateCutlistCostRollup(input: CutlistCostRollupInput): CutlistCostRollupResult {
@@ -283,8 +384,28 @@ export function calculateCutlistCostRollup(input: CutlistCostRollupInput): Cutli
   const carcassSqft = carcassSheets * sqftPerSheet;
   const shutterSqft = shutterSheets * sqftPerSheet;
 
-  const carcassRate = rates.carcassMaterials[input.carcassMaterialKey ?? 'hdhmr'] ?? 95;
-  const shutterRate = rates.shutterFinishes[input.shutterFinishKey ?? 'matteLaminate'] ?? 85;
+  const defaultCarcassRate = rates.carcassMaterials[input.carcassMaterialKey ?? 'hdhmr'] ?? 95;
+  const defaultShutterRate = rates.shutterFinishes[input.shutterFinishKey ?? 'matteLaminate'] ?? 85;
+
+  const pricingWarnings: string[] = [];
+
+  let carcassRate = defaultCarcassRate;
+  if (input.carcassMaterialCost) {
+    const carcassNorm = normalizeMaterialUnitCost(input.carcassMaterialCost, sheetWidth, sheetHeight, defaultCarcassRate);
+    if (!carcassNorm.isValid && carcassNorm.warning) {
+      pricingWarnings.push(carcassNorm.warning);
+    }
+    carcassRate = carcassNorm.ratePerSqft;
+  }
+
+  let shutterRate = defaultShutterRate;
+  if (input.shutterFinishCost) {
+    const shutterNorm = normalizeMaterialUnitCost(input.shutterFinishCost, sheetWidth, sheetHeight, defaultShutterRate);
+    if (!shutterNorm.isValid && shutterNorm.warning) {
+      pricingWarnings.push(shutterNorm.warning);
+    }
+    shutterRate = shutterNorm.ratePerSqft;
+  }
 
   const carcassBoardCost = Math.round(carcassSqft * carcassRate);
   const shutterFinishCost = Math.round(shutterSqft * shutterRate);
@@ -351,5 +472,10 @@ export function calculateCutlistCostRollup(input: CutlistCostRollupInput): Cutli
     totalGst,
     estimatedGrandTotal,
     costPerSqft,
+    pricingWarnings,
+    pricingVerification: {
+      verified: pricingWarnings.length === 0,
+      issues: pricingWarnings,
+    },
   };
 }
