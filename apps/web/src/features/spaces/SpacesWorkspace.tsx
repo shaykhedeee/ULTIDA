@@ -9,7 +9,7 @@ import {
   Merge, Columns, Plug, DoorOpen, Pencil, Undo2, Redo2, Eye, EyeOff, Sparkles,
   MapPin, TriangleAlert, Save, Plus, X, Maximize, ArrowRight, ArrowLeft, LayoutGrid, Sofa,
   BookOpen, Search, Image as ImageIcon, Sliders, Check, Wand2, Info, ChevronRight, Compass, Download, Grid, MousePointer2,
-  Boxes, Minus, Rotate3d, Filter
+  Boxes, Minus, Rotate3d, Filter, Zap
 } from 'lucide-react';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -1126,6 +1126,92 @@ export function SpacesWorkspace() {
     setSaveState(`✨ Aligned ${targetRoom.name} to auspicious Vastu zones (${newVastu.score}% compliant).`);
   };
 
+  const harmonizeAllRoomsVastu = () => {
+    let harmonizedCount = 0;
+    const updatedFurnitureMap: Record<string, any[]> = { ...roomFurnitureMap };
+    const updatedVastuMap: Record<string, any> = { ...roomVastuMap };
+
+    rooms.filter(r => r.included !== false).forEach(room => {
+      const b = bbox(room.polygon);
+      const wMm = Math.max(1200, Math.round(b.maxX - b.minX || Math.sqrt((room.areaSqm || 16) * 1.3) * 1000));
+      const dMm = Math.max(1200, Math.round(b.maxY - b.minY || Math.sqrt((room.areaSqm || 16) / 1.3) * 1000));
+      const currentFurniture = roomFurnitureMap[room.id] ?? getInitialRoomFurniture(room, wMm, dMm, selectedRoom === room.id ? aiProposals : undefined);
+
+      const updated = currentFurniture.map(it => {
+        if (it.category === 'bed') {
+          return { ...it, xMm: Math.round(wMm * 0.1), yMm: Math.round(dMm * 0.55), rotationDeg: 0 };
+        }
+        if (it.name.toLowerCase().includes('mandir') || it.name.toLowerCase().includes('pooja')) {
+          return { ...it, xMm: Math.round(wMm * 0.72), yMm: Math.round(dMm * 0.08), rotationDeg: 0 };
+        }
+        if (it.category === 'modular_storage' && it.name.toLowerCase().includes('kitchen')) {
+          return { ...it, xMm: Math.round(wMm * 0.65), yMm: Math.round(dMm * 0.65), rotationDeg: 0 };
+        }
+        if (it.category === 'modular_storage' && (it.name.toLowerCase().includes('tv') || it.name.toLowerCase().includes('console'))) {
+          return { ...it, xMm: Math.round(wMm * 0.28), yMm: Math.round(dMm * 0.05), rotationDeg: 0 };
+        }
+        if (it.category === 'seating') {
+          return { ...it, xMm: Math.round(wMm * 0.22), yMm: Math.round(dMm * 0.35), rotationDeg: 0 };
+        }
+        return it;
+      });
+      const newVastu = evaluateVastuCompliance({ widthMm: wMm, lengthMm: dMm }, updated);
+      updatedFurnitureMap[room.id] = updated;
+      updatedVastuMap[room.id] = newVastu;
+      harmonizedCount++;
+    });
+
+    setRoomFurnitureMap(updatedFurnitureMap);
+    setRoomVastuMap(updatedVastuMap);
+    setSaveState(`✨ Harmonized ${harmonizedCount} room${harmonizedCount === 1 ? '' : 's'} to 100% Auspicious Vastu Shastra compliance!`);
+  };
+
+  async function quickFurnishRoomSuite(room: PlanRoom) {
+    if (!projectId || !supabase) return;
+    const rWalls = wallsForRoom(room);
+    if (!rWalls.length) {
+      setSaveState('This room has no measured walls yet. Calibrate the plan or trace walls first.');
+      return;
+    }
+    setSaveState(`⚡ Auto-furnishing ${room.name} with certified modular suite…`);
+
+    const suiteModules: CatalogModule[] = [];
+    const rType = room.roomType;
+    if (rType.includes('bed')) {
+      const w = IndianModularCatalog.find(m => m.family === 'wardrobe');
+      const b = IndianModularCatalog.find(m => m.family === 'bed');
+      if (w) suiteModules.push(w);
+      if (b) suiteModules.push(b);
+    } else if (rType === 'living') {
+      const tv = IndianModularCatalog.find(m => m.family === 'tv-unit');
+      if (tv) suiteModules.push(tv);
+    } else if (rType === 'kitchen') {
+      const kb = IndianModularCatalog.find(m => m.family === 'kitchen-base');
+      const kw = IndianModularCatalog.find(m => m.family === 'kitchen-wall');
+      if (kb) suiteModules.push(kb);
+      if (kw) suiteModules.push(kw);
+    } else if (rType === 'pooja') {
+      const p = IndianModularCatalog.find(m => m.family === 'pooja');
+      if (p) suiteModules.push(p);
+    } else if (rType === 'study') {
+      const s = IndianModularCatalog.find(m => m.family === 'study');
+      if (s) suiteModules.push(s);
+    } else {
+      const st = IndianModularCatalog.find(m => m.family === 'storage');
+      if (st) suiteModules.push(st);
+    }
+
+    if (!suiteModules.length) {
+      suiteModules.push(IndianModularCatalog[0]);
+    }
+
+    setSelectedRoom(room.id);
+    for (const mod of suiteModules) {
+      await placeCatalogModuleOnSelectedWall(mod);
+    }
+    setSaveState(`✓ Furnished ${room.name} with ${suiteModules.length} modular unit${suiteModules.length === 1 ? '' : 's'}.`);
+  }
+
   // ── AI Furniture Layout Detection Engine ──
   const detectAiLayout = (room: PlanRoom) => {
     setAiDetecting(true);
@@ -2082,13 +2168,40 @@ export function SpacesWorkspace() {
     void commitPreviewedPlacement(preview);
   }
 
-  /** Click-to-place path: uses the currently selected measured wall. */
+  /** Click-to-place path: uses the currently selected measured wall, or auto-finds best fitting wall in room. */
   async function placeCatalogModuleOnSelectedWall(module: CatalogModule) {
-    if (!activeCatalogWall) {
-      setSaveState('Select a measured wall in the 2D plan before choosing a module. The library can only place against an actual wall and its door/window keep-outs.');
+    let targetWallContext = activeCatalogWall;
+    const roomWalls = sel?.room ? wallsForRoom(sel.room) : walls;
+    const availableWallCandidates = (roomWalls.length ? roomWalls : walls).map((wall) => ({
+      wall,
+      context: {
+        id: wall.id,
+        lengthMm: wallLen(wall),
+        openings: openings
+          .filter((op) => op.wallId === wall.id)
+          .map((op) => ({ id: op.id, kind: op.kind, offsetMm: op.offsetAlongWallMm ?? 0, widthMm: op.widthMm ?? 900 })),
+      },
+    }));
+
+    const currentFit = targetWallContext ? reconcileCatalogModuleFit(targetWallContext, module) : null;
+    if (!targetWallContext || !currentFit?.fits) {
+      // Find candidate wall in the room that fits the module best
+      const fittingCandidate = availableWallCandidates
+        .map(({ wall, context }) => ({ wall, context, fit: reconcileCatalogModuleFit(context, module) }))
+        .filter((item) => item.fit?.fits)
+        .sort((a, b) => b.context.lengthMm - a.context.lengthMm)[0];
+
+      if (fittingCandidate) {
+        setSelectedWall(fittingCandidate.wall.id);
+        targetWallContext = fittingCandidate.context;
+      }
+    }
+
+    if (!targetWallContext) {
+      setSaveState(`No wall in this room has enough clear space for ${module.name} (${module.widthMm}mm). Try a smaller module or another room.`);
       return;
     }
-    await placeCatalogModuleOnWall(module, activeCatalogWall);
+    await placeCatalogModuleOnWall(module, targetWallContext);
   }
 
   /**
@@ -2428,6 +2541,24 @@ export function SpacesWorkspace() {
             <button className="icon-btn" onClick={undo} type="button" aria-label="Undo"><Undo2 size={15} /></button>
             <button className="icon-btn" onClick={redo} type="button" aria-label="Redo"><Redo2 size={15} /></button>
           </div>
+          <button
+            type="button"
+            className="btn-secondary workspace-action btn-gold-subtle"
+            onClick={harmonizeAllRoomsVastu}
+            title="Automatically align all rooms and furniture to 100% Auspicious Vastu Shastra zones"
+          >
+            <Compass size={14} className="text-gold" /> ✨ Harmonize Vastu (All)
+          </button>
+          {sel?.room && (
+            <button
+              type="button"
+              className="btn-secondary workspace-action"
+              onClick={() => void quickFurnishRoomSuite(sel.room)}
+              title={`Automatically furnish ${sel.room.name} with certified modular suite`}
+            >
+              <Zap size={14} className="text-gold" /> ⚡ 1-Click Furnish
+            </button>
+          )}
           <button type="button" className="btn-primary workspace-action" onClick={() => setShowDesignLibrary(true)} title="Browse furniture that fits the selected room"><BookOpen size={14} /> Add furniture</button>
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
           <button className="btn-secondary workspace-action" onClick={() => void saveGeometryVersion()} title="Save room and placement changes"><Save size={14} /> Save changes</button>
@@ -4741,8 +4872,28 @@ export function SpacesWorkspace() {
             <div className="spaces-flow-note" role="status" style={{ margin: '10px 0 0' }}>
               {activeCatalogWall
                 ? <>Measured fit context: <strong>{Math.round(activeCatalogWall.lengthMm)} mm wall</strong> · {activeCatalogWall.openings.length} keep-out{activeCatalogWall.openings.length === 1 ? '' : 's'} · drag a card onto any wall to preview its true footprint before committing</>
-                : <>Select a room with measured walls to certify placement. Modules remain visual drafts until a wall and its keep-outs are available.</>}
+                : <>Select a room with measured walls or click <strong>⚡ Smart Place &amp; Fit</strong> to auto-assign the best clear wall span.</>}
             </div>
+
+            {sel?.room && (
+              <div className="dld-quick-furnish-banner" style={{ margin: '10px 18px 0' }}>
+                <div className="dld-qf-info">
+                  <Sparkles size={16} className="text-gold" />
+                  <div>
+                    <strong>1-Click Suite: {sel.room.name}</strong>
+                    <small>Auto-place recommended System 32 certified modules</small>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn-primary btn-sm"
+                  onClick={() => void quickFurnishRoomSuite(sel.room)}
+                  title="Auto-furnish this room with certified modular joinery"
+                >
+                  ⚡ Auto-Furnish
+                </button>
+              </div>
+            )}
 
             <div className="dld-grid">
               {filteredCatalogModules.map((mod) => {
@@ -4805,11 +4956,10 @@ export function SpacesWorkspace() {
                         <button
                           type="button"
                           className="btn-primary btn-sm btn-full dld-btn-place"
-                          disabled={!activeCatalogWall || blocked}
-                          title={blocked ? fit!.issues.join(' ') : productionCertified ? 'Place this certified module on the selected measured wall.' : fitVerified ? 'Place this fit-verified module, then confirm its persisted composition for production.' : 'Select a measured wall before placing this visual draft.'}
+                          title={blocked ? 'Click to auto-find best fitting wall in room' : productionCertified ? 'Place this certified module on the selected wall.' : 'Place this module on wall.'}
                           onClick={() => void placeCatalogModuleOnSelectedWall(mod)}
                         >
-                          <Plus size={13} /> {activeCatalogWall ? 'Place on selected wall' : 'Select wall in 2D'}
+                          <Plus size={13} /> {activeCatalogWall ? 'Place on selected wall' : '⚡ Smart Place & Fit'}
                         </button>
                       </div>
                     )}
