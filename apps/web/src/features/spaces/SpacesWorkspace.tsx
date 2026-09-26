@@ -14,7 +14,7 @@ import {
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Badge, Button, WorkflowDock } from '../../components/ui/primitives';
+import { Badge, Button } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
 import {
   computeUsableWallLength, computeSpaceReadiness, polygonsOverlap,
@@ -5385,23 +5385,6 @@ export function SpacesWorkspace() {
           </div>
         </div>
       )}
-
-      <WorkflowDock
-        currentStageIndex={2}
-        totalStages={5}
-        stageTitle="Rooms &amp; Spaces"
-        stageSummary={`${rooms.filter((r) => r.included !== false).length} room${rooms.filter((r) => r.included !== false).length === 1 ? '' : 's'} configured • Next: review the saved design in 3D.`}
-        prevAction={{
-          label: 'Client Brief',
-          icon: <ArrowLeft size={13} />,
-          onClick: () => navigate(`/projects/${projectId}/brief`),
-        }}
-        nextAction={{
-          label: 'Proceed to Step 3: 3D Scene',
-          icon: <ArrowRight size={14} />,
-          onClick: () => navigate(`/projects/${projectId}/3d`),
-        }}
-      />
     </div>
   );
 }

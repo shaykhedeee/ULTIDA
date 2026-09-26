@@ -2,7 +2,7 @@ import {
   LayoutDashboard, FolderKanban, Library, BookOpen,
   Settings, Users, Ruler, ChevronRight, Box, Home, Wand2, CalendarDays, Receipt, Compass,
   PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut, Sparkles, Layers,
-  Check, CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2, ArrowLeft, ArrowRight, Eye
+  Check, CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2, ArrowLeft, ArrowRight, Eye, Scissors
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -43,6 +43,7 @@ const PRIMARY_NAV = [
 const TOOL_NAV = [
   { label: 'Design Tools', items: [
     { id: 'aura-ai', label: 'AURA Design AI', path: '/tools/aura', icon: Sparkles },
+    { id: 'cutlist-studio', label: 'Cutlist & Nesting Studio', path: '/tools/cutlist', icon: Scissors },
     { id: 'room-builder', label: 'Room Builder', path: '/tools/room-builder', icon: Home },
     { id: 'module-planner', label: 'Module Planner', path: '/tools/modules', icon: Box },
     { id: 'render-gallery', label: 'Render Gallery & Client Deck', path: '/renders', icon: Eye },

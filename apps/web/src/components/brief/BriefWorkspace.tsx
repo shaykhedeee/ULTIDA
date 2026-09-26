@@ -1,7 +1,7 @@
 import { Check, Download, FileUp, Save, Sparkles, Upload, ArrowRight } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Button, Card, CardContent, CardHeader, WorkflowDock } from '../ui/primitives';
+import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import { getApiBase } from '../../lib/api-base';
 import type { ClientBrief } from '../../features/project-types';
 export type { ClientBrief } from '../../features/project-types';
@@ -235,28 +235,6 @@ export function BriefWorkspace({ projectId, initialBrief, fileName, status, onSa
           )}
         </Card>
       </div>
-
-      {/* Unified Workflow Dock */}
-      <WorkflowDock
-        currentStageIndex={1}
-        totalStages={5}
-        stageTitle="Client Intake &amp; Project Brief"
-        stageSummary="Complete design direction, property details, and budget requirements, then proceed to Rooms & Spaces."
-        secondaryAction={{
-          label: 'Skip to 3D & AI Render',
-          icon: <Sparkles size={13} style={{ color: '#c59c2d' }} />,
-          onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/3d?tab=render`);
-          },
-        }}
-        nextAction={{
-          label: 'Proceed to Step 2: Rooms & Spaces',
-          icon: <ArrowRight size={14} />,
-          onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/spaces`);
-          },
-        }}
-      />
     </section>
   );
 }

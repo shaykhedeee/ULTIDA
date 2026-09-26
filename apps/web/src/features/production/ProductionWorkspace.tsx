@@ -14,7 +14,8 @@ import {
   type DrawingCutlistAnalysisResult,
   type DrawingCutlistInput,
 } from '@ultida/drawing-core/browser';
-import { Badge, Button, Card, CardContent, CardHeader, WorkflowDock } from '../../components/ui/primitives';
+import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
+import { optimizeGuillotineNesting, type NestingPart } from '../tools/cutlist-optimizer';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import WorkingDrawingsDossier from '../../components/drawings/WorkingDrawingsDossier';
@@ -300,172 +301,63 @@ export function ProductionWorkspace({
 
   // ─── 2D Sheet Nesting Optimizer ──────────────────────────────────────────
   const nestedSheets = useMemo(() => {
-    const effectiveParts = scopedParts.length > 0 ? scopedParts : (parts.length > 0 ? parts : []);
-    if (!effectiveParts.length) return [];
+    const effectiveParts = scopedParts.length > 0 ? scopedParts : parts;
+    const nestingParts: NestingPart[] = effectiveParts.map((p) => {
+      const isExt = p.semanticType === 'shutter' || p.semanticType === 'drawer_fascia' || p.semanticType === 'dummy_filler' || p.semanticType === 'skirting_fascia';
+      return {
+        id: p.id,
+        partInstanceId: p.partInstanceId || p.id,
+        name: p.partName,
+        classification: isExt ? 'external_shutter' : (p.semanticType === 'back_panel' ? 'back_panel' : 'internal_carcass_gable'),
+        isExternal: isExt,
+        lengthMm: p.lengthMm,
+        widthMm: p.widthMm,
+        thicknessMm: p.thicknessMm,
+        quantity: p.quantity,
+        materialCode: p.materialCode,
+        materialName: p.materialCode,
+        grainDirection: p.grainDirection,
+        edgeBanding: {
+          l1: p.edging || (isExt ? '2.0mm PVC' : '0.8mm PVC'),
+          l2: 'none',
+          w1: p.edging || (isExt ? '2.0mm PVC' : '0.8mm PVC'),
+          w2: 'none',
+          totalLinearMeters: Math.round(((p.lengthMm + p.widthMm) * 2 * p.quantity / 1000) * 10) / 10,
+        },
+      };
+    });
 
     const sheetW = 2440;
     const sheetH = 1220;
-    const usableW = sheetW - trimMm * 2;
-    const usableH = sheetH - trimMm * 2;
+    const result = optimizeGuillotineNesting(nestingParts, {
+      sheetWidthMm: sheetW,
+      sheetHeightMm: sheetH,
+      trimMm,
+      kerfMm,
+      allowGrainRotationForSolid: true,
+    });
 
-    const byMaterial: Record<string, Part[]> = {};
-    for (const p of effectiveParts) {
-      const mat = p.materialCode || 'CORE-HDHMR-18';
-      if (!byMaterial[mat]) byMaterial[mat] = [];
-      byMaterial[mat].push(p);
-    }
-
-    const sheets: Array<{
-      sheetNumber: number;
-      materialCode: string;
-      widthMm: number;
-      heightMm: number;
-      placedPanels: Array<{
-        id: string;
-        name: string;
-        x: number;
-        y: number;
-        w: number;
-        h: number;
-        grain: string;
-        color: string;
-        partRef: Part;
-      }>;
-      usedAreaSqm: number;
-      totalAreaSqm: number;
-      yieldPct: number;
-      scrapPct: number;
-    }> = [];
-
-    let globalSheetNum = 1;
-    const palette = ['#c59c2d', '#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#65a30d'];
-
-    for (const [mat, matParts] of Object.entries(byMaterial)) {
-      const items: Array<{ id: string; name: string; w: number; h: number; grain: string; partRef: Part }> = [];
-      for (const p of matParts) {
-        for (let q = 0; q < Math.max(1, p.quantity); q++) {
-          items.push({
-            id: `${p.partInstanceId || p.id}-${q + 1}`,
-            name: p.partName,
-            w: Math.min(p.lengthMm, p.widthMm),
-            h: Math.max(p.lengthMm, p.widthMm),
-            grain: p.grainDirection,
-            partRef: p,
-          });
-        }
-      }
-
-      items.sort((a, b) => b.h - a.h || b.w - a.w);
-
-      let currentSheetPlaced: Array<{
-        id: string;
-        name: string;
-        x: number;
-        y: number;
-        w: number;
-        h: number;
-        grain: string;
-        color: string;
-        partRef: Part;
-      }> = [];
-      let currentX = trimMm;
-      let currentY = trimMm;
-      let currentShelfH = 0;
-
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        let pW = item.w;
-        let pH = item.h;
-
-        if (item.grain === 'horizontal') {
-          pW = item.h;
-          pH = item.w;
-        }
-
-        if (currentX + pW + kerfMm <= sheetW - trimMm) {
-          currentSheetPlaced.push({
-            id: item.id,
-            name: item.name,
-            x: currentX,
-            y: currentY,
-            w: pW,
-            h: pH,
-            grain: item.grain,
-            color: palette[currentSheetPlaced.length % palette.length],
-            partRef: item.partRef,
-          });
-          currentX += pW + kerfMm;
-          currentShelfH = Math.max(currentShelfH, pH);
-        } else if (currentY + currentShelfH + kerfMm + pH <= sheetH - trimMm) {
-          currentY += currentShelfH + kerfMm;
-          currentX = trimMm;
-          currentShelfH = pH;
-          currentSheetPlaced.push({
-            id: item.id,
-            name: item.name,
-            x: currentX,
-            y: currentY,
-            w: pW,
-            h: pH,
-            grain: item.grain,
-            color: palette[currentSheetPlaced.length % palette.length],
-            partRef: item.partRef,
-          });
-          currentX += pW + kerfMm;
-        } else {
-          const usedArea = currentSheetPlaced.reduce((sum, p) => sum + (p.w * p.h) / 1e6, 0);
-          const totalArea = (sheetW * sheetH) / 1e6;
-          const yieldPct = Math.min(100, Math.round((usedArea / totalArea) * 1000) / 10);
-          sheets.push({
-            sheetNumber: globalSheetNum++,
-            materialCode: mat,
-            widthMm: sheetW,
-            heightMm: sheetH,
-            placedPanels: currentSheetPlaced,
-            usedAreaSqm: Math.round(usedArea * 100) / 100,
-            totalAreaSqm: Math.round(totalArea * 100) / 100,
-            yieldPct,
-            scrapPct: Math.round((100 - yieldPct) * 10) / 10,
-          });
-
-          currentSheetPlaced = [];
-          currentX = trimMm;
-          currentY = trimMm;
-          currentShelfH = pH;
-          currentSheetPlaced.push({
-            id: item.id,
-            name: item.name,
-            x: currentX,
-            y: currentY,
-            w: pW,
-            h: pH,
-            grain: item.grain,
-            color: palette[0],
-            partRef: item.partRef,
-          });
-          currentX += pW + kerfMm;
-        }
-      }
-
-      if (currentSheetPlaced.length > 0) {
-        const usedArea = currentSheetPlaced.reduce((sum, p) => sum + (p.w * p.h) / 1e6, 0);
-        const totalArea = (sheetW * sheetH) / 1e6;
-        const yieldPct = Math.min(100, Math.round((usedArea / totalArea) * 1000) / 10);
-        sheets.push({
-          sheetNumber: globalSheetNum++,
-          materialCode: mat,
-          widthMm: sheetW,
-          heightMm: sheetH,
-          placedPanels: currentSheetPlaced,
-          usedAreaSqm: Math.round(usedArea * 100) / 100,
-          totalAreaSqm: Math.round(totalArea * 100) / 100,
-          yieldPct,
-          scrapPct: Math.round((100 - yieldPct) * 10) / 10,
-        });
-      }
-    }
-
-    return sheets;
+    return result.sheets.map((s) => ({
+      sheetNumber: s.sheetIndex,
+      materialCode: s.materialCode,
+      widthMm: s.sheetWidthMm,
+      heightMm: s.sheetHeightMm,
+      placedPanels: s.placedPanels.map((p) => ({
+        id: p.id,
+        name: p.name,
+        x: p.x,
+        y: p.y,
+        w: p.w,
+        h: p.h,
+        grain: p.grain,
+        color: p.color,
+        partRef: p.partRef as any,
+      })),
+      usedAreaSqm: s.usedAreaSqm,
+      totalAreaSqm: s.totalAreaSqm,
+      yieldPct: s.yieldPct,
+      scrapPct: s.wastePct,
+    }));
   }, [scopedParts, parts, trimMm, kerfMm]);
 
   // ─── Comprehensive Edge Banding Schedule ─────────────────────────────────
@@ -1780,27 +1672,6 @@ export function ProductionWorkspace({
 
         </div>
       </div>
-
-      {/* ── Workflow dock ── */}
-      <WorkflowDock
-        currentStageIndex={4}
-        totalStages={5}
-        stageTitle={activeTab === 'release' ? 'Release & Export' : 'Cutlist & Drawings'}
-        stageSummary={activeTab === 'release'
-          ? 'Approve reviewed panels · Download production PDF, Excel and exports'
-          : 'Panel cutlist by room · Shop drawings · Board optimizer · Hardware schedule'}
-        beaconTone={activeTab === 'release' ? 'success' : 'gold'}
-        prevAction={{
-          label: 'Back to 3D Scene',
-          icon: <ArrowLeft size={14} />,
-          onClick: () => { if (projectId) navigate(`/projects/${projectId}/3d`); },
-        }}
-        nextAction={{
-          label: 'Proceed to Step 5: Estimate & Delivery',
-          icon: <ArrowRight size={14} />,
-          onClick: () => { if (projectId) navigate(`/projects/${projectId}/estimate`); },
-        }}
-      />
     </div>
   );
 }

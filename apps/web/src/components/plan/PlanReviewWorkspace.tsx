@@ -18,7 +18,7 @@ import {
   crossCheckCalibrationDimensions,
   type CalibrationCrossCheckDiscrepancy,
 } from '@ultida/plan-core';
-import { Badge, Button, Card, CardContent, CardHeader, WorkflowDock } from '../ui/primitives';
+import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import { createFreshPlanCalibrationState, requireConfirmedScale } from './plan-calibration';
 import './plan-review.css';
 
@@ -3257,32 +3257,6 @@ export function PlanReviewWorkspace({
           </div>
         </div>
       </div>
-
-      {/* Unified Workflow Dock */}
-      <WorkflowDock
-        currentStageIndex={1}
-        totalStages={5}
-        stageTitle="Measured Plan Analysis &amp; Vector Calibration"
-        stageSummary="Review architectural boundary walls, calibrate metric scale, and verify door/window openings before proceeding to Rooms &amp; Spaces."
-        prevAction={{
-          label: 'Back to Brief',
-          icon: <ArrowLeft size={13} />,
-          onClick: () => navigate(-1),
-        }}
-        nextAction={{
-          label: 'Proceed to Step 2: Spaces',
-          icon: <ArrowRight size={14} />,
-          onClick: async () => {
-            try {
-              await handleApprovePlan();
-            } catch {
-              const pathname = window.location.pathname;
-              const projectPrefix = pathname.split('/plan')[0];
-              navigate(`${projectPrefix}/spaces`);
-            }
-          },
-        }}
-      />
     </div>
   );
 }

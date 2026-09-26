@@ -25,7 +25,6 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import InteractiveRenderViewer, { type MatchedObject } from '../../components/visual/InteractiveRenderViewer';
-import { WorkflowDock } from '../../components/ui/primitives';
 import './visualize-studio.css';
 
 type VisualizeTab = 'review' | 'render' | 'laminate' | 'interactive' | 'compare';
@@ -842,29 +841,6 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
 
       {/* Active Panel Viewport */}
       <div className="visualize-panel">{panels[active]}</div>
-
-      {/* Bottom Stage Progression */}
-      <WorkflowDock
-        currentStageIndex={3}
-        totalStages={5}
-        stageTitle="3D Scene Studio & Visual Intelligence"
-        stageSummary="Geometry-locked WebGL viewport · AI spatial object scans · Deterministic seed-locked A/B comparisons"
-        beaconTone="gold"
-        prevAction={{
-          label: 'Back to Rooms & Spaces',
-          icon: <ArrowLeft size={14} />,
-          onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/spaces`);
-          },
-        }}
-        nextAction={{
-          label: 'Proceed to Step 4: Cutlist & Drawings',
-          icon: <ArrowRight size={14} />,
-          onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/drawings`);
-          },
-        }}
-      />
     </section>
   );
 }

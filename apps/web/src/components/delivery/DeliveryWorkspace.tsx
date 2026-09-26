@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Card, CardContent, CardHeader, Button, WorkflowDock } from '../ui/primitives';
+import { Badge, Card, CardContent, CardHeader, Button } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 
 type Props = { 
@@ -1067,28 +1067,6 @@ export function DeliveryWorkspace({ briefSaved, planApproved, sceneVersionId, mo
           </div>
         </div>
       )}
-
-      {/* Bottom Stage Progression */}
-      <WorkflowDock
-        currentStageIndex={7}
-        stageTitle="Client Presentation, Handover & Approvals"
-        stageSummary="Project design gates, commercial sign-offs, and presentation walkthroughs tracked in real-time."
-        beaconTone="success"
-        prevAction={{
-          label: 'Back to Commercial Estimate',
-          icon: <ArrowLeft size={14} />,
-          onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/estimate`);
-          },
-        }}
-        nextAction={{
-          label: 'Release to CAM Production',
-          icon: <ArrowRight size={14} />,
-          onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/production`);
-          },
-        }}
-      />
     </section>
   );
 }

@@ -48,6 +48,7 @@ const TeamWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').
 const RulesWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.RulesWorkspace })));
 const SettingsWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.SettingsWorkspace })));
 const RenderedSpacesLibrary = lazy(() => import('./features/library/RenderedSpacesLibrary').then((module) => ({ default: module.RenderedSpacesLibrary })));
+const CutlistStudio = lazy(() => import('./features/tools/CutlistStudio').then((module) => ({ default: module.CutlistStudio })));
 
 import './intake.css';
 
@@ -1482,6 +1483,8 @@ function DashboardShell({ sessionEmail, orgName, onStudioIdentitySaved }: { sess
         <Route index element={<StudioDashboard orgName={orgName} />} />
         <Route path="projects" element={<ProjectDashboard sessionEmail={sessionEmail} orgName={orgName} />} />
         <Route path="tools/cnc" element={<CncPatternStudio />} />
+        <Route path="tools/cutlist" element={<CutlistStudio />} />
+        <Route path="tools/cutlist-studio" element={<CutlistStudio />} />
         <Route path="tools/modules" element={<ModularUnitPlanner />} />
         <Route path="tools/calendar" element={<StudioOperations initialTab="calendar" />} />
         <Route path="tools/invoices" element={<StudioOperations initialTab="invoices" />} />
@@ -1639,11 +1642,12 @@ export function App() {
     // These are deliberately local-first utilities. They never call providers,
     // write shared data, or claim a production result; sign-in is required as
     // soon as a draft is attached to a studio project.
-    if (['/tools/room-builder', '/tools/measurements', '/tools/cnc'].includes(window.location.pathname)) {
+    if (['/tools/room-builder', '/tools/measurements', '/tools/cnc', '/tools/cutlist'].includes(window.location.pathname)) {
       return <Suspense fallback={<RouteLoading label="Loading tool…" />}><Routes>
         <Route path="/tools/room-builder" element={<RoomBuilder />} />
         <Route path="/tools/measurements" element={<MeasurementConverter />} />
         <Route path="/tools/cnc" element={<CncPatternStudio />} />
+        <Route path="/tools/cutlist" element={<CutlistStudio />} />
       </Routes></Suspense>;
     }
     return <SignInScreen onSuccess={(email) => {

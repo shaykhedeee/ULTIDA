@@ -1,7 +1,7 @@
 import { Calculator, ChevronRight, CircleAlert, FileText, LockKeyhole, ArrowLeft, ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Card, CardContent, CardHeader, WorkflowDock } from '../ui/primitives';
+import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { getSupabaseBrowserClient } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 
@@ -364,29 +364,6 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
           </CardContent>
         </Card>
       </div>
-
-      {/* Bottom Stage Progression */}
-      <WorkflowDock
-        currentStageIndex={5}
-        totalStages={5}
-        stageTitle="Estimate & Delivery Commercials"
-        stageSummary="Turnkey Bill of Materials (BOM), line-item pricing, labor schedules, and delivery handover ready."
-        beaconTone="success"
-        prevAction={{
-          label: 'Cutlist & Drawings',
-          icon: <ArrowLeft size={14} />,
-          onClick: () => {
-            if (projectId) navigate(`/projects/${projectId}/drawings`);
-          },
-        }}
-        nextAction={{
-          label: 'Client Proposal',
-          icon: <FileText size={14} />,
-          onClick: () => {
-            navigate('/tools/invoices?tab=proposals');
-          },
-        }}
-      />
     </section>
   );
 }

@@ -1,0 +1,483 @@
+/* ═══════════════════════════════════════════════════════════════════════════════
+   ULTIDA CUTLIST & NESTING STUDIO — Precision 2D CAD & Sheet Nesting
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.cutlist-studio {
+  max-width: 1560px;
+  margin: 0 auto;
+  padding-bottom: 60px;
+}
+
+/* ─── Hero Bar ───────────────────────────────────────────────────────────── */
+.cs-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.cs-hero-text small {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--gold-dim);
+  text-transform: uppercase;
+}
+
+.cs-hero-text h1 {
+  font-size: 26px;
+  font-weight: 850;
+  color: var(--text-primary);
+  margin: 4px 0 6px;
+  letter-spacing: -0.01em;
+}
+
+.cs-hero-text p {
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  margin: 0;
+  max-width: 780px;
+  line-height: 1.5;
+}
+
+.cs-hero-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ─── Metric Gauges & Efficiency Strip ───────────────────────────────────── */
+.cs-metrics-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.cs-metric-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.cs-metric-card.gold {
+  border-color: rgba(197, 156, 45, 0.4);
+  background: linear-gradient(135deg, #ffffff 0%, rgba(197, 156, 45, 0.06) 100%);
+}
+
+.cs-metric-card.green {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: linear-gradient(135deg, #ffffff 0%, rgba(16, 185, 129, 0.05) 100%);
+}
+
+.cs-metric-label {
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.cs-metric-val {
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.cs-metric-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.cs-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 10.5px;
+  font-weight: 800;
+  width: fit-content;
+}
+.cs-pill-badge.green {
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
+}
+.cs-pill-badge.gold {
+  background: rgba(197, 156, 45, 0.16);
+  color: #92400e;
+}
+
+/* ─── Control Bar ────────────────────────────────────────────────────────── */
+.cs-control-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 18px;
+  margin-bottom: 20px;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.cs-preset-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cs-preset-selector label {
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--text-secondary);
+}
+
+.cs-select {
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--cream-warm);
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.cs-select:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.cs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.cs-btn:hover {
+  background: #fdfbf7;
+  border-color: var(--gold);
+  color: var(--gold-dim);
+}
+
+.cs-btn.primary {
+  background: linear-gradient(135deg, #c59c2d 0%, #a88220 100%);
+  color: #17120a;
+  border-color: rgba(197, 156, 45, 0.5);
+  box-shadow: 0 2px 8px rgba(197, 156, 45, 0.3);
+}
+
+.cs-btn.primary:hover {
+  background: linear-gradient(135deg, #d4ab37 0%, #b89128 100%);
+  transform: translateY(-1px);
+}
+
+/* ─── Main Two-Column Layout ─────────────────────────────────────────────── */
+.cs-main-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .cs-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── Sheet Nesting Canvas Container ─────────────────────────────────────── */
+.cs-canvas-card {
+  background: #181920;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 20px;
+  color: #fff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+
+.cs-canvas-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.cs-sheet-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  max-width: 100%;
+  padding-bottom: 4px;
+}
+
+.cs-sheet-tab {
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #a8a29e;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.cs-sheet-tab:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.cs-sheet-tab.active {
+  background: rgba(197, 156, 45, 0.25);
+  border-color: #c59c2d;
+  color: #e8c96a;
+}
+
+.cs-sheet-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 5px 12px;
+  border-radius: 8px;
+}
+
+.cs-sheet-meta-pill .pct-high {
+  color: #34d399;
+  font-weight: 900;
+}
+
+/* ─── SVG Sheet Viewport ─────────────────────────────────────────────────── */
+.cs-svg-viewport {
+  width: 100%;
+  background: #0f1015;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+}
+
+.cs-svg-viewport svg {
+  width: 100%;
+  max-height: 520px;
+  display: block;
+}
+
+.cs-canvas-legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 14px;
+  font-size: 11px;
+  color: #94a3b8;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.cs-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cs-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+/* ─── Side Config Panel (Laminate & Specs) ────────────────────────────────── */
+.cs-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.cs-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+
+.cs-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.cs-material-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.cs-material-slot label {
+  font-size: 11px;
+  font-weight: 750;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cs-material-slot input,
+.cs-material-slot select {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--cream-warm);
+}
+
+.cs-material-slot input:focus,
+.cs-material-slot select:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+/* ─── Parts Table View ───────────────────────────────────────────────────── */
+.cs-parts-table-wrap {
+  margin-top: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+
+.cs-table-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #fdfbf7;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.cs-table-header h3 {
+  font-size: 14.5px;
+  font-weight: 800;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.cs-filter-pills {
+  display: flex;
+  gap: 6px;
+}
+
+.cs-filter-pill {
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.cs-filter-pill.active {
+  background: var(--gold);
+  color: #17120a;
+  border-color: var(--gold);
+}
+
+.cs-table-container {
+  overflow-x: auto;
+  max-height: 480px;
+}
+
+.cs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+
+.cs-table th {
+  padding: 10px 14px;
+  font-weight: 800;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  background: #f9f7f2;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.cs-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.cs-table tr:hover {
+  background: rgba(197, 156, 45, 0.04);
+}
+
+.cs-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+}
+.cs-type-badge.ext {
+  background: rgba(197, 156, 45, 0.16);
+  color: #92400e;
+}
+.cs-type-badge.int {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+.cs-type-badge.back {
+  background: rgba(100, 116, 139, 0.14);
+  color: #475569;
+}
