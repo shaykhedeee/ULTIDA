@@ -518,6 +518,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   // Plan state
   const [planFile, setPlanFile] = useState<File | null>(null);
   const [planPreview, setPlanPreview] = useState<string | null>(null);
+  const [sceneApprovalError, setSceneApprovalError] = useState<{ code: string; message: string; issues: string[] } | null>(null);
+  const [recompilingScene, setRecompilingScene] = useState(false);
   const [planStatus, setPlanStatus] = useState('No plan uploaded');
   const [planAnalysed, setPlanAnalysed] = useState(false);
   const [planProposals, setPlanProposals] = useState<any[]>([]);
@@ -539,6 +541,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const [sceneMaterials, setSceneMaterials] = useState<any[]>([]);
   const [sceneApproved, setSceneApproved] = useState(false);
   const [layoutApproved, setLayoutApproved] = useState(false);
+
+  useEffect(() => { setSceneApprovalError(null); }, [projectId]);
 
   useEffect(() => {
     const invalidate = (event: Event) => {
@@ -1305,6 +1309,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       });
       const payload = await response.json().catch(() => null);
       if (response.ok && payload?.success && payload?.sceneVersion) {
+        setSceneApprovalError(null);
         setSceneVersionId(payload.sceneVersion.id);
         setSceneVersionNumber(payload.sceneVersion.version_number);
         setSceneModules(normalizedModules);
@@ -1321,6 +1326,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   }
 
   async function approveScene(targetSceneVersionId?: string): Promise<boolean> {
+    setSceneApprovalError(null);
     const sceneToApprove = targetSceneVersionId ?? sceneVersionId;
     if (!projectId || !sceneToApprove) {
       setPlanStatus('Compile a saved scene before approval.');
@@ -1340,6 +1346,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           setPlanStatus(`Scene approved and ready for 3D walkthrough.`);
           return true;
         }
+        setSceneApprovalError({ code: payload?.code ?? 'SCENE_APPROVAL_FAILED', message: payload?.message ?? 'Approval failed. Check the saved design and retry.', issues: Array.isArray(payload?.issues) ? payload.issues.map((issue: any) => typeof issue === 'string' ? issue : issue.message ?? 'Review this design issue.') : [] });
         setPlanStatus(payload?.message ?? 'The scene could not be approved. Resolve the listed blockers and retry.');
       } catch {
         setPlanStatus('The approval service could not be reached. The scene remains unapproved.');
@@ -1359,6 +1366,16 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       projectName={projectName || 'Loading…'}
       workflowStages={stageStatuses}
     >
+      {sceneApprovalError && <section role="alert" style={{ padding: 16, margin: 16, border: '1px solid #b45309', borderRadius: 8, background: '#fff7ed', color: '#431407' }}>
+        <strong>Design approval needs attention</strong><p>{sceneApprovalError.message}</p><small>{sceneApprovalError.code}</small>
+        {!!sceneApprovalError.issues.length && <ul>{sceneApprovalError.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul>}
+        {['SCENE_PLAN_VERSION_STALE', 'SCENE_MODULE_VERSION_STALE'].includes(sceneApprovalError.code) && <button type="button" disabled={recompilingScene} onClick={async () => {
+          setRecompilingScene(true);
+          try { const id = await saveScene(sceneVersionId ?? '', sceneModules, sceneMaterials); if (id) setSceneApprovalError(null); }
+          finally { setRecompilingScene(false); }
+        }}>{recompilingScene ? 'Updating design…' : 'Recompile now'}</button>}
+        <button type="button" onClick={() => setSceneApprovalError(null)}>Dismiss</button>
+      </section>}
       <Suspense fallback={<RouteLoading label="Loading workspace…" />}><Routes>
         <Route path="brief" element={
           <BriefWorkspace

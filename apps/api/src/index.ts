@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { moduleRevisionsMatch } from './scene-module-revisions.js';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PassThrough } from 'node:stream';
@@ -2299,7 +2300,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
   if (!requestedModuleIds.length) {
     return response.status(422).json({ success: false, code: 'MODULES_REQUIRED', message: 'Place and save at least one validated module before compiling scene.v1.' });
   }
-  const storedModules = requestedModuleIds.length ? await client.from('module_instances').select('id,space_id,layout_id,category,template_id,config_json,position_json').eq('project_id', projectId).in('id', requestedModuleIds) : { data: [], error: null };
+  const storedModules = requestedModuleIds.length ? await client.from('module_instances').select('id,space_id,layout_id,category,template_id,config_json,position_json,updated_at').eq('project_id', projectId).in('id', requestedModuleIds) : { data: [], error: null };
   if (storedModules.error) return response.status(500).json({ success: false, code: 'MODULE_INSTANCE_READ_FAILED', message: storedModules.error.message });
   if ((storedModules.data ?? []).length !== requestedModuleIds.length) return response.status(422).json({ success: false, code: 'MODULE_INSTANCE_NOT_FOUND', message: 'One or more requested module instances is missing.' });
   if ((storedModules.data ?? []).some((module: any) => String(module.space_id) !== roomId)) return response.status(422).json({ success: false, code: 'ROOM_MODULE_MISMATCH', message: 'Every compiled module must belong to the selected approved room.' });
@@ -2429,7 +2430,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
     version_number: (latest.data?.version_number ?? 0) + 1,
     branch_name: 'main',
     status: 'draft',
-    scene,
+    scene: { ...scene, sourceModuleRevisions: Object.fromEntries((storedModules.data ?? []).map(module => [module.id, module.updated_at])) },
     design_intent: scene.designIntent ?? null,
     change_reason: scene.metadata.changeReason,
     created_by: authReq.ultidaUser!.id,
@@ -2471,21 +2472,21 @@ app.post('/api/projects/:projectId/scenes/:sceneVersionId/approve', requireProje
   if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
   if (sceneVersion.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: sceneVersion.error.message });
   if (!sceneVersion.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND', message: 'That scene version does not belong to this project.' });
-  if (sceneVersion.data.status !== 'draft') return response.status(409).json({ success: false, code: 'SCENE_NOT_DRAFT', message: 'Only the current draft scene revision can be approved.' });
-  if (sceneVersion.data.floor_plan_version_id !== project.data.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'SCENE_PLAN_VERSION_STALE', message: 'The plan changed after this scene was compiled. Recompile before approval.' });
-  const scene = sceneVersion.data.scene as { schema?: unknown; modules?: unknown[]; metadata?: Record<string, unknown> };
+  if (sceneVersion.data.status !== 'draft') return response.status(409).json({ success: false, code: 'SCENE_NOT_DRAFT', message: 'Only the current draft scene revision can be approved.', issues: [{ message: 'Only the current draft scene revision can be approved.' }] });
+  if (sceneVersion.data.floor_plan_version_id !== project.data.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'SCENE_PLAN_VERSION_STALE', message: 'The plan changed after this scene was compiled. Recompile before approval.', issues: [{ message: 'The plan changed after this scene was compiled. Recompile before approval.' }] });
+  const scene = sceneVersion.data.scene as { schema?: unknown; modules?: unknown[]; sourceModuleRevisions?: unknown; metadata?: Record<string, unknown> };
   if (scene?.schema !== 'scene.v1' || !Array.isArray(scene.modules) || !scene.modules.length) return response.status(422).json({ success: false, code: 'SCENE_NOT_READY', message: 'Scene approval requires scene.v1 with at least one persisted module.' });
   try {
     const normalizedScene = migrateScene(sceneVersion.data.scene);
     assertSceneBayReconciliation(normalizedScene);
   } catch (error: any) {
-    return response.status(error?.status ?? 422).json({ success: false, code: error?.code ?? 'BAY_RECONCILIATION_BLOCKED', message: error?.message ?? 'Scene bay reconciliation failed.', issues: error?.issues });
+    return response.status(error?.status ?? 422).json({ success: false, code: error?.code ?? 'BAY_RECONCILIATION_BLOCKED', message: error?.message ?? 'Scene bay reconciliation failed.', issues: Array.isArray(error?.issues) ? error.issues : [{ message: error?.message ?? 'Review the wall composition before approval.' }] });
   }
   const sourceModuleIds = scene.modules.map((module: any) => module.id);
   const sourceModules = await client.from('module_instances').select('id,updated_at').eq('project_id', projectId).in('id', sourceModuleIds);
   if (sourceModules.error) return response.status(500).json({ success: false, code: 'SCENE_MODULE_READ_FAILED', message: 'Unable to verify current module revisions.' });
-  if (!sceneVersion.data.created_at || sourceModules.data?.length !== sourceModuleIds.length || sourceModules.data.some((module) => !module.updated_at || Date.parse(module.updated_at) > Date.parse(sceneVersion.data!.created_at))) {
-    return response.status(409).json({ success: false, code: 'SCENE_MODULE_VERSION_STALE', message: 'Modules changed after this scene was compiled. Compile a new scene before approval.' });
+  if (!moduleRevisionsMatch(sourceModuleIds, sourceModules.data ?? [], scene.sourceModuleRevisions, sceneVersion.data.created_at)) {
+    return response.status(409).json({ success: false, code: 'SCENE_MODULE_VERSION_STALE', message: 'Modules changed after this scene was compiled. Compile a new scene before approval.', issues: [{ message: 'Modules changed after this scene was compiled. Compile a new scene before approval.' }] });
   }
   const approved = await client.from('scene_versions').update({
     status: 'approved',

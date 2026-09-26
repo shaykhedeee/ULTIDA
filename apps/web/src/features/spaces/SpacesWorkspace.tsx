@@ -2826,7 +2826,7 @@ export function SpacesWorkspace() {
                 onClick={() => setScopeFilterView('active')}
                 title="Show only rooms included in project scope"
               >
-                Active Scope ({includedMetrics.length})
+                Rooms to design ({includedMetrics.length})
               </button>
               <button
                 type="button"
@@ -2834,7 +2834,7 @@ export function SpacesWorkspace() {
                 onClick={() => setScopeFilterView('all')}
                 title="Show all rooms detected on floor plan"
               >
-                All Rooms ({rooms.length})
+                Choose rooms ({rooms.length})
               </button>
             </div>
 
@@ -2862,12 +2862,12 @@ export function SpacesWorkspace() {
             <div className="room-cards">
               {filteredRoomMetrics.length === 0 ? (
                 <div className="room-list-empty-state">
-                  <p>No rooms match &ldquo;{roomSearchQuery}&rdquo;</p>
-                  <button type="button" className="btn-secondary btn-xs" onClick={() => setRoomSearchQuery('')}>Clear filter</button>
+                  <p>{roomSearchQuery ? `No rooms match “${roomSearchQuery}”` : 'Choose the rooms you want to design. You can leave the others out.'}</p>
+                  <button type="button" className="btn-secondary btn-xs" onClick={() => { setRoomSearchQuery(''); setScopeFilterView('all'); }}>Choose rooms</button>
                 </div>
               ) : (
                 filteredRoomMetrics.map(({ room, widthMm, depthMm, effectiveAreaSqm, usable, readiness, vastu, scaleReview }) => (
-                <div key={room.id} className={`room-card ${selectedRoom === room.id ? 'sel' : ''}`} onClick={() => { setSelectedRoom(room.id); setAiProposals([]); }}>
+                <div key={room.id} className={`room-card ${selectedRoom === room.id ? 'sel' : ''}`} onClick={() => { setSelectedRoom(room.id); setCanvasFocus('room'); setAiProposals([]); }}>
                   <div className="rc-head">
                     <input
                       type="text"
@@ -2910,6 +2910,7 @@ export function SpacesWorkspace() {
                       </select>
                     </div>
                   </div>
+                  {selectedRoom === room.id && <>
                   <div className="rc-dims">
                     <strong className="rc-dims-value">{Math.round(widthMm)} × {Math.round(depthMm)} mm</strong>
                     <span className="rc-dims-meta"> ({mmToFeetInches(widthMm)} × {mmToFeetInches(depthMm)}) • {(effectiveAreaSqm ?? room.areaSqm).toFixed(1)} m²</span>
@@ -2994,6 +2995,7 @@ export function SpacesWorkspace() {
                       </button>
                     </div>
                   )}
+                  </>}
                 </div>
               )))}
             </div>
