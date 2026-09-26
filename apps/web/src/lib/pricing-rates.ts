@@ -232,3 +232,124 @@ export function estimateWardrobeUnitCost(
     grandTotal,
   };
 }
+
+export interface CutlistCostRollupInput {
+  sheetCount: number;
+  sheetWidthMm?: number;
+  sheetHeightMm?: number;
+  carcassSheetRatio?: number;
+  edgeBandingLinearMeters: number;
+  hardwareItems?: Array<{ name: string; category?: string; quantity: number }>;
+  carcassMaterialKey?: keyof PricingRateCard['carcassMaterials'];
+  shutterFinishKey?: keyof PricingRateCard['shutterFinishes'];
+  rates?: PricingRateCard;
+}
+
+export interface CutlistCostRollupResult {
+  sheetCount: number;
+  totalSqft: number;
+  carcassSheetCount: number;
+  shutterSheetCount: number;
+  carcassBoardCost: number;
+  shutterFinishCost: number;
+  boardCostSubtotal: number;
+  edgeBandingCost: number;
+  hardwareBOMCost: number;
+  factoryLaborCost: number;
+  assemblyLaborCost: number;
+  laborSubtotal: number;
+  manufacturingSubtotal: number;
+  studioMarkup: number;
+  taxableTotal: number;
+  cgst: number;
+  sgst: number;
+  totalGst: number;
+  estimatedGrandTotal: number;
+  costPerSqft: number;
+}
+
+export function calculateCutlistCostRollup(input: CutlistCostRollupInput): CutlistCostRollupResult {
+  const rates = input.rates ?? getPricingRates();
+  const sheetWidth = input.sheetWidthMm ?? 2440;
+  const sheetHeight = input.sheetHeightMm ?? 1220;
+  const sqftPerSheet = mmToSqft(sheetWidth, sheetHeight);
+  const totalSheets = Math.max(1, input.sheetCount || 1);
+  const totalSqft = Math.round(totalSheets * sqftPerSheet * 10) / 10;
+
+  const carcassRatio = typeof input.carcassSheetRatio === 'number' ? input.carcassSheetRatio : 0.65;
+  const carcassSheets = Math.max(1, Math.round(totalSheets * carcassRatio));
+  const shutterSheets = Math.max(0, totalSheets - carcassSheets);
+
+  const carcassSqft = carcassSheets * sqftPerSheet;
+  const shutterSqft = shutterSheets * sqftPerSheet;
+
+  const carcassRate = rates.carcassMaterials[input.carcassMaterialKey ?? 'hdhmr'] ?? 95;
+  const shutterRate = rates.shutterFinishes[input.shutterFinishKey ?? 'matteLaminate'] ?? 85;
+
+  const carcassBoardCost = Math.round(carcassSqft * carcassRate);
+  const shutterFinishCost = Math.round(shutterSqft * shutterRate);
+  const boardCostSubtotal = carcassBoardCost + shutterFinishCost;
+
+  const edgeBandingMeters = Math.max(0, input.edgeBandingLinearMeters || 0);
+  const edgeBandingCost = Math.round(edgeBandingMeters * 35);
+
+  let hardwareBOMCost = 0;
+  if (Array.isArray(input.hardwareItems) && input.hardwareItems.length > 0) {
+    for (const item of input.hardwareItems) {
+      const q = item.quantity || 1;
+      const lower = item.name.toLowerCase();
+      if (/hinge/i.test(lower)) {
+        hardwareBOMCost += (q / 2) * rates.hardware.softCloseHingePair;
+      } else if (/tandem|drawer|runner|slide/i.test(lower)) {
+        hardwareBOMCost += q * rates.hardware.tandemboxSlideSet;
+      } else if (/handle/i.test(lower)) {
+        hardwareBOMCost += q * rates.hardware.architecturalHandle;
+      } else if (/leg|leveler/i.test(lower)) {
+        hardwareBOMCost += q * rates.hardware.plinthLevelerLeg;
+      } else if (/cam|minifix|fastener/i.test(lower)) {
+        hardwareBOMCost += q * rates.hardware.minifixCamPinSet;
+      } else {
+        hardwareBOMCost += q * 150;
+      }
+    }
+  } else {
+    hardwareBOMCost = totalSheets * (rates.hardware.softCloseHingePair * 2 + rates.hardware.minifixCamPinSet * 8);
+  }
+  hardwareBOMCost = Math.round(hardwareBOMCost);
+
+  const factoryLaborCost = Math.round(totalSqft * rates.labor.millworkFabricationPerSqft);
+  const assemblyLaborCost = Math.round(totalSqft * rates.labor.onsiteAssemblyPerSqft);
+  const laborSubtotal = factoryLaborCost + assemblyLaborCost;
+
+  const manufacturingSubtotal = boardCostSubtotal + edgeBandingCost + hardwareBOMCost + laborSubtotal;
+  const studioMarkup = Math.round((manufacturingSubtotal * rates.commercial.studioMarkupPercent) / 100);
+  const taxableTotal = manufacturingSubtotal + studioMarkup;
+  const totalGst = Math.round((taxableTotal * rates.commercial.gstRatePercent) / 100);
+  const cgst = Math.round(totalGst / 2);
+  const sgst = totalGst - cgst;
+  const estimatedGrandTotal = taxableTotal + totalGst;
+  const costPerSqft = totalSqft > 0 ? Math.round(estimatedGrandTotal / totalSqft) : 0;
+
+  return {
+    sheetCount: totalSheets,
+    totalSqft,
+    carcassSheetCount: carcassSheets,
+    shutterSheetCount: shutterSheets,
+    carcassBoardCost,
+    shutterFinishCost,
+    boardCostSubtotal,
+    edgeBandingCost,
+    hardwareBOMCost,
+    factoryLaborCost,
+    assemblyLaborCost,
+    laborSubtotal,
+    manufacturingSubtotal,
+    studioMarkup,
+    taxableTotal,
+    cgst,
+    sgst,
+    totalGst,
+    estimatedGrandTotal,
+    costPerSqft,
+  };
+}

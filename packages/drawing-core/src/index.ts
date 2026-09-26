@@ -193,6 +193,17 @@ function dxfLine(x1: number, y1: number, x2: number, y2: number, layer: string) 
   ];
 }
 
+function dxfCircle(x: number, y: number, radius: number, layer: string) {
+  return [
+    '0', 'CIRCLE',
+    '8', layer,
+    '10', String(x),
+    '20', String(y),
+    '30', '0',
+    '40', String(radius)
+  ];
+}
+
 function dxfText(value: string, x: number, y: number, height: number, layer: string) {
   return ['0', 'TEXT', '8', layer, '10', String(x), '20', String(y), '30', '0', '40', String(height), '1', value.replace(/[^\x20-\x7E]/g, '?'), '7', 'STANDARD'];
 }
@@ -868,6 +879,26 @@ export type ProductionPartInstanceV1 = CutlistPart & {
   semanticType: string;
 };
 
+export type ExcludedProductionModule = {
+  moduleId: string;
+  family: string;
+  moduleName?: string;
+  reason: string;
+};
+
+export const FABRICATION_CERTIFIED_FAMILIES = new Set([
+  'kitchen-base', 'kitchen-wall', 'kitchen-tall', 'kitchen-corner',
+  'wardrobe', 'vanity', 'tv-unit', 'tv_unit', 'crockery', 'crockery-unit',
+  'study', 'utility', 'pooja', 'puja', 'storage', 'bar', 'feature-wall',
+  'panel', 'modular-cabinet', 'module-part', 'cabinet'
+]);
+
+export const UNCERTIFIED_MODULE_FAMILIES = new Set([
+  'sofa', 'dining', 'lighting', 'freestanding-lighting', 'rug',
+  'loose-furniture', 'bed', 'loose', 'decor', 'accent-chair',
+  'coffee-table', 'table', 'chair', 'mirror', 'curtain'
+]);
+
 export type ProductionSnapshotV1 = {
   schema: 'production.snapshot.v1';
   projectId: string;
@@ -877,6 +908,7 @@ export type ProductionSnapshotV1 = {
   parts: ProductionPartInstanceV1[];
   hardware: HardwareItem[];
   warnings: string[];
+  excludedModules?: ExcludedProductionModule[];
 };
 
 const SHEET_SEMANTICS = new Set(['carcass', 'shutter', 'shelf', 'filler', 'back', 'back_panel', 'panel', 'glass']);
@@ -898,11 +930,48 @@ function edgePolicy(semanticType: string, lengthMm: number, widthMm: number, rul
 export function buildProductionSnapshot(scene: SceneV1, rules: FabricationRulesV1 = DEFAULT_FABRICATION_RULES_V1): ProductionSnapshotV1 {
   if (!['approved', 'locked'].includes(scene.metadata.status)) throw new Error('SCENE_NOT_PRODUCTION_READY');
   if (!scene.moduleParts?.length) throw new Error('AUTHORITATIVE_MODULE_PARTS_REQUIRED');
+
   const moduleFamily = new Map<string, string>((scene.modules ?? []).map((module: SceneModuleV1) => [module.id, module.family]));
+  const excludedModules: ExcludedProductionModule[] = [];
+  const excludedModuleIds = new Set<string>();
+
+  for (const module of scene.modules ?? []) {
+    const rawMod = module as any;
+    const fam = String(module.family || '').toLowerCase();
+    const isExplicitlySupported = rawMod?.production?.cutlistSupported === true || rawMod?.cutlistSupported === true;
+    const isExplicitlyUnsupported = rawMod?.production?.cutlistSupported === false || rawMod?.cutlistSupported === false;
+    const isCertifiedFamily = FABRICATION_CERTIFIED_FAMILIES.has(fam);
+    const isUncertifiedFamily = UNCERTIFIED_MODULE_FAMILIES.has(fam);
+
+    if (isExplicitlyUnsupported || (!isExplicitlySupported && (isUncertifiedFamily || !isCertifiedFamily))) {
+      excludedModuleIds.add(module.id);
+      excludedModules.push({
+        moduleId: module.id,
+        family: module.family,
+        moduleName: rawMod.name ?? module.id,
+        reason: isExplicitlyUnsupported
+          ? `Module '${module.id}' catalog definition declares cutlistSupported: false.`
+          : `Module family '${module.family}' is uncertified for panel cutlist generation (loose/accent furniture). Withheld from nesting.`,
+      });
+    }
+  }
+
   const warnings: string[] = [];
+  for (const excl of excludedModules) {
+    warnings.push(`Module '${excl.moduleId}' (${excl.family}) is uncertified for cutlist fabrication and was withheld from sheet nesting.`);
+  }
+
   const hardware: HardwareItem[] = [];
   const parts: ProductionPartInstanceV1[] = [];
   for (const part of scene.moduleParts) {
+    if (excludedModuleIds.has(part.moduleId)) {
+      continue;
+    }
+    const partFam = (moduleFamily.get(part.moduleId) ?? '').toLowerCase();
+    if (UNCERTIFIED_MODULE_FAMILIES.has(partFam)) {
+      continue;
+    }
+
     const semanticType = String(part.semanticType || 'component');
     if (semanticType === 'hardware') {
       hardware.push({ name: part.name, category: /hinge/i.test(part.name) ? 'hinge' : /slide|runner/i.test(part.name) ? 'slide' : /handle/i.test(part.name) ? 'handle' : 'accessory', quantity: 1, unit: 'each' });
@@ -929,7 +998,7 @@ export function buildProductionSnapshot(scene: SceneV1, rules: FabricationRulesV
     });
   }
   if (!parts.length) throw new Error('NO_SHEET_PARTS_AVAILABLE');
-  return { schema: 'production.snapshot.v1', projectId: scene.projectId, sceneVersion: scene.metadata.designVersion, fabricationRules: rules, status: 'review_required', parts, hardware, warnings };
+  return { schema: 'production.snapshot.v1', projectId: scene.projectId, sceneVersion: scene.metadata.designVersion, fabricationRules: rules, status: 'review_required', parts, hardware, warnings, excludedModules };
 }
 
 export type HardwareItem = {
@@ -978,14 +1047,50 @@ export type NestingResult = {
   totalAreaSqm8mm: number;
 };
 
-// Deterministic 2D MaxRects Bin Packing Engine with 3mm Saw Kerf
+export type NestingOptions = {
+  sheetWidthMm?: number;
+  sheetHeightMm?: number;
+  kerfMm?: number;
+  trimMm?: number;
+  respectGrain?: boolean;
+};
+
+// Deterministic 2D MaxRects Bin Packing Engine with 3mm Saw Kerf & Grain Awareness
 export function nestPanels2D(
   parts: CutlistPart[],
-  sheetWidthMm = 2440,
+  sheetWidthMm: number | NestingOptions = 2440,
   sheetHeightMm = 1220,
   kerfMm = 3,
   trimMm = 10,
-): { sheets: NestingSheet[]; updatedParts: CutlistPart[] } {
+  respectGrain = true,
+): {
+  sheets: NestingSheet[];
+  updatedParts: CutlistPart[];
+  totalSheets: number;
+  totalAreaSqm: number;
+  usedAreaSqm: number;
+  overallUtilizationPercentage: number;
+} {
+  let sWidth = 2440;
+  let sHeight = 1220;
+  let sKerf = 3;
+  let sTrim = 10;
+  let sRespectGrain = true;
+
+  if (typeof sheetWidthMm === 'object' && sheetWidthMm !== null) {
+    sWidth = sheetWidthMm.sheetWidthMm ?? 2440;
+    sHeight = sheetWidthMm.sheetHeightMm ?? 1220;
+    sKerf = sheetWidthMm.kerfMm ?? 3;
+    sTrim = sheetWidthMm.trimMm ?? 10;
+    sRespectGrain = sheetWidthMm.respectGrain ?? true;
+  } else {
+    sWidth = typeof sheetWidthMm === 'number' ? sheetWidthMm : 2440;
+    sHeight = sheetHeightMm;
+    sKerf = kerfMm;
+    sTrim = trimMm;
+    sRespectGrain = respectGrain;
+  }
+
   const updatedParts = parts.map((p) => ({ ...p }));
   const sheets: NestingSheet[] = [];
 
@@ -1013,7 +1118,7 @@ export function nestPanels2D(
     while (unplaced.length > 0) {
       sheetCount++;
       const sheetId = `sheet-${materialCode}-${thicknessMm}mm-#${sheetCount}`;
-      const freeRects = [{ x: trimMm, y: trimMm, w: sheetWidthMm - trimMm * 2, h: sheetHeightMm - trimMm * 2 }];
+      const freeRects = [{ x: sTrim, y: sTrim, w: sWidth - sTrim * 2, h: sHeight - sTrim * 2 }];
       const placedPanels: PlacedPanel[] = [];
       let usedAreaSqMm = 0;
 
@@ -1023,11 +1128,13 @@ export function nestPanels2D(
         let bestRotated = false;
         let bestShortSideFit = Infinity;
 
-        const partW = part.widthMm + kerfMm;
-        const partL = part.lengthMm + kerfMm;
+        const partW = part.widthMm + sKerf;
+        const partL = part.lengthMm + sKerf;
 
         // Try normal and rotated (unless restricted by grain)
-        const allowRotate = part.grainDirection !== 'vertical' && part.grainDirection !== 'horizontal';
+        const allowRotate = sRespectGrain
+          ? (part.grainDirection !== 'vertical' && part.grainDirection !== 'horizontal')
+          : true;
 
         for (let r = 0; r < freeRects.length; r++) {
           const free = freeRects[r];
@@ -1057,8 +1164,8 @@ export function nestPanels2D(
           const target = freeRects[bestRectIdx];
           const actualW = bestRotated ? part.widthMm : part.lengthMm;
           const actualH = bestRotated ? part.lengthMm : part.widthMm;
-          const kerfW = actualW + kerfMm;
-          const kerfH = actualH + kerfMm;
+          const kerfW = actualW + sKerf;
+          const kerfH = actualH + sKerf;
 
           const placement: PlacedPanel = {
             partId: part.id,
@@ -1091,15 +1198,15 @@ export function nestPanels2D(
         }
       }
 
-      const totalSheetArea = sheetWidthMm * sheetHeightMm;
+      const totalSheetArea = sWidth * sHeight;
       const utilization = Math.min(100, Math.round((usedAreaSqMm / totalSheetArea) * 1000) / 10);
 
       sheets.push({
         sheetId,
         materialCode,
         thicknessMm,
-        sheetWidthMm,
-        sheetHeightMm,
+        sheetWidthMm: sWidth,
+        sheetHeightMm: sHeight,
         placedPanels,
         usedAreaSqm: Math.round((usedAreaSqMm / 1_000_000) * 100) / 100,
         utilizationPercentage: utilization,
@@ -1111,7 +1218,258 @@ export function nestPanels2D(
     }
   }
 
-  return { sheets, updatedParts };
+  const totalSheets = sheets.length;
+  const totalSheetAreaSqm = Math.round(sheets.reduce((acc, s) => acc + (s.sheetWidthMm * s.sheetHeightMm) / 1_000_000, 0) * 100) / 100;
+  const totalUsedAreaSqm = Math.round(sheets.reduce((acc, s) => acc + s.usedAreaSqm, 0) * 100) / 100;
+  const overallUtilizationPercentage = totalSheetAreaSqm > 0
+    ? Math.min(100, Math.round((totalUsedAreaSqm / totalSheetAreaSqm) * 1000) / 10)
+    : 0;
+
+  return {
+    sheets,
+    updatedParts,
+    totalSheets,
+    totalAreaSqm: totalSheetAreaSqm,
+    usedAreaSqm: totalUsedAreaSqm,
+    overallUtilizationPercentage,
+  };
+}
+
+export type SheetSizeCandidate = {
+  name: string;
+  widthMm: number;
+  heightMm: number;
+  areaSqM: number;
+  areaSqFt: number;
+};
+
+export const STANDARD_SHEET_SIZES: SheetSizeCandidate[] = [
+  { name: '8x4 (Standard 2440x1220)', widthMm: 2440, heightMm: 1220, areaSqM: 2.9768, areaSqFt: 32 },
+  { name: '9x4 (Tall/Loft 2745x1220)', widthMm: 2745, heightMm: 1220, areaSqM: 3.3489, areaSqFt: 36 },
+  { name: '7x4 (Compact 2135x1220)', widthMm: 2135, heightMm: 1220, areaSqM: 2.6047, areaSqFt: 28 },
+];
+
+export type CandidateOptimizationResult = {
+  sheetSize: SheetSizeCandidate;
+  totalSheets: number;
+  usedAreaSqm: number;
+  totalSheetAreaSqm: number;
+  wasteAreaSqm: number;
+  wastePercentage: number;
+  utilizationPercentage: number;
+  nestingResult: ReturnType<typeof nestPanels2D> | null;
+  feasible: boolean;
+  error?: string;
+};
+
+export type MultiSheetOptimizationResult = {
+  bestSize: SheetSizeCandidate;
+  candidates: CandidateOptimizationResult[];
+};
+
+export function optimizeMultiSheetNesting(
+  parts: CutlistPart[],
+  candidateSizes: SheetSizeCandidate[] = STANDARD_SHEET_SIZES,
+  options?: { kerfMm?: number; trimMm?: number; respectGrain?: boolean },
+): MultiSheetOptimizationResult {
+  const kerf = options?.kerfMm ?? 3;
+  const trim = options?.trimMm ?? 10;
+  const respectGrain = options?.respectGrain ?? true;
+
+  const results: CandidateOptimizationResult[] = [];
+
+  for (const candidate of candidateSizes) {
+    try {
+      const nested = nestPanels2D(parts, candidate.widthMm, candidate.heightMm, kerf, trim, respectGrain);
+      const totalSheets = nested.sheets.length;
+      const totalArea = Math.round(totalSheets * candidate.areaSqM * 100) / 100;
+      const usedArea = nested.usedAreaSqm;
+      const wasteArea = Math.max(0, Math.round((totalArea - usedArea) * 100) / 100);
+      const wastePct = totalArea > 0 ? Math.round((wasteArea / totalArea) * 1000) / 10 : 0;
+      const utilPct = totalArea > 0 ? Math.round((usedArea / totalArea) * 1000) / 10 : 0;
+
+      results.push({
+        sheetSize: candidate,
+        totalSheets,
+        usedAreaSqm: usedArea,
+        totalSheetAreaSqm: totalArea,
+        wasteAreaSqm: wasteArea,
+        wastePercentage: wastePct,
+        utilizationPercentage: utilPct,
+        nestingResult: nested,
+        feasible: true,
+      });
+    } catch (err: any) {
+      results.push({
+        sheetSize: candidate,
+        totalSheets: 0,
+        usedAreaSqm: 0,
+        totalSheetAreaSqm: 0,
+        wasteAreaSqm: 0,
+        wastePercentage: 100,
+        utilizationPercentage: 0,
+        nestingResult: null,
+        feasible: false,
+        error: err?.message ?? 'Nesting infeasible for sheet size',
+      });
+    }
+  }
+
+  const feasible = results.filter((r) => r.feasible);
+  if (!feasible.length) {
+    return {
+      bestSize: candidateSizes[0],
+      candidates: results,
+    };
+  }
+
+  // Pick best size: minimum total sheets, then lowest waste percentage
+  feasible.sort((a, b) => {
+    if (a.totalSheets !== b.totalSheets) return a.totalSheets - b.totalSheets;
+    return a.wastePercentage - b.wastePercentage;
+  });
+
+  return {
+    bestSize: feasible[0].sheetSize,
+    candidates: results,
+  };
+}
+
+export type CncPanelSpec = {
+  id?: string;
+  name?: string;
+  widthMm: number;
+  lengthMm: number;
+  thicknessMm: number;
+  panelType: 'gable_left' | 'gable_right' | 'shutter' | 'top_bottom_deck' | 'shelf' | 'back' | string;
+  operations?: {
+    lineBoring?: boolean;
+    hingeBoring?: boolean;
+    minifix?: boolean;
+    backGroove?: boolean;
+  };
+};
+
+export function generateCncPanelDxf(panel: CncPanelSpec): string {
+  const entities: string[] = [];
+  const pWidth = panel.widthMm;
+  const pLength = panel.lengthMm;
+  const pThickness = panel.thicknessMm;
+  const panelType = panel.panelType.toLowerCase();
+
+  const enableLineBoring = panel.operations?.lineBoring ?? (panelType === 'gable_left' || panelType === 'gable_right');
+  const enableHingeBoring = panel.operations?.hingeBoring ?? (panelType.includes('shutter') || panelType === 'gable_left' || panelType === 'gable_right');
+  const enableMinifix = panel.operations?.minifix ?? (panelType === 'gable_left' || panelType === 'gable_right' || panelType === 'top_bottom_deck');
+  const enableBackGroove = panel.operations?.backGroove ?? (panelType === 'gable_left' || panelType === 'gable_right' || panelType === 'top_bottom_deck');
+
+  // 1. Outer perimeter cut (A-OUTLINE-CUT)
+  entities.push(...dxfLine(0, 0, pWidth, 0, 'A-OUTLINE-CUT'));
+  entities.push(...dxfLine(pWidth, 0, pWidth, pLength, 'A-OUTLINE-CUT'));
+  entities.push(...dxfLine(pWidth, pLength, 0, pLength, 'A-OUTLINE-CUT'));
+  entities.push(...dxfLine(0, pLength, 0, 0, 'A-OUTLINE-CUT'));
+
+  // 2. System 32 Line Boring (A-DRILL-BORING) - 5mm holes at 37mm setback, 32mm pitch
+  if (enableLineBoring && (panelType === 'gable_left' || panelType === 'gable_right')) {
+    const startY = 150;
+    const endY = pLength - 150;
+    const frontX = panelType === 'gable_left' ? 37 : pWidth - 37;
+    const rearX = panelType === 'gable_left' ? pWidth - 37 : 37;
+    for (let y = startY; y <= endY; y += 32) {
+      entities.push(...dxfCircle(frontX, y, 2.5, 'A-DRILL-BORING'));
+      entities.push(...dxfCircle(rearX, y, 2.5, 'A-DRILL-BORING'));
+    }
+  }
+
+  // 3. Concealed Hinge Boring (A-DRILL-HINGE)
+  if (enableHingeBoring) {
+    if (panelType.includes('shutter')) {
+      // 35mm hinge cup holes at 21.5mm edge setback + 8mm mounting holes
+      const hingeCount = pLength > 2100 ? 5 : pLength > 1600 ? 4 : pLength > 1000 ? 3 : 2;
+      const positions: number[] = [100, pLength - 100];
+      if (hingeCount >= 3) positions.push(Math.round(pLength / 2));
+      if (hingeCount >= 4) positions.push(250);
+      if (hingeCount >= 5) positions.push(pLength - 250);
+
+      for (const y of positions.sort((a, b) => a - b)) {
+        entities.push(...dxfCircle(21.5, y, 17.5, 'A-DRILL-HINGE'));
+        entities.push(...dxfCircle(31, y - 22.5, 4, 'A-DRILL-HINGE'));
+        entities.push(...dxfCircle(31, y + 22.5, 4, 'A-DRILL-HINGE'));
+      }
+    } else if (panelType === 'gable_left' || panelType === 'gable_right') {
+      // Carcass mounting plate 5mm holes at 37mm setback, 32mm vertical spacing
+      const hingeCount = pLength > 2100 ? 5 : pLength > 1600 ? 4 : pLength > 1000 ? 3 : 2;
+      const positions: number[] = [100, pLength - 100];
+      if (hingeCount >= 3) positions.push(Math.round(pLength / 2));
+      if (hingeCount >= 4) positions.push(250);
+      if (hingeCount >= 5) positions.push(pLength - 250);
+
+      const hingeX = panelType === 'gable_left' ? 37 : pWidth - 37;
+      for (const y of positions.sort((a, b) => a - b)) {
+        entities.push(...dxfCircle(hingeX, y - 16, 2.5, 'A-DRILL-HINGE'));
+        entities.push(...dxfCircle(hingeX, y + 16, 2.5, 'A-DRILL-HINGE'));
+      }
+    }
+  }
+
+  // 4. Minifix Cam & Dowels (A-DRILL-MINIFIX)
+  if (enableMinifix) {
+    if (panelType === 'gable_left' || panelType === 'gable_right') {
+      const levels = [pThickness / 2, pLength - pThickness / 2];
+      const xPos = [50, pWidth - 80];
+      for (const y of levels) {
+        for (const x of xPos) {
+          entities.push(...dxfCircle(x, y, 2.5, 'A-DRILL-MINIFIX'));
+          entities.push(...dxfCircle(x + 32, y, 4, 'A-DRILL-MINIFIX'));
+        }
+      }
+    } else if (panelType === 'top_bottom_deck') {
+      const camY = [34, pLength - 34];
+      const camX = [50, pWidth - 80];
+      for (const y of camY) {
+        for (const x of camX) {
+          entities.push(...dxfCircle(x, y, 7.5, 'A-DRILL-MINIFIX'));
+        }
+      }
+    }
+  }
+
+  // 5. Back Panel Groove (A-GROOVE-BACK)
+  if (enableBackGroove && (panelType === 'gable_left' || panelType === 'gable_right' || panelType === 'top_bottom_deck')) {
+    const grooveX = panelType === 'gable_left' ? pWidth - 15 : 15;
+    entities.push(...dxfLine(grooveX, 0, grooveX, pLength, 'A-GROOVE-BACK'));
+  }
+
+  // Annotations
+  const panelName = panel.name ?? panel.id ?? 'CNC PANEL';
+  entities.push(...dxfText(`ULTIDA CNC | ${panelName.toUpperCase()} | ${Math.round(pWidth)}x${Math.round(pLength)}x${pThickness}mm`, 0, pLength + 80, 25, 'A-ANNO'));
+  entities.push(...dxfText('UNITS: MM | SYSTEM 32 DRILL BORING | A-DRILL-BORING (5mm) | A-DRILL-HINGE (35mm/5mm)', 0, pLength + 40, 18, 'A-ANNO'));
+
+  return [
+    '0', 'SECTION',
+    '2', 'HEADER',
+    '9', '$INSUNITS', '70', '4',
+    '9', '$EXTMIN', '10', '0', '20', '0', '30', '0',
+    '9', '$EXTMAX', '10', String(pWidth), '20', String(pLength + 120), '30', '0',
+    '0', 'ENDSEC',
+    '0', 'SECTION',
+    '2', 'TABLES',
+    '0', 'TABLE', '2', 'LAYER', '70', '6',
+    ...dxfLayer('0', 7),
+    ...dxfLayer('A-OUTLINE-CUT', 7),
+    ...dxfLayer('A-DRILL-BORING', 4),
+    ...dxfLayer('A-DRILL-HINGE', 1),
+    ...dxfLayer('A-DRILL-MINIFIX', 3),
+    ...dxfLayer('A-GROOVE-BACK', 2),
+    ...dxfLayer('A-ANNO', 8),
+    '0', 'ENDTAB',
+    '0', 'ENDSEC',
+    '0', 'SECTION',
+    '2', 'ENTITIES',
+    ...entities,
+    '0', 'ENDSEC',
+    '0', 'EOF',
+    ''
+  ].join('\r\n');
 }
 
 export function calculateEdgeBandingSummary(parts: CutlistPart[]): EdgeBandingSummary[] {

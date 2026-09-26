@@ -90,3 +90,26 @@ test('Pricing Calculations: accurately computes wardrobe unit estimates with tax
   assert.equal(estimate.markup, Math.round((estimate.subtotal * 15) / 100));
   assert.equal(estimate.grandTotal, estimate.subtotal + estimate.markup + estimate.cgst + estimate.sgst);
 });
+
+test('Pricing Calculations: accurately computes live cutlist cost rollup from sheet count, edge-banding, and hardware BOM', async () => {
+  const { calculateCutlistCostRollup } = await import('../src/lib/pricing-rates.ts');
+  const rollup = calculateCutlistCostRollup({
+    sheetCount: 5,
+    edgeBandingLinearMeters: 45.5,
+    hardwareItems: [
+      { name: 'Soft-Close Hinge', category: 'hinge', quantity: 8 },
+      { name: 'Tandembox Drawer Runner Set', category: 'slide', quantity: 2 },
+    ],
+  });
+
+  assert.equal(rollup.sheetCount, 5);
+  assert.ok(rollup.totalSqft > 0, 'Total sq.ft must be positive');
+  assert.ok(rollup.carcassBoardCost > 0, 'Carcass board cost must be calculated');
+  assert.ok(rollup.edgeBandingCost > 0, 'Edge banding cost must be calculated');
+  assert.ok(rollup.hardwareBOMCost > 0, 'Hardware BOM cost must be calculated');
+  assert.ok(rollup.laborSubtotal > 0, 'Labor subtotal must be calculated');
+  assert.equal(rollup.manufacturingSubtotal, rollup.boardCostSubtotal + rollup.edgeBandingCost + rollup.hardwareBOMCost + rollup.laborSubtotal);
+  assert.equal(rollup.taxableTotal, rollup.manufacturingSubtotal + rollup.studioMarkup);
+  assert.equal(rollup.estimatedGrandTotal, rollup.taxableTotal + rollup.totalGst);
+  assert.ok(rollup.costPerSqft > 0, 'Cost per sq.ft must be positive');
+});

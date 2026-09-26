@@ -33,7 +33,7 @@ import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { AURA_TOOLS, listAuraTools, planAuraMessage, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
-import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProductionWorkbookXlsx, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateProductionDossierPdf, generateSketchUpRubyScript, nestPanels2D, PdfWriter, type ProductionDossierSpecV1 } from '@ultida/drawing-core';
+import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProductionWorkbookXlsx, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateProductionDossierPdf, generateSketchUpRubyScript, nestPanels2D, optimizeMultiSheetNesting, generateCncPanelDxf, PdfWriter, type ProductionDossierSpecV1 } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
 import { compileSceneV1, reconcileBays, reconcileSceneBays, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
@@ -115,14 +115,36 @@ function dxfLine(x1: number, y1: number, x2: number, y2: number, layer: string) 
 export function buildCutlist(scene: ReturnType<typeof migrateScene>) {
   const snapshot = buildProductionSnapshot(scene);
   const nested = nestPanels2D(snapshot.parts, snapshot.fabricationRules.sheetWidthMm, snapshot.fabricationRules.sheetHeightMm, snapshot.fabricationRules.kerfMm, snapshot.fabricationRules.trimMm);
+  const multiSheetOptimization = optimizeMultiSheetNesting(snapshot.parts);
   return {
     schema: snapshot.schema,
     partCount: snapshot.parts.length,
     parts: snapshot.parts,
     hardware: snapshot.hardware,
     warnings: snapshot.warnings,
+    excludedModules: snapshot.excludedModules ?? [],
     edgeBanding: calculateEdgeBandingSummary(snapshot.parts),
     nesting: nested.sheets,
+    nestingStats: {
+      totalSheets: nested.totalSheets,
+      totalAreaSqm: nested.totalAreaSqm,
+      usedAreaSqm: nested.usedAreaSqm,
+      overallUtilizationPercentage: nested.overallUtilizationPercentage,
+    },
+    multiSheetOptimization: {
+      bestSize: multiSheetOptimization.bestSize,
+      candidates: multiSheetOptimization.candidates.map((c) => ({
+        sheetSize: c.sheetSize,
+        totalSheets: c.totalSheets,
+        usedAreaSqm: c.usedAreaSqm,
+        totalSheetAreaSqm: c.totalSheetAreaSqm,
+        wasteAreaSqm: c.wasteAreaSqm,
+        wastePercentage: c.wastePercentage,
+        utilizationPercentage: c.utilizationPercentage,
+        feasible: c.feasible,
+        error: c.error,
+      })),
+    },
     fabricationRules: snapshot.fabricationRules,
     status: snapshot.status,
   };
@@ -969,6 +991,26 @@ const handleDxfRequest = (request: express.Request, response: express.Response) 
 app.post('/api/drawings/dxf', handleDxfRequest);
 app.post('/api/drawings/wall-elevation.dxf', handleDxfRequest);
 app.post('/api/drawings/:sceneVersionId/dxf', handleDxfRequest);
+
+app.post('/api/drawings/cnc-panel.dxf', (request, response) => {
+  try {
+    const { widthMm, lengthMm, thicknessMm, panelType, operations, name } = request.body ?? {};
+    if (!Number(widthMm) || !Number(lengthMm)) {
+      return response.status(400).json({ success: false, code: 'INVALID_CNC_PANEL_REQUEST', message: 'widthMm and lengthMm are required.' });
+    }
+    const dxf = generateCncPanelDxf({
+      widthMm: Number(widthMm),
+      lengthMm: Number(lengthMm),
+      thicknessMm: Number(thicknessMm) || 18,
+      panelType: String(panelType || 'gable_left'),
+      name: typeof name === 'string' ? name : undefined,
+      operations,
+    });
+    return response.status(200).type('application/dxf').set('Content-Disposition', `attachment; filename="ultida-cnc-${panelType || 'panel'}.dxf"`).send(dxf);
+  } catch (error: any) {
+    return response.status(422).json({ success: false, code: 'CNC_DXF_FAILED', message: error?.message ?? 'CNC DXF export failed.' });
+  }
+});
 
 // A plan-review export is intentionally separate from the scene DXF above.
 // It lets designers take calibrated Initial Design geometry into CAD for

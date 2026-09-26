@@ -353,23 +353,50 @@ export function CncPatternStudio() {
 
   // ── Download System 32 Layered DXF ──
   function downloadSystem32Dxf() {
-    let body = dxfLine(0, 0, pWidth, 0, 'OUTLINE_CUT') +
-               dxfLine(pWidth, 0, pWidth, pLength, 'OUTLINE_CUT') +
-               dxfLine(pWidth, pLength, 0, pLength, 'OUTLINE_CUT') +
-               dxfLine(0, pLength, 0, 0, 'OUTLINE_CUT');
+    let body = dxfLine(0, 0, pWidth, 0, 'A-OUTLINE-CUT') +
+               dxfLine(pWidth, 0, pWidth, pLength, 'A-OUTLINE-CUT') +
+               dxfLine(pWidth, pLength, 0, pLength, 'A-OUTLINE-CUT') +
+               dxfLine(0, pLength, 0, 0, 'A-OUTLINE-CUT');
 
-    // Add drill holes
+    // Add drill holes conforming to CAD/CAM System 32 standard layers
     for (const h of cncOperations.holes) {
-      const layer = h.diameter === 35 ? 'DRILL_35MM' : h.diameter === 15 ? 'DRILL_15MM' : h.diameter === 8 ? 'DRILL_8MM' : 'DRILL_5MM';
+      const layer = (h.type === 'hinge_cup' || h.type === 'hinge_mount' || h.diameter === 35)
+        ? 'A-DRILL-HINGE'
+        : (h.type === 'shelf_pin' || h.diameter === 5 && !h.id.includes('bolt'))
+        ? 'A-DRILL-BORING'
+        : 'A-DRILL-MINIFIX';
       body += dxfCircle(h.x, h.y, h.diameter / 2, layer);
     }
 
     // Add grooves
     for (const g of cncOperations.grooves) {
-      body += dxfLine(g.x1, g.y1, g.x2, g.y2, 'GROOVE_6MM');
+      body += dxfLine(g.x1, g.y1, g.x2, g.y2, 'A-GROOVE-BACK');
     }
 
-    const dxf = `0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n${body}0\nENDSEC\n0\nEOF\n`;
+    const dxf = [
+      '0', 'SECTION',
+      '2', 'HEADER',
+      '9', '$INSUNITS', '70', '4',
+      '0', 'ENDSEC',
+      '0', 'SECTION',
+      '2', 'TABLES',
+      '0', 'TABLE', '2', 'LAYER', '70', '5',
+      '0', 'LAYER', '2', '0', '70', '0', '62', '7', '6', 'CONTINUOUS',
+      '0', 'LAYER', '2', 'A-OUTLINE-CUT', '70', '0', '62', '7', '6', 'CONTINUOUS',
+      '0', 'LAYER', '2', 'A-DRILL-BORING', '70', '0', '62', '4', '6', 'CONTINUOUS',
+      '0', 'LAYER', '2', 'A-DRILL-HINGE', '70', '0', '62', '1', '6', 'CONTINUOUS',
+      '0', 'LAYER', '2', 'A-DRILL-MINIFIX', '70', '0', '62', '3', '6', 'CONTINUOUS',
+      '0', 'LAYER', '2', 'A-GROOVE-BACK', '70', '0', '62', '2', '6', 'CONTINUOUS',
+      '0', 'ENDTAB',
+      '0', 'ENDSEC',
+      '0', 'SECTION',
+      '2', 'ENTITIES',
+      body,
+      '0', 'ENDSEC',
+      '0', 'EOF',
+      ''
+    ].join('\n');
+
     const blob = new Blob([dxf], { type: 'application/dxf' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');

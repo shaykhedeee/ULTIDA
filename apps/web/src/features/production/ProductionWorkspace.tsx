@@ -19,8 +19,15 @@ import { optimizeGuillotineNesting, type NestingPart } from '../tools/cutlist-op
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import WorkingDrawingsDossier from '../../components/drawings/WorkingDrawingsDossier';
+import { calculateCutlistCostRollup, getPricingRates } from '../../lib/pricing-rates';
 import './production-workspace.css';
 
+// ─── Standard Sheet Size Options ─────────────────────────────────────────────
+export const SHEET_SIZE_OPTIONS = [
+  { key: '8x4', label: '8×4 ft (2440×1220 mm)', widthMm: 2440, heightMm: 1220, desc: 'Standard 8x4 sheet (32 sq.ft)' },
+  { key: '9x4', label: '9×4 ft (2745×1220 mm)', widthMm: 2745, heightMm: 1220, desc: 'Tall 9x4 sheet for full-height panels & lofts (36 sq.ft)' },
+  { key: '7x4', label: '7×4 ft (2135×1220 mm)', widthMm: 2135, heightMm: 1220, desc: 'Compact 7x4 sheet for standard doors (28 sq.ft)' },
+] as const;
 
 // ─── Fabrication Certified Families ──────────────────────────────────────────
 export const FABRICATION_CERTIFIED_FAMILIES = new Set([
@@ -30,11 +37,16 @@ export const FABRICATION_CERTIFIED_FAMILIES = new Set([
   'kitchen-base',
   'kitchen-wall',
   'kitchen-tall',
+  'kitchen-corner',
   'tv-unit',
+  'tv_unit',
   'study',
   'pooja',
+  'puja',
   'utility',
   'crockery',
+  'crockery-unit',
+  'storage',
   'vanity',
 ]);
 
@@ -50,10 +62,29 @@ type Part = {
 type HardwareItem = { name: string; category: 'hinge' | 'slide' | 'fastener' | 'handle' | 'accessory'; quantity: number; unit: string };
 type NestingSheet = { sheetId: string; materialCode: string; thicknessMm: number; sheetWidthMm: number; sheetHeightMm: number; placedPanels: { partId: string; xMm: number; yMm: number; widthMm: number; lengthMm: number; rotated: boolean }[]; usedAreaSqm: number; utilizationPercentage: number };
 type ProductionCutlist = {
-  parts: Part[]; hardware: HardwareItem[]; warnings: string[]; nesting: NestingSheet[];
+  parts: Part[];
+  hardware: HardwareItem[];
+  warnings: string[];
+  excludedModules?: Array<{ moduleId: string; family: string; moduleName?: string; reason: string }>;
+  nesting: NestingSheet[];
   edgeBanding: Array<{ tapeType: string; thicknessMm: number; totalMeters: number }>;
   status: 'review_required' | 'approved';
   fabricationRules: { version: string; sheetWidthMm: number; sheetHeightMm: number; kerfMm: number; trimMm: number };
+  nestingStats?: { totalSheets: number; totalAreaSqm: number; usedAreaSqm: number; overallUtilizationPercentage: number };
+  multiSheetOptimization?: {
+    bestSize: { name: string; widthMm: number; heightMm: number; areaSqM: number; areaSqFt: number };
+    candidates: Array<{
+      sheetSize: { name: string; widthMm: number; heightMm: number; areaSqM: number; areaSqFt: number };
+      totalSheets: number;
+      usedAreaSqm: number;
+      totalSheetAreaSqm: number;
+      wasteAreaSqm: number;
+      wastePercentage: number;
+      utilizationPercentage: number;
+      feasible: boolean;
+      error?: string;
+    }>;
+  };
 };
 type CncAsset = { id: string; name: string; sourceSceneId: string; modulePartId: string; svgUrl: string; dxfUrl: string; dimensionsMm: { width: number; height: number }; material: string; layer: 'CUT' | 'ENGRAVE' | 'POCKET' | 'DRILL' | 'REFERENCE'; validationStatus: 'pending' | 'passed' | 'failed'; preflightIssues: string[] };
 
@@ -135,6 +166,12 @@ export function ProductionWorkspace({
   const [drawingSvgMode, setDrawingSvgMode] = useState<'both' | 'external' | 'internal'>('both');
   const [drawingPresetKey, setDrawingPresetKey] = useState<string>('wardrobe_4door');
   const [rawScene, setRawScene] = useState<any>(null);
+  const [selectedSheetKey, setSelectedSheetKey] = useState<'8x4' | '9x4' | '7x4'>('8x4');
+  const [showCostBreakdown, setShowCostBreakdown] = useState(false);
+
+  const activeSheetSize = useMemo(() => {
+    return SHEET_SIZE_OPTIONS.find((s) => s.key === selectedSheetKey) ?? SHEET_SIZE_OPTIONS[0];
+  }, [selectedSheetKey]);
 
   // ─── API helpers ────────────────────────────────────────────────────────────
   async function readApprovedScene() {
@@ -347,8 +384,8 @@ export function ProductionWorkspace({
       };
     });
 
-    const sheetW = 2440;
-    const sheetH = 1220;
+    const sheetW = activeSheetSize.widthMm;
+    const sheetH = activeSheetSize.heightMm;
     const result = optimizeGuillotineNesting(nestingParts, {
       sheetWidthMm: sheetW,
       sheetHeightMm: sheetH,
@@ -378,7 +415,29 @@ export function ProductionWorkspace({
       yieldPct: s.yieldPct,
       scrapPct: s.wastePct,
     }));
-  }, [scopedParts, parts, trimMm, kerfMm]);
+  }, [scopedParts, parts, trimMm, kerfMm, activeSheetSize]);
+
+  // ─── Live Cost Rollup ───────────────────────────────────────────────────────
+  const liveCostRollup = useMemo(() => {
+    const rawHw: Array<{ name: string; category: string; quantity: number }> =
+      cutlist?.hardware?.length
+        ? cutlist.hardware
+        : (drawingAnalysisResult?.hardware?.length
+          ? drawingAnalysisResult.hardware.map((h) => ({ name: h.name, category: h.category, quantity: h.quantity }))
+          : []);
+
+    return calculateCutlistCostRollup({
+      sheetCount: Math.max(1, nestedSheets.length),
+      sheetWidthMm: activeSheetSize.widthMm,
+      sheetHeightMm: activeSheetSize.heightMm,
+      edgeBandingLinearMeters: totalEdgeBandM,
+      hardwareItems: rawHw.map((h) => ({
+        name: h.name,
+        category: h.category,
+        quantity: h.quantity,
+      })),
+    });
+  }, [nestedSheets.length, activeSheetSize, totalEdgeBandM, cutlist?.hardware, drawingAnalysisResult?.hardware]);
 
   // ─── Comprehensive Edge Banding Schedule ─────────────────────────────────
   const edgeBandingSchedule = useMemo(() => {
@@ -650,8 +709,75 @@ export function ProductionWorkspace({
                 </span>
               </div>
 
+              {/* Excluded Modules Certification Alert */}
+              {((cutlist?.excludedModules && cutlist.excludedModules.length > 0) || modules.some((m) => !FABRICATION_CERTIFIED_FAMILIES.has(m.family.toLowerCase()) && ['sofa', 'dining', 'bed', 'loose', 'accent-chair', 'coffee-table', 'lighting', 'decor'].includes(m.family.toLowerCase()))) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 14px', background: '#fffbeb', borderRadius: 8, border: '1px solid #fde68a', fontSize: 12, margin: '8px 0 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#92400e', fontWeight: 600 }}>
+                      <AlertTriangle size={15} style={{ color: '#f59e0b' }} />
+                      <span>Loose &amp; Uncertified Modules Withheld from Fabrication Cutlist</span>
+                      <span style={{ background: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: 4, fontSize: 11, fontWeight: 700 }}>
+                        {cutlist?.excludedModules?.length ?? modules.filter((m) => !FABRICATION_CERTIFIED_FAMILIES.has(m.family.toLowerCase())).length} Excluded
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 11, color: '#b45309' }}>Only certified System 32 panel millwork enters manufacturing release</span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                    {(cutlist?.excludedModules ?? modules.filter((m) => !FABRICATION_CERTIFIED_FAMILIES.has(m.family.toLowerCase())).map((m) => ({ moduleId: m.id, family: m.family, moduleName: m.label, reason: `Module family '${m.family}' is uncertified for panel cutlist generation.` }))).map((m) => (
+                      <span key={m.moduleId} style={{ padding: '2px 8px', background: '#fef3c7', borderRadius: 4, color: '#78350f', fontSize: 11, border: '1px solid #fcd34d' }}>
+                        <strong>{m.moduleName ?? m.moduleId}</strong> ({m.family})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Sheet Size Optimization Selector */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', margin: '8px 0 12px', fontSize: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontWeight: 600, color: '#1e293b' }}>Sheet Size Optimization:</span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {SHEET_SIZE_OPTIONS.map((opt) => {
+                      const isSelected = selectedSheetKey === opt.key;
+                      const isBest = cutlist?.multiSheetOptimization?.bestSize?.widthMm === opt.widthMm;
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => setSelectedSheetKey(opt.key)}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: isSelected ? 700 : 500,
+                            background: isSelected ? '#1e293b' : '#ffffff',
+                            color: isSelected ? '#ffffff' : '#475569',
+                            border: isSelected ? '1px solid #1e293b' : '1px solid #cbd5e1',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                          }}
+                        >
+                          {opt.label}
+                          {isBest && (
+                            <span style={{ background: '#10b981', color: '#ffffff', fontSize: 9, padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>
+                              BEST YIELD
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <span style={{ color: '#64748b', fontSize: 11 }}>
+                  {activeSheetSize.desc}
+                </span>
+              </div>
+
               {/* Summary cards */}
-              <div className="cutlist-summary-cards">
+              <div className="cutlist-summary-cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
                 <div className="cutlist-stat-card">
                   <span className="stat-label">Total Panels</span>
                   <strong className="stat-value">{scopedParts.reduce((s, p) => s + p.quantity, 0)}</strong>
@@ -659,8 +785,8 @@ export function ProductionWorkspace({
                 </div>
                 <div className="cutlist-stat-card">
                   <span className="stat-label">Sheets Required</span>
-                  <strong className="stat-value">{sheetEstimates.reduce((s, e) => s + e.sheets, 0)}</strong>
-                  <span className="stat-sub">across {materialCount} board types</span>
+                  <strong className="stat-value">{nestedSheets.length}</strong>
+                  <span className="stat-sub">{activeSheetSize.key.toUpperCase()} sheets ({materialCount} materials)</span>
                 </div>
                 <div className="cutlist-stat-card">
                   <span className="stat-label">Materials</span>
@@ -672,7 +798,71 @@ export function ProductionWorkspace({
                   <strong className="stat-value">{totalEdgeBandM.toFixed(1)} m</strong>
                   <span className="stat-sub">{cutlist?.edgeBanding.length ?? 0} tape type(s)</span>
                 </div>
+                <div
+                  className="cutlist-stat-card"
+                  onClick={() => setShowCostBreakdown((v) => !v)}
+                  style={{ cursor: 'pointer', border: showCostBreakdown ? '1px solid #059669' : undefined, background: showCostBreakdown ? '#ecfdf5' : undefined }}
+                  title="Click to view full real-time cost breakdown"
+                >
+                  <span className="stat-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>Estimated Cost</span>
+                    <span style={{ fontSize: 10, color: '#059669', fontWeight: 600 }}>{showCostBreakdown ? '▲ Hide' : '▼ Details'}</span>
+                  </span>
+                  <strong className="stat-value" style={{ color: '#047857' }}>₹{liveCostRollup.estimatedGrandTotal.toLocaleString('en-IN')}</strong>
+                  <span className="stat-sub">₹{liveCostRollup.costPerSqft}/sq.ft (incl. GST &amp; labor)</span>
+                </div>
               </div>
+
+              {/* Live Cost Breakdown Drawer */}
+              {showCostBreakdown && (
+                <div style={{ background: '#ffffff', borderRadius: 8, border: '1px solid #e2e8f0', padding: '16px 20px', margin: '0 0 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b' }}>
+                        Live Production Cost Rollup (Real-Time Studio Rates)
+                      </h4>
+                      <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+                        Calculated directly from nested sheet count ({liveCostRollup.sheetCount} sheets / {liveCostRollup.totalSqft} sq.ft), edge-banding ({totalEdgeBandM.toFixed(1)}m), and hardware BOM
+                      </p>
+                    </div>
+                    <Button variant="secondary" size="sm" onClick={() => navigate(`/projects/${projectId}/commercial`)}>
+                      Commercial Studio →
+                    </Button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, fontSize: 12 }}>
+                    <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                      <div style={{ color: '#64748b', fontSize: 11 }}>Carcass Boards ({liveCostRollup.carcassSheetCount} sheets)</div>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', marginTop: 2 }}>₹{liveCostRollup.carcassBoardCost.toLocaleString('en-IN')}</div>
+                      <div style={{ fontSize: 10, color: '#94a3b8' }}>HDHMR Green Core @ ₹95/sq.ft</div>
+                    </div>
+                    <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                      <div style={{ color: '#64748b', fontSize: 11 }}>Shutter Finishes ({liveCostRollup.shutterSheetCount} sheets)</div>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', marginTop: 2 }}>₹{liveCostRollup.shutterFinishCost.toLocaleString('en-IN')}</div>
+                      <div style={{ fontSize: 10, color: '#94a3b8' }}>1mm Decorative Laminate @ ₹85/sq.ft</div>
+                    </div>
+                    <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                      <div style={{ color: '#64748b', fontSize: 11 }}>Edge Banding Tape</div>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', marginTop: 2 }}>₹{liveCostRollup.edgeBandingCost.toLocaleString('en-IN')}</div>
+                      <div style={{ fontSize: 10, color: '#94a3b8' }}>{totalEdgeBandM.toFixed(1)} meters @ ₹35/m</div>
+                    </div>
+                    <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                      <div style={{ color: '#64748b', fontSize: 11 }}>Hardware &amp; Fasteners BOM</div>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', marginTop: 2 }}>₹{liveCostRollup.hardwareBOMCost.toLocaleString('en-IN')}</div>
+                      <div style={{ fontSize: 10, color: '#94a3b8' }}>Hinges, slides, handles &amp; minifix</div>
+                    </div>
+                    <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                      <div style={{ color: '#64748b', fontSize: 11 }}>Factory &amp; Assembly Labor</div>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', marginTop: 2 }}>₹{liveCostRollup.laborSubtotal.toLocaleString('en-IN')}</div>
+                      <div style={{ fontSize: 10, color: '#94a3b8' }}>Sizing, boring &amp; site alignment</div>
+                    </div>
+                    <div style={{ padding: '10px 12px', background: '#ecfdf5', borderRadius: 6, border: '1px solid #a7f3d0' }}>
+                      <div style={{ color: '#065f46', fontSize: 11, fontWeight: 600 }}>Grand Total (incl. 18% GST)</div>
+                      <div style={{ fontWeight: 800, fontSize: 16, color: '#047857', marginTop: 2 }}>₹{liveCostRollup.estimatedGrandTotal.toLocaleString('en-IN')}</div>
+                      <div style={{ fontSize: 10, color: '#059669' }}>Markup ₹{liveCostRollup.studioMarkup.toLocaleString('en-IN')} + GST ₹{liveCostRollup.totalGst.toLocaleString('en-IN')}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Toolbar */}
               <div className="parts-toolbar">
