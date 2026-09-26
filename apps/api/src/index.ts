@@ -2472,7 +2472,12 @@ app.post('/api/projects/:projectId/scenes/:sceneVersionId/approve', requireProje
   if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
   if (sceneVersion.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: sceneVersion.error.message });
   if (!sceneVersion.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND', message: 'That scene version does not belong to this project.' });
-  if (sceneVersion.data.status !== 'draft') return response.status(409).json({ success: false, code: 'SCENE_NOT_DRAFT', message: 'Only the current draft scene revision can be approved.', issues: [{ message: 'Only the current draft scene revision can be approved.' }] });
+  if (sceneVersion.data.status !== 'draft') {
+    if (sceneVersion.data.status === 'approved') {
+      return response.json({ success: true, sceneVersion: sceneVersion.data, alreadyApproved: true });
+    }
+    return response.status(409).json({ success: false, code: 'SCENE_NOT_DRAFT', message: 'Only the current draft scene revision can be approved.', issues: [{ message: 'Only the current draft scene revision can be approved.' }] });
+  }
   if (sceneVersion.data.floor_plan_version_id !== project.data.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'SCENE_PLAN_VERSION_STALE', message: 'The plan changed after this scene was compiled. Recompile before approval.', issues: [{ message: 'The plan changed after this scene was compiled. Recompile before approval.' }] });
   const scene = sceneVersion.data.scene as { schema?: unknown; modules?: unknown[]; sourceModuleRevisions?: unknown; metadata?: Record<string, unknown> };
   if (scene?.schema !== 'scene.v1' || !Array.isArray(scene.modules) || !scene.modules.length) return response.status(422).json({ success: false, code: 'SCENE_NOT_READY', message: 'Scene approval requires scene.v1 with at least one persisted module.' });

@@ -43,11 +43,7 @@ const PRIMARY_NAV = [
 const TOOL_NAV = [
   { label: 'Design Tools', items: [
     { id: 'aura-ai', label: 'AURA Design AI', path: '/tools/aura', icon: Sparkles },
-    { id: 'cutlist-studio', label: 'Cutlist & Nesting Studio', path: '/tools/cutlist', icon: Scissors },
-    { id: 'room-builder', label: 'Room Builder', path: '/tools/room-builder', icon: Home },
-    { id: 'module-planner', label: 'Module Planner', path: '/tools/modules', icon: Box },
     { id: 'render-gallery', label: 'Render Gallery & Client Deck', path: '/renders', icon: Eye },
-    { id: 'render-studio', label: 'Render Studio', path: '/tools/render', icon: Wand2 },
     { id: 'skp-generator', label: 'SketchUp Studio', path: '/tools/skp', icon: Layers },
     { id: 'cnc-studio', label: 'CNC Patterns', path: '/tools/cnc', icon: Compass },
   ] },

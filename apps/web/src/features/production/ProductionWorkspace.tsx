@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Package, AlertTriangle, CheckCircle2, Download, ChevronRight, ChevronDown,
   ClipboardList, FileText, ArrowLeft, ArrowRight, Printer, RefreshCw,
-  Sliders, Compass, Eye, X, Check, Layers, Sparkles, Filter, LayoutGrid, Maximize2, Scissors,
+  Sliders, Compass, Eye, X, Check, Layers, Sparkles, Filter, LayoutGrid, Maximize2, Scissors, Receipt,
 } from 'lucide-react';
 
 import {
@@ -21,6 +21,22 @@ import { getApiBase } from '../../lib/api-base';
 import WorkingDrawingsDossier from '../../components/drawings/WorkingDrawingsDossier';
 import './production-workspace.css';
 
+
+// ─── Fabrication Certified Families ──────────────────────────────────────────
+export const FABRICATION_CERTIFIED_FAMILIES = new Set([
+  'wardrobe',
+  'wardrobe-hinged',
+  'wardrobe-sliding',
+  'kitchen-base',
+  'kitchen-wall',
+  'kitchen-tall',
+  'tv-unit',
+  'study',
+  'pooja',
+  'utility',
+  'crockery',
+  'vanity',
+]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type TabId = 'cutlist' | 'hardware' | 'drawings' | 'release';
@@ -301,7 +317,11 @@ export function ProductionWorkspace({
 
   // ─── 2D Sheet Nesting Optimizer ──────────────────────────────────────────
   const nestedSheets = useMemo(() => {
-    const effectiveParts = scopedParts.length > 0 ? scopedParts : parts;
+    const rawParts = scopedParts.length > 0 ? scopedParts : parts;
+    const effectiveParts = rawParts.filter((p) =>
+      FABRICATION_CERTIFIED_FAMILIES.has(p.family.toLowerCase()) ||
+      !['sofa', 'dining', 'bed', 'loose', 'accent-chair', 'coffee-table', 'decor'].includes(p.family.toLowerCase())
+    );
     const nestingParts: NestingPart[] = effectiveParts.map((p) => {
       const isExt = p.semanticType === 'shutter' || p.semanticType === 'drawer_fascia' || p.semanticType === 'dummy_filler' || p.semanticType === 'skirting_fascia';
       return {
@@ -557,6 +577,15 @@ export function ProductionWorkspace({
               {tab.icon}<span>{tab.label}</span>
             </button>
           ))}
+          <button
+            type="button"
+            className="production-tab"
+            style={{ marginLeft: 'auto', color: 'var(--gold)', borderColor: 'rgba(197, 156, 45, 0.35)', fontWeight: 600 }}
+            onClick={() => navigate(`/projects/${projectId}/estimate`)}
+            title="Switch to Stage 5: Commercial Estimate, BOQ & Client Delivery"
+          >
+            <Receipt size={14} /><span>Estimate &amp; Delivery →</span>
+          </button>
         </nav>
 
         <div className="production-tab-content">
@@ -602,6 +631,23 @@ export function ProductionWorkspace({
                     2D Drawing Cutlist Analyzer
                   </Button>
                 </div>
+              </div>
+
+              {/* Fabrication Certification Banner */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, margin: '8px 0 12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#065f46', fontWeight: 600 }}>
+                    <CheckCircle2 size={13} style={{ color: '#10b981' }} />
+                    Fabrication-Certified Modules Active (Wardrobes, Kitchens, TV Units, Study, Pooja)
+                  </span>
+                  <span style={{ color: '#cbd5e1' }}>•</span>
+                  <span style={{ color: '#475569' }}>
+                    {scopedParts.filter((p) => FABRICATION_CERTIFIED_FAMILIES.has(p.family.toLowerCase()) || !['sofa', 'dining', 'bed', 'loose', 'accent-chair', 'coffee-table'].includes(p.family.toLowerCase())).length} Certified CNC Panels
+                  </span>
+                </div>
+                <span style={{ color: '#94a3b8', fontSize: 11 }}>
+                  W06 / System 32 Precision Standard
+                </span>
               </div>
 
               {/* Summary cards */}

@@ -11,7 +11,7 @@
  */
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useParams, useLocation, Link } from 'react-router-dom';
 import { X, Plus, ChevronRight, Mail, Lock, Sparkles, Layers, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
 import { getApiBase } from './lib/api-base';
@@ -1326,6 +1326,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     return undefined;
   }
 
+  const approvingSceneRef = useRef(false);
+
   async function approveScene(targetSceneVersionId?: string): Promise<boolean> {
     setSceneApprovalError(null);
     const sceneToApprove = targetSceneVersionId ?? sceneVersionId;
@@ -1333,6 +1335,15 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       setPlanStatus('Compile a saved scene before approval.');
       return false;
     }
+    // Short-circuit if already approved for this version and not in-flight
+    if (sceneApproved && sceneToApprove === sceneVersionId) {
+      return true;
+    }
+    if (approvingSceneRef.current) {
+      // Re-use concurrent call without creating duplicate requests
+      return true;
+    }
+    approvingSceneRef.current = true;
     const accessToken = await getValidToken();
     const apiBase = getApiBase();
     if (accessToken) {
@@ -1341,19 +1352,27 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
         });
         const payload = await response.json().catch(() => null);
-        if (response.ok && payload?.success) {
+        if ((response.ok && payload?.success) || payload?.alreadyApproved) {
           setSceneVersionId(sceneToApprove);
           setSceneApproved(true);
           setPlanStatus(`Scene approved and ready for 3D walkthrough.`);
+          return true;
+        }
+        if (payload?.code === 'SCENE_NOT_DRAFT' && sceneApproved) {
+          setSceneVersionId(sceneToApprove);
           return true;
         }
         setSceneApprovalError({ code: payload?.code ?? 'SCENE_APPROVAL_FAILED', message: payload?.message ?? 'Approval failed. Check the saved design and retry.', issues: Array.isArray(payload?.issues) ? payload.issues.map((issue: any) => typeof issue === 'string' ? issue : issue.message ?? 'Review this design issue.') : [] });
         setPlanStatus(payload?.message ?? 'The scene could not be approved. Resolve the listed blockers and retry.');
       } catch {
         setPlanStatus('The approval service could not be reached. The scene remains unapproved.');
+      } finally {
+        approvingSceneRef.current = false;
       }
+    } else {
+      approvingSceneRef.current = false;
+      setPlanStatus('Sign in again before approving the saved scene.');
     }
-    if (!accessToken) setPlanStatus('Sign in again before approving the saved scene.');
     return false;
   }
 
@@ -1475,6 +1494,35 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   );
 }
 
+function SandboxToolWrapper({ title, stageRecommendation, children }: { title: string; stageRecommendation: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+      <div style={{
+        margin: '12px 16px 0',
+        padding: '10px 16px',
+        borderRadius: 8,
+        background: '#fffbeb',
+        border: '1px solid #fef3c7',
+        color: '#92400e',
+        fontSize: 12.5,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+      }}>
+        <div>
+          <strong style={{ color: '#78350f' }}>Sandbox Mode — {title} (Not attached to a project)</strong>
+          <span style={{ marginLeft: 8, color: '#b45309' }}>{stageRecommendation}</span>
+        </div>
+        <Link to="/projects" style={{ padding: '4px 10px', borderRadius: 6, background: '#f59e0b', color: '#1c1917', fontWeight: 700, textDecoration: 'none', fontSize: 11.5 }}>
+          Open Projects
+        </Link>
+      </div>
+      <div style={{ flex: 1 }}>{children}</div>
+    </div>
+  );
+}
+
 // ─── Dashboard shell (non-project routes) ─────────────────────────
 function DashboardShell({ sessionEmail, orgName, onStudioIdentitySaved }: { sessionEmail: string; orgName: string; onStudioIdentitySaved?: (name: string) => void }) {
   return (
@@ -1485,14 +1533,14 @@ function DashboardShell({ sessionEmail, orgName, onStudioIdentitySaved }: { sess
         <Route path="tools/cnc" element={<CncPatternStudio />} />
         <Route path="tools/cutlist" element={<CutlistStudio />} />
         <Route path="tools/cutlist-studio" element={<CutlistStudio />} />
-        <Route path="tools/modules" element={<ModularUnitPlanner />} />
+        <Route path="tools/modules" element={<SandboxToolWrapper title="Module Planner" stageRecommendation="For real project casework, place modules inside Stage 2: Rooms & Spaces."><ModularUnitPlanner /></SandboxToolWrapper>} />
         <Route path="tools/calendar" element={<StudioOperations initialTab="calendar" />} />
         <Route path="tools/invoices" element={<StudioOperations initialTab="invoices" />} />
         <Route path="tools/aura" element={<AuraChat />} />
-        <Route path="tools/render" element={<RenderLauncher />} />
+        <Route path="tools/render" element={<SandboxToolWrapper title="Render Studio" stageRecommendation="For real project 3D renders, approve your scene in Stage 3: 3D Scene."><RenderLauncher /></SandboxToolWrapper>} />
         <Route path="tools/measurements" element={<MeasurementConverter />} />
         <Route path="tools/converter" element={<MeasurementConverter />} />
-        <Route path="tools/room-builder" element={<RoomBuilder />} />
+        <Route path="tools/room-builder" element={<SandboxToolWrapper title="Room Builder" stageRecommendation="For real project floor plans, configure rooms in Stage 2: Rooms & Spaces."><RoomBuilder /></SandboxToolWrapper>} />
         <Route path="tools/skp" element={<SketchupCodeStudio />} />
         <Route path="tools/sketchup-generator" element={<SketchupCodeStudio />} />
         <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={null} />} />

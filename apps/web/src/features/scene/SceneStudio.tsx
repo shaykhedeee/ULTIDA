@@ -9,6 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import type { RenderIntentV1 } from '@ultida/contracts';
+import { glbAssetPipeline, CERTIFIED_DIGITAL_TWINS } from './glb-asset-pipeline';
 import './scene-studio.css';
 
 const gltfLoader = new GLTFLoader();
@@ -1530,37 +1531,35 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         modContainer.add(boxMesh);
       }
 
-      // Asynchronous GLB digital twin upgrade with parametric proxy fallback
+      // Asynchronous GLB digital twin upgrade with validation & material slot binding
       if (mod.glbUrl) {
-        gltfLoader.load(
-          mod.glbUrl,
-          (gltf) => {
-            const bbox = new THREE.Box3().setFromObject(gltf.scene);
-            const size = bbox.getSize(new THREE.Vector3());
-            if (size.x > 0 && size.y > 0 && size.z > 0) {
-              const scaleX = mod.widthMm / size.x;
-              const scaleY = mod.heightMm / size.y;
-              const scaleZ = mod.depthMm / size.z;
-              gltf.scene.scale.set(scaleX, scaleY, scaleZ);
-              const center = bbox.getCenter(new THREE.Vector3());
-              gltf.scene.position.set(-center.x * scaleX, -bbox.min.y * scaleY, -center.z * scaleZ);
-            }
-            gltf.scene.traverse((child) => {
-              if ((child as THREE.Mesh).isMesh) {
-                child.castShadow = true;
-                child.receiveShadow = true;
+        void (async () => {
+          try {
+            const twin = await glbAssetPipeline.loadOrFallback(
+              mod.glbUrl,
+              {
+                targetWidthMm: mod.widthMm,
+                targetDepthMm: mod.depthMm,
+                targetHeightMm: mod.heightMm,
+                castShadow: true,
+                receiveShadow: true,
+                materialSlotOverrides: {
+                  carcass: baseMat,
+                  shutter: baseMat,
+                },
+              },
+              mod.family
+            );
+            if (!twin.isFallback && twin.root) {
+              while (modContainer.children.length > 0) {
+                modContainer.remove(modContainer.children[0]);
               }
-            });
-            while (modContainer.children.length > 0) {
-              modContainer.remove(modContainer.children[0]);
+              modContainer.add(twin.root);
             }
-            modContainer.add(gltf.scene);
-          },
-          undefined,
-          (error) => {
-            console.warn(`GLTF asset failed to load for module ${mod.id}, retaining parametric proxy:`, error);
+          } catch (error) {
+            console.warn(`[SceneStudio] GLB digital twin failed for module ${mod.id}:`, error);
           }
-        );
+        })();
       }
 
       modulesGroup.add(modContainer);
@@ -2408,16 +2407,39 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                     <p>Fixture properties are compiled from the approved room and cannot alter production cutlists.</p>
                   </div>
                 )}
-                {!activeSelectedPart && activeSelectedModule && (
-                  <div className="scene-selected-fixture">
-                    <span>SELECTED MODULAR UNIT</span>
-                    <strong>{activeSelectedModule.family.replaceAll('-', ' ')}</strong>
-                    <div><small>Width</small><b>{activeSelectedModule.widthMm} mm</b></div>
-                    <div><small>Height</small><b>{activeSelectedModule.heightMm} mm</b></div>
-                    <div><small>Depth</small><b>{activeSelectedModule.depthMm} mm</b></div>
-                    <p>Dimensions remain linked to the fabrication schedule and approved room geometry.</p>
-                  </div>
-                )}
+                {!activeSelectedPart && activeSelectedModule && (() => {
+                  const digitalTwin = CERTIFIED_DIGITAL_TWINS[activeSelectedModule.family] || Object.values(CERTIFIED_DIGITAL_TWINS).find((d) => d.family === activeSelectedModule.family);
+                  const isCertified = Boolean(digitalTwin?.fabricationCertified);
+                  return (
+                    <div className="scene-selected-fixture" style={{ border: isCertified ? '1px solid #10b981' : '1px solid #d97706' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gridColumn: '1 / -1' }}>
+                        <span>SELECTED MODULAR UNIT</span>
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: 12,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          background: isCertified ? '#ecfdf5' : '#fef3c7',
+                          color: isCertified ? '#065f46' : '#92400e',
+                          border: isCertified ? '1px solid #6ee7b7' : '1px solid #fcd34d',
+                        }}>
+                          {isCertified ? '✓ Fabrication-Certified' : '⚠️ Visual / Proxy Geometry'}
+                        </span>
+                      </div>
+                      <strong>{activeSelectedModule.family.replaceAll('-', ' ')}</strong>
+                      <div><small>Width</small><b>{activeSelectedModule.widthMm} mm</b></div>
+                      <div><small>Height</small><b>{activeSelectedModule.heightMm} mm</b></div>
+                      <div><small>Depth</small><b>{activeSelectedModule.depthMm} mm</b></div>
+                      {digitalTwin && (
+                        <div style={{ gridColumn: '1 / -1', background: 'rgba(0,0,0,0.04)', padding: '6px 8px', borderRadius: 6, fontSize: 11 }}>
+                          <small style={{ color: '#78716c', display: 'block', fontWeight: 600 }}>Digital Twin: {digitalTwin.displayName}</small>
+                          <span style={{ color: '#44403c' }}>Slots: {digitalTwin.materialSlots.join(', ')}</span>
+                        </div>
+                      )}
+                      <p>Dimensions remain linked to the fabrication schedule and approved room geometry.</p>
+                    </div>
+                  );
+                })()}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: 10, background: '#faf8f5', borderRadius: 8, border: '1px solid #ede5d8' }}>
                   <div>
                     <small style={{ color: '#78716c', fontSize: 11, textTransform: 'uppercase' }}>Floor Area</small>

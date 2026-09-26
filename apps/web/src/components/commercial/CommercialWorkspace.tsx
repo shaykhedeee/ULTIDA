@@ -139,7 +139,27 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
           <h2>Turnkey BOM &amp; Project Commercial Estimation</h2>
           <p>Itemized panel cutlists, architectural hardware schedules, labour rates, and client-ready estimates.</p>
         </div>
-        <Badge tone={ready ? 'success' : 'accent'}>{ready ? 'Ready for pricing' : 'Blocked'}</Badge>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {projectId && (
+            <button
+              type="button"
+              onClick={() => navigate(`/projects/${projectId}/drawings`)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 6,
+                border: '1px solid #d6d3d1',
+                background: '#fff',
+                color: '#44403c',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              ← Production Cutlist &amp; Drawings
+            </button>
+          )}
+          <Badge tone={ready ? 'success' : 'accent'}>{ready ? 'Ready for pricing' : 'Blocked'}</Badge>
+        </div>
       </div>
       <div className="commercial-layout">
         <Card>
