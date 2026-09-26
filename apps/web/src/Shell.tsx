@@ -43,11 +43,13 @@ const PRIMARY_NAV = [
 const TOOL_NAV = [
   { label: 'Design Tools', items: [
     { id: 'aura-ai', label: 'AURA Design AI', path: '/tools/aura', icon: Sparkles },
+    { id: 'cutlist', label: 'Cutlist & Nesting Studio', path: '/tools/cutlist', icon: Scissors },
     { id: 'render-gallery', label: 'Render Gallery & Client Deck', path: '/renders', icon: Eye },
     { id: 'skp-generator', label: 'SketchUp Studio', path: '/tools/skp', icon: Layers },
     { id: 'cnc-studio', label: 'CNC Patterns', path: '/tools/cnc', icon: Compass },
   ] },
   { label: 'Studio Operations', items: [
+    { id: 'cutlist-ops', label: 'Cutlist Studio', path: '/tools/cutlist', icon: Scissors },
     { id: 'measurements', label: 'Measurements', path: '/tools/measurements', icon: Ruler },
     { id: 'calendar', label: 'Calendar', path: '/tools/calendar', icon: CalendarDays },
     { id: 'invoices', label: 'Invoices', path: '/tools/invoices', icon: Receipt },
