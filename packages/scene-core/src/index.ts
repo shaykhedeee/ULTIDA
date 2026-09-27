@@ -29,7 +29,7 @@ export const SceneV1Schema = z.object({
   walls: z.array(z.object({ id: Id, floorId: Id, start: PointMm, end: PointMm, thicknessMm: z.number().positive(), heightMm: z.number().positive(), baseElevationMm: z.number().nonnegative().default(0), spaceIds: z.array(Id).default([]), confidence: Confidence })),
   openings: z.array(z.object({ id: Id, wallId: Id, kind: z.enum(['door','window','passage']), offsetMm: z.number().nonnegative(), widthMm: z.number().positive(), heightMm: z.number().positive(), sillHeightMm: z.number().nonnegative().default(0), confidence: Confidence })),
   fixedFixtures: z.array(z.object({ id: Id, spaceId: Id, kind: z.string(), anchor: PointMm, widthMm: z.number().positive(), depthMm: z.number().positive(), confidence: Confidence })),
-  modules: z.array(z.object({ id: Id, templateId: Id.optional(), roomId: Id, family: z.string(), widthMm: z.number().positive(), depthMm: z.number().positive(), heightMm: z.number().positive(), position: PointMm.extend({ zMm: z.number().nonnegative().default(0) }), rotationDeg: z.number().finite(), anchor: z.enum(['floor','wall','ceiling','free']), materialId: Id.optional(), glbUrl: z.string().refine((value) => value.startsWith('/') || /^https:\/\//.test(value), 'GLB URL must be an absolute HTTPS URL or an app asset path.').optional(), confidence: Confidence })),
+  modules: z.array(z.object({ id: Id, templateId: Id.optional(), roomId: Id, family: z.string(), widthMm: z.number().positive(), depthMm: z.number().positive(), heightMm: z.number().positive(), position: PointMm.extend({ zMm: z.number().nonnegative().default(0) }), rotationDeg: z.number().finite(), anchor: z.enum(['floor','wall','ceiling','free']), materialId: Id.optional(), materialSlots: z.object({ carcass: Id.optional(), shutter: Id.optional(), hardware: Id.optional(), countertop: Id.optional(), backPanel: Id.optional(), glass: Id.optional(), metal: Id.optional(), lighting: Id.optional() }).optional(), glbUrl: z.string().refine((value) => value.startsWith('/') || /^https:\/\//.test(value), 'GLB URL must be an absolute HTTPS URL or an app asset path.').optional(), confidence: Confidence })),
   // A module is the placement envelope. Module parts are the manufacturing
   // geometry used by the browser preview, deterministic base render, drawings,
   // and production pack. Keeping both avoids treating a visual bounding box as
@@ -70,7 +70,7 @@ export const SceneV1Schema = z.object({
     confirmedBy: Id.optional(),
     confirmedAt: z.string().optional(),
   })).default([]),
-  materials: z.array(z.object({ id: Id, name: z.string(), code: z.string(), unitCost: z.number().nonnegative().optional(), finish: z.string().optional() })),
+  materials: z.array(z.object({ id: Id, name: z.string(), code: z.string(), unitCost: z.number().nonnegative().optional(), finish: z.string().optional(), colorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), roughness: z.number().min(0).max(1).optional(), metalness: z.number().min(0).max(1).optional() })),
   // Lighting is part of the authored scene contract, rather than a renderer-only
   // preset. Fixture detail is intentionally optional so older scene.v1 records
   // remain valid, while newly compiled scenes can render and brief fixtures

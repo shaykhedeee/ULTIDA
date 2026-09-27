@@ -7,9 +7,10 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createCompiledModuleMeshes } from './compiled-module-meshes';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
+import { IndianModularCatalog } from '@ultida/catalog-core';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import type { RenderIntentV1 } from '@ultida/contracts';
-import { glbAssetPipeline, CERTIFIED_DIGITAL_TWINS } from './glb-asset-pipeline';
+import { glbAssetPipeline, DIGITAL_TWIN_REFERENCE_PROFILES } from './glb-asset-pipeline';
 import './scene-studio.css';
 
 const gltfLoader = new GLTFLoader();
@@ -22,6 +23,7 @@ type Scene = {
   openings: Array<{ id: string; wallId: string; offsetMm: number; widthMm: number; heightMm: number; sillHeightMm?: number; kind: 'door' | 'window' }>;
   modules: Array<{
     id: string;
+    templateId?: string;
     roomId: string;
     family: string;
     widthMm: number;
@@ -30,6 +32,7 @@ type Scene = {
     position: { xMm: number; yMm: number };
     rotationDeg: number;
     materialId?: string;
+    materialSlots?: Partial<Record<'carcass' | 'shutter' | 'hardware' | 'countertop' | 'backPanel' | 'glass' | 'metal' | 'lighting', string>>;
     glbUrl?: string;
   }>;
   moduleParts: Array<{
@@ -49,7 +52,7 @@ type Scene = {
     colorTemperatureK?: number;
     lengthMm?: number;
   }>;
-  materials: Array<{ id: string; name: string; code: string; finish?: string }>;
+  materials: Array<{ id: string; name: string; code: string; finish?: string; colorHex?: string; roughness?: number; metalness?: number }>;
   lighting: Array<{ id: string; spaceId: string; kind: 'ambient' | 'task' | 'accent' | 'natural'; position: { xMm: number; yMm: number }; fixture?: 'ceiling-spot' | 'floor-lamp' | 'table-lamp' | 'pendant' | 'cove'; heightMm?: number; shadeDiameterMm?: number; colorTemperatureK?: number; lumens?: number; materialId?: string }>;
   cameras: Array<{ id: string; name: string; position: { xMm: number; yMm: number; zMm: number }; target: { xMm: number; yMm: number; zMm: number }; lensMm: number }>;
   designIntent?: RenderIntentV1;
@@ -180,52 +183,51 @@ export function createDefaultDemoScene(): Scene {
   };
 }
 
-function materialColor(materialId: string | undefined) {
-  if (!materialId) return '#b99167';
-  let hash = 0;
-  for (const character of materialId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  return `#${(0x806040 + (hash & 0x5f5f5f)).toString(16).slice(-6)}`;
-}
+type SceneMaterialRecord = Scene['materials'][number];
 
-function getThreeMaterialForFinish(materialId?: string, fallbackColor = '#b99167') {
-  const color = materialId ? materialColor(materialId) : fallbackColor;
-  const isGloss = /gloss|acrylic|polygloss|mirror/i.test(materialId ?? '');
-  const isMatte = /matte|suede|zero-g|anti-fingerprint/i.test(materialId ?? '');
-  const isWood = /wood|oak|walnut|teak|grain/i.test(materialId ?? '');
-  const isStone = /marble|travertine|porcelain|slab/i.test(materialId ?? '');
+function getThreeMaterialForFinish(materialId?: string, fallbackColor = '#b99167', materialRecords: SceneMaterialRecord[] = []) {
+  const record = materialId ? materialRecords.find((material) => material.id === materialId) : undefined;
+  const color = record?.colorHex ?? fallbackColor;
+  const finishHint = `${record?.name ?? ''} ${record?.finish ?? ''} ${record?.code ?? ''}`;
+  const isGloss = /gloss|acrylic|polygloss|mirror/i.test(finishHint);
+  const isMatte = /matte|suede|zero-g|anti-fingerprint/i.test(finishHint);
+  const isWood = /wood|oak|walnut|teak|grain|veneer/i.test(finishHint);
+  const isStone = /marble|travertine|porcelain|slab|quartz/i.test(finishHint);
+  const configuredRoughness = record?.roughness;
+  const configuredMetalness = record?.metalness;
 
   if (isGloss) {
     return new THREE.MeshStandardMaterial({
       color,
-      roughness: 0.12,
-      metalness: 0.08,
+      roughness: configuredRoughness ?? 0.12,
+      metalness: configuredMetalness ?? 0.08,
     });
   }
   if (isMatte) {
     return new THREE.MeshStandardMaterial({
       color,
-      roughness: 0.88,
-      metalness: 0.02,
+      roughness: configuredRoughness ?? 0.88,
+      metalness: configuredMetalness ?? 0.02,
     });
   }
   if (isWood) {
     return new THREE.MeshStandardMaterial({
       color,
-      roughness: 0.58,
-      metalness: 0.04,
+      roughness: configuredRoughness ?? 0.58,
+      metalness: configuredMetalness ?? 0.04,
     });
   }
   if (isStone) {
     return new THREE.MeshStandardMaterial({
       color,
-      roughness: 0.18,
-      metalness: 0.05,
+      roughness: configuredRoughness ?? 0.18,
+      metalness: configuredMetalness ?? 0.05,
     });
   }
   return new THREE.MeshStandardMaterial({
     color,
-    roughness: 0.42,
-    metalness: 0.08,
+    roughness: configuredRoughness ?? 0.42,
+    metalness: configuredMetalness ?? 0.08,
   });
 }
 
@@ -1185,12 +1187,13 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     addWallSegments(wallsGroup, scene, wallsVisible);
 
     const modulesGroup = new THREE.Group(); geometryGroup.add(modulesGroup);
+    const materialForScene = (materialId?: string) => getThreeMaterialForFinish(materialId, '#b99167', scene.materials);
     for (const mod of (scene.modules ?? [])) {
       const savedParts = (scene.moduleParts ?? []).filter(part => part.moduleId === mod.id);
       if (savedParts.length > 0) {
         // These already contain world placement and mounting elevation. Never
         // replace them with family guesses or stretch a reference GLB over them.
-        modulesGroup.add(createCompiledModuleMeshes(mod.id, savedParts, getThreeMaterialForFinish));
+        modulesGroup.add(createCompiledModuleMeshes(mod.id, savedParts, materialForScene));
         continue;
       }
       const modContainer = new THREE.Group();
@@ -1201,7 +1204,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       modContainer.name = `module:${mod.id}`;
       modContainer.userData = { kind: 'module', id: mod.id, family: mod.family };
 
-      const baseMat = getThreeMaterialForFinish(mod.materialId);
+      const baseMat = materialForScene(mod.materialId);
 
       const isKitchenBase = mod.family.includes('kitchen-base') || mod.family.includes('counter');
       const isWardrobe = mod.family.includes('wardrobe') || mod.family.includes('closet');
@@ -1531,12 +1534,16 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         modContainer.add(boxMesh);
       }
 
-      // Asynchronous GLB digital twin upgrade with validation & material slot binding
-      if (mod.glbUrl) {
+      // Only use an explicitly linked asset or the exact template's trusted catalog URL.
+      // Family-wide fallbacks can silently substitute the wrong unit design.
+      const templateTwinProfile = mod.templateId ? DIGITAL_TWIN_REFERENCE_PROFILES[mod.templateId] : undefined;
+      const catalogGlbUrl = mod.templateId ? IndianModularCatalog.find((item) => item.id === mod.templateId)?.glbUrl : undefined;
+      const glbUrl = mod.glbUrl ?? catalogGlbUrl ?? templateTwinProfile?.assetUrl;
+      if (glbUrl) {
         void (async () => {
           try {
             const twin = await glbAssetPipeline.loadOrFallback(
-              mod.glbUrl,
+              glbUrl,
               {
                 targetWidthMm: mod.widthMm,
                 targetDepthMm: mod.depthMm,
@@ -1544,8 +1551,14 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 castShadow: true,
                 receiveShadow: true,
                 materialSlotOverrides: {
-                  carcass: baseMat,
-                  shutter: baseMat,
+                  carcass: materialForScene(mod.materialSlots?.carcass ?? mod.materialId),
+                  shutter: materialForScene(mod.materialSlots?.shutter ?? mod.materialId),
+                  hardware: materialForScene(mod.materialSlots?.hardware),
+                  countertop: materialForScene(mod.materialSlots?.countertop),
+                  'back-panel': materialForScene(mod.materialSlots?.backPanel),
+                  glass: materialForScene(mod.materialSlots?.glass),
+                  metal: materialForScene(mod.materialSlots?.metal),
+                  lighting: materialForScene(mod.materialSlots?.lighting),
                 },
               },
               mod.family
@@ -2408,10 +2421,16 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                   </div>
                 )}
                 {!activeSelectedPart && activeSelectedModule && (() => {
-                  const digitalTwin = CERTIFIED_DIGITAL_TWINS[activeSelectedModule.family] || Object.values(CERTIFIED_DIGITAL_TWINS).find((d) => d.family === activeSelectedModule.family);
-                  const isCertified = Boolean(digitalTwin?.fabricationCertified);
+                  const digitalTwin = activeSelectedModule.templateId
+                    ? DIGITAL_TWIN_REFERENCE_PROFILES[activeSelectedModule.templateId]
+                    : undefined;
+                  const catalogTemplate = activeSelectedModule.templateId
+                    ? IndianModularCatalog.find((item) => item.id === activeSelectedModule.templateId)
+                    : undefined;
+                  const isCutlistSupported = catalogTemplate?.production.cutlistSupported === true;
+                  const hasCompiledParts = scene?.moduleParts?.some((part) => part.moduleId === activeSelectedModule.id) ?? false;
                   return (
-                    <div className="scene-selected-fixture" style={{ border: isCertified ? '1px solid #10b981' : '1px solid #d97706' }}>
+                    <div className="scene-selected-fixture" style={{ border: isCutlistSupported ? '1px solid #10b981' : '1px solid #d97706' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gridColumn: '1 / -1' }}>
                         <span>SELECTED MODULAR UNIT</span>
                         <span style={{
@@ -2419,24 +2438,27 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                           borderRadius: 12,
                           fontSize: 10,
                           fontWeight: 700,
-                          background: isCertified ? '#ecfdf5' : '#fef3c7',
-                          color: isCertified ? '#065f46' : '#92400e',
-                          border: isCertified ? '1px solid #6ee7b7' : '1px solid #fcd34d',
+                          background: isCutlistSupported ? '#ecfdf5' : '#fef3c7',
+                          color: isCutlistSupported ? '#065f46' : '#92400e',
+                          border: isCutlistSupported ? '1px solid #6ee7b7' : '1px solid #fcd34d',
                         }}>
-                          {isCertified ? '✓ Fabrication-Certified' : '⚠️ Visual / Proxy Geometry'}
+                          {isCutlistSupported ? 'Catalog cutlist eligible' : 'Catalog cutlist status unverified'}
                         </span>
                       </div>
                       <strong>{activeSelectedModule.family.replaceAll('-', ' ')}</strong>
                       <div><small>Width</small><b>{activeSelectedModule.widthMm} mm</b></div>
                       <div><small>Height</small><b>{activeSelectedModule.heightMm} mm</b></div>
                       <div><small>Depth</small><b>{activeSelectedModule.depthMm} mm</b></div>
+                      <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#57534e' }}>
+                        Preview geometry: {hasCompiledParts ? 'saved compiled component parts' : activeSelectedModule.glbUrl ? 'GLB requested (visual only)' : 'parametric visual proxy'}. Production release is checked separately against the saved part schedule.
+                      </div>
                       {digitalTwin && (
                         <div style={{ gridColumn: '1 / -1', background: 'rgba(0,0,0,0.04)', padding: '6px 8px', borderRadius: 6, fontSize: 11 }}>
-                          <small style={{ color: '#78716c', display: 'block', fontWeight: 600 }}>Digital Twin: {digitalTwin.displayName}</small>
-                          <span style={{ color: '#44403c' }}>Slots: {digitalTwin.materialSlots.join(', ')}</span>
+                          <small style={{ color: '#78716c', display: 'block', fontWeight: 600 }}>Visual reference profile: {digitalTwin.displayName}</small>
+                          <span style={{ color: '#44403c' }}>{digitalTwin.assetUrl ? 'GLB asset linked. ' : 'No GLB asset linked; profile never replaces measured parts. '}Slots: {digitalTwin.materialSlots.join(', ')}</span>
                         </div>
                       )}
-                      <p>Dimensions remain linked to the fabrication schedule and approved room geometry.</p>
+                      <p>Only the saved scene and its compiled module parts supply construction geometry.</p>
                     </div>
                   );
                 })()}

@@ -1326,10 +1326,9 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     return undefined;
   }
 
-  const approvingSceneRef = useRef(false);
+  const approvingSceneRef = useRef<Promise<boolean> | null>(null);
 
   async function approveScene(targetSceneVersionId?: string): Promise<boolean> {
-    setSceneApprovalError(null);
     const sceneToApprove = targetSceneVersionId ?? sceneVersionId;
     if (!projectId || !sceneToApprove) {
       setPlanStatus('Compile a saved scene before approval.');
@@ -1339,20 +1338,22 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     if (sceneApproved && sceneToApprove === sceneVersionId) {
       return true;
     }
-    if (approvingSceneRef.current) {
-      // Re-use concurrent call without creating duplicate requests
-      return true;
-    }
-    approvingSceneRef.current = true;
-    const accessToken = await getValidToken();
-    const apiBase = getApiBase();
-    if (accessToken) {
+    if (approvingSceneRef.current) return approvingSceneRef.current;
+
+    const approvalPromise = (async () => {
+      setSceneApprovalError(null);
       try {
+        const accessToken = await getValidToken();
+        if (!accessToken) {
+          setPlanStatus('Sign in again before approving the saved scene.');
+          return false;
+        }
+        const apiBase = getApiBase();
         const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneToApprove}/approve`, {
           method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
         });
         const payload = await response.json().catch(() => null);
-        if ((response.ok && payload?.success) || payload?.alreadyApproved) {
+        if (response.ok && (payload?.success || payload?.alreadyApproved)) {
           setSceneVersionId(sceneToApprove);
           setSceneApproved(true);
           setPlanStatus(`Scene approved and ready for 3D walkthrough.`);
@@ -1364,16 +1365,18 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         }
         setSceneApprovalError({ code: payload?.code ?? 'SCENE_APPROVAL_FAILED', message: payload?.message ?? 'Approval failed. Check the saved design and retry.', issues: Array.isArray(payload?.issues) ? payload.issues.map((issue: any) => typeof issue === 'string' ? issue : issue.message ?? 'Review this design issue.') : [] });
         setPlanStatus(payload?.message ?? 'The scene could not be approved. Resolve the listed blockers and retry.');
+        return false;
       } catch {
         setPlanStatus('The approval service could not be reached. The scene remains unapproved.');
-      } finally {
-        approvingSceneRef.current = false;
+        return false;
       }
-    } else {
-      approvingSceneRef.current = false;
-      setPlanStatus('Sign in again before approving the saved scene.');
+    })();
+    approvingSceneRef.current = approvalPromise;
+    try {
+      return await approvalPromise;
+    } finally {
+      if (approvingSceneRef.current === approvalPromise) approvingSceneRef.current = null;
     }
-    return false;
   }
 
   const currentStage = activeStageId;

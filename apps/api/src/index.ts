@@ -2378,23 +2378,40 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
   }
   const materialIds = [...new Set([...latestBySlot.values()].map((assignment) => String(assignment.material_id)))];
   const materialRows = materialIds.length
-    ? await client.from('material_library_items').select('id,name,code,unit_cost,finish').eq('organization_id', project.data.organization_id).in('id', materialIds)
+    ? await client.from('material_library_items').select('id,name,code,unit_cost,finish,metadata,roughness,metalness').eq('organization_id', project.data.organization_id).in('id', materialIds)
     : { data: [], error: null };
   if (materialRows.error) return response.status(500).json({ success: false, code: 'MATERIAL_LIBRARY_READ_FAILED', message: materialRows.error.message });
   if ((materialRows.data ?? []).length !== materialIds.length) return response.status(422).json({ success: false, code: 'MATERIAL_ASSIGNMENT_NOT_IN_LIBRARY', message: 'A persisted material assignment no longer resolves to this organization library.' });
-  const materials = (materialRows.data ?? []).map((material: any) => ({ id: material.id, name: material.name, code: material.code, unitCost: material.unit_cost ?? undefined, finish: material.finish ?? undefined }));
+  const materials = (materialRows.data ?? []).map((material: any) => {
+    const metadata = material.metadata && typeof material.metadata === 'object' && !Array.isArray(material.metadata) ? material.metadata : {};
+    const colorCandidate = metadata.colourHex ?? metadata.colorHex;
+    return {
+      id: material.id,
+      name: material.name,
+      code: material.code,
+      unitCost: material.unit_cost ?? undefined,
+      finish: material.finish ?? undefined,
+      colorHex: typeof colorCandidate === 'string' && /^#[0-9a-fA-F]{6}$/.test(colorCandidate) ? colorCandidate : undefined,
+      roughness: Number.isFinite(Number(material.roughness)) && material.roughness !== null ? Number(material.roughness) : undefined,
+      metalness: Number.isFinite(Number(material.metalness)) && material.metalness !== null ? Number(material.metalness) : undefined,
+    };
+  });
   const materialBySlot = new Map<string, string>();
   const materialByModuleAndSlot = new Map<string, string>();
   for (const assignment of latestBySlot.values()) {
     const materialId = String(assignment.material_id);
     const semanticSlot = String(assignment.semantic_slot);
-    materialBySlot.set(semanticSlot, materialId);
     const moduleId = String(assignment.module_instance_id ?? (assignment.target_kind === 'module' ? assignment.target_id : ''));
     if (moduleId) materialByModuleAndSlot.set(`${moduleId}:${semanticSlot}`, materialId);
+    else if (assignment.target_kind !== 'module' && !materialBySlot.has(semanticSlot)) materialBySlot.set(semanticSlot, materialId);
   }
   const defaultModuleMaterial = materialBySlot.get('shutter') ?? materialBySlot.get('carcass') ?? materials[0]?.id;
   const resolvedSceneModules = sceneModules.map((module) => ({
     ...module,
+    materialSlots: Object.fromEntries(['carcass', 'shutter', 'hardware', 'countertop', 'backPanel', 'glass', 'metal', 'lighting'].flatMap((slot) => {
+      const materialId = materialByModuleAndSlot.get(`${module.id}:${slot}`) ?? materialBySlot.get(slot);
+      return materialId ? [[slot, materialId]] : [];
+    })),
     materialId: module.materialId ?? materialByModuleAndSlot.get(`${module.id}:shutter`) ?? materialByModuleAndSlot.get(`${module.id}:carcass`) ?? defaultModuleMaterial,
   }));
   const resolvedModuleParts = moduleParts.map((part) => ({

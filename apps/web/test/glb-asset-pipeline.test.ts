@@ -4,9 +4,34 @@ import * as THREE from 'three';
 import {
   inspectGlbBuffer,
   glbAssetPipeline,
-  CERTIFIED_DIGITAL_TWINS,
+  DIGITAL_TWIN_REFERENCE_PROFILES,
   GLB_MAGIC_NUMBER,
+  MAX_SAFE_POLYGONS,
+  inferMaterialSlot,
 } from '../src/features/scene/glb-asset-pipeline.ts';
+
+function makeGlb(gltf: Record<string, unknown>) {
+  const json = new TextEncoder().encode(JSON.stringify(gltf));
+  const jsonLength = Math.ceil(json.length / 4) * 4;
+  const buffer = new ArrayBuffer(20 + jsonLength);
+  const view = new DataView(buffer);
+  view.setUint32(0, GLB_MAGIC_NUMBER, true);
+  view.setUint32(4, 2, true);
+  view.setUint32(8, buffer.byteLength, true);
+  view.setUint32(12, jsonLength, true);
+  view.setUint32(16, 0x4e4f534a, true);
+  new Uint8Array(buffer, 20, json.length).set(json);
+  return buffer;
+}
+
+const minimalGltf = {
+  asset: { version: '2.0' },
+  meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
+  accessors: [
+    { count: 24, type: 'VEC3', min: [-0.5, 0, -0.3], max: [0.5, 2.4, 0.3] },
+    { count: 36, type: 'SCALAR' },
+  ],
+};
 
 test('inspectGlbBuffer: rejects short or non-GLB buffers', () => {
   const shortBuffer = new ArrayBuffer(8);
@@ -99,6 +124,90 @@ test('inspectGlbBuffer: correctly parses valid GLB header and JSON chunk with ma
   assert.ok(inspection.recognizedSlots.includes('hardware'));
 });
 
+test('inspectGlbBuffer: rejects corrupt lengths, malformed chunks, and non-v2 headers', () => {
+  const valid = makeGlb(minimalGltf);
+  const badLength = valid.slice(0);
+  new DataView(badLength).setUint32(8, badLength.byteLength - 4, true);
+  assert.equal(inspectGlbBuffer(badLength).valid, false);
+  assert.ok(inspectGlbBuffer(badLength).errors.some((error) => error.includes('byteLength')));
+
+  const badChunk = valid.slice(0);
+  new DataView(badChunk).setUint32(12, badChunk.byteLength, true);
+  assert.equal(inspectGlbBuffer(badChunk).valid, false);
+  assert.ok(inspectGlbBuffer(badChunk).errors.some((error) => error.includes('chunk length')));
+
+  const badVersion = valid.slice(0);
+  new DataView(badVersion).setUint32(4, 1, true);
+  assert.equal(inspectGlbBuffer(badVersion).valid, false);
+});
+
+test('inspectGlbBuffer: enforces the strict 65,000 triangle ceiling', () => {
+  const gltf = {
+    asset: { version: '2.0' },
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
+    accessors: [
+      { count: 3, type: 'VEC3', min: [0, 0, 0], max: [1, 1, 1] },
+      { count: MAX_SAFE_POLYGONS * 3, type: 'SCALAR' },
+    ],
+  };
+  const atLimit = inspectGlbBuffer(makeGlb({
+    ...gltf,
+    accessors: [gltf.accessors[0], { count: MAX_SAFE_POLYGONS * 3, type: 'SCALAR' }],
+  }));
+  assert.equal(atLimit.polyCount, MAX_SAFE_POLYGONS);
+  assert.equal(atLimit.valid, true);
+  const overLimit = inspectGlbBuffer(makeGlb({
+    ...gltf,
+    accessors: [gltf.accessors[0], { count: (MAX_SAFE_POLYGONS + 1) * 3, type: 'SCALAR' }],
+  }));
+  assert.equal(overLimit.polyCount, MAX_SAFE_POLYGONS + 1);
+  assert.equal(overLimit.valid, false);
+  assert.ok(overLimit.errors.some((error) => error.includes('65,000-triangle asset limit')));
+});
+
+test('material slot inference recognizes architectural semantic names', () => {
+  assert.equal(inferMaterialSlot('Wardrobe_Carcass_Oak'), 'carcass');
+  assert.equal(inferMaterialSlot('Front_Shutter_Matte'), 'shutter');
+  assert.equal(inferMaterialSlot('Quartz_Countertop'), 'countertop');
+  assert.equal(inferMaterialSlot('Back_Panel_9mm'), 'back-panel');
+  assert.equal(inferMaterialSlot('35mm_Hinge_Hardware'), 'hardware');
+});
+
+test('instantiateModel scales exact bounds, grounds at Y=0, and replaces semantic slots independently', () => {
+  const source = new THREE.Group();
+  const carcassMaterial = new THREE.MeshStandardMaterial();
+  carcassMaterial.name = 'Carcass_Oak';
+  const shutterMaterial = new THREE.MeshStandardMaterial();
+  shutterMaterial.name = 'Front_Shutter';
+  const hardwareMaterial = new THREE.MeshStandardMaterial();
+  hardwareMaterial.name = 'Hinge_Hardware';
+  const carcassMesh = new THREE.Mesh(new THREE.BoxGeometry(2, 3, 1), carcassMaterial);
+  carcassMesh.position.y = 4;
+  source.add(carcassMesh);
+  source.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [shutterMaterial, hardwareMaterial]));
+  const override = {
+    carcass: new THREE.MeshStandardMaterial({ color: '#123456' }),
+    shutter: new THREE.MeshStandardMaterial({ color: '#654321' }),
+    hardware: new THREE.MeshStandardMaterial({ color: '#abcdef' }),
+  };
+  const twin = glbAssetPipeline.instantiateModel(
+    { scene: source } as any,
+    inspectGlbBuffer(makeGlb(minimalGltf)),
+    { targetWidthMm: 1000, targetDepthMm: 600, targetHeightMm: 2400, materialSlotOverrides: override },
+  );
+  const bounds = new THREE.Box3().setFromObject(twin.root);
+  const size = bounds.getSize(new THREE.Vector3());
+  assert.equal(Math.round(size.x), 1000);
+  assert.equal(Math.round(size.y), 2400);
+  assert.equal(Math.round(size.z), 600);
+  assert.equal(Math.round(bounds.min.y), 0);
+  assert.equal((twin.root.children[0] as THREE.Mesh).material, override.carcass);
+  const mapped = (twin.root.children[1] as THREE.Mesh).material as THREE.Material[];
+  assert.equal(mapped[0], override.shutter);
+  assert.equal(mapped[1], override.hardware);
+  assert.deepEqual(new Set(twin.appliedSlots), new Set(['carcass', 'shutter', 'hardware']));
+});
+
 test('glbAssetPipeline: creates high-precision parametric fallback with exact dimensions', () => {
   const fallback = glbAssetPipeline.createParametricProxy(
     {
@@ -123,8 +232,8 @@ test('glbAssetPipeline: creates high-precision parametric fallback with exact di
   assert.equal(Math.round(bbox.min.y), 0); // Origin at floor level
 });
 
-test('CERTIFIED_DIGITAL_TWINS: contains verified modular furniture families', () => {
-  const families = Object.values(CERTIFIED_DIGITAL_TWINS).map((e) => e.family);
+test('digital twin references cover intended families without claiming unattached GLB certification', () => {
+  const families = Object.values(DIGITAL_TWIN_REFERENCE_PROFILES).map((e) => e.family);
   assert.ok(families.includes('wardrobe'));
   assert.ok(families.includes('kitchen-base'));
   assert.ok(families.includes('kitchen-wall'));
@@ -132,10 +241,10 @@ test('CERTIFIED_DIGITAL_TWINS: contains verified modular furniture families', ()
   assert.ok(families.includes('pooja'));
   assert.ok(families.includes('study'));
 
-  for (const entry of Object.values(CERTIFIED_DIGITAL_TWINS)) {
+  for (const entry of Object.values(DIGITAL_TWIN_REFERENCE_PROFILES)) {
     assert.ok(entry.nominalDimensionsMm.width > 0);
     assert.ok(entry.nominalDimensionsMm.depth > 0);
     assert.ok(entry.nominalDimensionsMm.height > 0);
-    assert.equal(entry.fabricationCertified, true);
+    assert.equal(entry.modelSource, entry.assetUrl ? 'verified-glb' : 'parametric-reference');
   }
 });

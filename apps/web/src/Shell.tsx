@@ -49,7 +49,6 @@ const TOOL_NAV = [
     { id: 'cnc-studio', label: 'CNC Patterns', path: '/tools/cnc', icon: Compass },
   ] },
   { label: 'Studio Operations', items: [
-    { id: 'cutlist-ops', label: 'Cutlist Studio', path: '/tools/cutlist', icon: Scissors },
     { id: 'measurements', label: 'Measurements', path: '/tools/measurements', icon: Ruler },
     { id: 'calendar', label: 'Calendar', path: '/tools/calendar', icon: CalendarDays },
     { id: 'invoices', label: 'Invoices', path: '/tools/invoices', icon: Receipt },

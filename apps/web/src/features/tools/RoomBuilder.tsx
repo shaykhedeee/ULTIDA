@@ -1,11 +1,11 @@
 import {
   ArrowRight, Download, DoorOpen, Save, Sparkles, Upload,
-  PanelsTopLeft, Compass, Scissors, CheckCircle2, ShieldCheck, Columns3, LayoutGrid, Layers
+  PanelsTopLeft, Compass, CheckCircle2, ShieldCheck, Columns3, LayoutGrid, Layers
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { generateParametricCabinetAnatomy } from './cutlist-optimizer';
+import { roomBuilderGeometryIssues, usableWallRunMm, type RoomBuilderOpening } from './room-builder-geometry';
 import './room-builder.css';
 
 type OpeningKind = 'door' | 'window' | 'structural_column';
@@ -39,10 +39,12 @@ type RoomDraft = {
   widthMm: number;
   depthMm: number;
   ceilingHeightMm: number;
+  wallThicknessMm?: number;
   floorFinish: string;
   ceilingIntent: string;
   camera: string;
   openings: Opening[];
+  dimensionsConfirmed?: boolean;
   wallZones?: {
     north: WallZoneType;
     east: WallZoneType;
@@ -81,20 +83,20 @@ const ZONE_COLORS: Record<WallZoneType, { fill: string; stroke: string; labelCol
   open_circulation: { fill: 'rgba(148, 163, 184, 0.16)', stroke: '#94a3b8', labelColor: '#475569', shortLabel: 'Open Wall' },
 };
 
-function safeNumber(value: number, fallback: number) {
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-/** An advanced measured room and layout architect tool with Vastu and Cutlist integration. */
+/** A local room proposal that must be confirmed before it enters a project. */
 export function RoomBuilder() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [name, setName] = useState('Master Bedroom');
   const [roomType, setRoomType] = useState('Master bedroom');
-  const [widthMm, setWidthMm] = useState(4200);
-  const [depthMm, setDepthMm] = useState(3600);
-  const [ceilingHeightMm, setCeilingHeightMm] = useState(2700);
+  // A fresh room starts unmeasured. Never prefill example dimensions as if they
+  // were surveyed geometry; zero is represented as an empty input in the UI.
+  const [widthMm, setWidthMm] = useState(0);
+  const [depthMm, setDepthMm] = useState(0);
+  const [ceilingHeightMm, setCeilingHeightMm] = useState(0);
+  const [wallThicknessMm, setWallThicknessMm] = useState(0);
+  const [dimensionsConfirmed, setDimensionsConfirmed] = useState(false);
   const [floorFinish, setFloorFinish] = useState('Matte tile');
   const [ceilingIntent, setCeilingIntent] = useState('Simple false ceiling');
   const [camera, setCamera] = useState('Wide corner from entry');
@@ -111,7 +113,7 @@ export function RoomBuilder() {
     south: 'bed_headboard',
     west: 'tv_entertainment',
   });
-  const [message, setMessage] = useState('Advanced room layout and measured shell ready.');
+  const [message, setMessage] = useState('Review the example dimensions and enter the measured room and opening sizes.');
 
   useEffect(() => {
     void (async () => {
@@ -129,15 +131,17 @@ export function RoomBuilder() {
       if (!saved || saved.schema !== 'ultida.room-builder.v1') return;
       setName(saved.name ?? 'Master Bedroom');
       setRoomType(saved.roomType ?? 'Master bedroom');
-      setWidthMm(safeNumber(Number(saved.widthMm), 4200));
-      setDepthMm(safeNumber(Number(saved.depthMm), 3600));
-      setCeilingHeightMm(safeNumber(Number(saved.ceilingHeightMm), 2700));
+      setWidthMm(Number.isFinite(Number(saved.widthMm)) ? Number(saved.widthMm) : 0);
+      setDepthMm(Number.isFinite(Number(saved.depthMm)) ? Number(saved.depthMm) : 0);
+      setCeilingHeightMm(Number.isFinite(Number(saved.ceilingHeightMm)) ? Number(saved.ceilingHeightMm) : 0);
+      setWallThicknessMm(Number(saved.wallThicknessMm ?? 230));
+      setDimensionsConfirmed(saved.dimensionsConfirmed === true);
       setFloorFinish(saved.floorFinish ?? 'Matte tile');
       setCeilingIntent(saved.ceilingIntent ?? 'Simple false ceiling');
       setCamera(saved.camera ?? 'Wide corner from entry');
       setOpenings(Array.isArray(saved.openings) ? saved.openings.filter((item) => item && (item.kind === 'door' || item.kind === 'window' || item.kind === 'structural_column')) as Opening[] : []);
       if (saved.wallZones) setWallZones(saved.wallZones);
-      setMessage('Restored your local room layout.');
+      setMessage('Restored your local room proposal. Confirm its dimensions before adding it to a project.');
     } catch {
       window.localStorage.removeItem(STORAGE_KEY);
     }
@@ -148,19 +152,23 @@ export function RoomBuilder() {
     updatedAt: new Date().toISOString(),
     name: name.trim() || 'Untitled room',
     roomType,
-    widthMm: safeNumber(widthMm, 1),
-    depthMm: safeNumber(depthMm, 1),
-    ceilingHeightMm: safeNumber(ceilingHeightMm, 1),
+    widthMm,
+    depthMm,
+    ceilingHeightMm,
+    wallThicknessMm,
     floorFinish: floorFinish.trim(),
     ceilingIntent: ceilingIntent.trim(),
     camera: camera.trim(),
     openings,
+    dimensionsConfirmed,
     wallZones,
-  }), [name, roomType, widthMm, depthMm, ceilingHeightMm, floorFinish, ceilingIntent, camera, openings, wallZones]);
+  }), [name, roomType, widthMm, depthMm, ceilingHeightMm, wallThicknessMm, floorFinish, ceilingIntent, camera, openings, dimensionsConfirmed, wallZones]);
 
-  const valid = draft.widthMm >= 600 && draft.depthMm >= 600 && draft.ceilingHeightMm >= 1800 && openings.every((opening) => opening.widthMm >= 300 && opening.offsetMm >= 0);
-  const areaSqm = Math.round((draft.widthMm * draft.depthMm / 1_000_000) * 100) / 100;
-  const maxWall = Math.max(draft.widthMm, draft.depthMm);
+  const geometryIssues = useMemo(() => roomBuilderGeometryIssues(draft, openings as RoomBuilderOpening[]), [draft, openings]);
+  const valid = geometryIssues.length === 0;
+  const readyForProject = valid && dimensionsConfirmed;
+  const areaSqm = Number.isFinite(draft.widthMm * draft.depthMm) ? Math.round((draft.widthMm * draft.depthMm / 1_000_000) * 100) / 100 : 0;
+  const maxWall = Math.max(0, draft.widthMm, draft.depthMm);
 
   // Vastu compliance derivation
   const vastuAssessment = useMemo(() => {
@@ -171,7 +179,7 @@ export function RoomBuilder() {
     if (isMasterBed) {
       return {
         cardinalZone: 'South-West (Nairutya)',
-        status: '100% Auspicious',
+        status: 'Traditional guideline',
         complianceBadge: 'gold',
         guideline: 'Heavy master wardrobe placed in South/West walls for stability, leadership, and prosperity.',
       };
@@ -179,7 +187,7 @@ export function RoomBuilder() {
     if (isKitchen) {
       return {
         cardinalZone: 'South-East (Agneya)',
-        status: 'Auspicious Fire Zone',
+        status: 'Traditional guideline',
         complianceBadge: 'green',
         guideline: 'Cooking hob oriented toward East for morning sun and health.',
       };
@@ -187,7 +195,7 @@ export function RoomBuilder() {
     if (isPooja) {
       return {
         cardinalZone: 'North-East (Ishanya)',
-        status: 'Sacred Water & Ether Zone',
+        status: 'Traditional guideline',
         complianceBadge: 'gold',
         guideline: 'Divine sanctum with CNC lattice facing East.',
       };
@@ -204,8 +212,8 @@ export function RoomBuilder() {
   const wallUsableStats = useMemo(() => {
     const calc = (wallKey: 'north' | 'east' | 'south' | 'west', totalMm: number) => {
       const items = openings.filter((o) => o.wall === wallKey);
-      const obstructedMm = items.reduce((sum, o) => sum + o.widthMm, 0);
-      const usableMm = Math.max(0, totalMm - obstructedMm);
+      const usableMm = usableWallRunMm(totalMm, items);
+      const obstructedMm = totalMm - usableMm;
       return { totalMm, obstructedMm, usableMm, openingsCount: items.length, items };
     };
     return {
@@ -223,12 +231,14 @@ export function RoomBuilder() {
     const pad = 52;
     const maxDrawW = svgW - pad * 2;
     const maxDrawH = svgH - pad * 2;
-    const scale = Math.min(maxDrawW / Math.max(100, widthMm), maxDrawH / Math.max(100, depthMm));
-    const roomW = widthMm * scale;
-    const roomH = depthMm * scale;
+    const safeWidth = Number.isFinite(widthMm) ? Math.max(0, widthMm) : 0;
+    const safeDepth = Number.isFinite(depthMm) ? Math.max(0, depthMm) : 0;
+    const scale = Math.min(maxDrawW / Math.max(100, safeWidth), maxDrawH / Math.max(100, safeDepth));
+    const roomW = safeWidth * scale;
+    const roomH = safeDepth * scale;
     const rx = (svgW - roomW) / 2;
     const ry = (svgH - roomH) / 2;
-    const wallThick = Math.max(8, Math.round(230 * scale));
+    const wallThick = Math.max(8, Math.round(wallThicknessMm * scale));
     const zoneThick = Math.max(12, Math.round(450 * scale));
 
     return {
@@ -242,7 +252,7 @@ export function RoomBuilder() {
       wallThick,
       zoneThick,
     };
-  }, [widthMm, depthMm]);
+  }, [widthMm, depthMm, wallThicknessMm]);
 
   function saveLocal() {
     if (!valid) {
@@ -250,7 +260,9 @@ export function RoomBuilder() {
       return;
     }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
-    setMessage('Saved locally. Continue this room into a verified studio project or cutlist.');
+    setMessage(dimensionsConfirmed
+      ? 'Room proposal saved locally. Project geometry still needs review and approval.'
+      : 'Draft saved locally as an unconfirmed room proposal.');
   }
 
   function download() {
@@ -261,25 +273,27 @@ export function RoomBuilder() {
     link.download = `${draft.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'ultida-room'}-layout.json`;
     link.click();
     URL.revokeObjectURL(url);
-    setMessage('Measured room layout downloaded.');
+    setMessage(dimensionsConfirmed ? 'Room proposal downloaded.' : 'Unconfirmed room proposal downloaded for reference.');
   }
 
   function addOpening(kind: OpeningKind) {
+    setDimensionsConfirmed(false);
     setOpenings((items) => [
       ...items,
       {
         id: crypto.randomUUID(),
         kind,
         wall: 'north',
-        offsetMm: 600,
-        widthMm: kind === 'door' ? 900 : kind === 'window' ? 1200 : 300,
-        ...(kind === 'window' ? { sillMm: 900, headMm: 2100 } : {}),
-        ...(kind === 'structural_column' ? { depthMm: 230 } : {}),
+        offsetMm: 0,
+        widthMm: 0,
+        ...(kind === 'window' ? { sillMm: 0, headMm: 0 } : {}),
+        ...(kind === 'structural_column' ? { depthMm: 0 } : {}),
       },
     ]);
   }
 
   function updateOpening(id: string, patch: Partial<Opening>) {
+    setDimensionsConfirmed(false);
     setOpenings((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   }
 
@@ -288,8 +302,8 @@ export function RoomBuilder() {
   }
 
   function continueToProject() {
-    if (!valid) {
-      setMessage('Complete the measured room first.');
+    if (!readyForProject) {
+      setMessage(!valid ? geometryIssues[0] ?? 'Correct the room geometry first.' : 'Confirm the entered room dimensions before continuing.');
       return;
     }
     window.localStorage.setItem('ultida.pendingRoomDraft.v1', JSON.stringify(draft));
@@ -300,56 +314,20 @@ export function RoomBuilder() {
     }
   }
 
-  function sendToCutlistStudio() {
-    if (!valid) {
-      setMessage('Complete the room dimensions first.');
-      return;
-    }
-    // Determine the primary joinery wall based on architectural zoning priority
-    const candidates: Array<{ wall: 'north' | 'east' | 'south' | 'west'; zone: WallZoneType; usable: number }> = [
-      { wall: 'north', zone: wallZones.north, usable: wallUsableStats.north.usableMm },
-      { wall: 'east', zone: wallZones.east, usable: wallUsableStats.east.usableMm },
-      { wall: 'south', zone: wallZones.south, usable: wallUsableStats.south.usableMm },
-      { wall: 'west', zone: wallZones.west, usable: wallUsableStats.west.usableMm },
-    ];
-    const priority = ['wardrobe_suite', 'modular_kitchen', 'tv_entertainment', 'crockery_unit', 'study_desk'];
-    candidates.sort((a, b) => {
-      const pA = priority.indexOf(a.zone);
-      const pB = priority.indexOf(b.zone);
-      const scoreA = pA >= 0 ? pA : 99;
-      const scoreB = pB >= 0 ? pB : 99;
-      return scoreA - scoreB || b.usable - a.usable;
-    });
-
-    const chosen = candidates[0];
-    const chosenZoneLabel = ZONE_OPTIONS.find((z) => z.value === chosen.zone)?.label ?? 'Wardrobe Suite';
-    const targetWidth = Math.max(1200, Math.min(4200, chosen.usable > 600 ? chosen.usable : widthMm));
-
-    const generated = generateParametricCabinetAnatomy(
-      `${draft.name} ${chosenZoneLabel}`,
-      targetWidth,
-      Math.min(2400, draft.ceilingHeightMm - 100),
-      600
-    );
-
-    window.localStorage.setItem('ultida_cutlist_source', JSON.stringify(generated));
-    navigate('/tools/cutlist');
-  }
-
   return (
     <main className="room-builder">
       {/* ─── Hero Header ─── */}
       <section className="room-builder-hero">
         <div>
-          <p>ARCHITECTURAL ROOM BUILDER &amp; LAYOUT ENGINE</p>
-          <h1>Advanced Room Geometry &amp; Wall Zoning</h1>
+          <p>ROOM BUILDER · DESIGN PROPOSAL</p>
+          <h1>Set up one room</h1>
           <span>
-            Design measured room shells, partition wall bays, calibrate openings and structural elements, and seamlessly send 2D furniture specifications to the Cutlist Studio for <strong>&lt; 5% sheet wastage</strong>.
+            Enter room and opening measurements, arrange wall zones, then continue to your project for geometry review. This standalone proposal does not create fabrication drawings or a cutlist.
           </span>
         </div>
         <div className="room-builder-stats">
           <strong>{areaSqm} m²</strong>
-          <small>{draft.widthMm} × {draft.depthMm} × {draft.ceilingHeightMm} mm</small>
+          <small>{draft.widthMm || '—'} × {draft.depthMm || '—'} × {draft.ceilingHeightMm || '—'} mm · measured values required</small>
         </div>
       </section>
 
@@ -359,7 +337,7 @@ export function RoomBuilder() {
           <div className="room-builder-step">
             <span>1</span>
             <div>
-              <strong>Measured Geometry &amp; Typology</strong>
+              <strong>Room dimensions &amp; typology</strong>
               <small>All dimensions stored in exact millimetres.</small>
             </div>
           </div>
@@ -382,8 +360,8 @@ export function RoomBuilder() {
               <input
                 type="number"
                 min="600"
-                value={widthMm}
-                onChange={(event) => setWidthMm(Number(event.target.value))}
+                value={widthMm || ''}
+                onChange={(event) => { setDimensionsConfirmed(false); setWidthMm(event.target.value === '' ? 0 : Number(event.target.value)); }}
               />
             </label>
             <label>
@@ -391,8 +369,8 @@ export function RoomBuilder() {
               <input
                 type="number"
                 min="600"
-                value={depthMm}
-                onChange={(event) => setDepthMm(Number(event.target.value))}
+                value={depthMm || ''}
+                onChange={(event) => { setDimensionsConfirmed(false); setDepthMm(event.target.value === '' ? 0 : Number(event.target.value)); }}
               />
             </label>
             <label className="span-2">
@@ -400,10 +378,34 @@ export function RoomBuilder() {
               <input
                 type="number"
                 min="1800"
-                value={ceilingHeightMm}
-                onChange={(event) => setCeilingHeightMm(Number(event.target.value))}
+                value={ceilingHeightMm || ''}
+                onChange={(event) => { setDimensionsConfirmed(false); setCeilingHeightMm(event.target.value === '' ? 0 : Number(event.target.value)); }}
               />
             </label>
+            <label className="span-2">
+              Wall thickness (mm)
+              <input
+                type="number"
+                min="75"
+                value={wallThicknessMm || ''}
+                onChange={(event) => { setDimensionsConfirmed(false); setWallThicknessMm(event.target.value === '' ? 0 : Number(event.target.value)); }}
+              />
+            </label>
+            <label className="span-2" style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+              <input
+                type="checkbox"
+                checked={dimensionsConfirmed}
+                disabled={!valid}
+                onChange={(event) => setDimensionsConfirmed(event.target.checked)}
+                style={{ width: 16, marginTop: 3 }}
+              />
+              <span>I checked these room and opening measurements against the site plan.</span>
+            </label>
+            {!valid && geometryIssues.length > 0 && (
+              <div className="span-2" role="alert" style={{ color: '#9a3412', fontSize: 12 }}>
+                {geometryIssues.map((issue) => <div key={issue}>{issue}</div>)}
+              </div>
+            )}
           </div>
 
           {/* Wall Bay Zoning */}
@@ -417,7 +419,7 @@ export function RoomBuilder() {
 
           <div className="room-builder-grid">
             <label>
-              North Wall Zone ({widthMm}mm)
+              North Wall Zone ({widthMm || 'unmeasured'} mm)
               <select
                 value={wallZones.north}
                 onChange={(e) => updateWallZone('north', e.target.value as WallZoneType)}
@@ -429,7 +431,7 @@ export function RoomBuilder() {
             </label>
 
             <label>
-              East Wall Zone ({depthMm}mm)
+              East Wall Zone ({depthMm || 'unmeasured'} mm)
               <select
                 value={wallZones.east}
                 onChange={(e) => updateWallZone('east', e.target.value as WallZoneType)}
@@ -441,7 +443,7 @@ export function RoomBuilder() {
             </label>
 
             <label>
-              South Wall Zone ({widthMm}mm)
+              South Wall Zone ({widthMm || 'unmeasured'} mm)
               <select
                 value={wallZones.south}
                 onChange={(e) => updateWallZone('south', e.target.value as WallZoneType)}
@@ -453,7 +455,7 @@ export function RoomBuilder() {
             </label>
 
             <label>
-              West Wall Zone ({depthMm}mm)
+              West Wall Zone ({depthMm || 'unmeasured'} mm)
               <select
                 value={wallZones.west}
                 onChange={(e) => updateWallZone('west', e.target.value as WallZoneType)}
@@ -510,9 +512,9 @@ export function RoomBuilder() {
                       type="number"
                       min="0"
                       max={maxWall}
-                      value={opening.offsetMm}
+                      value={opening.offsetMm || ''}
                       onChange={(event) =>
-                        updateOpening(opening.id, { offsetMm: Number(event.target.value) })
+                        updateOpening(opening.id, { offsetMm: event.target.value === '' ? 0 : Number(event.target.value) })
                       }
                     />
                   </label>
@@ -521,9 +523,9 @@ export function RoomBuilder() {
                     <input
                       type="number"
                       min="200"
-                      value={opening.widthMm}
+                      value={opening.widthMm || ''}
                       onChange={(event) =>
-                        updateOpening(opening.id, { widthMm: Number(event.target.value) })
+                        updateOpening(opening.id, { widthMm: event.target.value === '' ? 0 : Number(event.target.value) })
                       }
                     />
                   </label>
@@ -534,9 +536,9 @@ export function RoomBuilder() {
                         <input
                           type="number"
                           min="0"
-                          value={opening.sillMm ?? 900}
+                          value={opening.sillMm || ''}
                           onChange={(event) =>
-                            updateOpening(opening.id, { sillMm: Number(event.target.value) })
+                            updateOpening(opening.id, { sillMm: event.target.value === '' ? 0 : Number(event.target.value) })
                           }
                         />
                       </label>
@@ -545,9 +547,9 @@ export function RoomBuilder() {
                         <input
                           type="number"
                           min="1"
-                          value={opening.headMm ?? 2100}
+                          value={opening.headMm || ''}
                           onChange={(event) =>
-                            updateOpening(opening.id, { headMm: Number(event.target.value) })
+                            updateOpening(opening.id, { headMm: event.target.value === '' ? 0 : Number(event.target.value) })
                           }
                         />
                       </label>
@@ -559,9 +561,9 @@ export function RoomBuilder() {
                       <input
                         type="number"
                         min="100"
-                        value={opening.depthMm ?? 230}
+                        value={opening.depthMm || ''}
                         onChange={(event) =>
-                          updateOpening(opening.id, { depthMm: Number(event.target.value) })
+                          updateOpening(opening.id, { depthMm: event.target.value === '' ? 0 : Number(event.target.value) })
                         }
                       />
                     </label>
@@ -609,7 +611,7 @@ export function RoomBuilder() {
         <aside className="room-builder-card room-builder-preview">
           <div className="preview-heading">
             <div>
-              <p>2D SPATIAL &amp; VASTU PREVIEW</p>
+              <p>2D ROOM PREVIEW</p>
               <h2>{draft.name}</h2>
             </div>
             <Sparkles size={19} />
@@ -628,7 +630,7 @@ export function RoomBuilder() {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--gold-dim)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <Compass size={14} /> Vastu Alignment
+                <Compass size={14} /> Optional Vastu reference
               </span>
               <span style={{
                 fontSize: 10.5,
@@ -724,7 +726,7 @@ export function RoomBuilder() {
               {/* Grid background */}
               <rect width={planSvg.svgW} height={planSvg.svgH} fill="url(#planGrid)" />
 
-              {/* Room Outer Boundary (230mm wall thickness) */}
+              {/* Room proposal boundary using the selected wall thickness. */}
               <rect
                 x={planSvg.rx - planSvg.wallThick}
                 y={planSvg.ry - planSvg.wallThick}
@@ -977,14 +979,18 @@ export function RoomBuilder() {
                 <polygon points="0,-21 -3.5,-10 0,-13 3.5,-10" fill="#dc2626" />
                 <polygon points="0,21 -3.5,10 0,13 3.5,10" fill="#475569" />
                 <text x="0" y="-24" textAnchor="middle" fontSize="8.5" fontWeight="900" fill="#dc2626">N</text>
+                <text x="18" y="-16" textAnchor="start" fontSize="6.5" fontWeight="700" fill="#78716c">NE</text>
                 <text x="25" y="3" textAnchor="start" fontSize="7.5" fontWeight="800" fill="#78716c">E</text>
+                <text x="18" y="20" textAnchor="start" fontSize="6.5" fontWeight="700" fill="#78716c">SE</text>
                 <text x="0" y="30" textAnchor="middle" fontSize="7.5" fontWeight="800" fill="#78716c">S</text>
+                <text x="-18" y="20" textAnchor="end" fontSize="6.5" fontWeight="700" fill="#78716c">SW</text>
                 <text x="-25" y="3" textAnchor="end" fontSize="7.5" fontWeight="800" fill="#78716c">W</text>
+                <text x="-18" y="-16" textAnchor="end" fontSize="6.5" fontWeight="700" fill="#78716c">NW</text>
               </g>
             </svg>
           ) : (
             /* ─── 3D Axonometric Shell Preview ─── */
-            <svg viewBox="0 0 420 300" role="img" aria-label="Measured room shell preview">
+            <svg viewBox="0 0 420 300" role="img" aria-label="Schematic 3D room shell. Exact opening offsets are shown in the 2D plan.">
               <polygon points="54,95 255,35 370,96 160,167" className="shell-ceiling" />
               <polygon points="54,95 160,167 160,270 54,195" className="shell-left" />
               <polygon points="160,167 370,96 370,195 160,270" className="shell-right" />
@@ -1005,6 +1011,7 @@ export function RoomBuilder() {
               <text x="210" y="288" textAnchor="middle">
                 {draft.widthMm} W × {draft.depthMm} D × {draft.ceilingHeightMm} H mm
               </text>
+              <text x="210" y="18" textAnchor="middle" fontSize="9" fill="#92400e">Schematic opening positions · use the 2D plan for measured offsets</text>
             </svg>
           )}
 
@@ -1082,22 +1089,6 @@ export function RoomBuilder() {
 
           {/* Action CTAs */}
           <div className="room-builder-actions">
-            <button
-              type="button"
-              className="primary"
-              style={{
-                background: 'linear-gradient(135deg, #c59c2d 0%, #a88220 100%)',
-                color: '#1a1208',
-                fontWeight: 800,
-                boxShadow: '0 2px 10px rgba(197, 156, 45, 0.35)',
-              }}
-              onClick={sendToCutlistStudio}
-              disabled={!valid}
-            >
-              <Scissors size={15} />
-              <span>⚡ Send to Cutlist Studio (&lt; 5% Waste)</span>
-            </button>
-
             <button type="button" onClick={saveLocal} disabled={!valid}>
               <Save size={15} /> Save offline draft
             </button>
@@ -1106,11 +1097,12 @@ export function RoomBuilder() {
               <Download size={15} /> Download Layout JSON
             </button>
 
-            <button type="button" className="primary" onClick={continueToProject} disabled={!valid}>
+            <button type="button" className="primary" onClick={continueToProject} disabled={!readyForProject}>
               <Upload size={15} /> Open in {selectedProjectId ? 'Project' : 'Projects'} <ArrowRight size={15} />
             </button>
           </div>
 
+          <p className="room-builder-note">A local room proposal cannot create a manufacturing cutlist. First add it to a project, review its measured geometry, then place a catalog module in Spaces.</p>
           <p role="status" className="room-builder-message">{message}</p>
         </aside>
       </div>

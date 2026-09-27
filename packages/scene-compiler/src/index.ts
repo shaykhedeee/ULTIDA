@@ -17,6 +17,7 @@ export type CompiledModulePart = {
   rotationDeg?: number;
   anchor?: 'floor' | 'wall' | 'ceiling' | 'free';
   materialId?: string;
+  materialSlots?: Partial<Record<'carcass' | 'shutter' | 'hardware' | 'countertop' | 'backPanel' | 'glass' | 'metal' | 'lighting', string>>;
   glbUrl?: string;
   semanticType?: string;
   name?: string;
@@ -33,7 +34,7 @@ export type SceneCompilerInput = {
   plan: CanonicalPlanModel;
   modules?: CompiledModulePart[];
   moduleParts?: CompiledModulePart[];
-  materials?: Array<{ id: string; name: string; code: string; finish?: string }>;
+  materials?: Array<{ id: string; name: string; code: string; finish?: string; colorHex?: string; roughness?: number; metalness?: number; unitCost?: number }>;
   compositionSchedules?: CompositionScheduleV1[];
   floorSurfaces?: FloorSurfaceV1[];
   designIntent?: RenderIntentV1;
@@ -480,6 +481,7 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     rotationDeg: module.rotationDeg ?? 0,
     anchor: module.anchor ?? 'floor',
     materialId: module.materialId,
+    materialSlots: module.materialSlots,
     glbUrl: module.glbUrl,
     confidence: 1,
   }));
@@ -564,7 +566,7 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
       modules,
       moduleParts,
       compositions,
-      materials: input.materials ?? [],
+    materials: input.materials ?? [],
       lighting: combinedLighting,
     // Cameras use renderer Y-up coordinates; plan Y becomes camera Z.
     cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: cameraCenter.xMm, yMm: 1500, zMm: cameraCenter.yMm }, target: cameraTarget, lensMm: 24 }],
