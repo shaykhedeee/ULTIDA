@@ -691,7 +691,7 @@ async function readApprovedProductionContext(request: express.Request) {
   if (!['approved', 'locked'].includes(String(result.data.status))) throw Object.assign(new Error('Approve this exact scene before creating manufacturing outputs.'), { status: 409, code: 'SCENE_NOT_PRODUCTION_READY' });
   const scene = migrateScene(result.data.scene);
   assertSceneBayReconciliation(scene);
-  return { scene, snapshot: buildProductionSnapshot(scene) };
+  return { scene, snapshot: buildProductionSnapshot(scene, undefined, IndianModularCatalog) };
 }
 
 async function readApprovedProductionScene(request: express.Request) {
@@ -839,7 +839,7 @@ app.get('/api/projects/:projectId/dossier.pdf', requireProjectUser, async (reque
         metadata: { status: 'approved', designVersion: 'scene-01' },
       });
     }
-    const snapshot = buildProductionSnapshot(sceneToUse);
+    const snapshot = buildProductionSnapshot(sceneToUse, undefined, IndianModularCatalog);
     const dossier = await buildDossierSpecFromContext(request, sceneToUse, snapshot);
     const stream = new PassThrough();
     const chunks: Buffer[] = [];

@@ -8,7 +8,7 @@ test('cutlist requires exact scene.v1 module parts', () => {
 
 test('cutlist derives production rows from exact scene.v1 parts', () => {
   const result = buildCutlist({
-    projectId: 'project-1', modules: [{ id: 'module-1', family: 'tv-unit' }],
+    projectId: 'project-1', modules: [{ id: 'module-1', family: 'tv-unit', templateId: 'tv-fluted-2400' }],
     moduleParts: [{ id: 'module-1-shutter-1', moduleId: 'module-1', roomId: 'living', semanticType: 'shutter', name: 'Front shutter', widthMm: 450, depthMm: 18, heightMm: 564, materialId: 'mat-oak' }],
     metadata: { status: 'approved', designVersion: 'scene-1' },
   } as any);
@@ -25,7 +25,7 @@ test('cutlist derives production rows from exact scene.v1 parts', () => {
 
 test('cutlist keeps every identical scene component as a traceable physical part', () => {
   const result = buildCutlist({
-    projectId: 'project-1', modules: [{ id: 'module-1', family: 'wardrobe' }],
+    projectId: 'project-1', modules: [{ id: 'module-1', family: 'wardrobe', templateId: 'wardrobe-2100-four-shutter' }],
     moduleParts: [
       { id: 'shelf-1', moduleId: 'module-1', roomId: 'bedroom', semanticType: 'shelf', name: 'Shelf 1', widthMm: 800, depthMm: 500, heightMm: 18, materialId: 'ply-18' },
       { id: 'shelf-2', moduleId: 'module-1', roomId: 'bedroom', semanticType: 'shelf', name: 'Shelf 2', widthMm: 800, depthMm: 500, heightMm: 18, materialId: 'ply-18' },
@@ -40,7 +40,7 @@ test('cutlist generator excludes uncertified modules and surfaces excludedModule
   const result = buildCutlist({
     projectId: 'project-gating-test',
     modules: [
-      { id: 'kitchen-base-1', family: 'kitchen-base', name: 'Base Pot Drawer' },
+      { id: 'kitchen-base-1', family: 'kitchen-base', templateId: 'kit-base-600', name: 'Base Pot Drawer' },
       { id: 'sofa-sectional-1', family: 'sofa', name: 'Sectional Sofa', production: { panelBased: false, hardwareSchedule: false, cutlistSupported: false } },
     ],
     moduleParts: [

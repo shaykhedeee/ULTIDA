@@ -26,7 +26,7 @@ test('measured golden room preserves placement, door/window geometry and revisio
     { id: '00000000-0000-4000-8000-000000000010', wallId: plan.walls[1].id, offsetMm: 800, widthMm: 900, heightMm: 2100, verification: 'verified' },
     { id: '00000000-0000-4000-8000-000000000011', wallId: plan.walls[2].id, offsetMm: 900, widthMm: 1200, sillMm: 900, headMm: 2100, verification: 'verified' },
   ];
-  const proposal = { id: '00000000-0000-4000-8000-000000000020', space_id: roomId, category: 'tv-unit', template_id: 'tv-1800', config_json: { widthMm: 1800, depthMm: 400, heightMm: 600 }, position_json: { wallId: plan.walls[0].id, offsetMm: 1000 } };
+  const proposal = { id: '00000000-0000-4000-8000-000000000020', space_id: roomId, category: 'tv-unit', template_id: 'tv-bedroom-1800', config_json: { widthMm: 1800, depthMm: 400, heightMm: 600 }, position_json: { wallId: plan.walls[0].id, offsetMm: 1000 } };
   const placement = prepareModulePlacement(proposal, plan, roomId, []);
   assert.ok(placement.ok, JSON.stringify(placement));
   if (!placement.ok) return;

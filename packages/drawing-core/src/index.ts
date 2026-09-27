@@ -960,9 +960,8 @@ export function buildProductionSnapshot(
 
     // Look up catalog item if lookup provided
     const catalogItem = catalogLookup
-      ? (resolveCatalogEntry(catalogLookup, module.id) ??
+      ? ((rawMod.templateId ? resolveCatalogEntry(catalogLookup, rawMod.templateId) : undefined) ??
          (rawMod.catalogItemId ? resolveCatalogEntry(catalogLookup, rawMod.catalogItemId) : undefined) ??
-         (rawMod.templateId ? resolveCatalogEntry(catalogLookup, rawMod.templateId) : undefined) ??
          (rawMod.sku ? resolveCatalogEntry(catalogLookup, rawMod.sku) : undefined))
       : undefined;
 
@@ -970,12 +969,14 @@ export function buildProductionSnapshot(
     const moduleCutlistSupported = rawMod?.production?.cutlistSupported ?? rawMod?.cutlistSupported;
     const catalogEntryCutlistSupported = rawMod?.catalogEntry?.production?.cutlistSupported ?? rawMod?.catalog?.production?.cutlistSupported;
 
-    const isExplicitlySupported = moduleCutlistSupported === true || catalogEntryCutlistSupported === true || catalogCutlistSupported === true;
+    const isExplicitlySupported = catalogLookup
+      ? catalogCutlistSupported === true
+      : moduleCutlistSupported === true || catalogEntryCutlistSupported === true || catalogCutlistSupported === true;
     const isExplicitlyUnsupported = moduleCutlistSupported === false || catalogEntryCutlistSupported === false || catalogCutlistSupported === false;
     const isCertifiedFamily = FABRICATION_CERTIFIED_FAMILIES.has(fam);
     const isUncertifiedFamily = UNCERTIFIED_MODULE_FAMILIES.has(fam);
 
-    if (isExplicitlyUnsupported || (!isExplicitlySupported && (isUncertifiedFamily || !isCertifiedFamily))) {
+    if (isExplicitlyUnsupported || (!isExplicitlySupported && (catalogLookup ? true : (isUncertifiedFamily || !isCertifiedFamily)))) {
       excludedModuleIds.add(module.id);
       excludedModules.push({
         moduleId: module.id,
@@ -983,7 +984,11 @@ export function buildProductionSnapshot(
         moduleName: rawMod.name ?? catalogItem?.name ?? module.id,
         reason: isExplicitlyUnsupported
           ? `Module '${module.id}' catalog definition declares cutlistSupported: false.`
-          : `Module family '${module.family}' is uncertified for panel cutlist generation (loose/accent furniture). Withheld from nesting.`,
+          : catalogLookup && !catalogItem
+            ? `Module '${module.id}' template '${rawMod.templateId ?? 'unknown'}' is missing from the approved catalog. Withheld from nesting.`
+            : catalogLookup
+              ? `Catalog template '${rawMod.templateId ?? module.id}' is not explicitly certified for cutlist fabrication. Withheld from nesting.`
+              : `Module family '${module.family}' is uncertified for panel cutlist generation (loose/accent furniture). Withheld from nesting.`,
       });
     }
   }
@@ -1045,7 +1050,9 @@ export function buildProductionSnapshot(
       materialCode, quantity: 1, status: 'review_required', sourceSceneVersion: scene.metadata.designVersion,
     });
   }
-  if (!parts.length) throw new Error('NO_SHEET_PARTS_AVAILABLE');
+  if (!parts.length) throw new Error(excludedModules.length
+    ? `NO_CERTIFIED_SHEET_PARTS_AVAILABLE: ${excludedModules.map((module) => module.reason).join(' ')}`
+    : 'NO_SHEET_PARTS_AVAILABLE');
   return { schema: 'production.snapshot.v1', projectId: scene.projectId, sceneVersion: scene.metadata.designVersion, fabricationRules: rules, status: 'review_required', parts, hardware, warnings, excludedModules };
 }
 

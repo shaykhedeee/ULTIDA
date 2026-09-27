@@ -51,8 +51,8 @@ const sampleScene: SceneV1 = {
   constraints: [],
   unresolvedDetections: [],
   modules: [
-    { id: 'mod-wardrobe-1', roomId: 'r-master', family: 'wardrobe', widthMm: 1100, depthMm: 600, heightMm: 1100, position: { xMm: 500, yMm: 100 }, rotationDeg: 0, anchor: 'wall', confidence: 1 },
-    { id: 'mod-kitchen-base', roomId: 'r-kitchen', family: 'kitchen-base', widthMm: 1800, depthMm: 600, heightMm: 850, position: { xMm: 200, yMm: 100 }, rotationDeg: 0, anchor: 'wall', confidence: 1 },
+    { id: 'mod-wardrobe-1', templateId: 'wardrobe-2100-four-shutter', roomId: 'r-master', family: 'wardrobe', widthMm: 1100, depthMm: 600, heightMm: 1100, position: { xMm: 500, yMm: 100 }, rotationDeg: 0, anchor: 'wall', confidence: 1 },
+    { id: 'mod-kitchen-base', templateId: 'kit-base-600', roomId: 'r-kitchen', family: 'kitchen-base', widthMm: 1800, depthMm: 600, heightMm: 850, position: { xMm: 200, yMm: 100 }, rotationDeg: 0, anchor: 'wall', confidence: 1 },
   ],
   moduleParts: [
     { id: 'p1', moduleId: 'mod-wardrobe-1', roomId: 'r-master', semanticType: 'panel', name: 'Side Gable Left', widthMm: 18, depthMm: 600, heightMm: 2400, position: { xMm: 500, yMm: 100, zMm: 0 }, rotationDeg: 0, confidence: 1 },

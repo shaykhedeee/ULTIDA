@@ -71,7 +71,7 @@ export function compileStoredModuleForScene(
 
   const catalogModule = IndianModularCatalog.find((candidate) => candidate.id === module.template_id);
   const moduleEnvelope: CompiledModulePart = {
-    id: module.id, roomId: module.space_id, family, widthMm, depthMm, heightMm,
+    id: module.id, templateId: module.template_id, roomId: module.space_id, family, widthMm, depthMm, heightMm,
     xMm, yMm, zMm: Number(position.zMm ?? 0), rotationDeg, anchor: 'wall', materialId: typeof config.materialId === 'string' ? config.materialId : undefined,
     // Asset URLs are resolved only from the trusted catalog record, never from
     // browser module config. The renderer falls back to this exact envelope if

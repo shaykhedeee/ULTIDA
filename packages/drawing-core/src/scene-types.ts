@@ -26,6 +26,7 @@ export type SceneOpeningV1 = {
 
 export type SceneModuleV1 = {
   id: string;
+  templateId?: string;
   roomId?: string;
   spaceId?: string;
   family: string;

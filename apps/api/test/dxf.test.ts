@@ -18,7 +18,7 @@ const approvedScene = {
   openings: [], fixedFixtures: [], materials: [], lighting: [], cameras: [{ id: 'camera-1', name: 'Test', position: { xMm: 2000, yMm: -1800, zMm: 1500 }, target: { xMm: 2000, yMm: 1000, zMm: 1200 }, lensMm: 35 }], constraints: [], unresolvedDetections: [],
   metadata: { branch: 'main', status: 'approved', changeReason: 'Test approval', schemaVersion: 'scene.v1', designVersion: 'test' },
   walls: [{ id: 'wall-1', floorId: 'floor-1', start: { xMm: 125, yMm: 240 }, end: { xMm: 3125, yMm: 240 }, thicknessMm: 150, heightMm: 2700, baseElevationMm: 0, spaceIds: ['space-1'], confidence: 1 }],
-  modules: [{ id: 'module-1', roomId: 'room-1', family: 'wardrobe', widthMm: 900, depthMm: 600, heightMm: 2400, position: { xMm: 400, yMm: 700 }, rotationDeg: 0, anchor: 'wall', confidence: 1 }],
+  modules: [{ id: 'module-1', templateId: 'wardrobe-2100-four-shutter', roomId: 'room-1', family: 'wardrobe', widthMm: 900, depthMm: 600, heightMm: 2400, position: { xMm: 400, yMm: 700 }, rotationDeg: 0, anchor: 'wall', confidence: 1 }],
   moduleParts: [
     ...[
       ['panel', 'Wardrobe side panel', 2400, 600, 18],

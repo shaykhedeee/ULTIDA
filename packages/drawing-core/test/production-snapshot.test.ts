@@ -76,6 +76,16 @@ test('certification gating excludes uncertified modules and surfaces them explic
   assert.ok(snapshot.warnings.some((w) => w.includes('sofa-1') && w.includes('uncertified')));
 });
 
+test('production catalog lookup requires the exact catalog template to be cutlist certified', () => {
+  const scene = {
+    projectId: 'project-catalog-certification',
+    modules: [{ id: 'wardrobe-1', templateId: 'wardrobe-not-in-catalog', family: 'wardrobe' }],
+    moduleParts: [{ id: 'panel-1', moduleId: 'wardrobe-1', roomId: 'bedroom', semanticType: 'panel', name: 'Side panel', widthMm: 18, depthMm: 560, heightMm: 2200, position: { xMm: 0, yMm: 0 }, materialId: 'ply-18' }],
+    metadata: { status: 'approved', designVersion: 'catalog-cert-1' },
+  } as any;
+  assert.throws(() => buildProductionSnapshot(scene, undefined, [{ id: 'wardrobe-2100-four-shutter', family: 'wardrobe', production: { cutlistSupported: true } }]), /NO_CERTIFIED_SHEET_PARTS_AVAILABLE/);
+});
+
 test('grain-direction-aware nesting respects vertical/horizontal constraints and yields denser packing when unconstrained', () => {
   // A fixture panel that cannot fit in height if vertical (e.g., width 1190, length 1300)
   // Usable sheet space is 2420 x 1200 (trimmed from 2440 x 1220)

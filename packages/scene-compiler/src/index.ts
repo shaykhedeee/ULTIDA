@@ -4,6 +4,7 @@ import { SceneV1Schema, type SceneV1, type RenderIntentV1 } from '@ultida/scene-
 
 export type CompiledModulePart = {
   id: string;
+  templateId?: string;
   moduleId?: string;
   roomId: string;
   family: string;
@@ -469,6 +470,7 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
   });
   const modules = (input.modules ?? []).map((module) => ({
     id: module.id,
+    templateId: module.templateId,
     roomId: module.roomId,
     family: module.family,
     widthMm: module.widthMm,
