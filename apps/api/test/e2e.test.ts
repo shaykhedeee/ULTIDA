@@ -58,7 +58,7 @@ test('E2E project flow: Brief -> Plan -> Scene (confirm mutation) -> Document (P
     assert.ok(sceneData.success);
     assert.equal(sceneData.scene.schema, 'scene.v1');
 
-    // 3. Document check: PDF elevations export
+    // 3. A browser-supplied "approved" scene is not production authority.
     const pdfRes = await fetch(`${baseUrl}/api/drawings/elevations.pdf`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -68,8 +68,8 @@ test('E2E project flow: Brief -> Plan -> Scene (confirm mutation) -> Document (P
         scene: { ...sceneData.scene, metadata: { ...sceneData.scene.metadata, status: 'approved' } }
       })
     });
-    assert.equal(pdfRes.status, 200);
-    assert.match(pdfRes.headers.get('content-type') ?? '', /^application\/pdf/);
+    assert.equal(pdfRes.status, 401);
+    assert.equal((await pdfRes.json()).code, 'AUTH_REQUIRED');
 
     const estimateRes = await fetch(`${baseUrl}/api/commercial/estimates`, {
       method: 'POST',

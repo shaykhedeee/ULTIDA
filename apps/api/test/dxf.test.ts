@@ -7,7 +7,7 @@ import { writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app } from '../src/index.js';
-import { exportSceneToDxf } from '@ultida/drawing-core';
+import { exportSceneToDxf, generateDrawingPackageSvg } from '@ultida/drawing-core';
 
 const approvedScene = {
   schema: 'scene.v1', units: 'mm', projectId: 'project-1', floorPlanVersionId: 'plan-1',
@@ -105,23 +105,89 @@ test('canonical writer skips invalid module dimensions explicitly', () => {
   assert.equal((dxf.match(/ULTIDA-MODULES/g) ?? []).length, 0);
 });
 
-test('DXF route rejects missing sceneVersionId and non-production scenes', async () => {
+test('legacy DXF route rejects caller-supplied approval without project authentication', async () => {
   await withServer(async (baseUrl) => {
-    const missing = await fetch(`${baseUrl}/api/drawings/dxf`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'project-1', scene: approvedScene }) });
-    assert.equal(missing.status, 400);
-    const draft = await fetch(`${baseUrl}/api/drawings/dxf`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'project-1', sceneVersionId: 'scene-1', scene: { ...approvedScene, metadata: { ...approvedScene.metadata, status: 'draft' } } }) });
-    assert.equal(draft.status, 409);
-    const stale = await fetch(`${baseUrl}/api/drawings/dxf`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'project-1', sceneVersionId: 'scene-1', scene: { ...approvedScene, metadata: { ...approvedScene.metadata, status: 'stale' } } }) });
-    assert.equal(stale.status, 409);
+    const response = await fetch(`${baseUrl}/api/drawings/dxf`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'project-1', sceneVersionId: 'scene-1', scene: approvedScene }) });
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).code, 'AUTH_REQUIRED');
   });
 });
 
-test('DXF route returns application/dxf for an approved scene', async () => {
+test('legacy PDF, SVG and cutlist routes cannot export forged client-approved scene payloads', async () => {
   await withServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/drawings/dxf`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'project-1', sceneVersionId: 'scene-1', scene: approvedScene }) });
-    assert.equal(response.status, 200);
-    assert.match(response.headers.get('content-type') ?? '', /^application\/dxf/);
-    assert.match(await response.text(), /A-WALL/);
+    const body = JSON.stringify({ projectId: 'project-1', sceneVersionId: 'scene-1', scene: approvedScene });
+    const requests = [
+      '/api/drawings/elevations.pdf',
+      '/api/drawings/elevations.svg',
+      '/api/production/cutlist',
+      '/api/production/cutlist.csv',
+      '/api/production/wall-elevation.svg',
+      '/api/production/boq',
+      '/api/production/boq.csv',
+      '/api/drawings/cnc-panel.dxf',
+    ];
+    for (const path of requests) {
+      const response = await fetch(`${baseUrl}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+      assert.equal(response.status, 401, `${path} must require project membership`);
+      assert.equal((await response.json()).code, 'AUTH_REQUIRED');
+    }
+  });
+});
+
+test('authenticated export ignores caller scene and renders the exact approved persisted revision', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnv = {
+    url: process.env.SUPABASE_URL,
+    publishableKey: process.env.SUPABASE_PUBLISHABLE_KEY,
+    secretKey: process.env.SUPABASE_SECRET_KEY,
+  };
+  process.env.SUPABASE_URL = 'https://unit-test.supabase.co';
+  process.env.SUPABASE_PUBLISHABLE_KEY = 'unit-test-key';
+  delete process.env.SUPABASE_SECRET_KEY;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const requestUrl = input instanceof Request ? input.url : String(input);
+    const url = new URL(requestUrl);
+    if (url.hostname !== 'unit-test.supabase.co') return originalFetch(input, init);
+    if (url.pathname === '/auth/v1/user') return Response.json({ id: 'user-1', email: 'designer@example.test' });
+    if (url.pathname === '/rest/v1/projects') return Response.json([{ id: 'project-1', organization_id: 'org-1' }]);
+    if (url.pathname === '/rest/v1/organization_members') return Response.json([{ organization_id: 'org-1' }]);
+    if (url.pathname === '/rest/v1/scene_versions') return Response.json([{ id: 'scene-1', status: 'approved', scene: approvedScene }]);
+    return Response.json({ message: `Unexpected test request: ${url.pathname}` }, { status: 404 });
+  }) as typeof fetch;
+
+  await withServer(async (baseUrl) => {
+    try {
+      const forgedScene = { ...approvedScene, walls: [], modules: [], moduleParts: [] };
+      const response = await fetch(`${baseUrl}/api/drawings/elevations.svg`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer test-session' },
+        body: JSON.stringify({ projectId: 'project-1', sceneVersionId: 'scene-1', scene: forgedScene }),
+      });
+      const svg = await response.text();
+      assert.equal(response.status, 200, svg);
+      assert.equal(svg, generateDrawingPackageSvg(approvedScene as any));
+
+      const sketchup = await fetch(`${baseUrl}/api/projects/project-1/export/sketchup?sceneVersionId=scene-1`, {
+        headers: { authorization: 'Bearer test-session' },
+      });
+      const ruby = await sketchup.text();
+      assert.equal(sketchup.status, 200, ruby);
+      assert.match(ruby, /Sketchup\.active_model/);
+      assert.match(ruby, /3125/);
+
+      const productionPlan = await fetch(`${baseUrl}/api/projects/project-1/drawings/plan.dxf`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer test-session' },
+        body: JSON.stringify({ planVersionId: 'plan-1', geometryMode: 'final_production', mmPerPixel: 1, elements: [{ kind: 'wall' }] }),
+      });
+      assert.equal(productionPlan.status, 409);
+      assert.equal((await productionPlan.json()).code, 'APPROVED_SCENE_REQUIRED');
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalEnv.url === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = originalEnv.url;
+      if (originalEnv.publishableKey === undefined) delete process.env.SUPABASE_PUBLISHABLE_KEY; else process.env.SUPABASE_PUBLISHABLE_KEY = originalEnv.publishableKey;
+      if (originalEnv.secretKey === undefined) delete process.env.SUPABASE_SECRET_KEY; else process.env.SUPABASE_SECRET_KEY = originalEnv.secretKey;
+    }
   });
 });
 
@@ -155,32 +221,22 @@ test('plan analyzer never claims success without an analyzer key or explicit bas
   }
 });
 
-test('cutlist route creates review-required rectangular panel parts from an approved scene', async () => {
+test('legacy cutlist route blocks untrusted caller-approved geometry', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/production/cutlist`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'project-1', sceneVersionId: 'scene-1', scene: approvedScene }) });
-    assert.equal(response.status, 200);
-    const payload = await response.json();
-    assert.equal(payload.cutlist.partCount, 7);
-    assert.equal(payload.cutlist.parts[0].status, 'review_required');
-    assert.equal(payload.cutlist.parts[0].lengthMm, 2400);
-    assert.equal(payload.cutlist.parts[0].thicknessMm, 18);
-    assert.equal(payload.cutlist.parts[0].partInstanceId, 'module-1-part-1');
-    assert.equal(payload.cutlist.fabricationRules.backPanelThicknessMm, 6);
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).code, 'AUTH_REQUIRED');
   });
 });
 
-test('elevation and cutlist exports return real scene-linked files', async () => {
+test('legacy elevation and cutlist export routes reject unauthenticated requests', async () => {
   await withServer(async (baseUrl) => {
     const body = { projectId: 'project-1', sceneVersionId: 'scene-1', scene: approvedScene };
     const elevation = await fetch(`${baseUrl}/api/drawings/elevations.svg`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    assert.equal(elevation.status, 200);
-    assert.match(await elevation.text(), /drawing\.projection\.v1|Floor plan|wall-elevations/);
+    assert.equal(elevation.status, 401);
     const pdf = await fetch(`${baseUrl}/api/drawings/elevations.pdf`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    assert.equal(pdf.status, 200);
-    assert.match(pdf.headers.get('content-type') ?? '', /^application\/pdf/);
-    assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString('ascii'), '%PDF-');
+    assert.equal(pdf.status, 401);
     const csv = await fetch(`${baseUrl}/api/production/cutlist.csv`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    assert.equal(csv.status, 200);
-    assert.match(await csv.text(), /part_id,module_id,family/);
+    assert.equal(csv.status, 401);
   });
 });

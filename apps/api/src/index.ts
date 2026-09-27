@@ -549,12 +549,13 @@ app.post('/api/scene/materialize', (request, response) => {
   return response.status(201).json({ success: true, scene });
 });
 
-app.post('/api/drawings/elevations.pdf', async (request, response) => {
-  const { projectId, sceneVersionId, scene } = request.body ?? {};
-  if (!projectId || !sceneVersionId || !scene) return response.status(400).json({ success: false, code: 'INVALID_DRAWING_REQUEST' });
-  const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
-  try { assertSceneBayReconciliation(normalized); } catch (error: any) { return response.status(error.status ?? 422).json({ success: false, code: error.code ?? 'BAY_RECONCILIATION_BLOCKED', message: error.message, issues: error.issues }); }
-  if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY' });
+app.post('/api/drawings/elevations.pdf', requireProjectUser, async (request, response) => {
+  const projectId = String(request.body?.projectId ?? '');
+  const sceneVersionId = String(request.body?.sceneVersionId ?? '');
+  if (!projectId || !sceneVersionId) return response.status(400).json({ success: false, code: 'INVALID_DRAWING_REQUEST', message: 'Project and saved scene revision are required.' });
+  let normalized: SceneV1;
+  try { normalized = (await readApprovedProductionContext(request)).scene; }
+  catch (error: any) { return response.status(error.status ?? 422).json({ success: false, code: error.code ?? 'PRODUCTION_SCENE_UNAVAILABLE', message: error.message, issues: error.issues }); }
   const stream = new PassThrough();
   const chunks: Buffer[] = [];
   stream.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
@@ -595,12 +596,14 @@ app.post('/api/commercial/estimates', (request, response) => {
   });
 });
 
-app.post('/api/drawings/elevations.svg', (request, response) => {
-  const { projectId, sceneVersionId, scene, wallId, options } = request.body ?? {};
-  if (!projectId || !sceneVersionId || !scene) return response.status(400).json({ success: false, code: 'INVALID_DRAWING_REQUEST' });
-  const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
-  try { assertSceneBayReconciliation(normalized); } catch (error: any) { return response.status(error.status ?? 422).json({ success: false, code: error.code ?? 'BAY_RECONCILIATION_BLOCKED', message: error.message, issues: error.issues }); }
-  if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY' });
+app.post('/api/drawings/elevations.svg', requireProjectUser, async (request, response) => {
+  const projectId = String(request.body?.projectId ?? '');
+  const sceneVersionId = String(request.body?.sceneVersionId ?? '');
+  const { wallId, options } = request.body ?? {};
+  if (!projectId || !sceneVersionId) return response.status(400).json({ success: false, code: 'INVALID_DRAWING_REQUEST', message: 'Project and saved scene revision are required.' });
+  let normalized: SceneV1;
+  try { normalized = (await readApprovedProductionContext(request)).scene; }
+  catch (error: any) { return response.status(error.status ?? 422).json({ success: false, code: error.code ?? 'PRODUCTION_SCENE_UNAVAILABLE', message: error.message, issues: error.issues }); }
   response.setHeader('content-type', 'image/svg+xml');
   if (wallId || options?.viewMode) {
     return response.status(200).send(generateWallElevationSvg(normalized, wallId ?? '', options));
@@ -608,13 +611,10 @@ app.post('/api/drawings/elevations.svg', (request, response) => {
   return response.status(200).send(generateDrawingPackageSvg(normalized));
 });
 
-app.post('/api/production/cutlist', (request, response) => {
+app.post('/api/production/cutlist', requireProjectUser, async (request, response) => {
   try {
-    const { projectId, sceneVersionId, scene } = request.body ?? {};
-    if (!projectId || !sceneVersionId || !scene) return response.status(400).json({ success: false, code: 'INVALID_CUTLIST_REQUEST' });
-    const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
-    assertSceneBayReconciliation(normalized);
-    if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY' });
+    if (!request.body?.sceneVersionId) return response.status(400).json({ success: false, code: 'INVALID_CUTLIST_REQUEST', message: 'A saved scene revision is required.' });
+    const { scene: normalized } = await readApprovedProductionContext(request);
     return response.status(200).json({ success: true, cutlist: buildCutlist(normalized) });
   } catch (err: any) {
     console.error('Cutlist error:', err);
@@ -682,8 +682,9 @@ app.put('/api/projects/:projectId/scenes/:sceneVersionId/production-review', req
 });
 
 async function readApprovedProductionContext(request: express.Request) {
-  const projectId = String(request.params.projectId);
-  const sceneVersionId = String(request.params.sceneVersionId);
+  const projectId = String(request.params.projectId ?? request.body?.projectId ?? '');
+  const sceneVersionId = String(request.params.sceneVersionId ?? request.body?.sceneVersionId ?? request.query.sceneVersionId ?? '');
+  if (!projectId || !sceneVersionId) throw Object.assign(new Error('A project and saved scene revision are required.'), { status: 400, code: 'SAVED_SCENE_REQUIRED' });
   const client = getRequestSupabaseClient(request);
   const result = await client.from('scene_versions').select('id,status,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
   if (result.error) throw Object.assign(new Error(result.error.message), { status: 500, code: 'SCENE_VERSION_READ_FAILED' });
@@ -821,24 +822,11 @@ app.get('/api/projects/:projectId/dossier.pdf', requireProjectUser, async (reque
     const projectId = String(request.params.projectId);
     const client = getRequestSupabaseClient(request);
     const sceneResult = await client.from('scene_versions').select('id,status,scene').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-    let sceneToUse: SceneV1;
-    if (sceneResult.data?.scene) {
-      sceneToUse = migrateScene(sceneResult.data.scene);
-    } else {
-      sceneToUse = migrateScene({
-        schema: 'scene.v1',
-        projectId,
-        floorPlanVersionId: `plan-${projectId}`,
-        floors: [{ id: 'f1', name: 'Level 01', elevationMm: 0, heightMm: 2700 }],
-        spaces: [{ id: 'sp1', floorId: 'f1', name: 'Sharma Master Suite', type: 'bedroom' }],
-        rooms: [{ id: 'r1', spaceId: 'sp1', name: 'Master Bedroom', type: 'bedroom' }],
-        walls: [],
-        openings: [],
-        modules: [],
-        moduleParts: [],
-        metadata: { status: 'approved', designVersion: 'scene-01' },
-      });
-    }
+    if (sceneResult.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: sceneResult.error.message });
+    if (!sceneResult.data?.scene) return response.status(409).json({ success: false, code: 'APPROVED_SCENE_REQUIRED', message: 'Compile and approve a saved scene before generating a project dossier.' });
+    if (!['approved', 'locked'].includes(String(sceneResult.data.status))) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'The latest saved scene is not approved. Approve its current revision before exporting.' });
+    const sceneToUse = migrateScene(sceneResult.data.scene);
+    assertSceneBayReconciliation(sceneToUse);
     const snapshot = buildProductionSnapshot(sceneToUse, undefined, IndianModularCatalog);
     const dossier = await buildDossierSpecFromContext(request, sceneToUse, snapshot);
     const stream = new PassThrough();
@@ -891,13 +879,10 @@ app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/cutlist.xlsx
   }
 });
 
-app.post('/api/production/boq', requireProjectUser, (request, response) => {
+app.post('/api/production/boq', requireProjectUser, async (request, response) => {
   try {
-    const { projectId, sceneVersionId, scene, customRates } = request.body ?? {};
-    if (!projectId || !scene) return response.status(400).json({ success: false, code: 'INVALID_BOQ_REQUEST', message: 'projectId and scene are required.' });
-    const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
-    if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before generating a commercial BOQ.' });
-    assertSceneBayReconciliation(normalized);
+    const { customRates } = request.body ?? {};
+    const { scene: normalized } = await readApprovedProductionContext(request);
     const boq = generateProjectBOQ(normalized, customRates);
     return response.status(200).json({ success: true, boq });
   } catch (err: any) {
@@ -905,13 +890,10 @@ app.post('/api/production/boq', requireProjectUser, (request, response) => {
   }
 });
 
-app.post('/api/production/boq.csv', requireProjectUser, (request, response) => {
+app.post('/api/production/boq.csv', requireProjectUser, async (request, response) => {
   try {
-    const { projectId, scene, customRates } = request.body ?? {};
-    if (!projectId || !scene) return response.status(400).json({ success: false, code: 'INVALID_BOQ_REQUEST', message: 'projectId and scene are required.' });
-    const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
-    if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before generating a commercial BOQ.' });
-    assertSceneBayReconciliation(normalized);
+    const { customRates } = request.body ?? {};
+    const { scene: normalized } = await readApprovedProductionContext(request);
     const boq = generateProjectBOQ(normalized, customRates);
     response.setHeader('content-type', 'text/csv');
     const rows = boq.items.map((item) => [item.category, `"${item.description.replace(/"/g, '""')}"`, item.quantity, item.unit, item.rateInr, item.totalInr].join(','));
@@ -941,13 +923,9 @@ app.post('/api/projects/:projectId/vastu-assessment', requireProjectUser, async 
   }
 });
 
-app.post('/api/production/cutlist.csv', (request, response) => {
+app.post('/api/production/cutlist.csv', requireProjectUser, async (request, response) => {
   try {
-    const { projectId, sceneVersionId, scene } = request.body ?? {};
-    if (!projectId || !sceneVersionId || !scene) return response.status(400).json({ success: false, code: 'INVALID_CUTLIST_REQUEST' });
-    const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
-    assertSceneBayReconciliation(normalized);
-    if (!['approved', 'locked'].includes(normalized.metadata.status)) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY' });
+    const { scene: normalized } = await readApprovedProductionContext(request);
     const cutlist = buildCutlist(normalized);
     response.setHeader('content-type', 'text/csv');
     const quote = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
@@ -958,12 +936,10 @@ app.post('/api/production/cutlist.csv', (request, response) => {
   }
 });
 
-app.post('/api/production/wall-elevation.svg', requireProjectUser, (request, response) => {
+app.post('/api/production/wall-elevation.svg', requireProjectUser, async (request, response) => {
   try {
-    const { scene, wallId, options } = request.body ?? {};
-    if (!scene || typeof scene !== 'object') return response.status(400).json({ success: false, code: 'INVALID_ELEVATION_REQUEST', message: 'scene payload is required.' });
-    const normalized = migrateScene({ ...scene, projectId: request.params.projectId ?? scene.projectId ?? 'unknown', floorPlanVersionId: scene.floorPlanVersionId ?? 'unknown' });
-    assertSceneBayReconciliation(normalized);
+    const { wallId, options } = request.body ?? {};
+    const { scene: normalized } = await readApprovedProductionContext(request);
     const svg = generateWallElevationSvg(normalized, wallId ?? '', options);
     response.setHeader('content-type', 'image/svg+xml');
     return response.status(200).send(svg);
@@ -972,27 +948,23 @@ app.post('/api/production/wall-elevation.svg', requireProjectUser, (request, res
   }
 });
 
-const handleDxfRequest = (request: express.Request, response: express.Response) => {
-  const sceneVersionId = request.params.sceneVersionId ?? request.body?.sceneVersionId;
-  const { projectId, scene } = request.body ?? {};
-  if (typeof projectId !== 'string' || typeof sceneVersionId !== 'string' || !sceneVersionId || !scene || typeof scene !== 'object') {
-    return response.status(400).json({ success: false, code: 'INVALID_DXF_REQUEST', message: 'A project, scene version and scene payload are required.' });
+const handleDxfRequest = async (request: express.Request, response: express.Response) => {
+  const sceneVersionId = String(request.params.sceneVersionId ?? request.body?.sceneVersionId ?? '');
+  if (!sceneVersionId) return response.status(400).json({ success: false, code: 'INVALID_DXF_REQUEST', message: 'A saved scene revision is required.' });
+  try {
+    const { scene } = await readApprovedProductionContext(request);
+    const dxf = exportSceneToDxf(scene);
+    return response.status(200).type('application/dxf').set('Content-Disposition', `attachment; filename="ultida-${sceneVersionId}.dxf"`).send(dxf);
+  } catch (error: any) {
+    return response.status(error?.status ?? 422).json({ success: false, code: error?.code ?? 'DXF_EXPORT_FAILED', message: error?.message, issues: error?.issues });
   }
-  const sceneStatus = (scene as { metadata?: { status?: unknown } }).metadata?.status;
-  if (!['approved', 'locked'].includes(String(sceneStatus))) {
-    return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Only approved or locked scenes can export production DXF.' });
-  }
-  const normalized = migrateScene({ ...scene, projectId, floorPlanVersionId: scene.floorPlanVersionId ?? `plan-for-${projectId}` });
-  try { assertSceneBayReconciliation(normalized); } catch (error: any) { return response.status(error.status ?? 422).json({ success: false, code: error.code ?? 'BAY_RECONCILIATION_BLOCKED', message: error.message, issues: error.issues }); }
-  const dxf = exportSceneToDxf(normalized);
-  return response.status(200).type('application/dxf').set('Content-Disposition', `attachment; filename="ultida-${sceneVersionId}.dxf"`).send(dxf);
 };
 
-app.post('/api/drawings/dxf', handleDxfRequest);
-app.post('/api/drawings/wall-elevation.dxf', handleDxfRequest);
-app.post('/api/drawings/:sceneVersionId/dxf', handleDxfRequest);
+app.post('/api/drawings/dxf', requireProjectUser, handleDxfRequest);
+app.post('/api/drawings/wall-elevation.dxf', requireProjectUser, handleDxfRequest);
+app.post('/api/drawings/:sceneVersionId/dxf', requireProjectUser, handleDxfRequest);
 
-app.post('/api/drawings/cnc-panel.dxf', (request, response) => {
+app.post('/api/drawings/cnc-panel.dxf', requireProjectUser, (request, response) => {
   try {
     const { widthMm, lengthMm, thicknessMm, panelType, operations, name } = request.body ?? {};
     if (!Number(widthMm) || !Number(lengthMm)) {
@@ -1019,15 +991,14 @@ app.post('/api/projects/:projectId/drawings/plan.dxf', requireProjectUser, (requ
   try {
     const projectId = String(request.params.projectId);
     const { planVersionId, geometryMode, mmPerPixel, ceilingHeightMm, elements, warnings } = request.body ?? {};
-    if (typeof planVersionId !== 'string' || !planVersionId || !['initial_design', 'final_production'].includes(String(geometryMode))) {
-      return response.status(400).json({ success: false, code: 'INVALID_PLAN_DXF_REQUEST', message: 'planVersionId and geometryMode are required.' });
+    if (typeof planVersionId !== 'string' || !planVersionId || geometryMode !== 'initial_design') {
+      return response.status(409).json({ success: false, code: 'APPROVED_SCENE_REQUIRED', message: 'Plan-review DXF is available only as an Initial Design draft. Use the approved scene export for production drawings.' });
     }
     if (!Number.isFinite(Number(mmPerPixel)) || Number(mmPerPixel) <= 0 || !Array.isArray(elements) || elements.length === 0) {
       return response.status(400).json({ success: false, code: 'INVALID_PLAN_DXF_GEOMETRY', message: 'A calibrated scale and at least one editable plan element are required.' });
     }
     const dxf = exportPlanDraftToDxf({ planVersionId: `${projectId}-${planVersionId}`, geometryMode, mmPerPixel: Number(mmPerPixel), ceilingHeightMm: Number(ceilingHeightMm) || undefined, elements, warnings: Array.isArray(warnings) ? warnings.map(String) : [] });
-    const suffix = geometryMode === 'initial_design' ? 'initial-design' : 'final-production';
-    return response.status(200).type('application/dxf').set('Content-Disposition', `attachment; filename="ultida-plan-${suffix}.dxf"`).send(dxf);
+    return response.status(200).type('application/dxf').set('Content-Disposition', 'attachment; filename="ultida-plan-initial-design.dxf"').send(dxf);
   } catch (error: any) {
     return response.status(422).json({ success: false, code: 'PLAN_DXF_FAILED', message: error?.message ?? 'Plan DXF export failed.' });
   }
@@ -2237,6 +2208,11 @@ app.post('/api/projects/:projectId/material-assignments', requireProjectUser, as
     .maybeSingle();
   if (latestRevision.error) return response.status(500).json({ success: false, code: 'MATERIAL_REVISION_LOOKUP_FAILED', message: latestRevision.error.message });
   const nextRevision = Math.max(parsed.data.revision, Number(latestRevision.data?.revision ?? 0) + 1);
+  // Finish invalidating prior scene approvals and dependent output before the
+  // new assignment becomes the material source for compilation. A failed
+  // invalidation must never leave an approved scene representing the old finish.
+  const invalidationError = await invalidateModuleOutputs(client, projectId);
+  if (invalidationError) return response.status(503).json({ success: false, code: 'MATERIAL_OUTPUT_INVALIDATION_FAILED', message: invalidationError });
   const assignment = await client.from('material_assignments').insert({
     organization_id: project.data.organization_id,
     project_id: projectId,
@@ -2250,9 +2226,7 @@ app.post('/api/projects/:projectId/material-assignments', requireProjectUser, as
     created_by: authReq.ultidaUser!.id,
   }).select('*').single();
   if (assignment.error) return response.status(500).json({ success: false, code: 'MATERIAL_ASSIGNMENT_CREATE_FAILED', message: assignment.error.message });
-  const stale = await client.from('artifacts').update({ stale: true }).eq('project_id', projectId).eq('stale', false);
-  if (stale.error) return response.status(500).json({ success: false, code: 'MATERIAL_ASSIGNMENT_STALE_INVALIDATION_FAILED', message: stale.error.message });
-  return response.status(201).json({ success: true, assignment: assignment.data, invalidatedArtifactCount: stale.count ?? null });
+  return response.status(201).json({ success: true, assignment: assignment.data, invalidated: { scenes: true, artifacts: true, quotes: true } });
 });
 
 app.get('/api/projects/:projectId/scenes/preflight', requireProjectUser, async (request, response) => {
@@ -2983,36 +2957,20 @@ app.get('/api/projects/:projectId/stage-status', requireProjectUser, async (requ
 });
 
 app.get('/api/projects/:projectId/export/sketchup', requireProjectUser, async (request, response) => {
-  const client = getRequestSupabaseClient(request);
-  const { projectId } = request.params;
-  const { data: sceneRow, error } = await client
-    .from('scene_versions')
-    .select('scene,status')
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !sceneRow?.scene) {
-    return response.status(404).json({
-      success: false,
-      code: 'SCENE_NOT_FOUND',
-      message: 'No compiled 3D scene found for this project.'
-    });
-  }
-
   try {
-    const scene = migrateScene(sceneRow.scene);
-    assertSceneBayReconciliation(scene);
+    const sceneVersionId = String(request.query.sceneVersionId ?? '');
+    if (!sceneVersionId) return response.status(400).json({ success: false, code: 'SAVED_SCENE_REQUIRED', message: 'Select a saved scene revision before exporting to SketchUp.' });
+    const { scene } = await readApprovedProductionContext(request);
     const rubyScript = generateSketchUpRubyScript(scene);
     response.setHeader('Content-Type', 'text/x-ruby');
-    response.setHeader('Content-Disposition', `attachment; filename="ultida-${projectId}-sketchup.rb"`);
+    response.setHeader('Content-Disposition', `attachment; filename="ultida-${request.params.projectId}-${sceneVersionId}-sketchup.rb"`);
     return response.send(rubyScript);
   } catch (err) {
-    return response.status(500).json({
+    const error = err as { status?: number; code?: string; message?: string };
+    return response.status(error?.status ?? 500).json({
       success: false,
-      code: 'SKETCHUP_EXPORT_FAILED',
-      message: err instanceof Error ? err.message : 'SketchUp Ruby export failed.'
+      code: error?.code ?? 'SKETCHUP_EXPORT_FAILED',
+      message: error?.message ?? 'SketchUp Ruby export failed.'
     });
   }
 });

@@ -79,10 +79,8 @@ test('Complete End-to-End Workflow: Health -> Plan Baseline -> Materialize -> Ru
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ projectId: 'proj-e2e', sceneVersionId: 'scene-v1', wallId: 'wall-1', scene: approvedScene })
     });
-    assert.equal(dxfRes.status, 200);
-    const dxfText = await dxfRes.text();
-    assert.match(dxfText, /^0\r\nSECTION\r\n2\r\nHEADER\r\n/);
-    assert.match(dxfText, /0\r\nEOF\r\n$/);
+    assert.equal(dxfRes.status, 401);
+    assert.equal((await dxfRes.json()).code, 'AUTH_REQUIRED');
 
     // 5. Commercial INR Estimate Calculation
     const estRes = await fetch(`${baseUrl}/api/commercial/estimates`, {
