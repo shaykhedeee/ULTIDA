@@ -52,6 +52,9 @@ type Material = {
     colorHex?: string;
     texture?: string;
     laminateFace?: string;
+    availabilityVerifiedAt?: string;
+    stockVerifiedAt?: string;
+    supplierVerifiedAt?: string;
   } | null;
 };
 
@@ -1450,6 +1453,12 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: 14 }}>
                   {visibleMaterials.map((mat) => {
                     const color = materialColour(mat);
+                    const supplierVerified = Boolean(mat.metadata?.supplierVerifiedAt);
+                    const availabilityVerifiedAt = mat.metadata?.availabilityVerifiedAt ?? mat.metadata?.stockVerifiedAt;
+                    const availabilityDate = availabilityVerifiedAt ? Date.parse(availabilityVerifiedAt) : Number.NaN;
+                    const availabilityLabel = Number.isFinite(availabilityDate)
+                      ? `${mat.availability ?? 'Availability checked'} · ${new Date(availabilityDate).toLocaleDateString()}`
+                      : 'Availability to confirm';
                     const isGloss = /gloss|acrylic|polygloss|mirror/i.test(`${mat.name} ${mat.finish}`);
                     const isMatte = /matte|suede|zero-g|anti-fingerprint|soft-touch/i.test(`${mat.name} ${mat.finish}`);
                     const isWood = /wood|oak|walnut|teak|birch|grain|veneer/i.test(`${mat.name} ${mat.finish}`);
@@ -1541,8 +1550,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px solid #f5f5f4' }}>
-                          <span style={{ fontSize: 10.5, fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '2px 6px', borderRadius: 4 }}>
-                            {mat.supplier ?? 'Certified'} • {mat.availability ?? 'In Stock'}
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: '#785b22', background: '#fbf4e3', padding: '4px 7px', borderRadius: 5, lineHeight: 1.35 }} title="Supplier and stock claims require a dated verification before they are presented as confirmed.">
+                            {mat.supplier ? `${mat.supplier}${supplierVerified ? '' : ' · verify supplier'}` : 'Supplier to confirm'} • {availabilityLabel}
                           </span>
                           <button
                             type="button"
