@@ -1,6 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderInputFingerprint } from '../src/visual-jobs';
+import { assertSceneRevisionActive, renderInputFingerprint } from '../src/visual-jobs';
+
+function sceneStatusClient(status: string | null) {
+  const query = {
+    select() { return this; },
+    eq() { return this; },
+    async maybeSingle() { return { data: status ? { id: 'scene-1', status } : null, error: null }; },
+  };
+  return { from: () => query } as any;
+}
+
+test('in-flight renders are rejected after the source scene has been invalidated', async () => {
+  await assert.rejects(
+    assertSceneRevisionActive(sceneStatusClient('stale'), 'project-1', 'scene-1'),
+    /scene changed while the render was running/i,
+  );
+});
+
+test('active saved scene revisions remain eligible for render completion', async () => {
+  const result = await assertSceneRevisionActive(sceneStatusClient('approved'), 'project-1', 'scene-1');
+  assert.equal(result.status, 'approved');
+});
 
 test('render input fingerprints are stable across object key order', () => {
   const first = renderInputFingerprint({ sceneVersionId: 'scene-1', camera: { lensMm: 35, view: 'eye-level' }, style: 'warm minimal' });

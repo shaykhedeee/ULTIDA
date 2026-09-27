@@ -24,6 +24,17 @@ export function renderInputFingerprint(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(stableValue(value))).digest('hex');
 }
 
+/** Do not publish a render if its persisted scene was invalidated mid-job. */
+export async function assertSceneRevisionActive(client: SupabaseClient, projectId: string, sceneVersionId: string) {
+  const result = await client.from('scene_versions').select('id,status').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
+  if (result.error) throw new Error(`Could not verify the scene revision before saving the render: ${result.error.message}`);
+  if (!result.data) throw new Error('The scene revision for this render no longer exists in the project.');
+  if (!['draft', 'approved', 'locked'].includes(String(result.data.status))) {
+    throw new Error('This scene changed while the render was running. The render was not saved; compile the latest design and try again.');
+  }
+  return result.data;
+}
+
 function serverClient(environment: Record<string, string | undefined>, clientOverride?: SupabaseClient): SupabaseClient | null {
   if (clientOverride) return clientOverride;
   const secret = environment.SUPABASE_SECRET_KEY || environment.SUPABASE_SERVICE_ROLE_KEY;
@@ -663,7 +674,14 @@ export async function createVisualJob(environment: Record<string, string | undef
         await client.from('jobs').update({ status: 'failed', error: message, output: { reviewStatus: 'rejected', renderQa, technicalArtifacts, baseHash: baseArtifacts.baseHash } }).eq('id', job.data.id);
         return { status: 'failed' as const, jobId: job.data.id, code: 'RENDER_QA_BLOCKED', message, retryable: false };
       }
+      await assertSceneRevisionActive(client, request.projectId, request.sceneVersionId);
       const stored = await storeImage(client, { organizationId: context.project.organization_id, projectId: request.projectId, sceneVersionId: request.sceneVersionId, actorId, jobId: job.data.id, technicalArtifacts, inputFingerprint, renderQa, revision: request.operation === 'material-swap' ? { targetModuleId: request.targetModuleId, targetComponentId: request.targetComponentId, targetMaterialId: request.targetMaterialId, targetSemanticSlot: request.targetSemanticSlot, maskId: selectedObjectMask?.id } : undefined }, result, brief, image);
+      try {
+        await assertSceneRevisionActive(client, request.projectId, request.sceneVersionId);
+      } catch (error) {
+        await client.from('artifacts').update({ status: 'stale', stale: true }).eq('id', stored.artifactId).eq('project_id', request.projectId);
+        throw error;
+      }
       const output = { ...result, ...stored, promptVersion: brief.version, technicalArtifacts, baseHash: baseArtifacts.baseHash, inputFingerprint, renderQa, renderStatus: 'completed' };
       await client.from('jobs').update({ status: 'succeeded', output }).eq('id', job.data.id);
       return { status: 'succeeded' as const, jobId: job.data.id, ...output };
@@ -708,8 +726,9 @@ export async function getVisualJob(environment: Record<string, string | undefine
       try {
         const project = await client.from('projects').select('organization_id').eq('id', job.data.project_id).single();
         if (project.error || !project.data) throw new Error('Project organization context was not found.');
-        const sceneRow = await client.from('scene_versions').select('scene').eq('id', job.data.input.sceneVersionId).eq('project_id', job.data.project_id).single();
+        const sceneRow = await client.from('scene_versions').select('id,status,scene').eq('id', job.data.input.sceneVersionId).eq('project_id', job.data.project_id).single();
         if (sceneRow.error || !sceneRow.data) throw new Error('The approved scene for this render could not be reloaded for image QA.');
+        if (!['draft', 'approved', 'locked'].includes(String(sceneRow.data.status))) throw new Error('This scene changed while the render was running. The render was not saved; compile the latest design and try again.');
         const scene = SceneV1Schema.parse(sceneRow.data.scene);
         const baseArtifacts = renderScenePerspectiveArtifacts(scene, { cameraId: job.data.input?.camera?.view === 'elevation' ? undefined : scene.cameras[0]?.id });
         const image = await providerImageBytes({ ...job.data.output, ...polled });
@@ -720,6 +739,7 @@ export async function getVisualJob(environment: Record<string, string | undefine
           await client.from('jobs').update({ status: 'failed', error: reason, output: { ...job.data.output, ...polled, reviewStatus: 'rejected', renderQa } }).eq('id', jobId);
           return { status: 'failed' as const, jobId, reason };
         }
+        await assertSceneRevisionActive(client, job.data.project_id, job.data.input.sceneVersionId);
         const stored = await storeImage(client, {
           organizationId: project.data.organization_id,
           projectId: job.data.project_id,
@@ -736,6 +756,12 @@ export async function getVisualJob(environment: Record<string, string | undefine
             targetSemanticSlot: job.data.input?.targetSemanticSlot,
           } : undefined,
         }, { ...job.data.output, ...polled }, job.data.input?.renderBrief ?? {}, image);
+        try {
+          await assertSceneRevisionActive(client, job.data.project_id, job.data.input.sceneVersionId);
+        } catch (error) {
+          await client.from('artifacts').update({ status: 'stale', stale: true }).eq('id', stored.artifactId).eq('project_id', job.data.project_id);
+          throw error;
+        }
         const output = { ...job.data.output, ...polled, ...stored, renderQa, renderStatus: 'completed' };
         await client.from('jobs').update({ status: 'succeeded', output }).eq('id', jobId);
         return { status: 'succeeded' as const, jobId, ...output };
