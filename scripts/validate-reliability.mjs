@@ -31,7 +31,7 @@ if (packageJson.engines?.node !== '24.x' || rootLock?.engines?.node !== '24.x') 
   failures.push('Node.js must be pinned to 24.x in package.json and package-lock.json');
 }
 
-for (const script of ['check', 'build', 'test', 'preflight', 'reliability']) {
+for (const script of ['check', 'build', 'test', 'test:compilers', 'preflight', 'reliability']) {
   if (!packageJson.scripts?.[script]) failures.push(`package.json is missing the ${script} script`);
 }
 

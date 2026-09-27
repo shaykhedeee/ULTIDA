@@ -9,7 +9,7 @@
   "scripts": {
     "check": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json",
-    "test": "node --import tsx --test tests/index.test.ts"
+    "test": "node --import tsx --test tests/index.test.ts tests/scene-compiler.test.ts test/end-to-end-pipeline.test.ts"
   },
   "dependencies": {
     "@ultida/contracts": "0.1.0",

@@ -16,6 +16,8 @@ const WORKSPACES = {
   '@ultida/api': 'apps/api',
   '@ultida/aura-tools': 'packages/aura-tools',
   '@ultida/render-pipeline': 'packages/render-pipeline',
+  '@ultida/scene-compiler': 'packages/scene-compiler',
+  '@ultida/module-framework': 'packages/module-framework',
 };
 
 function runWorkspace(name, script = 'test', timeoutMs = 240_000) {
@@ -91,6 +93,11 @@ try {
       await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/compiled-module-meshes.test.ts', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/plan-vastu-and-calibration.test.ts', 'apps/web/test/prepared-module-plan.test.ts', 'apps/web/test/vastu-readiness.test.ts', 'apps/web/test/wall-bay-editor.test.ts', 'apps/web/test/dashboard-elevation-assets.test.mjs']);
       await runCommand(node, ['--test', 'apps/web/test/room-catalog.test.mjs', 'apps/web/test/spaces-placement-rail.test.mjs']);
       break;
+    case 'compilers':
+      await runCommand(node, ['scripts/build.mjs', 'packages']);
+      await runWorkspace('@ultida/scene-compiler', 'test');
+      await runWorkspace('@ultida/module-framework', 'test');
+      break;
     case 'all':
     default:
       await runCommand(node, ['scripts/build.mjs', 'packages']);
@@ -98,6 +105,8 @@ try {
       await runWorkspace('@ultida/api', 'test');
       await runWorkspace('@ultida/aura-tools', 'test');
       await runWorkspace('@ultida/render-pipeline', 'test');
+      await runWorkspace('@ultida/scene-compiler', 'test');
+      await runWorkspace('@ultida/module-framework', 'test');
       await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/plan-vastu-and-calibration.test.ts', 'apps/web/test/prepared-module-plan.test.ts', 'apps/web/test/vastu-readiness.test.ts', 'apps/web/test/wall-bay-editor.test.ts', 'apps/web/test/dashboard-elevation-assets.test.mjs']);
       await runCommand(node, ['--test', 'apps/web/test/room-catalog.test.mjs', 'apps/web/test/spaces-placement-rail.test.mjs']);
       break;
