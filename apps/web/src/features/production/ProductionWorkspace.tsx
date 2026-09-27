@@ -94,7 +94,10 @@ interface ProductionWorkspaceProps {
   sceneVersionId: string | null;
   sceneApproved: boolean;
   modules: Array<{ id: string; roomId: string; family: string; label: string; widthMm: number; depthMm: number; heightMm: number }>;
-  materials: Array<{ id: string; code: string; name: string; category: string }>;
+  materials: Array<{
+    id: string; code: string; name: string; category: string;
+    unitCost?: number | null; pricingUnit?: string | null; assignedSemanticSlots?: string[];
+  }>;
   onSceneCreated: (id: string, modules: any[], materials: any[]) => void;
   onSceneApproved: () => Promise<void>;
 }
@@ -426,18 +429,29 @@ export function ProductionWorkspace({
           ? drawingAnalysisResult.hardware.map((h) => ({ name: h.name, category: h.category, quantity: h.quantity }))
           : []);
 
+    const materialCostFor = (slots: string[]) => {
+      const assigned = materials.find((material) => material.assignedSemanticSlots?.some((slot) => slots.includes(slot)));
+      return assigned ? {
+        name: assigned.name,
+        unitCost: assigned.unitCost,
+        pricingUnit: assigned.pricingUnit,
+      } : undefined;
+    };
+
     return calculateCutlistCostRollup({
       sheetCount: Math.max(1, nestedSheets.length),
       sheetWidthMm: activeSheetSize.widthMm,
       sheetHeightMm: activeSheetSize.heightMm,
       edgeBandingLinearMeters: totalEdgeBandM,
+      carcassMaterialCost: materialCostFor(['carcass', 'back_panel']),
+      shutterFinishCost: materialCostFor(['shutter', 'glass', 'profile']),
       hardwareItems: rawHw.map((h) => ({
         name: h.name,
         category: h.category,
         quantity: h.quantity,
       })),
     });
-  }, [nestedSheets.length, activeSheetSize, totalEdgeBandM, cutlist?.hardware, drawingAnalysisResult?.hardware]);
+  }, [nestedSheets.length, activeSheetSize, totalEdgeBandM, cutlist?.hardware, drawingAnalysisResult?.hardware, materials]);
 
   // ─── Comprehensive Edge Banding Schedule ─────────────────────────────────
   const edgeBandingSchedule = useMemo(() => {

@@ -112,7 +112,9 @@ test('Pricing Calculations: accurately computes live cutlist cost rollup from sh
   assert.equal(rollup.taxableTotal, rollup.manufacturingSubtotal + rollup.studioMarkup);
   assert.equal(rollup.estimatedGrandTotal, rollup.taxableTotal + rollup.totalGst);
   assert.ok(rollup.costPerSqft > 0, 'Cost per sq.ft must be positive');
-  assert.equal(rollup.pricingVerification.verified, true);
+  assert.equal(rollup.pricingVerification.verified, false, 'rate-card-only totals are estimates, not supplier-verified pricing');
+  assert.equal(rollup.pricingWarnings.length, 2);
+  assert.ok(rollup.pricingWarnings.every((warning) => /rate-card estimate/i.test(warning)));
 });
 
 test('Pricing Safety Guard: normalizeMaterialUnitCost rejects unspecified unitCost as sheet price and requires explicit unit', async () => {
@@ -144,7 +146,19 @@ test('Pricing Safety Guard: normalizeMaterialUnitCost rejects unspecified unitCo
     carcassMaterialCost: { name: 'Ambiguous Ply', unitCost: 2400, pricingUnit: undefined },
   });
   assert.equal(rollupWithWarning.pricingVerification.verified, false);
-  assert.equal(rollupWithWarning.pricingWarnings.length, 1);
-  assert.match(rollupWithWarning.pricingWarnings[0], /cannot safely be treated as a price per sheet/);
+  assert.equal(rollupWithWarning.pricingWarnings.length, 2);
+  assert.ok(rollupWithWarning.pricingWarnings.some((warning) => /cannot safely be treated as a price per sheet/.test(warning)));
+});
+
+test('Pricing Verification: supplier material costs flow through only with explicit area units', async () => {
+  const { calculateCutlistCostRollup } = await import('../src/lib/pricing-rates.ts');
+  const rollup = calculateCutlistCostRollup({
+    sheetCount: 2,
+    edgeBandingLinearMeters: 0,
+    carcassMaterialCost: { name: 'Board', unitCost: 3200, pricingUnit: 'sheet' },
+    shutterFinishCost: { name: 'Laminate', unitCost: 95, pricingUnit: 'sqft' },
+  });
+  assert.equal(rollup.pricingVerification.verified, true);
+  assert.deepEqual(rollup.pricingWarnings, []);
 });
 

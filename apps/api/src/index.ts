@@ -2176,7 +2176,10 @@ app.post('/api/projects/:projectId/material-library', requireProjectUser, async 
     thickness_mm: parsed.data.thicknessMm ?? null,
     unit_cost: parsed.data.unitCost ?? null,
     availability: parsed.data.availability,
-    metadata: parsed.data.metadata,
+    metadata: {
+      ...parsed.data.metadata,
+      ...(parsed.data.pricingUnit ? { pricingUnit: parsed.data.pricingUnit } : {}),
+    },
     created_by: authReq.ultidaUser!.id,
   }).select('*').single();
   if (material.error) return response.status(500).json({ success: false, code: 'MATERIAL_LIBRARY_CREATE_FAILED', message: material.error.message });
@@ -2364,6 +2367,10 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
       name: material.name,
       code: material.code,
       unitCost: material.unit_cost ?? undefined,
+      pricingUnit: typeof metadata.pricingUnit === 'string' ? metadata.pricingUnit : undefined,
+      assignedSemanticSlots: [...new Set([...latestBySlot.values()]
+        .filter((assignment) => String(assignment.material_id) === String(material.id))
+        .map((assignment) => String(assignment.semantic_slot)))],
       finish: material.finish ?? undefined,
       colorHex: typeof colorCandidate === 'string' && /^#[0-9a-fA-F]{6}$/.test(colorCandidate) ? colorCandidate : undefined,
       roughness: Number.isFinite(Number(material.roughness)) && material.roughness !== null ? Number(material.roughness) : undefined,

@@ -217,7 +217,9 @@ export const MaterialLibraryItemV1Schema = z.object({
   transparency: z.number().min(0).max(1).nullable().optional(),
   thicknessMm: z.number().nonnegative().nullable().optional(),
   unitCost: z.number().nonnegative().nullable().optional(),
-  pricingUnit: z.enum(['sqft', 'sheet', 'sqm', 'running_meter', 'piece', 'set']).default('sqft').optional(),
+  // Keep omitted units omitted. Pricing consumers must flag ambiguous costs
+  // instead of converting them as an assumed square-foot or sheet price.
+  pricingUnit: z.enum(['sqft', 'sheet', 'sqm', 'running_meter', 'piece', 'set']).optional(),
   availability: z.enum(['available', 'limited', 'discontinued']).default('available'),
   metadata: z.record(z.unknown()).default({}),
 });

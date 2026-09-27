@@ -273,7 +273,7 @@ export function normalizeMaterialUnitCost(
       ratePerSheet: Math.round(fallbackRatePerSqft * sqftPerSheet),
       unit: 'sqft',
       isValid: false,
-      warning: `Material '${input.name || 'unnamed'}' has no valid unit cost specified. Using fallback rate of ₹${fallbackRatePerSqft}/sq.ft.`,
+      warning: `Material '${input.name || 'unnamed'}' has no verified unit cost. A studio rate-card estimate of ₹${fallbackRatePerSqft}/sq.ft is being used; this is not supplier-verified pricing.`,
     };
   }
 
@@ -390,22 +390,18 @@ export function calculateCutlistCostRollup(input: CutlistCostRollupInput): Cutli
   const pricingWarnings: string[] = [];
 
   let carcassRate = defaultCarcassRate;
-  if (input.carcassMaterialCost) {
-    const carcassNorm = normalizeMaterialUnitCost(input.carcassMaterialCost, sheetWidth, sheetHeight, defaultCarcassRate);
-    if (!carcassNorm.isValid && carcassNorm.warning) {
-      pricingWarnings.push(carcassNorm.warning);
-    }
-    carcassRate = carcassNorm.ratePerSqft;
+  const carcassNorm = normalizeMaterialUnitCost(input.carcassMaterialCost ?? { name: 'Carcass board (studio rate card)' }, sheetWidth, sheetHeight, defaultCarcassRate);
+  if (!carcassNorm.isValid && carcassNorm.warning) {
+    pricingWarnings.push(carcassNorm.warning);
   }
+  carcassRate = carcassNorm.ratePerSqft;
 
   let shutterRate = defaultShutterRate;
-  if (input.shutterFinishCost) {
-    const shutterNorm = normalizeMaterialUnitCost(input.shutterFinishCost, sheetWidth, sheetHeight, defaultShutterRate);
-    if (!shutterNorm.isValid && shutterNorm.warning) {
-      pricingWarnings.push(shutterNorm.warning);
-    }
-    shutterRate = shutterNorm.ratePerSqft;
+  const shutterNorm = normalizeMaterialUnitCost(input.shutterFinishCost ?? { name: 'Shutter finish (studio rate card)' }, sheetWidth, sheetHeight, defaultShutterRate);
+  if (!shutterNorm.isValid && shutterNorm.warning) {
+    pricingWarnings.push(shutterNorm.warning);
   }
+  shutterRate = shutterNorm.ratePerSqft;
 
   const carcassBoardCost = Math.round(carcassSqft * carcassRate);
   const shutterFinishCost = Math.round(shutterSqft * shutterRate);
