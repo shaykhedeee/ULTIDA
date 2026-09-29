@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzePlanFile } from '../src/plan-analysis-service.js';
+import { analyzePlanFile, terminateOcrWorker } from '../src/plan-analysis-service.js';
 import { readFile } from 'node:fs/promises';
 
 test('analyzePlanFile falls back to deterministic OpenCV + OCR engine when allowDeterministicFallback is true', async () => {
@@ -25,8 +25,16 @@ test('analyzePlanFile falls back to deterministic OpenCV + OCR engine when allow
     assert.ok(result);
     assert.equal(result.provider, 'deterministic-contour-engine');
     assert.ok(result.elements.length > 0);
+    // Real walls detected from the floorplan contrast
+    assert.ok(result.deterministic.lineWallCount >= 4, `Expected at least 4 real walls, got ${result.deterministic.lineWallCount}`);
+    const walls = result.elements.filter((e) => e.kind === 'wall');
+    assert.ok(walls.length >= 4, `Expected at least 4 wall elements, got ${walls.length}`);
+    // Openings detected from wall gaps
+    assert.ok(result.deterministic.openingCount >= 1, `Expected opening candidates, got ${result.deterministic.openingCount}`);
     assert.ok(result.vastuReport !== undefined);
   } finally {
     Object.assign(process.env, saved);
+    await terminateOcrWorker();
   }
 });
+

@@ -11,3 +11,6 @@ export function resolveWallTracerPath(): string | null {
   const candidate = fileURLToPath(new URL('../cv/wall_tracer.py', import.meta.url));
   return existsSync(candidate) ? candidate : null;
 }
+
+export { tracePlanBuffer, type FastTraceResult, type FastWall, type FastCorner, type FastRoom } from './fast-wall-tracer.js';
+
