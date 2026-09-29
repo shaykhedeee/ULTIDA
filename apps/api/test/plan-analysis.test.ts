@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyFile, extractOcrMeasurements, extractPositionedMeasurements, reconcileToElements, UNSUPPORTED_FORMATS, type PlanElementDraft } from '../src/plan-analysis-service.js';
+import { classifyFile, extractOcrMeasurements, extractPositionedMeasurements, normalizeTesseractWords, reconcileToElements, UNSUPPORTED_FORMATS, type PlanElementDraft } from '../src/plan-analysis-service.js';
 import { PlanVisionOutputSchema, normalizeVisionOutput } from '@ultida/agent-core';
 import { buildPlanPrompt, parseProposals } from '../src/plan-analyzer.js';
 
@@ -239,6 +239,19 @@ test('extractPositionedMeasurements joins split words and keeps their position',
   assert.equal(found.length, 1);
   assert.equal(found[0].valueMm, 3600);
   assert.ok(found[0].x > 200 && found[0].x < 231);
+});
+
+test('normalizeTesseractWords preserves page-relative word positions and rejects malformed boxes', () => {
+  const found = normalizeTesseractWords([
+    { text: '3600', bbox: { x0: 480, x1: 520, y0: 290, y1: 310 } },
+    { text: 'mm', bbox: { x0: 525, x1: 545, y0: 290, y1: 310 } },
+    { text: 'bad', bbox: { x0: 4, x1: 4, y0: 2, y1: 10 } },
+  ], 1000, 500);
+  assert.deepEqual(found, [
+    { text: '3600', x: 500, y: 600 },
+    { text: 'mm', x: 535, y: 600 },
+  ]);
+  assert.deepEqual(normalizeTesseractWords([{ text: '3600', bbox: { x0: 1, x1: 4, y0: 2, y1: 5 } }], 0, 500), []);
 });
 
 test('extractPositionedMeasurements converts imperial callouts', () => {

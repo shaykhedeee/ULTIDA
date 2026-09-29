@@ -328,12 +328,28 @@ export async function getSharedOcrWorker(): Promise<Worker | null> {
   ].some(existsSync)) return null;
 
   if (!cachedWorkerPromise) {
-    cachedWorkerPromise = createWorker('eng').catch((err) => {
+    cachedWorkerPromise = createWorker('eng').catch((error) => {
       cachedWorkerPromise = null;
-      throw err;
+      throw error;
     });
   }
   return cachedWorkerPromise;
+}
+
+/** Convert Tesseract word boxes to the analyzer's source-relative review grid. */
+export function normalizeTesseractWords(rawWords: unknown[], pageWidth: number, pageHeight: number): OcrWord[] {
+  if (!Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) || pageWidth <= 0 || pageHeight <= 0) return [];
+  return rawWords.flatMap((raw): OcrWord[] => {
+    if (!raw || typeof raw !== 'object') return [];
+    const word = raw as { text?: unknown; bbox?: { x0?: unknown; x1?: unknown; y0?: unknown; y1?: unknown } };
+    const text = typeof word.text === 'string' ? word.text.trim() : '';
+    const box = word.bbox;
+    if (!text || !box) return [];
+    const x0 = Number(box.x0), x1 = Number(box.x1), y0 = Number(box.y0), y1 = Number(box.y1);
+    if (![x0, x1, y0, y1].every(Number.isFinite) || x1 <= x0 || y1 <= y0) return [];
+    const clamp = (value: number) => Math.max(0, Math.min(1000, value));
+    return [{ text, x: clamp(((x0 + x1) / 2 / pageWidth) * 1000), y: clamp(((y0 + y1) / 2 / pageHeight) * 1000) }];
+  });
 }
 
 export async function terminateOcrWorker(): Promise<void> {
@@ -372,16 +388,7 @@ async function runOcr(pngPath: string): Promise<{ text: string; words: OcrWord[]
     const rawWords: any[] = Array.isArray((data as any).words)
       ? (data as any).words
       : ((data as any).blocks ?? []).flatMap((block: any) => (block.paragraphs ?? []).flatMap((para: any) => (para.lines ?? []).flatMap((line: any) => line.words ?? [])));
-    const words: OcrWord[] = pageWidth > 0 && pageHeight > 0
-      ? rawWords.flatMap((word: any): OcrWord[] => {
-          const text = typeof word?.text === 'string' ? word.text.trim() : '';
-          const box = word?.bbox;
-          if (!text || !box) return [];
-          const x0 = Number(box.x0), x1 = Number(box.x1), y0 = Number(box.y0), y1 = Number(box.y1);
-          if (![x0, x1, y0, y1].every(Number.isFinite)) return [];
-          return [{ text, x: ((x0 + x1) / 2 / pageWidth) * 1000, y: ((y0 + y1) / 2 / pageHeight) * 1000 }];
-        })
-      : [];
+    const words = normalizeTesseractWords(rawWords, pageWidth, pageHeight);
     return { text: (data.text || '').trim(), words };
   } catch {
     cachedWorkerPromise = null;

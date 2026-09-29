@@ -39,17 +39,17 @@ export function CutlistStudio() {
   const [sheetSizePreset, setSheetSizePreset] = useState<'8x4' | '8x6' | '7x3'>('8x4');
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadText, setUploadText] = useState('');
-  const [statusMessage, setStatusMessage] = useState('Cutlist & Nesting Studio ready. Plywood and laminate wastage optimized under 5%.');
+  const [statusMessage, setStatusMessage] = useState('Cutlist & Nesting Studio ready. Review the fit and material warnings before exporting.');
   const [zoomLevel, setZoomLevel] = useState<number>(1);
 
   // Sliding Door Deduction State
   const [slidingModalOpen, setSlidingModalOpen] = useState(false);
-  const [slidingOpeningW, setSlidingOpeningW] = useState(1800);
-  const [slidingOpeningH, setSlidingOpeningH] = useState(2400);
+  const [slidingOpeningW, setSlidingOpeningW] = useState('');
+  const [slidingOpeningH, setSlidingOpeningH] = useState('');
   const [slidingDoorCount, setSlidingDoorCount] = useState(2);
   const [slidingPresetId, setSlidingPresetId] = useState('hafele-aluflex-45');
   const [slidingMaterial, setSlidingMaterial] = useState<SlidingDoorInput['materialType']>('hdhmr_18');
-  const [slidingLaminate, setSlidingLaminate] = useState('merino-zerog-matte-sand');
+  const [slidingLaminate, setSlidingLaminate] = useState('');
   const [slidingCustomOverlap, setSlidingCustomOverlap] = useState(30);
   const [slidingCustomDh, setSlidingCustomDh] = useState(50);
   const [slidingIsProfile, setSlidingIsProfile] = useState(true);
@@ -62,10 +62,11 @@ export function CutlistStudio() {
   const [stickerLayoutMode, setStickerLayoutMode] = useState<'a4_grid' | 'thermal'>('a4_grid');
 
   // Compute live sliding deductions
-  const activeSlidingResult: SlidingDoorResult = useMemo(() => {
-    return calculateSlidingDoorDeductions({
-      openingWidthMm: slidingOpeningW,
-      openingHeightMm: slidingOpeningH,
+  const activeSlidingCalculation = useMemo((): { result: SlidingDoorResult | null; error: string | null } => {
+    try {
+      return { result: calculateSlidingDoorDeductions({
+      openingWidthMm: Number(slidingOpeningW),
+      openingHeightMm: Number(slidingOpeningH),
       doorCount: slidingDoorCount,
       hardwarePresetId: slidingPresetId,
       customOverlapMm: slidingCustomOverlap,
@@ -77,14 +78,38 @@ export function CutlistStudio() {
       materialType: slidingMaterial,
       decorativeLaminateCode: slidingLaminate,
       wardrobeModuleName: spaceTitle || 'Custom Sliding Wardrobe',
-      roomName: 'Master Bedroom',
-    });
+      roomName: 'Selected room',
+    }), error: null };
+    } catch (error) {
+      return { result: null, error: error instanceof Error ? error.message : 'Review the dimensions and hardware setup.' };
+    }
   }, [
     slidingOpeningW, slidingOpeningH, slidingDoorCount, slidingPresetId,
     slidingCustomOverlap, slidingCustomDh, slidingIsProfile,
     slidingSideAllowance, slidingTopAllowance, slidingBottomAllowance,
     slidingMaterial, slidingLaminate, spaceTitle
   ]);
+  const activeSlidingResult = activeSlidingCalculation.result;
+  const [verifiedSlidingSignature, setVerifiedSlidingSignature] = useState('');
+  const slidingSpecSignature = JSON.stringify([slidingOpeningW, slidingOpeningH, slidingDoorCount, slidingPresetId, slidingMaterial, slidingLaminate, slidingCustomOverlap, slidingCustomDh, slidingIsProfile, slidingSideAllowance, slidingTopAllowance, slidingBottomAllowance]);
+  const slidingSpecConfirmed = verifiedSlidingSignature === slidingSpecSignature;
+
+  function appendSlidingPanels() {
+    if (!activeSlidingResult || !slidingSpecConfirmed) return;
+    const calculationId = globalThis.crypto?.randomUUID?.() ?? `batch-${Date.now()}`;
+    const batch = calculateSlidingDoorDeductions({
+      openingWidthMm: Number(slidingOpeningW), openingHeightMm: Number(slidingOpeningH), doorCount: slidingDoorCount,
+      hardwarePresetId: slidingPresetId, customOverlapMm: slidingCustomOverlap, customHeightDeductionMm: slidingCustomDh,
+      isProfileFrame: slidingIsProfile, sideProfileAllowanceMm: slidingSideAllowance, topProfileAllowanceMm: slidingTopAllowance,
+      bottomProfileAllowanceMm: slidingBottomAllowance, materialType: slidingMaterial,
+      ...(slidingLaminate ? { decorativeLaminateCode: slidingLaminate } : {}), wardrobeModuleName: spaceTitle, roomName: 'Selected room', calculationId,
+    });
+    setParts((current) => [...current, ...batch.cutlistParts]);
+    setActiveSheetIndex(0);
+    setSlidingModalOpen(false);
+    setVerifiedSlidingSignature('');
+    setStatusMessage(`Added ${batch.cutlistParts.length} sliding-door infill panels as a draft. Verify the supplier deductions and complete hardware schedule before release.`);
+  }
 
   // Projects list for importing project rooms
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
@@ -134,11 +159,13 @@ export function CutlistStudio() {
         sheets: [],
         summary: {
           totalPartsPlaced: 0,
+          blockingIssues: [],
           totalAreaRequiredSqm: 0,
           totalBoardAreaPurchasedSqm: 0,
           overallYieldPct: 0,
           overallWastePct: 0,
           totalSheetsCount: 0,
+          unplacedParts: [],
           sheetsByMaterial: {},
           laminateRequirement: {
             externalDecorativeSheets: 0,
@@ -149,23 +176,39 @@ export function CutlistStudio() {
           edgeBandingRequirement: {
             pvc2mmMeters: 0,
             pvc08mmMeters: 0,
+            otherMeters: 0,
             totalMeters: 0,
           },
         },
       };
     }
 
-    return optimizeGuillotineNesting(parts, {
-      sheetWidthMm: sheetDimensions.w,
-      sheetHeightMm: sheetDimensions.h,
-      trimMm,
-      kerfMm,
-      allowGrainRotationForSolid: true,
-    });
+    try {
+      return optimizeGuillotineNesting(parts, {
+        sheetWidthMm: sheetDimensions.w,
+        sheetHeightMm: sheetDimensions.h,
+        trimMm,
+        kerfMm,
+        allowGrainRotationForSolid: true,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The selected nesting settings are invalid.';
+      return {
+        sheets: [],
+        summary: {
+          totalPartsPlaced: 0, blockingIssues: [message], unplacedParts: [], totalAreaRequiredSqm: 0, totalBoardAreaPurchasedSqm: 0,
+          overallYieldPct: 0, overallWastePct: 0, totalSheetsCount: 0, sheetsByMaterial: {},
+          laminateRequirement: { externalDecorativeSheets: 0, internalLinerSheets: 0, backingPlySheets: 0, carcassPlySheets: 0 },
+          edgeBandingRequirement: { pvc2mmMeters: 0, pvc08mmMeters: 0, otherMeters: 0, totalMeters: 0 },
+        },
+      };
+    }
   }, [parts, sheetDimensions, trimMm, kerfMm]);
 
   // Active sheet to render in SVG
   const activeSheet: OptimizedSheet | null = nestingResult.sheets[activeSheetIndex] ?? nestingResult.sheets[0] ?? null;
+  const expectedPanelCount = parts.reduce((total, part) => total + part.quantity, 0);
+  const nestingComplete = parts.length > 0 && nestingResult.summary.blockingIssues.length === 0 && nestingResult.summary.unplacedParts.length === 0 && nestingResult.summary.totalPartsPlaced === expectedPanelCount;
 
   // Filtered parts for table
   const filteredParts = useMemo(() => {
@@ -228,6 +271,7 @@ export function CutlistStudio() {
   }
 
   function downloadCsv() {
+    if (!nestingComplete) { setStatusMessage('Export blocked: at least one listed part does not fit the selected sheet with its grain constraints. Resolve the unplaced parts first.'); return; }
     const csv = exportCutlistToCsv(nestingResult, spaceTitle);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -240,6 +284,7 @@ export function CutlistStudio() {
   }
 
   function downloadDxf() {
+    if (!nestingComplete) { setStatusMessage('Export blocked: resolve every unplaced part before generating CNC sheet layouts.'); return; }
     const dxf = exportNestingToDxf(nestingResult);
     const blob = new Blob([dxf], { type: 'application/dxf;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -252,6 +297,7 @@ export function CutlistStudio() {
   }
 
   function printCuttingDossier() {
+    if (!nestingComplete) { setStatusMessage('Print blocked: resolve every unplaced part before printing the cutting dossier.'); return; }
     window.print();
   }
 
@@ -263,26 +309,26 @@ export function CutlistStudio() {
           <small>Precision Manufacturing &amp; CAM</small>
           <h1>Cutlist &amp; High-Efficiency Nesting Studio</h1>
           <p>
-            Ingest 2D elevation &amp; section drawings of interior spaces, automatically match external decorative laminates and internal liner ply, and optimize sheet cutting layouts with <strong>less than 5% wastage</strong>.
+            Import measured panel schedules, group compatible materials, and calculate sheet layouts with kerf, trim, and part-level grain constraints. Waste is reported from the selected layout; it is not guaranteed.
           </p>
         </div>
 
         <div className="cs-hero-actions">
-          <button type="button" className="cs-btn" onClick={() => fileInputRef.current?.click()} title="Upload 2D CAD / JSON / CSV drawing">
+          <button type="button" className="cs-btn" onClick={() => fileInputRef.current?.click()} title="Upload a JSON or CSV panel schedule with measured part sizes">
             <Upload size={14} />
-            <span>Upload 2D Drawing</span>
+            <span>Upload Panel Schedule</span>
           </button>
           <input
             type="file"
             ref={fileInputRef}
             style={{ display: 'none' }}
-            accept=".json,.dxf,.csv,.txt"
+            accept=".json,.csv"
             onChange={handleFileUpload}
           />
 
-          <button type="button" className="cs-btn" onClick={() => setUploadModalOpen(true)} title="Paste raw 2D drawing text or JSON">
+          <button type="button" className="cs-btn" onClick={() => setUploadModalOpen(true)} title="Paste a JSON or CSV panel schedule">
             <Layers size={14} />
-            <span>Paste 2D Spec</span>
+            <span>Paste Panel Schedule</span>
           </button>
 
           <button
@@ -307,42 +353,42 @@ export function CutlistStudio() {
             <span>Print Part Stickers</span>
           </button>
 
-          <button type="button" className="cs-btn primary" onClick={downloadCsv} title="Download CSV cutlist with laminate schedules">
+          <button type="button" className="cs-btn primary" onClick={downloadCsv} disabled={!nestingComplete} title={nestingComplete ? 'Download CSV cutlist with laminate schedules' : 'Resolve unplaced parts before export'}>
             <Download size={14} />
             <span>Export CSV Cutlist</span>
           </button>
 
-          <button type="button" className="cs-btn" onClick={downloadDxf} title="Download AutoCAD CNC / Saw sheet nesting DXF">
+          <button type="button" className="cs-btn" onClick={downloadDxf} disabled={!nestingComplete} title={nestingComplete ? 'Download AutoCAD CNC / Saw sheet nesting DXF' : 'Resolve unplaced parts before export'}>
             <Scissors size={14} />
             <span>Export CNC DXF</span>
           </button>
 
-          <button type="button" className="cs-btn" onClick={printCuttingDossier} title="Print production cutting ticket & part labels">
+          <button type="button" className="cs-btn" onClick={printCuttingDossier} disabled={!nestingComplete} title={nestingComplete ? 'Print production cutting ticket & part labels' : 'Resolve unplaced parts before printing'}>
             <Printer size={14} />
             <span>Print Dossier</span>
           </button>
         </div>
       </section>
 
-      {/* ─── Key Metrics Strip (<5% Wastage Guarantee) ─── */}
+      {/* ─── Key Metrics Strip ─── */}
       <section className="cs-metrics-strip">
         <div className="cs-metric-card green">
           <span className="cs-metric-label">Overall Board Yield</span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
             <span className="cs-metric-val">{nestingResult.summary.overallYieldPct}%</span>
-            <span className="cs-pill-badge green">
-              <CheckCircle2 size={11} /> High Efficiency
+            <span className={`cs-pill-badge ${nestingComplete ? 'green' : 'red'}`}>
+              {nestingComplete ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />} {nestingComplete ? 'All parts placed' : 'Layout incomplete'}
             </span>
           </div>
           <span className="cs-metric-sub">
-            Wastage: <strong>{nestingResult.summary.overallWastePct}%</strong> (Guaranteed &lt; 5%)
+            Calculated waste: <strong>{nestingResult.summary.overallWastePct}%</strong> for this layout
           </span>
         </div>
 
         <div className="cs-metric-card gold">
           <span className="cs-metric-label">Total Sheets Required</span>
           <span className="cs-metric-val">{nestingResult.summary.totalSheetsCount} Sheets</span>
-          <span className="cs-metric-sub">Standard 8×4 ft (2440×1220 mm)</span>
+          <span className="cs-metric-sub">Selected stock size {sheetDimensions.w} × {sheetDimensions.h} mm</span>
         </div>
 
         <div className="cs-metric-card">
@@ -353,7 +399,7 @@ export function CutlistStudio() {
             </span>
           </div>
           <span className="cs-metric-sub">
-            {nestingResult.summary.laminateRequirement.externalDecorativeSheets} Decorative (1.0mm) + {nestingResult.summary.laminateRequirement.internalLinerSheets} Suede Liners
+            Area-based lower bound: {nestingResult.summary.laminateRequirement.externalDecorativeSheets} decorative + {nestingResult.summary.laminateRequirement.internalLinerSheets} liner sheets; actual nesting and finish-specific stock may require more.
           </span>
         </div>
 
@@ -365,10 +411,25 @@ export function CutlistStudio() {
             </span>
           </div>
           <span className="cs-metric-sub">
-            2mm: <strong>{nestingResult.summary.edgeBandingRequirement.pvc2mmMeters}m</strong> | 0.8mm: <strong>{nestingResult.summary.edgeBandingRequirement.pvc08mmMeters}m</strong>
+            2mm: <strong>{nestingResult.summary.edgeBandingRequirement.pvc2mmMeters}m</strong> | 0.8mm: <strong>{nestingResult.summary.edgeBandingRequirement.pvc08mmMeters}m</strong> | Other/unclassified: <strong>{nestingResult.summary.edgeBandingRequirement.otherMeters}m</strong>
           </span>
         </div>
       </section>
+
+      {nestingResult.summary.blockingIssues.length > 0 && (
+        <section role="alert" className="cs-card" style={{ borderColor: '#b91c1c', color: '#7f1d1d', marginBottom: 16 }}>
+          <strong>The cutlist cannot be calculated with these settings.</strong>
+          <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>{nestingResult.summary.blockingIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+        </section>
+      )}
+      {nestingResult.summary.unplacedParts.length > 0 && (
+        <section role="alert" className="cs-card" style={{ borderColor: '#d97706', color: '#7c2d12', marginBottom: 16 }}>
+          <strong>Some parts are missing from the sheet layout. Exports are paused.</strong>
+          <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+            {nestingResult.summary.unplacedParts.map((part) => <li key={part.partInstanceId}>{part.partInstanceId} · {part.name} · {part.quantity} pc — {part.reason}</li>)}
+          </ul>
+        </section>
+      )}
 
       {/* ─── Control Bar ─── */}
       <section className="cs-control-bar">
@@ -819,11 +880,15 @@ export function CutlistStudio() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed var(--line)', paddingBottom: 6 }}>
                 <span style={{ color: 'var(--text-muted)' }}>2.0mm PVC Edge Banding</span>
-                <strong>{nestingResult.summary.edgeBandingRequirement.pvc2mmMeters} meters</strong>
+                <strong>{nestingResult.summary.edgeBandingRequirement.pvc2mmMeters} m</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--text-muted)' }}>0.8mm PVC Edge Banding</span>
-                <strong>{nestingResult.summary.edgeBandingRequirement.pvc08mmMeters} meters</strong>
+                <strong>{nestingResult.summary.edgeBandingRequirement.pvc08mmMeters} m</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Other / unclassified edge banding</span>
+                <strong>{nestingResult.summary.edgeBandingRequirement.otherMeters} m</strong>
               </div>
             </div>
           </div>
@@ -953,6 +1018,46 @@ export function CutlistStudio() {
       </section>
 
       {/* ─── Paste 2D Drawing Spec Modal ─── */}
+      {slidingModalOpen && (
+        <div role="presentation" style={{ position: 'fixed', inset: 0, zIndex: 1050, background: 'rgba(18, 16, 13, .72)', display: 'grid', placeItems: 'center', padding: 16 }} onClick={(event) => event.target === event.currentTarget && setSlidingModalOpen(false)}>
+          <section role="dialog" aria-modal="true" aria-labelledby="sliding-calculator-title" style={{ width: 'min(760px, 100%)', maxHeight: '90vh', overflow: 'auto', background: 'var(--surface, #fff)', color: 'var(--text, #211b15)', borderRadius: 14, padding: 22, boxShadow: '0 24px 80px rgba(0,0,0,.35)' }}>
+            <h2 id="sliding-calculator-title" style={{ margin: '0 0 6px' }}>Sliding shutter calculator</h2>
+            <p style={{ marginTop: 0, fontSize: 13, color: 'var(--text-secondary)' }}>Enter a measured clear opening and check deductions against the exact hardware supplier drawing. This creates draft infill panels; it does not certify the track, frame, or shutter assembly.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+              <label>Measured opening width (mm)<input type="number" min="1" value={slidingOpeningW} onChange={(e) => setSlidingOpeningW(e.target.value)} style={{ display: 'block', width: '100%' }} /></label>
+              <label>Measured opening height (mm)<input type="number" min="1" value={slidingOpeningH} onChange={(e) => setSlidingOpeningH(e.target.value)} style={{ display: 'block', width: '100%' }} /></label>
+              <label>Door count<select value={slidingDoorCount} onChange={(e) => setSlidingDoorCount(Number(e.target.value))} style={{ display: 'block', width: '100%' }}>{[2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n} doors</option>)}</select></label>
+              <label>Hardware reference<select value={slidingPresetId} onChange={(e) => setSlidingPresetId(e.target.value)} style={{ display: 'block', width: '100%' }}>{SLIDING_HARDWARE_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select></label>
+              <label>Panel material<select value={slidingMaterial} onChange={(e) => setSlidingMaterial(e.target.value as SlidingDoorInput['materialType'])} style={{ display: 'block', width: '100%' }}><option value="hdhmr_18">18 mm HDHMR</option><option value="plywood_18">18 mm plywood</option><option value="mdf_18">18 mm MDF</option><option value="glass_fluted_8">8 mm fluted glass</option><option value="mirror_6">6 mm mirror</option><option value="acrylic_12">12 mm acrylic composite</option></select></label>
+              {slidingMaterial !== 'glass_fluted_8' && slidingMaterial !== 'mirror_6' && <label>Decorative laminate code (optional)<input value={slidingLaminate} onChange={(e) => setSlidingLaminate(e.target.value)} placeholder="Enter verified material code" style={{ display: 'block', width: '100%' }} /></label>}
+              <label>Door overlap (mm)<input type="number" min="0" value={slidingCustomOverlap} onChange={(e) => setSlidingCustomOverlap(Number(e.target.value))} style={{ display: 'block', width: '100%' }} /></label>
+              <label>Track/roller height deduction (mm)<input type="number" min="0" value={slidingCustomDh} onChange={(e) => setSlidingCustomDh(Number(e.target.value))} style={{ display: 'block', width: '100%' }} /></label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={slidingIsProfile} onChange={(e) => setSlidingIsProfile(e.target.checked)} /> Four-sided profile frame</label>
+              {slidingIsProfile && <>
+                <label>Side profile allowance per side (mm)<input type="number" min="0" value={slidingSideAllowance} onChange={(e) => setSlidingSideAllowance(Number(e.target.value))} style={{ display: 'block', width: '100%' }} /></label>
+                <label>Top rail allowance (mm)<input type="number" min="0" value={slidingTopAllowance} onChange={(e) => setSlidingTopAllowance(Number(e.target.value))} style={{ display: 'block', width: '100%' }} /></label>
+                <label>Bottom rail allowance (mm)<input type="number" min="0" value={slidingBottomAllowance} onChange={(e) => setSlidingBottomAllowance(Number(e.target.value))} style={{ display: 'block', width: '100%' }} /></label>
+              </>}
+            </div>
+            {activeSlidingCalculation.error && <p role="alert" style={{ color: '#9a3412', background: '#fff7ed', border: '1px solid #fdba74', padding: 10, borderRadius: 8 }}>{activeSlidingCalculation.error}</p>}
+            {activeSlidingResult && <div style={{ marginTop: 14, padding: 14, border: '1px solid var(--line)', borderRadius: 10 }}>
+              <strong>Draft dimensions per door</strong>
+              <p style={{ margin: '8px 0' }}>Shutter: {activeSlidingResult.finishedShutterWidthMm} × {activeSlidingResult.finishedShutterHeightMm} mm · Infill: {activeSlidingResult.infillWidthMm} × {activeSlidingResult.infillHeightMm} mm</p>
+              <small>{activeSlidingResult.formulas.widthFormula}<br />{activeSlidingResult.formulas.heightFormula}</small>
+              <p style={{ marginBottom: 4, fontSize: 12 }}>Estimated infill weight: {activeSlidingResult.weightPerDoorKg} kg each ({activeSlidingResult.weightCapacityStatus}); frame, handle, rollers, and fittings are excluded. Verify total assembly weight against the exact hardware rating.</p>
+              {activeSlidingResult.hardwareChecklist.map((item) => <div key={item.name} style={{ fontSize: 12 }}>{item.name}: {item.quantity} {item.unit ?? 'pc'} — {item.notes}</div>)}
+              <p style={{ fontSize: 12, color: '#9a3412', marginBottom: 0 }}>Preset values are reference starting values. No supplier specification has been independently verified by this calculator.</p>
+            </div>}
+            <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', margin: '16px 0', fontSize: 13 }}>
+              <input type="checkbox" checked={slidingSpecConfirmed} onChange={(e) => setVerifiedSlidingSignature(e.target.checked ? slidingSpecSignature : '')} />
+              I checked this opening and each overlap, height, and profile deduction against the exact supplier drawing for this hardware.
+            </label>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}><button type="button" className="cs-btn" onClick={() => setSlidingModalOpen(false)}>Cancel</button><button type="button" className="cs-btn primary" disabled={!activeSlidingResult || !slidingSpecConfirmed} onClick={appendSlidingPanels}>Add draft panels to cutlist</button></div>
+          </section>
+        </div>
+      )}
+
+      {/* ─── Paste 2D Drawing Spec Modal ─── */}
       {uploadModalOpen && (
         <div
           style={{
@@ -981,7 +1086,7 @@ export function CutlistStudio() {
               Paste 2D Elevation &amp; Section Drawing Spec
             </h3>
             <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 16px' }}>
-              Paste JSON or CSV panel schedules describing the internal carcass partitions and external shutters of your modules. The engine will automatically match laminates and optimize nesting with &lt; 5% scrap.
+              Import JSON or CSV panel schedules with measured sizes. DXF/vector drawings are not converted to cabinet sizes here; use an approved scene or prepare a panel list. Layout yield reflects the selected sheet, trim, kerf, and part grain constraints; review unplaced panels before export.
             </p>
 
             <textarea

@@ -44,6 +44,8 @@ export interface NestingPart {
   materialCode: string;
   materialName?: string;
   grainDirection: GrainDirection;
+  /** Set only when the material supplier allows 90-degree grain rotation for this part. */
+  grainRotationAllowed?: boolean;
   externalLaminateCode?: string;
   internalLinerCode?: string;
   edgeBanding: {
@@ -110,6 +112,8 @@ export interface NestingOptimizationResult {
   sheets: OptimizedSheet[];
   summary: {
     totalPartsPlaced: number;
+    blockingIssues: string[];
+    unplacedParts: Array<{ partInstanceId: string; name: string; quantity: number; reason: string }>;
     totalAreaRequiredSqm: number;
     totalBoardAreaPurchasedSqm: number;
     overallYieldPct: number;
@@ -125,6 +129,7 @@ export interface NestingOptimizationResult {
     edgeBandingRequirement: {
       pvc2mmMeters: number;
       pvc08mmMeters: number;
+      otherMeters: number;
       totalMeters: number;
     };
   };
@@ -187,6 +192,20 @@ export function optimizeGuillotineNesting(
   const kerf = options.kerfMm ?? 4;
   const allowGrainRot = options.allowGrainRotationForSolid ?? true;
 
+  if (![sheetW, sheetH].every((value) => Number.isFinite(value) && value > 0)) throw new RangeError('Sheet width and height must be finite positive millimetre values.');
+  if (![trim, kerf].every((value) => Number.isFinite(value) && value >= 0)) throw new RangeError('Trim and saw kerf must be finite non-negative millimetre values.');
+  if (sheetW - trim * 2 <= 0 || sheetH - trim * 2 <= 0) throw new RangeError('Sheet trim leaves no usable panel area.');
+  const seenPartIds = new Set<string>();
+  for (const part of parts) {
+    const partId = part.partInstanceId || part.id;
+    if (!partId.trim() || seenPartIds.has(partId)) throw new RangeError(`Part identifier "${partId}" is missing or duplicated.`);
+    seenPartIds.add(partId);
+    if (![part.lengthMm, part.widthMm, part.thicknessMm].every((value) => Number.isFinite(value) && value > 0)) throw new RangeError(`Part ${partId} has a non-positive or invalid dimension.`);
+    if (!Number.isInteger(part.quantity) || part.quantity <= 0) throw new RangeError(`Part ${partId} quantity must be a positive whole number.`);
+    if (!['vertical', 'horizontal', 'none'].includes(part.grainDirection)) throw new RangeError(`Part ${partId} has an invalid grain direction.`);
+    if (!Number.isFinite(part.edgeBanding?.totalLinearMeters) || part.edgeBanding.totalLinearMeters < 0) throw new RangeError(`Part ${partId} has invalid edge-banding quantity.`);
+  }
+
   const usableW = sheetW - trim * 2;
   const usableH = sheetH - trim * 2;
 
@@ -212,6 +231,7 @@ export function optimizeGuillotineNesting(
   }
 
   const allOptimizedSheets: OptimizedSheet[] = [];
+  const unplacedParts: NestingOptimizationResult['summary']['unplacedParts'] = [];
   let globalSheetIndex = 1;
 
   const colorPalette = [
@@ -240,7 +260,7 @@ export function optimizeGuillotineNesting(
     }> = [];
 
     for (const p of matParts) {
-      const qty = Math.max(1, p.quantity);
+      const qty = p.quantity;
       for (let q = 0; q < qty; q++) {
         itemsToPack.push({
           itemKey: `${p.partInstanceId || p.id}_q${q + 1}`,
@@ -313,15 +333,29 @@ export function optimizeGuillotineNesting(
     if (bestPackResult) {
       allOptimizedSheets.push(...bestPackResult);
       globalSheetIndex += bestPackResult.length;
+      const placedKeys = new Set(bestPackResult.flatMap((sheet) => sheet.placedPanels.map((panel) => panel.id)));
+      const unplacedByPart = new Map<string, { part: NestingPart; quantity: number }>();
+      for (const item of itemsToPack) {
+        if (placedKeys.has(item.itemKey)) continue;
+        const key = item.part.partInstanceId || item.part.id;
+        const entry = unplacedByPart.get(key) ?? { part: item.part, quantity: 0 };
+        entry.quantity += 1;
+        unplacedByPart.set(key, entry);
+      }
+      for (const [partInstanceId, entry] of unplacedByPart) {
+        unplacedParts.push({ partInstanceId, name: entry.part.name, quantity: entry.quantity, reason: 'No selected sheet can fit this part within trim, kerf, and grain-direction constraints.' });
+      }
     }
   }
 
   // Calculate totals and material summaries
   const totalPartsPlaced = allOptimizedSheets.reduce((sum, s) => sum + s.placedPanels.length, 0);
-  const totalAreaRequiredSqm = Math.round(allOptimizedSheets.reduce((sum, s) => sum + s.usedAreaSqm, 0) * 100) / 100;
-  const totalBoardAreaPurchasedSqm = Math.round(allOptimizedSheets.reduce((sum, s) => sum + s.totalAreaSqm, 0) * 100) / 100;
-  const overallYieldPct = totalBoardAreaPurchasedSqm > 0
-    ? Math.min(100, Math.round((totalAreaRequiredSqm / totalBoardAreaPurchasedSqm) * 1000) / 10)
+  const totalAreaRequiredRaw = allOptimizedSheets.reduce((sum, s) => sum + s.usedAreaSqm, 0);
+  const totalBoardAreaPurchasedRaw = allOptimizedSheets.reduce((sum, s) => sum + s.totalAreaSqm, 0);
+  const totalAreaRequiredSqm = Math.round(totalAreaRequiredRaw * 10_000) / 10_000;
+  const totalBoardAreaPurchasedSqm = Math.round(totalBoardAreaPurchasedRaw * 10_000) / 10_000;
+  const overallYieldPct = totalBoardAreaPurchasedRaw > 0
+    ? Math.min(100, Math.round((totalAreaRequiredRaw / totalBoardAreaPurchasedRaw) * 1000) / 10)
     : 0;
   const overallWastePct = Math.max(0, Math.round((100 - overallYieldPct) * 10) / 10);
 
@@ -338,6 +372,7 @@ export function optimizeGuillotineNesting(
   let backingAreaSqm = 0;
   let total2mmEdgeMeters = 0;
   let total08mmEdgeMeters = 0;
+  let otherEdgeMeters = 0;
 
   for (const p of parts) {
     const partArea = (p.lengthMm * p.widthMm * p.quantity) / 1e6;
@@ -349,26 +384,38 @@ export function optimizeGuillotineNesting(
       internalPanelAreaSqm += partArea;
     }
 
-    const perimeter = ((p.lengthMm + p.widthMm) * 2 * p.quantity) / 1000;
-    if (p.isExternal) {
-      total2mmEdgeMeters += perimeter;
-    } else {
-      total08mmEdgeMeters += perimeter;
+    const edges = [
+      { lengthMm: p.lengthMm, band: p.edgeBanding.l1 },
+      { lengthMm: p.lengthMm, band: p.edgeBanding.l2 },
+      { lengthMm: p.widthMm, band: p.edgeBanding.w1 },
+      { lengthMm: p.widthMm, band: p.edgeBanding.w2 },
+    ];
+    for (const edge of edges) {
+      if (!edge.band || /^(none|n\/a|-)$/i.test(edge.band.trim())) continue;
+      const meters = (edge.lengthMm * p.quantity) / 1000;
+      const thickness = Number(edge.band.match(/(\d+(?:\.\d+)?)\s*mm/i)?.[1]);
+      if (!Number.isFinite(thickness)) otherEdgeMeters += meters;
+      else if (thickness <= 0.9) total08mmEdgeMeters += meters;
+      else if (thickness >= 1.5 && thickness <= 2.5) total2mmEdgeMeters += meters;
+      else otherEdgeMeters += meters;
     }
   }
 
   const standardSheetSqm = (sheetW * sheetH) / 1e6;
-  // With < 5% scrap, factor is ~1.05
-  const externalDecorativeSheets = Math.max(1, Math.ceil((externalPanelAreaSqm * 1.05) / standardSheetSqm));
-  // Carcass requires liner on both sides, so 2x area
-  const internalLinerSheets = Math.max(1, Math.ceil(((internalPanelAreaSqm * 2 + externalPanelAreaSqm + backingAreaSqm) * 1.05) / standardSheetSqm));
-  const carcassPlySheets = Math.max(1, Math.ceil(((internalPanelAreaSqm + externalPanelAreaSqm) * 1.05) / standardSheetSqm));
-  const backingPlySheets = Math.max(0, Math.ceil((backingAreaSqm * 1.05) / standardSheetSqm));
+  // These are area-only lower bounds, not a laminate nesting plan. Actual
+  // quantities can be higher because separate decor codes cannot share stock,
+  // and grain, trimming, kerf, and defects consume additional area.
+  const externalDecorativeSheets = Math.ceil(externalPanelAreaSqm / standardSheetSqm);
+  const internalLinerSheets = Math.ceil((internalPanelAreaSqm * 2 + externalPanelAreaSqm + backingAreaSqm) / standardSheetSqm);
+  const carcassPlySheets = Math.ceil((internalPanelAreaSqm + externalPanelAreaSqm) / standardSheetSqm);
+  const backingPlySheets = Math.ceil(backingAreaSqm / standardSheetSqm);
 
   return {
     sheets: allOptimizedSheets,
     summary: {
       totalPartsPlaced,
+      blockingIssues: [],
+      unplacedParts,
       totalAreaRequiredSqm,
       totalBoardAreaPurchasedSqm,
       overallYieldPct,
@@ -382,9 +429,10 @@ export function optimizeGuillotineNesting(
         carcassPlySheets,
       },
       edgeBandingRequirement: {
-        pvc2mmMeters: Math.round(total2mmEdgeMeters * 10) / 10,
-        pvc08mmMeters: Math.round(total08mmEdgeMeters * 10) / 10,
-        totalMeters: Math.round((total2mmEdgeMeters + total08mmEdgeMeters) * 10) / 10,
+        pvc2mmMeters: Math.round(total2mmEdgeMeters * 1000) / 1000,
+        pvc08mmMeters: Math.round(total08mmEdgeMeters * 1000) / 1000,
+        otherMeters: Math.round(otherEdgeMeters * 1000) / 1000,
+        totalMeters: Math.round((total2mmEdgeMeters + total08mmEdgeMeters + otherEdgeMeters) * 1000) / 1000,
       },
     },
   };
@@ -437,7 +485,7 @@ function packSingleMaterialGuillotine(
 
       for (let i = 0; i < remaining.length; i++) {
         const item = remaining[i];
-        const canRotate = item.grain === 'none' || (allowGrainRot && !item.part.isExternal);
+        const canRotate = item.grain === 'none' || (allowGrainRot && item.part.grainRotationAllowed === true);
 
         for (let r = 0; r < freeRects.length; r++) {
           const rect = freeRects[r];
@@ -559,6 +607,7 @@ function packSingleMaterialGuillotine(
       }
     }
 
+    if (placedOnSheet.length === 0) break;
     const totalSheetAreaSqm = (sheetW * sheetH) / 1e6;
     const usedAreaSqm = placedOnSheet.reduce((sum, p) => sum + (p.w * p.h) / 1e6, 0);
     const yieldPct = Math.min(100, Math.round((usedAreaSqm / totalSheetAreaSqm) * 1000) / 10);
@@ -578,9 +627,9 @@ function packSingleMaterialGuillotine(
       kerfMm: kerf,
       placedPanels: placedOnSheet,
       cuts: cutsOnSheet,
-      totalAreaSqm: Math.round(totalSheetAreaSqm * 100) / 100,
-      usedAreaSqm: Math.round(usedAreaSqm * 100) / 100,
-      wasteAreaSqm: Math.round((totalSheetAreaSqm - usedAreaSqm) * 100) / 100,
+      totalAreaSqm: totalSheetAreaSqm,
+      usedAreaSqm,
+      wasteAreaSqm: totalSheetAreaSqm - usedAreaSqm,
       yieldPct,
       wastePct,
       remnants: freeRects.filter((r) => r.w >= 100 && r.h >= 100),
@@ -621,9 +670,9 @@ function pruneFreeRects(rects: FreeRect[]): void {
 export interface Parsed2DSpace {
   title: string;
   sourceType: 'json' | 'dxf' | 'csv' | 'preset';
-  overallWidthMm: number;
-  overallHeightMm: number;
-  depthMm: number;
+  overallWidthMm: number | null;
+  overallHeightMm: number | null;
+  depthMm: number | null;
   parts: NestingPart[];
   materialsMatched: {
     carcass: string;
@@ -642,69 +691,91 @@ export function parse2DDrawingFile(
   presetConfig: MaterialMatchingPreset = DEFAULT_MATERIAL_PRESET
 ): Parsed2DSpace {
   const trimmed = content.trim();
+  if (!trimmed) throw new Error('The uploaded panel schedule is empty. No cutlist was created.');
 
-  // 1. JSON Format
+  // JSON imports either parse as a complete explicit schedule or fail clearly;
+  // malformed/incomplete data must never fall through to guessed cabinet sizes.
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    let data: unknown;
     try {
-      const data = JSON.parse(trimmed);
-      return parseJsonDrawingData(data, fileName, presetConfig);
-    } catch (e) {
-      console.warn('JSON parse fallback to CSV/DXF', e);
+      data = JSON.parse(trimmed);
+    } catch {
+      throw new Error('The JSON panel schedule is malformed. Correct the file and try again.');
     }
+    return parseJsonDrawingData(data, fileName, presetConfig);
   }
 
-  // 2. CSV Format
-  if (trimmed.includes(',') && (trimmed.includes('Part') || trimmed.includes('Width') || trimmed.includes('Length') || trimmed.includes('Shutter') || trimmed.includes('Gable'))) {
+  if (/\.dxf$/i.test(fileName)) {
+    throw new Error('DXF drawings are not panel schedules. Import a reviewed CSV/JSON panel list or generate the cutlist from an approved scene. No cabinet dimensions were inferred from the drawing.');
+  }
+  if (trimmed.includes(',') && /(?:length|width|part|panel)/i.test(trimmed.split(/\r?\n/, 1)[0])) {
     return parseCsvDrawingData(trimmed, fileName, presetConfig);
   }
+  throw new Error('Unsupported cutlist input. Provide a JSON or CSV panel schedule with explicit panel lengths and widths.');
+}
 
-  // 3. Fallback: Parse as DXF or structured elevation text
-  return parseDxfOrTextDrawing(trimmed, fileName, presetConfig);
+function readRequiredPositiveNumber(value: unknown, field: string, rowLabel: string) {
+  const numeric = value === undefined || value === null || value === '' ? NaN : Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) throw new Error(`${rowLabel}: ${field} must be provided as a positive millimetre value.`);
+  return numeric;
+}
+
+function readOptionalPositiveNumber(value: unknown, field: string): number | null {
+  if (value === undefined || value === null) return null;
+  return readRequiredPositiveNumber(value, field, 'Schedule');
 }
 
 function parseJsonDrawingData(data: any, fileName: string, preset: MaterialMatchingPreset): Parsed2DSpace {
   const root = Array.isArray(data) ? { parts: data } : data;
-  const title = root.title || root.name || fileName.replace(/\.[^/.]+$/, '');
-  const overallW = Number(root.overallWidthMm || root.width || 2400);
-  const overallH = Number(root.overallHeightMm || root.height || 2100);
-  const depth = Number(root.depthMm || root.depth || 600);
+  if (!root || typeof root !== 'object') throw new Error('The JSON schedule must contain a parts array.');
+  const title = String(root.title ?? root.name ?? fileName.replace(/\.[^/.]+$/, '')).trim();
+  const overallW = readOptionalPositiveNumber(root.overallWidthMm ?? root.width, 'overallWidthMm');
+  const overallH = readOptionalPositiveNumber(root.overallHeightMm ?? root.height, 'overallHeightMm');
+  const depth = readOptionalPositiveNumber(root.depthMm ?? root.depth, 'depthMm');
 
-  const rawParts = Array.isArray(root.parts) ? root.parts : (root.modules ? extractPartsFromModules(root.modules) : []);
+  const rawParts = Array.isArray(root.parts) ? root.parts : (Array.isArray(root.modules) ? extractPartsFromModules(root.modules) : []);
+  if (!rawParts.length) throw new Error('No explicit panel records were found. Choose a parametric template and enter its dimensions, or import a panel schedule.');
   const parts: NestingPart[] = [];
 
   for (let idx = 0; idx < rawParts.length; idx++) {
     const raw = rawParts[idx];
-    const name = String(raw.name || raw.partName || `Part-${idx + 1}`);
-    const isExt = Boolean(raw.isExternal ?? (
+    if (!raw || typeof raw !== 'object') throw new Error(`Part row ${idx + 1} is not an object.`);
+    const name = String(raw.name ?? raw.partName ?? `Part-${idx + 1}`);
+    const rawExternal = raw.isExternal;
+    const isExt = rawExternal === undefined ? (
       name.toLowerCase().includes('shutter') ||
       name.toLowerCase().includes('door') ||
       name.toLowerCase().includes('fascia') ||
       name.toLowerCase().includes('filler') ||
       name.toLowerCase().includes('skirting') ||
       name.toLowerCase().includes('pelmet')
-    ));
+    ) : typeof rawExternal === 'boolean' ? rawExternal : String(rawExternal).toLowerCase() === 'true' ? true : String(rawExternal).toLowerCase() === 'false' ? false : (() => { throw new Error(`Part ${idx + 1}: isExternal must be true or false.`); })();
 
-    const classification: PartClassification = raw.classification || (
+    const inferredClassification: PartClassification = (
       isExt
         ? (name.toLowerCase().includes('drawer') ? 'external_drawer_front' : 'external_shutter')
         : (name.toLowerCase().includes('back') ? 'back_panel' :
            name.toLowerCase().includes('shelf') ? 'internal_shelf_fixed' :
            name.toLowerCase().includes('divider') ? 'internal_divider' : 'internal_carcass_gable')
     );
+    const allowedClassifications: PartClassification[] = ['external_shutter','external_drawer_front','external_filler','external_pelmet','external_skirting','internal_carcass_gable','internal_carcass_deck','internal_divider','internal_shelf_fixed','internal_shelf_adj','internal_drawer_side','internal_drawer_back','internal_drawer_bottom','back_panel'];
+    const classification = raw.classification ?? inferredClassification;
+    if (!allowedClassifications.includes(classification)) throw new Error(`Part ${idx + 1}: unrecognized classification "${String(classification)}".`);
 
-    const lengthMm = Number(raw.lengthMm || raw.length || raw.height || 600);
-    const widthMm = Number(raw.widthMm || raw.width || 400);
-    const thicknessMm = Number(raw.thicknessMm || raw.thickness || (classification === 'back_panel' ? 9 : 18));
-    const qty = Number(raw.quantity || raw.qty || 1);
-    const grain: GrainDirection = raw.grainDirection || (isExt ? 'vertical' : 'none');
+    const rowLabel = String(raw.partInstanceId ?? raw.id ?? `part ${idx + 1}`);
+    const lengthMm = readRequiredPositiveNumber(raw.lengthMm ?? raw.length ?? raw.height, 'length', rowLabel);
+    const widthMm = readRequiredPositiveNumber(raw.widthMm ?? raw.width, 'width', rowLabel);
+    const thicknessMm = readRequiredPositiveNumber(raw.thicknessMm ?? raw.thickness ?? (classification === 'back_panel' ? preset.backPanelThicknessMm : preset.carcassThicknessMm), 'thickness', rowLabel);
+    const qty = Number(raw.quantity ?? raw.qty ?? 1);
+    if (!Number.isInteger(qty) || qty <= 0) throw new Error(`${rowLabel}: quantity must be a positive whole number.`);
+    const grain = raw.grainDirection ?? (isExt ? 'vertical' : 'none');
+    if (!['vertical', 'horizontal', 'none'].includes(grain)) throw new Error(`${rowLabel}: grainDirection must be vertical, horizontal, or none.`);
 
-    const matCode = isExt
-      ? preset.externalDecorativeLaminate
-      : (classification === 'back_panel' ? preset.backPanelMaterial : preset.carcassCorePly);
+    const matCode = String(raw.materialCode ?? raw.materialName ?? (isExt ? preset.carcassCorePly : classification === 'back_panel' ? preset.backPanelMaterial : preset.carcassCorePly));
 
     parts.push({
-      id: raw.id || `p-${idx + 1}`,
-      partInstanceId: raw.partInstanceId || `PART-${idx + 1}`,
+      id: String(raw.id ?? `p-${idx + 1}`),
+      partInstanceId: String(raw.partInstanceId ?? raw.id ?? `PART-${idx + 1}`),
       name,
       roomName: raw.roomName || 'Main Room',
       moduleName: raw.moduleName || title,
@@ -717,22 +788,17 @@ function parseJsonDrawingData(data: any, fileName: string, preset: MaterialMatch
       materialCode: matCode,
       materialName: matCode,
       grainDirection: grain,
-      externalLaminateCode: isExt ? preset.externalDecorativeLaminate : undefined,
-      internalLinerCode: preset.internalLinerLaminate,
+      externalLaminateCode: isExt ? String(raw.externalLaminateCode ?? preset.externalDecorativeLaminate) : undefined,
+      internalLinerCode: raw.internalLinerCode == null ? preset.internalLinerLaminate : String(raw.internalLinerCode),
       edgeBanding: {
-        l1: isExt ? preset.externalEdgeBand : preset.internalEdgeBand,
-        l2: isExt ? preset.externalEdgeBand : 'none',
-        w1: isExt ? preset.externalEdgeBand : preset.internalEdgeBand,
-        w2: isExt ? preset.externalEdgeBand : 'none',
+        l1: String(raw.edgeBanding?.l1 ?? (isExt ? preset.externalEdgeBand : preset.internalEdgeBand)),
+        l2: String(raw.edgeBanding?.l2 ?? (isExt ? preset.externalEdgeBand : 'none')),
+        w1: String(raw.edgeBanding?.w1 ?? (isExt ? preset.externalEdgeBand : preset.internalEdgeBand)),
+        w2: String(raw.edgeBanding?.w2 ?? (isExt ? preset.externalEdgeBand : 'none')),
         totalLinearMeters: Math.round(((lengthMm * 2 + widthMm * 2) * qty / 1000) * 10) / 10,
       },
       notes: raw.notes || (isExt ? 'External Shutter — Grain Matched' : 'Internal Carcass — System 32'),
     });
-  }
-
-  // If no explicit parts were found, generate full wardrobe anatomy from overall dimensions
-  if (parts.length === 0) {
-    return generateParametricCabinetAnatomy(title, overallW, overallH, depth, preset);
   }
 
   return {
@@ -763,15 +829,27 @@ function parseCsvDrawingData(csvText: string, fileName: string, preset: Material
     }
   }
 
-  const startLine = headerIndex >= 0 ? headerIndex + 1 : 0;
+  if (headerIndex < 0) throw new Error('CSV panel schedule needs a header row with part name, length, and width columns.');
+  const headers = parseCsvRow(lines[headerIndex]).map(normalizeCsvHeader);
+  const findColumn = (...names: string[]) => headers.findIndex((header) => names.includes(header));
+  const nameColumn = findColumn('name', 'part', 'partname', 'description');
+  const lengthColumn = findColumn('length', 'lengthmm', 'height', 'heightmm');
+  const widthColumn = findColumn('width', 'widthmm', 'depth', 'depthmm');
+  const quantityColumn = findColumn('quantity', 'qty');
+  const thicknessColumn = findColumn('thickness', 'thicknessmm');
+  const materialColumn = findColumn('material', 'materialcode', 'substrate');
+  const idColumn = findColumn('partinstanceid', 'partid', 'id');
+  if (lengthColumn < 0 || widthColumn < 0) throw new Error('CSV panel schedule must include length and width columns.');
+  const startLine = headerIndex + 1;
   for (let i = startLine; i < lines.length; i++) {
-    const cols = lines[i].split(',').map((c) => c.replace(/["']/g, '').trim());
-    if (cols.length < 3) continue;
-
-    const name = cols[0] || `Panel-${i}`;
-    const length = parseFloat(cols[1]) || 600;
-    const width = parseFloat(cols[2]) || 400;
-    const qty = parseInt(cols[3], 10) || 1;
+    const cols = parseCsvRow(lines[i]);
+    if (cols.every((cell) => !cell.trim())) continue;
+    const name = cols[nameColumn >= 0 ? nameColumn : 0]?.trim() || `Panel-${i}`;
+    const rowLabel = cols[idColumn >= 0 ? idColumn : -1]?.trim() || `CSV row ${i + 1}`;
+    const length = readRequiredPositiveNumber(cols[lengthColumn], 'length', rowLabel);
+    const width = readRequiredPositiveNumber(cols[widthColumn], 'width', rowLabel);
+    const qty = quantityColumn >= 0 ? Number(cols[quantityColumn]) : 1;
+    if (!Number.isInteger(qty) || qty <= 0) throw new Error(`${rowLabel}: quantity must be a positive whole number.`);
     const isExt = name.toLowerCase().includes('shutter') || name.toLowerCase().includes('door') || name.toLowerCase().includes('fascia');
 
     const classification: PartClassification = isExt
@@ -779,22 +857,20 @@ function parseCsvDrawingData(csvText: string, fileName: string, preset: Material
       : (name.toLowerCase().includes('back') ? 'back_panel' :
          name.toLowerCase().includes('shelf') ? 'internal_shelf_fixed' : 'internal_carcass_gable');
 
-    const matCode = isExt
-      ? preset.externalDecorativeLaminate
-      : (classification === 'back_panel' ? preset.backPanelMaterial : preset.carcassCorePly);
+    const matCode = classification === 'back_panel' ? preset.backPanelMaterial : preset.carcassCorePly;
 
     parts.push({
-      id: `csv-${i}`,
-      partInstanceId: `CSV-P${i}`,
+      id: idColumn >= 0 && cols[idColumn]?.trim() ? cols[idColumn].trim() : `csv-${i}`,
+      partInstanceId: idColumn >= 0 && cols[idColumn]?.trim() ? cols[idColumn].trim() : `CSV-P${i}`,
       name,
       classification,
       isExternal: isExt,
       lengthMm: length,
       widthMm: width,
-      thicknessMm: classification === 'back_panel' ? 9 : 18,
+      thicknessMm: thicknessColumn >= 0 && cols[thicknessColumn] ? readRequiredPositiveNumber(cols[thicknessColumn], 'thickness', rowLabel) : classification === 'back_panel' ? preset.backPanelThicknessMm : preset.carcassThicknessMm,
       quantity: qty,
-      materialCode: matCode,
-      materialName: matCode,
+      materialCode: materialColumn >= 0 && cols[materialColumn]?.trim() ? cols[materialColumn].trim() : matCode,
+      materialName: materialColumn >= 0 && cols[materialColumn]?.trim() ? cols[materialColumn].trim() : matCode,
       grainDirection: isExt ? 'vertical' : 'none',
       externalLaminateCode: isExt ? preset.externalDecorativeLaminate : undefined,
       internalLinerCode: preset.internalLinerLaminate,
@@ -808,13 +884,14 @@ function parseCsvDrawingData(csvText: string, fileName: string, preset: Material
     });
   }
 
+  if (!parts.length) throw new Error('The CSV contains no panel rows. No cutlist was generated.');
   return {
     title: fileName.replace(/\.[^/.]+$/, ''),
     sourceType: 'csv',
-    overallWidthMm: 2400,
-    overallHeightMm: 2100,
-    depthMm: 600,
-    parts: parts.length > 0 ? parts : generateParametricCabinetAnatomy('Imported Cabinet', 2400, 2100, 600, preset).parts,
+    overallWidthMm: null,
+    overallHeightMm: null,
+    depthMm: null,
+    parts,
     materialsMatched: {
       carcass: preset.carcassCorePly,
       externalLaminate: preset.externalDecorativeLaminate,
@@ -824,18 +901,25 @@ function parseCsvDrawingData(csvText: string, fileName: string, preset: Material
   };
 }
 
-function parseDxfOrTextDrawing(content: string, fileName: string, preset: MaterialMatchingPreset): Parsed2DSpace {
-  // Extract bounding box entities or dimensions from DXF text
-  let detectedW = 2400;
-  let detectedH = 2100;
-  let detectedD = 600;
+function normalizeCsvHeader(value: string) {
+  return value.replace(/^\uFEFF/, '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
-  const wMatch = content.match(/(\d{3,4})\s*(?:mm|W|width)/i);
-  const hMatch = content.match(/(\d{3,4})\s*(?:mm|H|height)/i);
-  if (wMatch && Number(wMatch[1]) >= 600) detectedW = Number(wMatch[1]);
-  if (hMatch && Number(hMatch[1]) >= 600) detectedH = Number(hMatch[1]);
-
-  return generateParametricCabinetAnatomy(fileName.replace(/\.[^/.]+$/, ''), detectedW, detectedH, detectedD, preset);
+function parseCsvRow(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') { current += '"'; index += 1; }
+      else quoted = !quoted;
+    } else if (character === ',' && !quoted) { result.push(current.trim()); current = ''; }
+    else current += character;
+  }
+  if (quoted) throw new Error('CSV panel schedule contains an unclosed quoted value.');
+  result.push(current.trim());
+  return result;
 }
 
 function extractPartsFromModules(modules: any[]): any[] {
@@ -1169,7 +1253,7 @@ export function exportCutlistToCsv(result: NestingOptimizationResult, spaceTitle
     ['ULTIDA PRECISION CUTLIST & NESTING DOSSIER', spaceTitle],
     ['Overall Board Yield', `${result.summary.overallYieldPct}%`],
     ['Total Scrap / Wastage', `${result.summary.overallWastePct}%`],
-    ['Total Sheets Required', `${result.summary.totalSheetsCount} sheets (8x4 ft)`],
+    ['Total Sheets Required', `${result.summary.totalSheetsCount} sheets`],
     ['Total Panels', `${result.summary.totalPartsPlaced}`],
     [],
     ['SHEET SUMMARY'],

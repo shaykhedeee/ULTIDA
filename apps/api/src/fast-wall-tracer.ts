@@ -52,14 +52,19 @@ export async function tracePlanBuffer(
     filterText?: boolean;
   } = {}
 ): Promise<FastTraceResult> {
-  const workingLimit = options.workingLimit ?? 2400;
+  // A 1200px reference retains room-scale line detail while keeping the pure
+  // TypeScript pass responsive on serverless workers when the source is small.
+  const workingLimit = options.workingLimit ?? 1200;
   const image = sharp(input, { failOn: 'none' }).rotate();
   const meta = await image.metadata();
   const sourceW = meta.width ?? 1000;
   const sourceH = meta.height ?? 1000;
   const longest = Math.max(sourceW, sourceH);
 
-  const scale = longest > workingLimit ? workingLimit / longest : 1.0;
+  // Always detect at one reference size. Previously only large images were
+  // downsampled, leaving low-resolution photos to use a different effective
+  // threshold scale than scans of the same plan.
+  const scale = workingLimit / longest;
   const targetW = Math.max(1, Math.round(sourceW * scale));
   const targetH = Math.max(1, Math.round(sourceH * scale));
 

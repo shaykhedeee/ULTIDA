@@ -1,7 +1,7 @@
 /**
  * sliding-door-calculator.ts — Sliding Wardrobe Shutter & Infill Panel Deduction Engine
  *
- * Implements authoritative mathematical deductions for:
+ * Produces reviewable draft deductions for:
  * 1. Finished shutter sizes from clear wardrobe opening (W × H), door count (N),
  *    overlap (O), and track/roller height deduction (Dh).
  * 2. Infill panel allowances for 4-sided aluminium profile frames (glass, acrylic, or thin board)
@@ -120,6 +120,8 @@ export interface SlidingDoorInput {
   bottomProfileAllowanceMm?: number;
   materialType: 'plywood_18' | 'hdhmr_18' | 'mdf_18' | 'glass_fluted_8' | 'mirror_6' | 'acrylic_12';
   decorativeLaminateCode?: string;
+  /** Stable batch identifier for part IDs, supplied when committing a calculation. */
+  calculationId?: string;
   wardrobeModuleName?: string;
   roomName?: string;
 }
@@ -144,7 +146,7 @@ export interface SlidingDoorResult {
     infillWidthFormula?: string;
     infillHeightFormula?: string;
   };
-  hardwareChecklist: Array<{ name: string; quantity: number; notes: string }>;
+  hardwareChecklist: Array<{ name: string; quantity: number; unit?: 'pc' | 'm'; notes: string }>;
   cutlistParts: NestingPart[];
 }
 
@@ -162,39 +164,53 @@ const MATERIAL_DENSITIES_KG_M3: Record<SlidingDoorInput['materialType'], { densi
  * based on clear opening dimensions and hardware specifications.
  */
 export function calculateSlidingDoorDeductions(input: SlidingDoorInput): SlidingDoorResult {
-  const preset = SLIDING_HARDWARE_PRESETS.find((p) => p.id === input.hardwarePresetId) ?? SLIDING_HARDWARE_PRESETS[0];
+  const preset = SLIDING_HARDWARE_PRESETS.find((p) => p.id === input.hardwarePresetId);
+  if (!preset) throw new RangeError(`Unknown sliding hardware preset: ${input.hardwarePresetId}`);
+  if (!Number.isFinite(input.openingWidthMm) || input.openingWidthMm <= 0) throw new RangeError('Enter a measured positive clear opening width in millimetres.');
+  if (!Number.isFinite(input.openingHeightMm) || input.openingHeightMm <= 0) throw new RangeError('Enter a measured positive clear opening height in millimetres.');
+  if (!Number.isInteger(input.doorCount) || input.doorCount < 2 || input.doorCount > 6) throw new RangeError('Door count must be a whole number from 2 to 6.');
 
-  const W = Math.max(600, input.openingWidthMm);
-  const H = Math.max(1000, input.openingHeightMm);
-  const N = Math.max(2, Math.min(6, input.doorCount));
+  const W = input.openingWidthMm;
+  const H = input.openingHeightMm;
+  const N = input.doorCount;
+  const isProfileFrame = input.isProfileFrame ?? preset.hasSurroundingFrame;
+  if ((input.materialType === 'glass_fluted_8' || input.materialType === 'mirror_6') && !isProfileFrame) {
+    throw new RangeError('Glass and mirror infills require a profile-frame system.');
+  }
 
   const O = input.customOverlapMm ?? preset.defaultOverlapMm;
   const Dh = input.customHeightDeductionMm ?? preset.defaultHeightDeductionMm;
+  const allowances = [O, Dh, input.sideProfileAllowanceMm ?? preset.sideProfileAllowanceMm, input.topProfileAllowanceMm ?? preset.topProfileAllowanceMm, input.bottomProfileAllowanceMm ?? preset.bottomProfileAllowanceMm];
+  if (!allowances.every((value) => Number.isFinite(value) && value >= 0)) throw new RangeError('Overlap, track deduction, and profile allowances must be finite non-negative measurements.');
+  if (Dh >= H) throw new RangeError(`Track deduction (${Dh} mm) must be less than the measured opening height (${H} mm).`);
 
   // Formula 1: Finished Shutter Width = [W + (N - 1) * O] / N
   const totalWidthWithOverlap = W + (N - 1) * O;
   const finishedShutterWidthMm = Math.round((totalWidthWithOverlap / N) * 10) / 10;
 
   // Formula 2: Finished Shutter Height = H - Dh
-  const finishedShutterHeightMm = Math.max(200, H - Dh);
+  const finishedShutterHeightMm = H - Dh;
 
-  const isProfileFrame = input.isProfileFrame ?? preset.hasSurroundingFrame;
   const sideAllowance = isProfileFrame ? (input.sideProfileAllowanceMm ?? preset.sideProfileAllowanceMm) : 0;
   const topAllowance = isProfileFrame ? (input.topProfileAllowanceMm ?? preset.topProfileAllowanceMm) : 0;
   const bottomAllowance = isProfileFrame ? (input.bottomProfileAllowanceMm ?? preset.bottomProfileAllowanceMm) : 0;
 
   // Formula 3: Infill Panel Width = Shutter Width - (2 * sideAllowance)
   const infillWidthMm = isProfileFrame
-    ? Math.max(50, Math.round((finishedShutterWidthMm - sideAllowance * 2) * 10) / 10)
+    ? Math.round((finishedShutterWidthMm - sideAllowance * 2) * 10) / 10
     : finishedShutterWidthMm;
 
   // Formula 4: Infill Panel Height = Shutter Height - (topAllowance + bottomAllowance)
   const infillHeightMm = isProfileFrame
-    ? Math.max(100, Math.round((finishedShutterHeightMm - (topAllowance + bottomAllowance)) * 10) / 10)
+    ? Math.round((finishedShutterHeightMm - (topAllowance + bottomAllowance)) * 10) / 10
     : finishedShutterHeightMm;
 
   // Weight Calculation: Volume in m³ * Density
-  const matInfo = MATERIAL_DENSITIES_KG_M3[input.materialType] ?? MATERIAL_DENSITIES_KG_M3.hdhmr_18;
+  const matInfo = MATERIAL_DENSITIES_KG_M3[input.materialType];
+  if (!matInfo) throw new RangeError('Select a supported shutter material before calculating panels.');
+  if (finishedShutterWidthMm <= 0 || finishedShutterHeightMm <= 0 || infillWidthMm <= 0 || infillHeightMm <= 0) {
+    throw new RangeError('The selected deductions leave a zero or negative shutter/infill size. Check the measured opening and hardware profile dimensions.');
+  }
   const areaSqm = (infillWidthMm * infillHeightMm) / 1_000_000;
   const volumeM3 = areaSqm * (matInfo.thicknessMm / 1000);
   const weightPerDoorKg = Math.round(volumeM3 * matInfo.density * 10) / 10;
@@ -220,7 +236,7 @@ export function calculateSlidingDoorDeductions(input: SlidingDoorInput): Sliding
     hardwareChecklist.push(
       { name: 'Vertical Handle Stiles (Left & Right)', quantity: N * 2, notes: `${finishedShutterHeightMm}mm anodized aluminum profile` },
       { name: 'Horizontal Rails (Top & Bottom)', quantity: N * 2, notes: `${finishedShutterWidthMm}mm profile rails with corner brackets` },
-      { name: 'EPDM Infill Rubber Gasket Tape', quantity: Math.ceil(edgePerimeterM * N), notes: 'Vibration dampening glass/panel seal' }
+      { name: 'EPDM Infill Rubber Gasket Tape', quantity: Math.round(((infillWidthMm * 2 + infillHeightMm * 2) / 1000) * N * 100) / 100, unit: 'm', notes: 'Calculated from infill perimeter × door count; confirm supplier joining/waste allowance.' }
     );
   } else {
     hardwareChecklist.push(
@@ -231,12 +247,14 @@ export function calculateSlidingDoorDeductions(input: SlidingDoorInput): Sliding
   // Cutlist Parts Output
   const moduleName = input.wardrobeModuleName || 'Sliding Wardrobe';
   const roomName = input.roomName || 'Master Bedroom';
+  const calculationId = input.calculationId || 'preview';
+  if (!/^[a-z0-9_-]{1,80}$/i.test(calculationId)) throw new RangeError('Calculation ID must use only letters, numbers, dashes, or underscores.');
   const cutlistParts: NestingPart[] = [];
 
   for (let i = 1; i <= N; i++) {
     cutlistParts.push({
-      id: `sliding-door-${i}-${Date.now()}`,
-      partInstanceId: `SLD-SHUTTER-${i}`,
+      id: `sliding-door-${calculationId}-${i}`,
+      partInstanceId: `SLD-${calculationId}-${i}`,
       name: isProfileFrame
         ? `Door ${i} of ${N} Infill Panel (${matInfo.label})`
         : `Door ${i} of ${N} Finished Shutter Board`,
@@ -250,8 +268,8 @@ export function calculateSlidingDoorDeductions(input: SlidingDoorInput): Sliding
       quantity: 1,
       materialCode: input.materialType,
       materialName: matInfo.label,
-      grainDirection: 'vertical',
-      externalLaminateCode: input.decorativeLaminateCode || 'merino-zerog-matte-sand',
+      grainDirection: input.materialType === 'glass_fluted_8' || input.materialType === 'mirror_6' ? 'none' : 'vertical',
+      ...(input.materialType !== 'glass_fluted_8' && input.materialType !== 'mirror_6' && input.decorativeLaminateCode ? { externalLaminateCode: input.decorativeLaminateCode } : {}),
       edgeBanding: {
         l1: isProfileFrame ? 'none' : '2.0mm PVC (Impact Resistant)',
         l2: isProfileFrame ? 'none' : '2.0mm PVC (Impact Resistant)',

@@ -11,7 +11,7 @@ import { createWorker, type Worker } from 'tesseract.js';
 import { analyzePlanWithProvider, type AnalysisGuideRegion } from './plan-analyzer.js';
 import { reconcilePlan, type CvTraceResult, type VisionSemanticResult } from './plan/reconcile_plan.js';
 import { resolveWallTracerPath } from './wall-tracer.js';
-import { extractOcrMeasurements } from './plan-analysis-service.js';
+import { extractPositionedMeasurements, normalizeTesseractWords } from './plan-analysis-service.js';
 
 const execFileAsync = promisify(execFile);
 type Environment = Record<string, string | undefined>;
@@ -151,7 +151,7 @@ function planDeadlineMs(environment: Environment) {
 
 /** OCR is supporting review evidence. It gets a deliberately short budget so
  * a slow language-data boot never makes a completed vision result look stuck. */
-async function runPlanOcr(environment: Environment, raster: Uint8Array): Promise<{ text: string; measurements: ReturnType<typeof extractOcrMeasurements>; status: 'completed' | 'unavailable' }> {
+async function runPlanOcr(environment: Environment, raster: Uint8Array): Promise<{ text: string; measurements: ReturnType<typeof extractPositionedMeasurements>; status: 'completed' | 'unavailable' }> {
   // Vercel's Node function tracer does not currently bundle Tesseract's WASM
   // payload. Calling createWorker in that state aborts the complete process
   // from inside Emscripten (it is not a catchable recognition error), which
@@ -181,7 +181,9 @@ async function runPlanOcr(environment: Environment, raster: Uint8Array): Promise
       delay(timeoutMs).then(() => { timedOut = true; throw new Error('OCR timeout'); }),
     ]);
     const text = recognition.data.text.trim();
-    return { text, measurements: extractOcrMeasurements(text), status: 'completed' };
+    const page = recognition.data as typeof recognition.data & { width?: number; height?: number; words?: unknown[] };
+    const words = normalizeTesseractWords(Array.isArray(page.words) ? page.words : [], Number(page.width), Number(page.height));
+    return { text, measurements: extractPositionedMeasurements(words), status: 'completed' };
   } catch {
     return { text: '', measurements: [], status: 'unavailable' };
   } finally {
@@ -206,6 +208,85 @@ type SourceImageSize = { widthPx: number; heightPx: number };
 function sourceGridToPixels(value: number, axis: 'x' | 'y', image: SourceImageSize) {
   const scale = axis === 'x' ? image.widthPx : image.heightPx;
   return (value / 1000) * scale;
+}
+
+/** Attach a positioned OCR value only to the nearby dimension line it annotates.
+ * Values stay in review state; OCR never calibrates or approves geometry itself. */
+function attachPositionedOcrToDimensions<T extends { kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string; source?: string }>(
+  proposals: T[],
+  measurements: ReturnType<typeof extractPositionedMeasurements>,
+) {
+  const result = proposals.map((proposal) => ({ ...proposal, geometry: { ...proposal.geometry } }));
+  const candidates: Array<{ proposalIndex: number; measurementIndex: number; distance: number }> = [];
+  const distanceToLine = (point: { x: number; y: number }, x1: number, y1: number, x2: number, y2: number) => {
+    const dx = x2 - x1, dy = y2 - y1;
+    const lengthSq = dx * dx + dy * dy;
+    if (lengthSq <= 0) return Math.hypot(point.x - x1, point.y - y1);
+    const t = Math.max(0, Math.min(1, ((point.x - x1) * dx + (point.y - y1) * dy) / lengthSq));
+    return Math.hypot(point.x - (x1 + t * dx), point.y - (y1 + t * dy));
+  };
+  for (let proposalIndex = 0; proposalIndex < result.length; proposalIndex += 1) {
+    const proposal = result[proposalIndex];
+    if (proposal.kind !== 'dimension') continue;
+    const g = proposal.geometry;
+    const valueMm = Number(g.valueMm);
+    const line = [g.x1, g.y1, g.x2, g.y2].map(Number);
+    if ((Number.isFinite(valueMm) && valueMm > 0) || !line.every(Number.isFinite)) continue;
+    measurements.forEach((measurement, measurementIndex) => {
+      const distance = distanceToLine(measurement, line[0], line[1], line[2], line[3]);
+      if (distance <= 40) candidates.push({ proposalIndex, measurementIndex, distance });
+    });
+  }
+  // Resolve closest associations first, never reusing a printed measurement or
+  // attaching one measurement to two nearly coincident dimension lines.
+  candidates.sort((a, b) => a.distance - b.distance || a.proposalIndex - b.proposalIndex || a.measurementIndex - b.measurementIndex);
+  const usedProposals = new Set<number>();
+  const usedMeasurements = new Set<number>();
+  for (const candidate of candidates) {
+    if (usedProposals.has(candidate.proposalIndex) || usedMeasurements.has(candidate.measurementIndex)) continue;
+    const nearestForMeasurement = candidates.filter((entry) => entry.measurementIndex === candidate.measurementIndex);
+    const competingLine = nearestForMeasurement.find((entry) => entry.proposalIndex !== candidate.proposalIndex);
+    if (competingLine && competingLine.distance - candidate.distance < 8) continue;
+    const nearestForProposal = candidates.filter((entry) => entry.proposalIndex === candidate.proposalIndex);
+    const competingValue = nearestForProposal.find((entry) => entry.measurementIndex !== candidate.measurementIndex);
+    if (competingValue && competingValue.distance - candidate.distance < 8) continue;
+    const measurement = measurements[candidate.measurementIndex];
+    const proposal = result[candidate.proposalIndex];
+    proposal.geometry = { ...proposal.geometry, valueMm: measurement.valueMm, ocrX: measurement.x, ocrY: measurement.y };
+    proposal.source = 'ocr';
+    proposal.note = `${proposal.note ? `${proposal.note} ` : ''}OCR located ${measurement.originalText} = ${measurement.valueMm} mm beside this dimension line. Confirm the reading before using it to calibrate.`;
+    usedProposals.add(candidate.proposalIndex);
+    usedMeasurements.add(candidate.measurementIndex);
+  }
+  return result;
+}
+
+/** Keep positioned OCR values visible when the analyzer found no matching line.
+ * They are annotations for manual attachment, never wall measurements. */
+function addUnmatchedOcrAnnotations(
+  proposals: Array<{ id?: string; kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string; source?: string; status?: string }>,
+  measurements: ReturnType<typeof extractPositionedMeasurements>,
+) {
+  const result = [...proposals];
+  for (const measurement of measurements) {
+    const duplicate = result.some((proposal) => {
+      if (proposal.kind !== 'dimension' || Number(proposal.geometry.valueMm) !== measurement.valueMm) return false;
+      const x = Number(proposal.geometry.ocrX ?? proposal.geometry.x);
+      const y = Number(proposal.geometry.ocrY ?? proposal.geometry.y);
+      return Number.isFinite(x) && Number.isFinite(y) && Math.hypot(x - measurement.x, y - measurement.y) <= 4;
+    });
+    if (duplicate) continue;
+    result.push({
+      id: `ocr-${crypto.randomUUID()}`,
+      kind: 'dimension',
+      confidence: 0.45,
+      source: 'ocr',
+      status: 'needs_review',
+      geometry: { valueMm: measurement.valueMm, x: measurement.x, y: measurement.y },
+      note: `OCR found ${measurement.originalText} = ${measurement.valueMm} mm at this page location. Attach it to the correct visible dimension and confirm it; it does not calibrate or define wall geometry by itself.`,
+    });
+  }
+  return result;
 }
 
 function visionProposalsToSemantic(
@@ -258,8 +339,8 @@ function visionProposalsToSemantic(
       return {
         text: String(proposal.note ?? 'Dimension'),
         approxPositionPx: {
-          x: sourceGridToPixels(Number(geometry.x1 ?? geometry.x ?? 0), 'x', image),
-          y: sourceGridToPixels(Number(geometry.y1 ?? geometry.y ?? 0), 'y', image),
+          x: sourceGridToPixels(Number(geometry.ocrX ?? geometry.x1 ?? geometry.x ?? 0), 'x', image),
+          y: sourceGridToPixels(Number(geometry.ocrY ?? geometry.y1 ?? geometry.y ?? 0), 'y', image),
         },
         parsedMm: Number.isFinite(Number(geometry.valueMm)) && Number(geometry.valueMm) > 0 ? Number(geometry.valueMm) : null,
       };
@@ -583,7 +664,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
           proposals.push({
             kind: 'dimension',
             confidence: 0.58,
-            geometry: { valueMm: measurement.valueMm, x: 0, y: 0 },
+          geometry: { valueMm: measurement.valueMm, x: measurement.x, y: measurement.y },
             note: `OCR detected ${measurement.originalText} (${measurement.valueMm} mm); attach to the matching visible dimension during review.`,
           });
         }
@@ -604,6 +685,12 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         };
       }
       if (!analysis) throw analysisAttempt.value.error ?? new Error('No configured floor-plan analysis provider is available.');
+
+      const ocrAttached = attachPositionedOcrToDimensions(
+        analysis.proposals as Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string; source?: string }>,
+        ocr.value.measurements,
+      );
+      analysis.proposals = addUnmatchedOcrAnnotations(ocrAttached, ocr.value.measurements) as typeof analysis.proposals;
 
       // Deterministic CV geometry pass — runs alongside the vision pass and is
       // reconciled into a single candidate per ARCHITECTURE.md invariant #4.
@@ -825,4 +912,4 @@ export async function processPlanAnalysisJob(environment: Environment, jobId: st
 
 // Narrow test seam for coordinate reconciliation. Runtime callers use only
 // the durable job functions above.
-export const __test__ = { visionProposalsToSemantic, hasReviewablePlanCoverage, normalizeRasterForVision };
+export const __test__ = { visionProposalsToSemantic, hasReviewablePlanCoverage, normalizeRasterForVision, attachPositionedOcrToDimensions, addUnmatchedOcrAnnotations };

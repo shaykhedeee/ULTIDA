@@ -65,3 +65,20 @@ test('Sliding Door Calculator: computes direct board shutter without frame profi
   assert.equal(result.cutlistParts.length, 3);
   assert.match(result.cutlistParts[0].edgeBanding.l1, /2.0mm PVC/);
 });
+
+test('sliding calculator rejects missing, impossible, and unknown inputs instead of clamping dimensions', () => {
+  const base = { openingWidthMm: 1800, openingHeightMm: 2400, doorCount: 2, hardwarePresetId: 'hafele-aluflex-45', materialType: 'hdhmr_18' as const };
+  assert.throws(() => calculateSlidingDoorDeductions({ ...base, openingWidthMm: 0 }), /measured positive clear opening width/);
+  assert.throws(() => calculateSlidingDoorDeductions({ ...base, openingHeightMm: 25 }), /Track deduction.*less than the measured opening height/);
+  assert.throws(() => calculateSlidingDoorDeductions({ ...base, hardwarePresetId: 'unknown' }), /Unknown sliding hardware preset/);
+  assert.throws(() => calculateSlidingDoorDeductions({ ...base, materialType: 'glass_fluted_8', isProfileFrame: false }), /require a profile-frame system/);
+});
+
+test('glass and mirror infill do not receive a wood laminate or woodgrain assignment', () => {
+  const result = calculateSlidingDoorDeductions({ openingWidthMm: 1800, openingHeightMm: 2400, doorCount: 2, hardwarePresetId: 'ebco-slim-profile-glass', materialType: 'glass_fluted_8', decorativeLaminateCode: 'should-not-apply' });
+  assert.equal(result.cutlistParts[0].grainDirection, 'none');
+  assert.equal(result.cutlistParts[0].externalLaminateCode, undefined);
+  const gasket = result.hardwareChecklist.find((item) => item.name.includes('Gasket'));
+  assert.equal(gasket?.unit, 'm');
+  assert.ok((gasket?.quantity ?? 0) > 0);
+});
