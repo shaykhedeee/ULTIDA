@@ -17,6 +17,13 @@ import {
   type OptimizedSheet,
 } from './cutlist-optimizer';
 import { supabase } from '../../lib/supabase';
+import {
+  calculateSlidingDoorDeductions,
+  SLIDING_HARDWARE_PRESETS,
+  type SlidingDoorInput,
+  type SlidingDoorResult,
+} from './sliding-door-calculator';
+import { QrCode, Tag, Sparkles, AlertTriangle } from 'lucide-react';
 import './cutlist-studio.css';
 
 export function CutlistStudio() {
@@ -34,6 +41,50 @@ export function CutlistStudio() {
   const [uploadText, setUploadText] = useState('');
   const [statusMessage, setStatusMessage] = useState('Cutlist & Nesting Studio ready. Plywood and laminate wastage optimized under 5%.');
   const [zoomLevel, setZoomLevel] = useState<number>(1);
+
+  // Sliding Door Deduction State
+  const [slidingModalOpen, setSlidingModalOpen] = useState(false);
+  const [slidingOpeningW, setSlidingOpeningW] = useState(1800);
+  const [slidingOpeningH, setSlidingOpeningH] = useState(2400);
+  const [slidingDoorCount, setSlidingDoorCount] = useState(2);
+  const [slidingPresetId, setSlidingPresetId] = useState('hafele-aluflex-45');
+  const [slidingMaterial, setSlidingMaterial] = useState<SlidingDoorInput['materialType']>('hdhmr_18');
+  const [slidingLaminate, setSlidingLaminate] = useState('merino-zerog-matte-sand');
+  const [slidingCustomOverlap, setSlidingCustomOverlap] = useState(30);
+  const [slidingCustomDh, setSlidingCustomDh] = useState(50);
+  const [slidingIsProfile, setSlidingIsProfile] = useState(true);
+  const [slidingSideAllowance, setSlidingSideAllowance] = useState(35);
+  const [slidingTopAllowance, setSlidingTopAllowance] = useState(50);
+  const [slidingBottomAllowance, setSlidingBottomAllowance] = useState(50);
+
+  // Sticker Print Modal State
+  const [stickerModalOpen, setStickerModalOpen] = useState(false);
+  const [stickerLayoutMode, setStickerLayoutMode] = useState<'a4_grid' | 'thermal'>('a4_grid');
+
+  // Compute live sliding deductions
+  const activeSlidingResult: SlidingDoorResult = useMemo(() => {
+    return calculateSlidingDoorDeductions({
+      openingWidthMm: slidingOpeningW,
+      openingHeightMm: slidingOpeningH,
+      doorCount: slidingDoorCount,
+      hardwarePresetId: slidingPresetId,
+      customOverlapMm: slidingCustomOverlap,
+      customHeightDeductionMm: slidingCustomDh,
+      isProfileFrame: slidingIsProfile,
+      sideProfileAllowanceMm: slidingSideAllowance,
+      topProfileAllowanceMm: slidingTopAllowance,
+      bottomProfileAllowanceMm: slidingBottomAllowance,
+      materialType: slidingMaterial,
+      decorativeLaminateCode: slidingLaminate,
+      wardrobeModuleName: spaceTitle || 'Custom Sliding Wardrobe',
+      roomName: 'Master Bedroom',
+    });
+  }, [
+    slidingOpeningW, slidingOpeningH, slidingDoorCount, slidingPresetId,
+    slidingCustomOverlap, slidingCustomDh, slidingIsProfile,
+    slidingSideAllowance, slidingTopAllowance, slidingBottomAllowance,
+    slidingMaterial, slidingLaminate, spaceTitle
+  ]);
 
   // Projects list for importing project rooms
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
@@ -232,6 +283,28 @@ export function CutlistStudio() {
           <button type="button" className="cs-btn" onClick={() => setUploadModalOpen(true)} title="Paste raw 2D drawing text or JSON">
             <Layers size={14} />
             <span>Paste 2D Spec</span>
+          </button>
+
+          <button
+            type="button"
+            className="cs-btn"
+            onClick={() => setSlidingModalOpen(true)}
+            style={{ background: '#fdf4ff', borderColor: '#f0abfc', color: '#86198f', fontWeight: 700 }}
+            title="Calculate exact panel deductions for sliding wardrobe shutters"
+          >
+            <Sliders size={14} />
+            <span>Sliding Door Deductions</span>
+          </button>
+
+          <button
+            type="button"
+            className="cs-btn"
+            onClick={() => setStickerModalOpen(true)}
+            style={{ background: '#ecfdf5', borderColor: '#a7f3d0', color: '#065f46', fontWeight: 700 }}
+            title="Print workshop part labels and stickers with QR/Barcodes"
+          >
+            <Tag size={14} />
+            <span>Print Part Stickers</span>
           </button>
 
           <button type="button" className="cs-btn primary" onClick={downloadCsv} title="Download CSV cutlist with laminate schedules">

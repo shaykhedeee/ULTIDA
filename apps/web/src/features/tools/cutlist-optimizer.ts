@@ -190,13 +190,25 @@ export function optimizeGuillotineNesting(
   const usableW = sheetW - trim * 2;
   const usableH = sheetH - trim * 2;
 
-  // Group parts by materialCode
+  // Group parts by (core substrate + thickness + external decorative finish + internal liner finish)
+  // This ensures identical finishes across all modules and rooms (e.g. TV unit & Wardrobe sharing the
+  // same decorative laminate) are consolidated onto the same cutting sheets, while incompatible finishes
+  // are cleanly isolated onto separate sheets.
+  const getMaterialGroupingKey = (part: NestingPart) => {
+    const core = String(part.materialCode || 'core-ply').trim().toLowerCase();
+    const thick = Number(part.thicknessMm || 18);
+    const ext = part.isExternal && part.externalLaminateCode ? `_ext:${String(part.externalLaminateCode).trim().toLowerCase()}` : '';
+    const liner = part.internalLinerCode ? `_in:${String(part.internalLinerCode).trim().toLowerCase()}` : '';
+    return `${core}_${thick}mm${ext}${liner}`;
+  };
+
   const byMaterial: Record<string, NestingPart[]> = {};
   for (const part of parts) {
-    if (!byMaterial[part.materialCode]) {
-      byMaterial[part.materialCode] = [];
+    const key = getMaterialGroupingKey(part);
+    if (!byMaterial[key]) {
+      byMaterial[key] = [];
     }
-    byMaterial[part.materialCode].push(part);
+    byMaterial[key].push(part);
   }
 
   const allOptimizedSheets: OptimizedSheet[] = [];
@@ -208,8 +220,16 @@ export function optimizeGuillotineNesting(
     '#047857', '#b45309', '#6d28d9', '#be185d', '#0f766e'
   ];
 
-  // For each material, find the best packing across multiple heuristics
-  for (const [matCode, matParts] of Object.entries(byMaterial)) {
+  // For each material and finish combination, find the best packing across multiple heuristics
+  for (const [matGroupKey, matParts] of Object.entries(byMaterial)) {
+    const firstPart = matParts[0];
+    const baseMatName = firstPart?.materialName || firstPart?.materialCode || 'Core Substrate';
+    const extLam = firstPart?.externalLaminateCode;
+    const resolvedMaterialName = extLam
+      ? `${baseMatName} + Laminate: ${extLam}`
+      : `${baseMatName} (${firstPart?.thicknessMm || 18}mm)`;
+    const resolvedThickness = firstPart?.thicknessMm || 18;
+
     // Expand parts by quantity
     const itemsToPack: Array<{
       itemKey: string;
@@ -266,9 +286,9 @@ export function optimizeGuillotineNesting(
       const sorted = [...itemsToPack].sort(h.sorter);
       const simulatedSheets = packSingleMaterialGuillotine(
         sorted,
-        matCode,
-        matParts[0]?.materialName || matCode,
-        matParts[0]?.thicknessMm || 18,
+        firstPart?.materialCode || matGroupKey,
+        resolvedMaterialName,
+        resolvedThickness,
         sheetW,
         sheetH,
         usableW,

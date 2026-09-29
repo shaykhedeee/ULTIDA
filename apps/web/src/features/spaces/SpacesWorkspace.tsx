@@ -58,6 +58,8 @@ interface PlanRoom {
   lightingMood?: string;
   hardwareStyle?: string;
   surfaceDirection?: 'horizontal-grain' | 'vertical-grain' | 'follow-part' | 'none';
+  shutterLaminate?: string;
+  carcassMaterial?: string;
   retainedElements?: string[];
   wallRoles?: Record<string, string>;
   preferredCamera?: string;
@@ -4407,6 +4409,106 @@ export function SpacesWorkspace() {
                     ))}
                   </div>
 
+                  {/* Curated Laminate Catalog & Modular Joinery Finishes */}
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line, #ebdccb)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <label style={{ margin: 0, fontWeight: 800, fontSize: 12, color: 'var(--gold-dim, #8a6d1e)' }}>
+                        🪵 Shutter Decorative Laminate (Curated Catalog)
+                      </label>
+                      <span style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: 4 }}>
+                        System 32 PBR
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 6, marginBottom: 10 }}>
+                      {CuratedLaminateCatalog.filter(m => m.thicknessMm <= 1.2).map((lam) => {
+                        const isSelected = (sel.room.shutterLaminate || 'merino-zerog-matte-sand') === lam.id;
+                        return (
+                          <button
+                            type="button"
+                            key={lam.id}
+                            onClick={() => patchRoom(sel.room.id, { shutterLaminate: lam.id })}
+                            style={{
+                              padding: '6px 8px',
+                              borderRadius: 6,
+                              textAlign: 'left',
+                              border: isSelected ? '2px solid #c59c2d' : '1px solid #d8cabb',
+                              background: isSelected ? '#fffdf7' : '#fff',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 3,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{
+                                width: 14,
+                                height: 14,
+                                borderRadius: 3,
+                                background: lam.colourHex || (lam.family === 'woodgrain' ? '#78350f' : '#cbd5e1'),
+                                border: '1px solid rgba(0,0,0,0.15)',
+                                flexShrink: 0
+                              }} />
+                              <strong style={{ fontSize: 11, color: isSelected ? '#92400e' : '#1c1917', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {lam.name.split(' (')[0]}
+                              </strong>
+                            </div>
+                            <small style={{ fontSize: 9.5, color: '#78716c' }}>
+                              {lam.brand} · {lam.finish}
+                            </small>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary, #57534e)', marginBottom: 4, display: 'block' }}>
+                      ⚙️ Carcass Board Substrate
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 10 }}>
+                      {CuratedLaminateCatalog.filter(m => m.thicknessMm >= 18).map((sub) => {
+                        const isSelected = (sel.room.carcassMaterial || 'action-tesa-hdhmr-18') === sub.id;
+                        return (
+                          <button
+                            type="button"
+                            key={sub.id}
+                            onClick={() => patchRoom(sel.room.id, { carcassMaterial: sub.id })}
+                            style={{
+                              padding: '8px',
+                              borderRadius: 6,
+                              border: isSelected ? '2px solid #059669' : '1px solid #d8cabb',
+                              background: isSelected ? '#f0fdf4' : '#fff',
+                              textAlign: 'left',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <strong style={{ fontSize: 11, display: 'block', color: isSelected ? '#065f46' : '#1c1917' }}>
+                              {sub.brand} ({sub.thicknessMm}mm)
+                            </strong>
+                            <small style={{ fontSize: 9.5, color: '#64748b' }}>{sub.name}</small>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        style={{ flex: 1, fontSize: 10.5 }}
+                        onClick={() => {
+                          const activeShutter = sel.room.shutterLaminate || 'merino-zerog-matte-sand';
+                          const activeCarcass = sel.room.carcassMaterial || 'action-tesa-hdhmr-18';
+                          rooms.forEach((r) => {
+                            patchRoom(r.id, { shutterLaminate: activeShutter, carcassMaterial: activeCarcass });
+                          });
+                          setSaveState('Applied laminate finish across all rooms in space.');
+                        }}
+                      >
+                        ⚡ Apply Finishes to All Rooms
+                      </button>
+                    </div>
+                  </div>
+
                   <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1.5px solid var(--line, #ebdccb)', display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--gold-dim, #8a6d1e)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -5070,7 +5172,26 @@ export function SpacesWorkspace() {
                 <strong>3D Axonometric Quality: 4K Architectural</strong>
                 <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)' }}>Includes daylight diffusion, warm LED cove shadows, and material reflectance</p>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => {
+                    const svgElem = document.querySelector('.floor-render-stage svg');
+                    if (!svgElem) return;
+                    const svgData = new XMLSerializer().serializeToString(svgElem);
+                    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `ultida-3d-floorplan-${selectedRoom ? 'room' : 'full-plan'}.svg`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  <Download size={13} /> Export Vector SVG
+                </button>
                 <button type="button" className="btn-secondary btn-sm" onClick={() => setShowFloorPlanRenderModal(false)}>Close</button>
                 <button type="button" className="btn-primary btn-sm" onClick={() => {
                   setRenderJobState('succeeded');

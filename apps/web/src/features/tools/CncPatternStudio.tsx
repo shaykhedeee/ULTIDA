@@ -4,6 +4,11 @@ import {
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import './cnc-pattern-studio.css';
+import {
+  generateJaaliDxf,
+  JAALI_PATTERNS,
+  type JaaliPattern,
+} from './jaali-motifs';
 
 // ─── Jaali Pattern Types & DXF Helpers ─────────────────────────────────────
 type Pattern = 'diamond' | 'arch' | 'circle' | 'om' | 'floral';

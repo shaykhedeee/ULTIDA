@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Package, AlertTriangle, CheckCircle2, Download, ChevronRight, ChevronDown,
   ClipboardList, FileText, ArrowLeft, ArrowRight, Printer, RefreshCw,
-  Sliders, Compass, Eye, X, Check, Layers, Sparkles, Filter, LayoutGrid, Maximize2, Scissors, Receipt,
+  Sliders, Compass, Eye, X, Check, Layers, Sparkles, Filter, LayoutGrid, Maximize2, Scissors, Receipt, Tag,
 } from 'lucide-react';
 
 import {
@@ -996,6 +996,13 @@ export function ProductionWorkspace({
                     icon={<Printer size={13} />}
                     onClick={() => window.print()}
                   >Print</Button>
+                  <Button
+                    variant="secondary" size="sm"
+                    icon={<Tag size={13} />}
+                    onClick={() => navigate('/tools/cutlist')}
+                    title="Open Cutlist Studio for Part Stickers, Barcodes & Sliding Door Deductions"
+                    style={{ borderColor: '#a7f3d0', background: '#ecfdf5', color: '#065f46', fontWeight: 600 }}
+                  >Stickers &amp; Sliders →</Button>
                 </div>
               </div>
 

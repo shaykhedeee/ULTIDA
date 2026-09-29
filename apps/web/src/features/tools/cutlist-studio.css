@@ -481,3 +481,37 @@
   background: rgba(100, 116, 139, 0.14);
   color: #475569;
 }
+
+/* ─── Workshop Part Sticker & Print Stylesheet ─────────────────────────────── */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .cs-printable-stickers,
+  .cs-printable-stickers * {
+    visibility: visible;
+  }
+
+  .cs-printable-stickers {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Prevent page break inside individual stickers */
+  .cs-printable-stickers > div > div {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    border: 1px solid #000 !important;
+    box-shadow: none !important;
+  }
+
+  @page {
+    margin: 8mm;
+    size: auto;
+  }
+}
