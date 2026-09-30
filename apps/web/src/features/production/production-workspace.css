@@ -24,6 +24,21 @@
 .cutlist-stat-card .stat-value { font-size: 22px; font-weight: 800; color: #1a1208; line-height: 1.1; }
 .cutlist-stat-card .stat-sub { font-size: 10.5px; color: #9b8c7e; }
 
+/* Size-first cabinet cutlist entry */
+.custom-cabinet-form { display: grid; gap: 14px; max-width: 1120px; margin: 0 auto; padding: 18px; }
+.custom-cabinet-form h4 { margin: 0 0 5px; font-size: 18px; color: #20160f; }
+.custom-cabinet-form p { margin: 0; max-width: 760px; color: #6b5e52; line-height: 1.5; }
+.custom-cabinet-form .analyzer-input-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; gap: 10px; }
+.custom-cabinet-form .analyzer-form-group { display: grid; gap: 5px; min-width: 0; font-size: 11px; font-weight: 700; color: #53463d; }
+.custom-cabinet-form input, .custom-cabinet-form select, .analyzer-config-panel .analyzer-form-group input, .analyzer-config-panel .analyzer-form-group select { min-width: 0; width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #d8ccbd; border-radius: 7px; background: #fffefa; color: #21170f; font: inherit; }
+.custom-cabinet-note { padding: 11px 13px; border: 1px solid #e4d4b4; border-radius: 8px; background: #fcf6e8; color: #604a25; line-height: 1.5; }
+.custom-cabinet-error { padding: 10px 12px; border: 1px solid #e9a7a1; border-radius: 7px; background: #fff2f0; color: #9b251c !important; }
+.laminate-takeoff { display: grid; gap: 6px; padding: 12px; border: 1px solid #e3d8ca; border-radius: 9px; background: #fffefa; }
+.laminate-takeoff h5, .laminate-takeoff p { margin: 0; }
+.laminate-takeoff p { color: #75695e; font-size: 11px; line-height: 1.45; }
+@media (max-width: 900px) { .custom-cabinet-form .analyzer-input-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .custom-cabinet-form { padding: 10px; } .custom-cabinet-form .analyzer-input-row { grid-template-columns: 1fr; } }
+
 /* Active Scope Bar (Pick Only Needed Rooms / Walls) */
 .cutlist-scope-bar {
   display: flex;

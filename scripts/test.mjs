@@ -13,11 +13,18 @@ const rootDir = process.cwd();
 
 const WORKSPACES = {
   '@ultida/drawing-core': 'packages/drawing-core',
+  '@ultida/catalog-core': 'packages/catalog-core',
   '@ultida/api': 'apps/api',
   '@ultida/aura-tools': 'packages/aura-tools',
   '@ultida/render-pipeline': 'packages/render-pipeline',
   '@ultida/scene-compiler': 'packages/scene-compiler',
   '@ultida/module-framework': 'packages/module-framework',
+  '@ultida/design-core': 'packages/design-core',
+  '@ultida/geometry-core': 'packages/geometry-core',
+  '@ultida/layout-core': 'packages/layout-core',
+  '@ultida/plan-core': 'packages/plan-core',
+  '@ultida/scene-core': 'packages/scene-core',
+  '@ultida/spaces-core': 'packages/spaces-core',
 };
 
 function runWorkspace(name, script = 'test', timeoutMs = 240_000) {
@@ -89,14 +96,26 @@ try {
     case 'render':
       await runWorkspace('@ultida/render-pipeline', 'test');
       break;
+    case 'core':
+      for (const workspace of ['@ultida/catalog-core', '@ultida/design-core', '@ultida/geometry-core', '@ultida/layout-core', '@ultida/plan-core', '@ultida/scene-core', '@ultida/spaces-core']) {
+        await runWorkspace(workspace, 'test');
+      }
+      break;
     case 'rooms':
-      await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/compiled-module-meshes.test.ts', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/plan-vastu-and-calibration.test.ts', 'apps/web/test/prepared-module-plan.test.ts', 'apps/web/test/vastu-readiness.test.ts', 'apps/web/test/wall-bay-editor.test.ts', 'apps/web/test/dashboard-elevation-assets.test.mjs']);
-      await runCommand(node, ['--test', 'apps/web/test/room-catalog.test.mjs', 'apps/web/test/spaces-placement-rail.test.mjs']);
+      {
+        const { readdir } = await import('node:fs/promises');
+        const webTests = (await readdir(resolve(rootDir, 'apps/web/test')))
+          .filter((file) => /\.test\.(?:ts|mjs)$/.test(file))
+          .sort()
+          .map((file) => `apps/web/test/${file}`);
+        await runCommand(node, ['--import', 'tsx', '--test', '--test-concurrency=1', ...webTests]);
+      }
       break;
     case 'compilers':
       await runCommand(node, ['scripts/build.mjs', 'packages']);
       await runWorkspace('@ultida/scene-compiler', 'test');
       await runWorkspace('@ultida/module-framework', 'test');
+      await runWorkspace('@ultida/catalog-core', 'test');
       break;
     case 'all':
     default:
@@ -107,8 +126,18 @@ try {
       await runWorkspace('@ultida/render-pipeline', 'test');
       await runWorkspace('@ultida/scene-compiler', 'test');
       await runWorkspace('@ultida/module-framework', 'test');
-      await runCommand(node, ['--import', 'tsx', '--test', 'apps/web/test/plan-calibration.test.ts', 'apps/web/test/plan-vastu-and-calibration.test.ts', 'apps/web/test/prepared-module-plan.test.ts', 'apps/web/test/vastu-readiness.test.ts', 'apps/web/test/wall-bay-editor.test.ts', 'apps/web/test/dashboard-elevation-assets.test.mjs']);
-      await runCommand(node, ['--test', 'apps/web/test/room-catalog.test.mjs', 'apps/web/test/spaces-placement-rail.test.mjs']);
+      await runWorkspace('@ultida/catalog-core', 'test');
+      for (const workspace of ['@ultida/design-core', '@ultida/geometry-core', '@ultida/layout-core', '@ultida/plan-core', '@ultida/scene-core', '@ultida/spaces-core']) {
+        await runWorkspace(workspace, 'test');
+      }
+      {
+        const { readdir } = await import('node:fs/promises');
+        const webTests = (await readdir(resolve(rootDir, 'apps/web/test')))
+          .filter((file) => /\.test\.(?:ts|mjs)$/.test(file))
+          .sort()
+          .map((file) => `apps/web/test/${file}`);
+        await runCommand(node, ['--import', 'tsx', '--test', '--test-concurrency=1', ...webTests]);
+      }
       break;
   }
   process.stdout.write('\n[test] complete\n');

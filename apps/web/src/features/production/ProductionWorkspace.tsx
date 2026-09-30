@@ -8,11 +8,13 @@ import {
 
 import {
   analyze2DDrawingsToCutlist,
+  cabinetDimensionToMm,
   extractDrawingCutlistFromScene,
   generateDrawingCutlistSvg,
   DRAWING_CUTLIST_PRESETS,
   type DrawingCutlistAnalysisResult,
   type DrawingCutlistInput,
+  type CabinetDimensionUnit,
 } from '@ultida/drawing-core/browser';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import { optimizeGuillotineNesting, type NestingPart } from '../tools/cutlist-optimizer';
@@ -57,6 +59,7 @@ type Part = {
   semanticType: string; partName: string; lengthMm: number; widthMm: number; thicknessMm: number;
   quantity: number; grainDirection: 'horizontal' | 'vertical' | 'none'; edging: string;
   edgeSchedule?: { l1Mm: number; l2Mm: number; w1Mm: number; w2Mm: number; tapeType: string };
+  faceFinishes?: DrawingCutlistAnalysisResult['panels'][number]['faceFinishes'];
   materialCode: string; status: 'approved' | 'review_required';
 };
 type HardwareItem = { name: string; category: 'hinge' | 'slide' | 'fastener' | 'handle' | 'accessory'; quantity: number; unit: string };
@@ -168,6 +171,8 @@ export function ProductionWorkspace({
   const [drawingViewTab, setDrawingViewTab] = useState<'visual2d' | 'panels' | 'hardware' | 'audit'>('visual2d');
   const [drawingSvgMode, setDrawingSvgMode] = useState<'both' | 'external' | 'internal'>('both');
   const [drawingPresetKey, setDrawingPresetKey] = useState<string>('wardrobe_4door');
+  const [customCabinet, setCustomCabinet] = useState({ width: '3', height: '7', depth: '', unit: 'ft' as CabinetDimensionUnit, bayCount: '1', plinth: '100', fillers: '0', coreCode: '', externalCode: '', internalCode: '', backCode: 'PLY-BACK-06', backThickness: '6' as '6' | '18', drawerBottomCode: 'MDF-09-WHITE', drawerBottomThickness: '9', layout: 'standard' as 'standard' | 'hanging' | 'shelves' | 'drawers', hangingClearHeight: '1050', drawerFrontHeight: '200', drawerCount: '3', upperShelfCount: '1' });
+  const [customCabinetError, setCustomCabinetError] = useState('');
   const [rawScene, setRawScene] = useState<any>(null);
   const [selectedSheetKey, setSelectedSheetKey] = useState<'8x4' | '9x4' | '7x4'>('8x4');
   const [showCostBreakdown, setShowCostBreakdown] = useState(false);
@@ -255,11 +260,11 @@ export function ProductionWorkspace({
   // ─── CSV download ─────────────────────────────────────────────────────────
   function downloadClientCsv() {
     if (!sceneApproved || !parts.length) { setExportState('No approved production snapshot is available to export.'); return; }
-    const headers = ['Part Instance ID', 'Part Name', 'Room', 'Module Family', 'Length (mm)', 'Width (mm)', 'Thickness (mm)', 'Quantity', 'Material Code', 'Grain', 'Edging'];
+    const headers = ['Part Instance ID', 'Part Name', 'Room', 'Module Family', 'Length (mm)', 'Width (mm)', 'Thickness (mm)', 'Quantity', 'Substrate Material Code', 'Face Finishes', 'Grain', 'Edging'];
     const targetParts = scopedParts.length > 0 ? scopedParts : parts;
     const rows = targetParts.map((p) => [
       p.partInstanceId || p.id, `"${p.partName}"`, p.roomId, p.family,
-      p.lengthMm, p.widthMm, p.thicknessMm, p.quantity, p.materialCode, p.grainDirection, `"${p.edging}"`,
+    p.lengthMm, p.widthMm, p.thicknessMm, p.quantity, p.materialCode, `"${(p.faceFinishes ?? []).map((finish) => `${finish.face}:${finish.finishCode} ${finish.areaSqm}m2`).join('; ')}"`, p.grainDirection, `"${p.edging}"`,
     ]);
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
@@ -507,6 +512,14 @@ export function ProductionWorkspace({
   // ─── 2D Drawing Analysis Actions ──────────────────────────────────────────
   function run2DDrawingAnalysis(targetRoom?: string, presetKey = 'wardrobe_4door') {
     const targetRoomId = targetRoom || (activeRoomScope !== 'all' ? activeRoomScope : uniqueRooms[0] || 'room-main');
+    if (presetKey === 'custom') {
+      setDrawingPresetKey('custom');
+      setDrawingInput(null);
+      setDrawingAnalysisResult(null);
+      setCustomCabinetError('');
+      setShowDrawingAnalyzer(true);
+      return;
+    }
     let input: DrawingCutlistInput;
 
     if (presetKey === 'from_scene' && rawScene) {
@@ -521,14 +534,25 @@ export function ProductionWorkspace({
     } else {
       const roomMods = modules.filter((m) => !targetRoomId || m.roomId === targetRoomId);
       const primaryMod = roomMods[0] || modules[0];
-      const w = primaryMod?.widthMm || 2400;
-      const h = primaryMod?.heightMm || 2400;
-      const d = primaryMod?.depthMm || 580;
+      if (!primaryMod) {
+        setDrawingPresetKey('custom');
+        setDrawingInput(null);
+        setDrawingAnalysisResult(null);
+        setCustomCabinetError('No placed cabinet is available. Enter measured dimensions to start a custom cabinet cutlist.');
+        setShowDrawingAnalyzer(true);
+        return;
+      }
+      const w = primaryMod.widthMm;
+      const h = primaryMod.heightMm;
+      const d = primaryMod.depthMm;
       const bayCount = Math.max(1, Math.round(w / 600));
-      const bayW = Math.round(w / bayCount);
+      const fillers = 0;
+      const carcassThickness = 18;
+      const clearBayTotal = w - fillers * 2 - carcassThickness * 2 - (bayCount - 1) * carcassThickness;
+      const bayW = Math.floor(clearBayTotal / bayCount);
       input = {
-        unitId: primaryMod?.id || 'unit-001',
-        unitTitle: primaryMod?.family ? primaryMod.family.replace(/-/g, ' ').toUpperCase() : 'CASEWORK ELEVATION',
+        unitId: primaryMod.id,
+        unitTitle: primaryMod.family.replace(/-/g, ' ').toUpperCase(),
         roomId: targetRoomId,
         wallId: 'wall-01',
         overallWidthMm: w,
@@ -539,7 +563,7 @@ export function ProductionWorkspace({
         bays: Array.from({ length: bayCount }).map((_, i) => ({
           id: `bay-${i + 1}`,
           label: `Bay ${i + 1}`,
-          widthMm: i === bayCount - 1 ? w - bayW * (bayCount - 1) : bayW,
+          widthMm: i === bayCount - 1 ? clearBayTotal - bayW * (bayCount - 1) : bayW,
           type: i === 0 ? 'drawers' : 'wardrobe-shelves',
           shelvesCount: 1,
           adjustableShelvesCount: 3,
@@ -547,8 +571,11 @@ export function ProductionWorkspace({
           hasHangingRod: i !== 0,
           shutterType: bayW > 550 ? 'double-door' : 'single-door',
         })),
-        dummyFillerLeftMm: 30,
-        dummyFillerRightMm: 30,
+        dummyFillerLeftMm: fillers,
+        dummyFillerRightMm: fillers,
+        backPanelThicknessMm: 6,
+        backPanelMaterial: 'PLY-BACK-06',
+        assumptions: ['Bay count, internal arrangement, and standard hardware are a draft inferred from the selected module family; confirm them before production.'],
       };
       setDrawingPresetKey('custom');
     }
@@ -559,15 +586,102 @@ export function ProductionWorkspace({
     setShowDrawingAnalyzer(true);
   }
 
+  function generateCustomCabinetCutlist() {
+    try {
+      const widthMm = Math.round(cabinetDimensionToMm(Number(customCabinet.width), customCabinet.unit));
+      const heightMm = Math.round(cabinetDimensionToMm(Number(customCabinet.height), customCabinet.unit));
+      const depthMm = Math.round(cabinetDimensionToMm(Number(customCabinet.depth), customCabinet.unit));
+      const bayCount = Number(customCabinet.bayCount);
+      const plinthHeightMm = Number(customCabinet.plinth);
+      const fillerMm = Number(customCabinet.fillers);
+      const carcassThicknessMm = 18;
+      if (!Number.isInteger(bayCount) || bayCount < 1 || bayCount > 6) throw new RangeError('Choose between 1 and 6 cabinet bays.');
+      if (![plinthHeightMm, fillerMm].every((value) => Number.isFinite(value) && value >= 0)) throw new RangeError('Plinth and filler dimensions must be zero or positive.');
+      if (!customCabinet.coreCode.trim() || !customCabinet.externalCode.trim() || !customCabinet.internalCode.trim() || !customCabinet.backCode.trim()) {
+        throw new RangeError('Enter the carcass board, external laminate, internal laminate, and back-board material codes.');
+      }
+      const usableBayWidth = widthMm - fillerMm * 2 - carcassThicknessMm * 2 - (bayCount - 1) * carcassThicknessMm;
+      if (usableBayWidth < bayCount * 120) throw new RangeError('The measured width is too small for the selected fillers, board thickness, and number of bays.');
+      const eachBay = Math.floor(usableBayWidth / bayCount);
+      const backThicknessMm = Number(customCabinet.backThickness);
+      const bays = Array.from({ length: bayCount }, (_, index) => {
+        const isStandardMixedBay = customCabinet.layout === 'standard' && index === 0;
+        const hasHanging = customCabinet.layout === 'standard' ? index < Math.min(2, bayCount) : customCabinet.layout === 'hanging' || (customCabinet.layout === 'drawers' && index > 0);
+        const hasDrawers = isStandardMixedBay || (customCabinet.layout === 'drawers' && index === 0);
+        const useVerticalSchedule = customCabinet.layout === 'standard' ? index < Math.min(2, bayCount) : customCabinet.layout === 'hanging' || (customCabinet.layout === 'drawers' && hasDrawers);
+        const drawerCountForBay = hasDrawers ? Number(customCabinet.drawerCount) : 0;
+        return {
+          id: `bay-${index + 1}`,
+          label: `Bay ${index + 1}`,
+          widthMm: index === bayCount - 1 ? usableBayWidth - eachBay * (bayCount - 1) : eachBay,
+          type: hasDrawers ? 'drawers' as const : hasHanging ? 'wardrobe-hanging' as const : 'wardrobe-shelves' as const,
+          shelvesCount: hasDrawers || hasHanging ? 1 : 1,
+          adjustableShelvesCount: useVerticalSchedule ? 0 : customCabinet.layout === 'shelves' ? 3 : 1,
+          drawerCount: drawerCountForBay,
+          hasHangingRod: hasHanging,
+          hangingClearHeightMm: useVerticalSchedule && hasHanging ? Number(customCabinet.hangingClearHeight) : undefined,
+          drawerFrontHeightMm: hasDrawers ? Number(customCabinet.drawerFrontHeight) : useVerticalSchedule && hasHanging ? Number(customCabinet.drawerFrontHeight) : undefined,
+          shelvesInRemainderZone: useVerticalSchedule ? Number(customCabinet.upperShelfCount) : undefined,
+          shutterType: eachBay > 550 ? 'double-door' as const : 'single-door' as const,
+        };
+      });
+      const input: DrawingCutlistInput = {
+        unitId: `custom-wardrobe-${Date.now()}`,
+        unitTitle: `Custom wardrobe ${widthMm} × ${heightMm} × ${depthMm} mm`,
+        roomId: activeRoomScope === 'all' ? uniqueRooms[0] || 'room-main' : activeRoomScope,
+        wallId: 'unassigned',
+        overallWidthMm: widthMm,
+        overallHeightMm: heightMm,
+        depthMm,
+        plinthHeightMm,
+        loftHeightMm: 0,
+        carcassThicknessMm,
+        shutterThicknessMm: 18,
+        dummyFillerLeftMm: fillerMm,
+        dummyFillerRightMm: fillerMm,
+        carcassCoreMaterial: customCabinet.coreCode.trim(),
+        shutterCoreMaterial: customCabinet.coreCode.trim(),
+        externalFinishCodeA: customCabinet.externalCode.trim(),
+        internalFinishCode: customCabinet.internalCode.trim(),
+        backPanelThicknessMm: backThicknessMm,
+        backPanelMount: backThicknessMm === 6 ? 'captured-groove' : 'overlay-structural',
+        backPanelMaterial: customCabinet.backCode.trim(),
+        drawerBottomMaterial: customCabinet.drawerBottomCode.trim(),
+        drawerBottomThicknessMm: Number(customCabinet.drawerBottomThickness),
+        bays,
+        assumptions: [
+          'Dimensions are user-entered and rounded to whole millimetres; verify opening, floor level, wall plumb, and installation clearances on site.',
+          customCabinet.layout === 'standard'
+            ? `Wardrobe interior proposal uses ${customCabinet.hangingClearHeight}mm clear hanging space, ${customCabinet.drawerCount} drawer fronts at ${customCabinet.drawerFrontHeight}mm nominal pitch in Bay 1, and ${customCabinet.upperShelfCount} additional shelf panel(s) in the upper remainder zone. Confirm exact hardware, joinery, and hanger/rod position.`
+            : 'Selected internal layout, hardware, and joinery remain editable design assumptions; confirm before fabrication.',
+          '18mm carcass and shutter boards, 100mm plinth, and selected back construction are design inputs; verify supplier stock, groove/overlay details, hardware, and edge treatment.',
+        ],
+      };
+      const result = analyze2DDrawingsToCutlist(input);
+      setDrawingInput(input);
+      setDrawingAnalysisResult(result);
+      setDrawingPresetKey('custom');
+      setDrawingViewTab('visual2d');
+      setCustomCabinetError('');
+    } catch (error) {
+      setCustomCabinetError(error instanceof Error ? error.message : 'Could not generate this cabinet cutlist. Check the dimensions and material codes.');
+    }
+  }
+
   function handleUpdateDrawingInput(patch: Partial<DrawingCutlistInput>) {
     if (!drawingInput) return;
     const updated: DrawingCutlistInput = {
       ...drawingInput,
       ...patch,
     };
-    setDrawingInput(updated);
-    const result = analyze2DDrawingsToCutlist(updated);
-    setDrawingAnalysisResult(result);
+    try {
+      const result = analyze2DDrawingsToCutlist(updated);
+      setDrawingInput(updated);
+      setDrawingAnalysisResult(result);
+      setCustomCabinetError('');
+    } catch (error) {
+      setCustomCabinetError(error instanceof Error ? error.message : 'The current dimensions do not form a valid cabinet schedule.');
+    }
   }
 
   const liveDrawingSvg = useMemo(() => {
@@ -601,6 +715,37 @@ export function ProductionWorkspace({
     URL.revokeObjectURL(url);
   }
 
+  async function downloadCabinetDraftWorkbook() {
+    if (!projectId || !drawingInput) {
+      setExportState('Enter cabinet dimensions and generate a valid cutlist draft first.');
+      return;
+    }
+    try {
+      const token = (await supabase?.auth.getSession())?.data.session?.access_token;
+      if (!token) throw new Error('Sign in before downloading the cabinet workbook.');
+      setExportState('Building the review-required cabinet workbook...');
+      const response = await fetch(`${getApiBase()}/projects/${projectId}/production/cabinet-cutlist.xlsx`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ projectId, input: drawingInput }),
+      });
+      if (!response.ok) {
+        const problem = await response.json().catch(() => null);
+        throw new Error(problem?.message ?? 'The cabinet workbook could not be generated.');
+      }
+      const file = await response.blob();
+      const url = URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ultida-${drawingInput.unitId ?? 'cabinet'}-cutlist-draft.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setExportState('Draft Excel downloaded. It is marked review-required and is not a fabrication release.');
+    } catch (error) {
+      setExportState(error instanceof Error ? error.message : 'The cabinet workbook could not be downloaded.');
+    }
+  }
+
   function applyDrawingAnalysisToCutlist() {
     if (!drawingAnalysisResult) return;
     const newParts: Part[] = drawingAnalysisResult.panels.map((p) => ({
@@ -625,11 +770,12 @@ export function ProductionWorkspace({
         tapeType: p.edgeSchedule.tapeType,
       },
       materialCode: p.materialCode,
-      status: 'approved' as const,
+      faceFinishes: p.faceFinishes,
+      status: 'review_required' as const,
     }));
     setParts((prev) => [...prev, ...newParts]);
     setShowDrawingAnalyzer(false);
-    setExportState(`Merged ${newParts.length} analyzed panels into the cutlist.`);
+    setExportState(`Added ${newParts.length} cabinet panels as review-required drafts. Confirm their sizes, materials, and construction before release.`);
   }
 
 
@@ -702,6 +848,9 @@ export function ProductionWorkspace({
                     onClick={() => run2DDrawingAnalysis()}
                   >
                     2D Drawing Cutlist Analyzer
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => run2DDrawingAnalysis(undefined, 'custom')}>
+                    Enter cabinet sizes
                   </Button>
                 </div>
               </div>
@@ -1208,6 +1357,7 @@ export function ProductionWorkspace({
                             <th>T (mm)</th>
                             <th>Qty</th>
                             <th>Material</th>
+                            <th>Face finishes</th>
                             <th>Grain</th>
                             <th>Edge</th>
                             <th>Status</th>
@@ -1224,6 +1374,7 @@ export function ProductionWorkspace({
                               <td className="dim-cell">{part.thicknessMm}</td>
                               <td className="dim-cell">{part.quantity}</td>
                               <td>{part.materialCode}</td>
+                              <td>{part.faceFinishes?.map((finish) => `${finish.face}: ${finish.finishCode}`).join(' · ') || '—'}</td>
                               <td className="grain-cell">
                                 {part.grainDirection === 'horizontal' ? '↔' : part.grainDirection === 'vertical' ? '↕' : '—'}
                               </td>
@@ -1277,6 +1428,51 @@ export function ProductionWorkspace({
                     </div>
 
                     <div className="drawing-analyzer-body">
+                      {!drawingInput ? (
+                        <form className="custom-cabinet-form" onSubmit={(event) => { event.preventDefault(); generateCustomCabinetCutlist(); }}>
+                          <div>
+                            <h4>Start a measured cabinet cutlist</h4>
+                            <p>Enter the finished outside size. Dimensions convert to whole millimetres for panel cutting; confirm the site opening and construction details before release.</p>
+                          </div>
+                          <div className="analyzer-input-row">
+                            <label className="analyzer-form-group">Width<input required type="number" min="0.1" step="any" value={customCabinet.width} onChange={(e) => setCustomCabinet((current) => ({ ...current, width: e.target.value }))} /></label>
+                            <label className="analyzer-form-group">Height<input required type="number" min="0.1" step="any" value={customCabinet.height} onChange={(e) => setCustomCabinet((current) => ({ ...current, height: e.target.value }))} /></label>
+                            <label className="analyzer-form-group">Depth <span aria-label="required">*</span><input required type="number" min="0.1" step="any" value={customCabinet.depth} placeholder="Required" onChange={(e) => setCustomCabinet((current) => ({ ...current, depth: e.target.value }))} /></label>
+                            <label className="analyzer-form-group">Unit<select value={customCabinet.unit} onChange={(e) => setCustomCabinet((current) => ({ ...current, unit: e.target.value as CabinetDimensionUnit }))}>{(['mm', 'cm', 'm', 'ft', 'in'] as CabinetDimensionUnit[]).map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label>
+                          </div>
+                          <div className="analyzer-input-row">
+                            <label className="analyzer-form-group">Number of bays<select value={customCabinet.bayCount} onChange={(e) => setCustomCabinet((current) => ({ ...current, bayCount: e.target.value }))}>{[1, 2, 3, 4, 5, 6].map((count) => <option key={count} value={count}>{count}</option>)}</select></label>
+                            <label className="analyzer-form-group">Interior arrangement<select value={customCabinet.layout} onChange={(e) => setCustomCabinet((current) => ({ ...current, layout: e.target.value as typeof current.layout }))}><option value="standard">Balanced wardrobe · 1050 hang + 200 drawers + shelves</option><option value="hanging">Hanging bays + upper shelves</option><option value="shelves">Adjustable shelves</option><option value="drawers">Drawer bay + hanging bays</option></select></label>
+                            <label className="analyzer-form-group">Plinth height (mm)<input required type="number" min="0" step="1" value={customCabinet.plinth} onChange={(e) => setCustomCabinet((current) => ({ ...current, plinth: e.target.value }))} /></label>
+                            <label className="analyzer-form-group">Wall fillers (each side, mm)<input required type="number" min="0" step="1" value={customCabinet.fillers} onChange={(e) => setCustomCabinet((current) => ({ ...current, fillers: e.target.value }))} /></label>
+                          </div>
+                          {(customCabinet.layout === 'standard' || customCabinet.layout === 'hanging' || customCabinet.layout === 'drawers') && (
+                            <div className="analyzer-input-row">
+                              <label className="analyzer-form-group">Hanging clear height (mm)<input type="number" min="500" max="1800" step="10" value={customCabinet.hangingClearHeight} onChange={(e) => setCustomCabinet((current) => ({ ...current, hangingClearHeight: e.target.value }))} /></label>
+                              <label className="analyzer-form-group">Drawer front pitch (mm)<input type="number" min="100" max="350" step="10" value={customCabinet.drawerFrontHeight} onChange={(e) => setCustomCabinet((current) => ({ ...current, drawerFrontHeight: e.target.value }))} /></label>
+                              <label className="analyzer-form-group">Drawers in Bay 1<input type="number" min="1" max="8" step="1" value={customCabinet.drawerCount} onChange={(e) => setCustomCabinet((current) => ({ ...current, drawerCount: e.target.value }))} /></label>
+                              <label className="analyzer-form-group">Extra shelves above hang<input type="number" min="0" max="6" step="1" value={customCabinet.upperShelfCount} onChange={(e) => setCustomCabinet((current) => ({ ...current, upperShelfCount: e.target.value }))} /></label>
+                            </div>
+                          )}
+                          <p className="custom-cabinet-note">The balanced preset applies a drawer stack and hanging zone to Bay 1; Bay 2 is hanging when present; remaining bays use adjustable shelves. Every clear height is checked against the entered cabinet height and plinth.</p>
+                          <div className="analyzer-input-row">
+                            <label className="analyzer-form-group">Carcass board code<input required list="cabinet-material-codes" value={customCabinet.coreCode} placeholder="e.g. HDHMR-18 supplier code" onChange={(e) => setCustomCabinet((current) => ({ ...current, coreCode: e.target.value }))} /></label>
+                            <label className="analyzer-form-group">External laminate code<input required list="cabinet-material-codes" value={customCabinet.externalCode} placeholder="Supplier decor code" onChange={(e) => setCustomCabinet((current) => ({ ...current, externalCode: e.target.value }))} /></label>
+                            <label className="analyzer-form-group">Internal laminate code<input required list="cabinet-material-codes" value={customCabinet.internalCode} placeholder="Supplier liner code" onChange={(e) => setCustomCabinet((current) => ({ ...current, internalCode: e.target.value }))} /></label>
+                            <datalist id="cabinet-material-codes">{materials.map((material) => <option key={material.id} value={material.code}>{material.name}</option>)}</datalist>
+                          </div>
+                          <div className="analyzer-input-row">
+                            <label className="analyzer-form-group">Back-board thickness<select value={customCabinet.backThickness} onChange={(e) => setCustomCabinet((current) => ({ ...current, backThickness: e.target.value as '6' | '18', backCode: e.target.value === '6' ? 'PLY-BACK-06' : 'HDHMR-BACK-18' }))}><option value="6">6mm · captured in groove</option><option value="18">18mm · structural overlay</option></select></label>
+                            <label className="analyzer-form-group">Back-board material code<input required value={customCabinet.backCode} onChange={(e) => setCustomCabinet((current) => ({ ...current, backCode: e.target.value }))} /></label>
+                            <label className="analyzer-form-group">Drawer-bottom board code<input required value={customCabinet.drawerBottomCode} onChange={(e) => setCustomCabinet((current) => ({ ...current, drawerBottomCode: e.target.value }))} /></label>
+                            <label className="analyzer-form-group">Drawer-bottom thickness (mm)<input required type="number" min="3" max="18" step="1" value={customCabinet.drawerBottomThickness} onChange={(e) => setCustomCabinet((current) => ({ ...current, drawerBottomThickness: e.target.value }))} /></label>
+                          </div>
+                          <div className="custom-cabinet-note"><strong>Construction distinction:</strong> A 6mm back is sized for a captured groove and leaves carcass depth unchanged. An 18mm overlay back shortens carcass members by 18mm to preserve the entered outside depth. Board codes and hardware availability must be verified with your supplier.</div>
+                          {customCabinetError && <p className="custom-cabinet-error" role="alert">{customCabinetError}</p>}
+                          <div className="analyzer-input-row"><Button type="button" variant="secondary" onClick={() => setShowDrawingAnalyzer(false)}>Cancel</Button><Button type="submit" variant="primary">Generate cutlist draft</Button></div>
+                        </form>
+                      ) : (
+                      <>
                       {/* Top Bar with Room Selector and View Mode */}
                       <div className="analyzer-subnav">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1340,12 +1536,12 @@ export function ProductionWorkspace({
                           <div className="analyzer-metric-card">
                             <span className="label">Total Area</span>
                             <span className="value">{drawingAnalysisResult.summary.totalAreaSqm} m²</span>
-                            <span className="sub">all surfaces</span>
+                            <span className="sub">substrate panels only</span>
                           </div>
                           <div className="analyzer-metric-card">
-                            <span className="label">Est. Sheets</span>
+                            <span className="label">Board Estimate</span>
                             <span className="value">{drawingAnalysisResult.summary.estimatedSheetsTotal}</span>
-                            <span className="sub">2440×1220 mm</span>
+                            <span className="sub">area-based, not nested</span>
                           </div>
                           <div className="analyzer-metric-card">
                             <span className="label">Edge Banding</span>
@@ -1376,9 +1572,10 @@ export function ProductionWorkspace({
                               >
                                 <option value="wardrobe_4door">4-Door Master Wardrobe (2400×2400)</option>
                                 <option value="kitchen_base">Kitchen Base Run (Tandem Drawers &amp; Units)</option>
-                                <option value="tv_console">Living Room TV Console (2100×450)</option>
-                                <option value="crockery_unit">Dining Crockery Cabinet (1800×2100)</option>
-                                {rawScene && <option value="from_scene">Current 3D Room Casework</option>}
+                              <option value="tv_console">Living Room TV Console (2100×450)</option>
+                              <option value="crockery_unit">Dining Crockery Cabinet (1800×2100)</option>
+                              <option value="custom">Enter a cabinet size…</option>
+                              {rawScene && <option value="from_scene">Current 3D Room Casework</option>}
                               </select>
                             </div>
 
@@ -1448,10 +1645,13 @@ export function ProductionWorkspace({
                                       const val = Number(e.target.value);
                                       if (val > 0) {
                                         const bayCount = drawingInput.bays.length || 1;
-                                        const bayW = Math.round(val / bayCount);
+                                        const fillerWidth = (drawingInput.dummyFillerLeftMm ?? 0) + (drawingInput.dummyFillerRightMm ?? 0);
+                                        const carcassT = drawingInput.carcassThicknessMm ?? 18;
+                                        const clearBayWidth = val - fillerWidth - carcassT * 2 - (bayCount - 1) * carcassT;
+                                        const bayW = Math.floor(clearBayWidth / bayCount);
                                         const newBays = drawingInput.bays.map((b, i) => ({
                                           ...b,
-                                          widthMm: i === bayCount - 1 ? val - bayW * (bayCount - 1) : bayW,
+                                          widthMm: i === bayCount - 1 ? clearBayWidth - bayW * (bayCount - 1) : bayW,
                                         }));
                                         handleUpdateDrawingInput({ overallWidthMm: val, bays: newBays });
                                       }
@@ -1557,6 +1757,18 @@ export function ProductionWorkspace({
                                 />
                               </div>
 
+                              <div className="analyzer-input-row">
+                                <label className="analyzer-form-group">Carcass board code<input list="drawing-material-codes" value={drawingInput.carcassCoreMaterial ?? ''} onChange={(e) => handleUpdateDrawingInput({ carcassCoreMaterial: e.target.value, shutterCoreMaterial: e.target.value })} /></label>
+                                <label className="analyzer-form-group">External laminate code<input list="drawing-material-codes" value={drawingInput.externalFinishCodeA ?? ''} onChange={(e) => handleUpdateDrawingInput({ externalFinishCodeA: e.target.value })} /></label>
+                                <label className="analyzer-form-group">Internal laminate code<input list="drawing-material-codes" value={drawingInput.internalFinishCode ?? ''} onChange={(e) => handleUpdateDrawingInput({ internalFinishCode: e.target.value })} /></label>
+                                <label className="analyzer-form-group">Back board material<input list="drawing-material-codes" value={drawingInput.backPanelMaterial ?? ''} onChange={(e) => handleUpdateDrawingInput({ backPanelMaterial: e.target.value })} /></label>
+                                <datalist id="drawing-material-codes">{materials.map((material) => <option key={material.id} value={material.code}>{material.name}</option>)}</datalist>
+                              </div>
+                              <div className="analyzer-input-row">
+                                <label className="analyzer-form-group">Back board thickness<select value={drawingInput.backPanelThicknessMm ?? 6} onChange={(e) => { const thickness = Number(e.target.value) as 6 | 18; handleUpdateDrawingInput({ backPanelThicknessMm: thickness, backPanelMount: thickness === 6 ? 'captured-groove' : 'overlay-structural' }); }}><option value={6}>6mm · captured groove</option><option value={18}>18mm · structural overlay</option></select></label>
+                                <label className="analyzer-form-group">Alternate external finish (optional)<input list="drawing-material-codes" value={drawingInput.externalFinishCodeB ?? ''} onChange={(e) => handleUpdateDrawingInput({ externalFinishCodeB: e.target.value })} /></label>
+                              </div>
+
                               {/* Bay Summary Breakdown */}
                               <div style={{ marginTop: 4, display: 'grid', gap: 6 }}>
                                 <label style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: '#78716c' }}>
@@ -1573,6 +1785,13 @@ export function ProductionWorkspace({
                                       {bay.drawerCount ? <span>· {bay.drawerCount} drawers</span> : null}
                                       {bay.adjustableShelvesCount ? <span>· {bay.adjustableShelvesCount} adj. shelves</span> : null}
                                       {bay.hasHangingRod ? <span>· Hanging rod</span> : null}
+                                      {drawingAnalysisResult?.wardrobeBaySchedules.find((schedule) => schedule.bayId === bay.id)?.hangingClearHeightMm
+                                        ? <span>· {drawingAnalysisResult?.wardrobeBaySchedules.find((schedule) => schedule.bayId === bay.id)?.hangingClearHeightMm} mm clear hanging</span>
+                                        : null}
+                                      {bay.drawerFrontHeightMm ? <span>· {bay.drawerFrontHeightMm} mm drawer pitch</span> : null}
+                                      {drawingAnalysisResult?.wardrobeBaySchedules.find((schedule) => schedule.bayId === bay.id)
+                                        ? <span>· Shelf heights: {drawingAnalysisResult?.wardrobeBaySchedules.find((schedule) => schedule.bayId === bay.id)?.shelfBottomElevationsMm.join(', ')} mm FFL</span>
+                                        : null}
                                     </div>
                                   </div>
                                 ))}
@@ -1580,7 +1799,7 @@ export function ProductionWorkspace({
 
                               {/* Standard specs note */}
                               <div style={{ background: '#f5f5f4', padding: '8px 10px', borderRadius: 6, fontSize: 10.5, color: '#78716c', lineHeight: 1.4 }}>
-                                <strong>System 32 Standard:</strong> 18mm gables, 9mm grooved back, 2mm reveals, 32mm pitch line boring.
+                                <strong>Draft joinery basis:</strong> 18mm carcass board, 6mm captured-groove back or 18mm structural overlay. Confirm reveals, fixing method, and drilling details for the selected hardware before manufacture.
                               </div>
                             </div>
                           </div>
@@ -1602,6 +1821,8 @@ export function ProductionWorkspace({
                                 <th>Material</th>
                                 <th>Grain</th>
                                 <th>Edging Schedule</th>
+                                <th>Surface finishes</th>
+                                <th>Install elevation FFL (mm)</th>
                                 <th>Notes</th>
                               </tr>
                             </thead>
@@ -1617,6 +1838,8 @@ export function ProductionWorkspace({
                                   <td>{p.materialCode}</td>
                                   <td className="grain-cell">{p.grainDirection === 'horizontal' ? '↔' : p.grainDirection === 'vertical' ? '↕' : '—'}</td>
                                   <td>{p.edging}</td>
+                                  <td>{p.faceFinishes?.length ? p.faceFinishes.map((finish) => `${finish.face}: ${finish.finishCode} (${finish.areaSqm} m²)`).join(' · ') : 'No face laminate assigned'}</td>
+                                  <td>{p.installElevationsFromFloorMm?.join(' · ') ?? '—'}</td>
                                   <td style={{ color: '#78716c', fontSize: 11 }}>{p.notes ?? '—'}</td>
                                 </tr>
                               ))}
@@ -1660,6 +1883,7 @@ export function ProductionWorkspace({
                       {drawingViewTab === 'audit' && drawingAnalysisResult && (
                         <div style={{ display: 'grid', gap: 14 }}>
                           <h5>Board Optimization &amp; Cutting Yields</h5>
+                          <p className="optimizer-note">Area-based sheet estimates include a small allowance; use the production nesting view and supplier stock sizes before ordering. Laminate area is listed separately below.</p>
                           <table className="production-table">
                             <thead>
                               <tr>
@@ -1685,6 +1909,15 @@ export function ProductionWorkspace({
                             </tbody>
                           </table>
 
+                          <section className="laminate-takeoff">
+                            <h5>Separate laminate face takeoff</h5>
+                            <p>Net face area only; the substrate panel schedule above remains separate. Add supplier-specific waste after confirming decor direction and sheet size.</p>
+                            <table className="production-table">
+                              <thead><tr><th>Finish code</th><th>Face count</th><th>Net area</th></tr></thead>
+                              <tbody>{drawingAnalysisResult.laminateTakeoff.map((finish) => <tr key={finish.finishCode}><td><strong>{finish.finishCode}</strong></td><td>{finish.faceCount}</td><td>{finish.netAreaSqm} m²</td></tr>)}</tbody>
+                            </table>
+                          </section>
+
                           {drawingAnalysisResult.auditIssues.length > 0 && (
                             <div style={{ marginTop: 8 }}>
                               <h5>Joinery &amp; Clearance Audit</h5>
@@ -1700,6 +1933,8 @@ export function ProductionWorkspace({
                           )}
                         </div>
                       )}
+                      </>
+                      )}
                     </div>
 
                     <div className="drawing-analyzer-footer">
@@ -1707,6 +1942,14 @@ export function ProductionWorkspace({
                         Close
                       </Button>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <Button
+                          variant="secondary" size="sm"
+                          icon={<Download size={13} />}
+                          disabled={!drawingInput || !drawingAnalysisResult}
+                          onClick={() => void downloadCabinetDraftWorkbook()}
+                        >
+                          Download cabinet Excel
+                        </Button>
                         <Button
                           variant="secondary" size="sm"
                           icon={<Download size={13} />}
@@ -1726,9 +1969,9 @@ export function ProductionWorkspace({
                           icon={<Download size={13} />}
                           onClick={() => {
                             if (!drawingAnalysisResult) return;
-                            const headers = ['Part Instance ID', 'Part Name', 'Semantic Type', 'Length (mm)', 'Width (mm)', 'Thickness (mm)', 'Quantity', 'Material', 'Grain', 'Edging', 'Notes'];
+                            const headers = ['Part Instance ID', 'Part Name', 'Semantic Type', 'Length (mm)', 'Width (mm)', 'Thickness (mm)', 'Quantity', 'Substrate Material', 'Face Finishes', 'Grain', 'Edging', 'Notes'];
                             const rows = drawingAnalysisResult.panels.map((p) => [
-                              p.partInstanceId, `"${p.partName}"`, p.semanticType, p.lengthMm, p.widthMm, p.thicknessMm, p.quantity, p.materialCode, p.grainDirection, `"${p.edging}"`, `"${p.notes ?? ''}"`
+                              p.partInstanceId, `"${p.partName}"`, p.semanticType, p.lengthMm, p.widthMm, p.thicknessMm, p.quantity, p.materialCode, `"${(p.faceFinishes ?? []).map((finish) => `${finish.face}:${finish.finishCode} ${finish.areaSqm}m2`).join('; ')}"`, p.grainDirection, `"${p.edging}"`, `"${p.notes ?? ''}"`
                             ]);
                             const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
                             const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
@@ -1739,14 +1982,14 @@ export function ProductionWorkspace({
                             URL.revokeObjectURL(url);
                           }}
                         >
-                          Panel Cutlist CSV
+                          Panel + laminate-face CSV
                         </Button>
                         <Button
                           variant="primary" size="sm"
                           icon={<Check size={13} />}
                           onClick={applyDrawingAnalysisToCutlist}
                         >
-                          Apply to Master Cutlist
+                          Add as review-required draft
                         </Button>
                       </div>
                     </div>

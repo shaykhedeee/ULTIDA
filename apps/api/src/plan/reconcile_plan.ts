@@ -3,7 +3,7 @@
  *
  * Merges two independent analyses of the same floor plan image:
  *
- *   1. CV pass (wall_tracer.py) -- precise pixel geometry: wall centerlines,
+ *   1. Deterministic TypeScript/Sharp trace -- pixel geometry: wall centerlines,
  *      thickness, corners. No idea what a "kitchen" is.
  *   2. Vision-LLM pass (existing OpenAI/Cloudflare vision call) -- semantic
  *      labels: room names, door/window locations, dimension text via OCR.
@@ -14,8 +14,8 @@
  * candidate structure a human reviews, per ARCHITECTURE.md invariant #4 --
  * it never auto-approves anything.
  *
- * WIRE THIS IN: call after both wall_tracer.py and the existing vision
- * call finish for the same asset, before writing to floor_plan_versions.
+ * Call after both the deterministic trace and the vision pass finish for the
+ * same asset, before writing to floor_plan_versions.
  */
 
 export interface CvWallCandidate {
@@ -46,6 +46,8 @@ export interface CvTraceResult {
   corners: Array<{ id: string; x: number; y: number; refs: number }>;
   walls: CvWallCandidate[];
   openings?: CvOpeningCandidate[];
+  /** Raster-segmented room candidates, kept as review-only geometry. */
+  rooms?: Array<{ id: string; label?: string; x: number; y: number; width: number; height: number; polygon?: Array<[number, number]>; confidence?: number }>;
 }
 
 /** Shape of whatever your existing vision-LLM call already returns --
@@ -239,9 +241,21 @@ export function reconcilePlan(
   // gap, rather than being silently promoted to a door.
   for (const opening of cv.openings ?? []) {
     if (opening.kindHint === 'unknown') continue;
-    const represented = openings.some((candidate) => candidate.kind === opening.kindHint
+    const matchingIndex = openings.findIndex((candidate) => candidate.kind === opening.kindHint
       && Math.hypot(candidate.approxCenterPx.x - opening.approxCenterPx.x, candidate.approxCenterPx.y - opening.approxCenterPx.y) <= tolerancePx * 2);
-    if (represented) continue;
+    if (matchingIndex >= 0) {
+      // Semantic vision supplies the kind; when it agrees with a measured CV
+      // gap, retain the tracer's source-space location and width in the merged
+      // candidate instead of allowing the approximate AI box to move it.
+      openings[matchingIndex] = {
+        ...openings[matchingIndex]!,
+        approxCenterPx: opening.approxCenterPx,
+        approxWidthPx: opening.approxWidthPx,
+        confidence: Math.min(openings[matchingIndex]!.confidence, opening.confidence),
+      };
+      reviewFlags.push(`Vision and CV agree on a ${opening.kindHint}; opening location and width use the deterministic gap trace and still require source review.`);
+      continue;
+    }
     openings.push({
       kind: opening.kindHint,
       approxCenterPx: opening.approxCenterPx,

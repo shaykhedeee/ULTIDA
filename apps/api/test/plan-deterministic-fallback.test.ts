@@ -31,6 +31,7 @@ test('analyzePlanFile falls back to deterministic OpenCV + OCR engine when allow
     assert.ok(walls.length >= 4, `Expected at least 4 wall elements, got ${walls.length}`);
     // Openings detected from wall gaps
     assert.ok(result.deterministic.openingCount >= 1, `Expected opening candidates, got ${result.deterministic.openingCount}`);
+    assert.ok(result.deterministic.ocrText.length > 0, 'Packaged local OCR should read labels or dimensions without a hosted service.');
     assert.ok(result.vastuReport !== undefined);
   } finally {
     Object.assign(process.env, saved);

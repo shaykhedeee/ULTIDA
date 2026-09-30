@@ -60,3 +60,72 @@ test('does not preserve a legacy sparse result as a reviewable floor plan', () =
     { kind: 'opening' },
   ] }), true);
 });
+
+test('local analysis is the default and hosted vision requires explicit assisted mode', () => {
+  assert.equal(__test__.normalizePlanAnalysisMode(undefined), 'offline');
+  assert.equal(__test__.normalizePlanAnalysisMode('offline'), 'offline');
+  assert.equal(__test__.normalizePlanAnalysisMode('assisted'), 'assisted');
+  assert.equal(__test__.normalizePlanAnalysisMode('anything-else'), 'offline');
+});
+
+test('offline review preserves unknown opening gaps without calling them doors', () => {
+  const proposals = __test__.supplementSparseVisionProposals([], {
+    schema: 'PlanAnalysisResultV1.wallCandidates',
+    sourceImageSize: { widthPx: 1000, heightPx: 800 }, corners: [],
+    walls: [{ id: 'w1', startCornerId: null, endCornerId: null, x1: 100, y1: 100, x2: 900, y2: 100, thicknessPx: null, lengthPx: 800, confidence: 0.8 }],
+    openings: [{ betweenWallIds: ['w1', 'w1'], approxCenterPx: { x: 500, y: 100 }, approxWidthPx: 80, kindHint: 'unknown', confidence: 0.48, note: 'Wall gap; symbol is not clear.' }],
+  });
+  const gap = proposals.find((proposal) => proposal.kind === 'opening');
+  assert.equal(gap?.geometry.kind, 2);
+  assert.match(gap?.note ?? '', /Confirm door, window, or reject/);
+});
+
+test('offline OCR labels rooms and furniture text without claiming measured furniture footprints', () => {
+  const cv = {
+    schema: 'PlanAnalysisResultV1.wallCandidates' as const,
+    sourceImageSize: { widthPx: 1000, heightPx: 800 }, corners: [], walls: [],
+    rooms: [{ id: 'r1', label: 'Room 1', x: 100, y: 100, width: 400, height: 300, confidence: 0.5 }],
+  };
+  const proposals = __test__.addOfflinePlanLabels([
+    { kind: 'room', confidence: 0.45, geometry: { x: 100, y: 125, width: 400, height: 375 }, note: 'Room 1 candidate.' },
+  ], cv, [
+    { text: 'BALCONY', x: 300, y: 250, width: 80, height: 20 },
+    { text: 'SOFA', x: 350, y: 320, width: 42, height: 18 },
+  ]);
+  const room = proposals.find((proposal) => proposal.kind === 'room');
+  const furniture = proposals.find((proposal) => proposal.kind === 'fixture');
+  assert.match(room?.note ?? '', /Balcony.*OCR room label/);
+  assert.equal(furniture?.source, 'ocr');
+  assert.match(furniture?.note ?? '', /footprint is not measured/);
+  assert.equal(furniture?.geometry.x, 350);
+  assert.equal(furniture?.geometry.width, 42);
+});
+
+test('offline room candidates preserve traced boundary vertices instead of only their bounding box', () => {
+  const proposals = __test__.supplementSparseVisionProposals([], {
+    schema: 'PlanAnalysisResultV1.wallCandidates',
+    sourceImageSize: { widthPx: 1000, heightPx: 800 }, corners: [], walls: [],
+    rooms: [{ id: 'r1', x: 100, y: 100, width: 300, height: 200, polygon: [[100, 120], [400, 100], [380, 300], [120, 280]], confidence: 0.61 }],
+  });
+  const room = proposals.find((proposal) => proposal.kind === 'room');
+  assert.equal(room?.geometry.vertex0X, 100);
+  assert.equal(room?.geometry.vertex1X, 400);
+  assert.equal(room?.geometry.vertex2Y, 375);
+});
+
+test('wall-only trace evidence does not become a fabricated room bounding box', () => {
+  const proposals = __test__.supplementSparseVisionProposals([], {
+    schema: 'PlanAnalysisResultV1.wallCandidates',
+    sourceImageSize: { widthPx: 1000, heightPx: 800 },
+    corners: [],
+    walls: [
+      { id: 'w1', startCornerId: null, endCornerId: null, x1: 100, y1: 100, x2: 900, y2: 100, thicknessPx: null, lengthPx: 800, confidence: 0.8 },
+      { id: 'w2', startCornerId: null, endCornerId: null, x1: 900, y1: 100, x2: 900, y2: 700, thicknessPx: null, lengthPx: 600, confidence: 0.8 },
+      { id: 'w3', startCornerId: null, endCornerId: null, x1: 900, y1: 700, x2: 100, y2: 700, thicknessPx: null, lengthPx: 800, confidence: 0.8 },
+      { id: 'w4', startCornerId: null, endCornerId: null, x1: 100, y1: 700, x2: 100, y2: 100, thicknessPx: null, lengthPx: 600, confidence: 0.8 },
+    ],
+    rooms: [],
+  });
+  assert.equal(proposals.filter((proposal) => proposal.kind === 'room').length, 0);
+  assert.equal(proposals.filter((proposal) => proposal.kind === 'wall').length, 4);
+});

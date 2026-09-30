@@ -1,8 +1,8 @@
 import {
   LayoutDashboard, FolderKanban, Library, BookOpen,
-  Settings, Users, Ruler, ChevronRight, Box, Home, Wand2, CalendarDays, Receipt, Compass,
+  Settings, Users, Ruler, ChevronRight, Home, Wand2, CalendarDays, Receipt, Compass,
   PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut, Sparkles, Layers,
-  Check, CheckCircle2, Circle, Lock, Clock, AlertTriangle, Loader2, ArrowLeft, ArrowRight, Eye, Scissors
+  Check, CheckCircle2, AlertTriangle, ArrowLeft, ArrowRight, Eye, Scissors
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -64,19 +64,6 @@ export const DEFAULT_WORKFLOW_STAGES: WorkflowStageConfig[] = [
   { id: 'estimate', label: 'Estimate & Delivery', path: 'estimate', icon: Receipt,  status: 'not_started' },
 ];
 
-// ─── Stage status icon ─────────────────────────────────────────────
-function StageIcon({ status }: { status: WorkflowStageStatus }) {
-  if (status === 'done')         return <CheckCircle2 size={13} style={{ color: '#34d399' }} />;
-  if (status === 'in_progress')  return <Loader2 size={13} style={{ color: 'var(--gold-light)', animation: 'spin .9s linear infinite' }} />;
-  if (status === 'needs_review') return <AlertTriangle size={13} style={{ color: '#f59e0b' }} />;
-  if (status === 'locked')       return <Lock size={13} style={{ color: 'rgba(255,255,255,.15)' }} />;
-  return <Circle size={13} style={{ color: 'rgba(255,255,255,.2)' }} />;
-}
-
-function stageStatusLabel(status: WorkflowStageStatus) {
-  return status.replaceAll('_', ' ');
-}
-
 // ─── Shell Component ──────────────────────────────────────────────
 export function Shell({
   children,
@@ -100,7 +87,6 @@ export function Shell({
   const inProject = Boolean(projectId);
   const doneStagesCount = workflowStages.filter((stage) => stage.status === 'done').length;
   const totalStagesCount = workflowStages.length;
-  const workflowProgressPct = totalStagesCount > 0 ? Math.round((doneStagesCount / totalStagesCount) * 100) : 0;
   const activeStageIdx = workflowStages.findIndex((stage) => location.pathname.includes(`/${stage.path}`));
   const activeStage = activeStageIdx >= 0 ? workflowStages[activeStageIdx] : null;
   const prevStage = activeStageIdx > 0 ? workflowStages[activeStageIdx - 1] : null;
@@ -196,35 +182,7 @@ export function Shell({
                 {doneStagesCount}/{totalStagesCount}
               </span>
             </div>
-
-            
-
-            {workflowStages.map((stage) => {
-              const isActive = location.pathname.includes(`/${stage.path}`);
-              const isLocked = stage.status === 'locked';
-              const StageItemIcon = stage.icon ?? Home;
-              return (
-                <button
-                  key={stage.id}
-                  className={`workflow-stage${isActive ? ' active' : ''} ${stage.status === 'done' ? 'done' : ''} ${isLocked ? 'locked' : ''} ${stage.status === 'needs_review' ? 'needs_review' : ''}`}
-                  aria-current={isActive ? 'step' : undefined}
-                  aria-label={`${stage.label}: ${isLocked ? stage.lockReason ?? 'locked' : stageStatusLabel(stage.status)}`}
-                  disabled={isLocked}
-                  onClick={() => {
-                    if (!isLocked) {
-                      navigate(`/projects/${projectId}/${stage.path}`);
-                      setMobileOpen(false);
-                    }
-                  }}
-                  title={collapsed ? stage.label : (isLocked ? stage.lockReason : stage.label)}
-                  data-tooltip={stage.label}
-                >
-                  <span className="stage-nav-icon"><StageItemIcon size={14} /></span>
-                  <span className="stage-label-text">{stage.label}</span>
-                  <span className="stage-num"><StageIcon status={stage.status} /></span>
-                </button>
-              );
-            })}
+            <p className="workflow-nav-hint">Your project steps are shown in the guide above.</p>
           </div>
         )}
 

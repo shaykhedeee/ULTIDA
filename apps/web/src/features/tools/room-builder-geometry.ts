@@ -6,9 +6,66 @@ export type RoomBuilderOpening = {
   offsetMm: number;
   widthMm: number;
   depthMm?: number;
+  heightMm?: number;
   sillMm?: number;
   headMm?: number;
 };
+
+export type RoomDraftGeometryInput = RoomBuilderDimensions & {
+  roomId: string;
+  originX: number;
+  originY: number;
+  openings: RoomBuilderOpening[];
+};
+
+/** Convert the standalone room proposal to the exact plan-space geometry contract. */
+export function roomDraftToPlanGeometry(input: RoomDraftGeometryInput) {
+  const { roomId, originX, originY, widthMm, depthMm, ceilingHeightMm, wallThicknessMm = 0 } = input;
+  const topLeft = { xMm: originX, yMm: originY };
+  const topRight = { xMm: originX + widthMm, yMm: originY };
+  const bottomRight = { xMm: originX + widthMm, yMm: originY + depthMm };
+  const bottomLeft = { xMm: originX, yMm: originY + depthMm };
+  const polygon = [topLeft, topRight, bottomRight, bottomLeft];
+  // Keep the same edge IDs produced by SpacesWorkspace.roomBoundaryWalls.
+  // Match SpacesWorkspace.roomBoundaryWalls exactly; south and west run in the
+  // reverse direction of the room-builder's visual ruler and need offset mapping.
+  const walls = [
+    { id: `${roomId}:edge:1`, start: topLeft, end: topRight },
+    { id: `${roomId}:edge:2`, start: topRight, end: bottomRight },
+    { id: `${roomId}:edge:3`, start: bottomRight, end: bottomLeft },
+    { id: `${roomId}:edge:4`, start: bottomLeft, end: topLeft },
+  ].map((wall) => ({ ...wall, heightMm: ceilingHeightMm, thicknessMm: wallThicknessMm, isExterior: false }));
+  const wallBySide = { north: walls[0], east: walls[1], south: walls[2], west: walls[3] };
+  const planOpenings = input.openings.filter((opening) => opening.kind === 'door' || opening.kind === 'window').map((opening) => ({
+    id: opening.id,
+    wallId: wallBySide[opening.wall].id,
+    kind: opening.kind,
+    offsetAlongWallMm: opening.wall === 'south' || opening.wall === 'west'
+      ? (opening.wall === 'south' ? widthMm : depthMm) - opening.offsetMm - opening.widthMm
+      : opening.offsetMm,
+    widthMm: opening.widthMm,
+    heightMm: opening.kind === 'window'
+      ? Number(opening.headMm) - Number(opening.sillMm)
+      : Number(opening.heightMm),
+    sillHeightMm: opening.kind === 'window' ? opening.sillMm : 0,
+  }));
+  const columns = input.openings.filter((opening) => opening.kind === 'structural_column').map((column) => {
+    const centerAlong = column.offsetMm + column.widthMm / 2;
+    const projection = column.depthMm ?? 0;
+    const position = column.wall === 'north'
+      ? { xMm: originX + centerAlong, yMm: originY + projection / 2 }
+      : column.wall === 'east'
+        ? { xMm: originX + widthMm - projection / 2, yMm: originY + centerAlong }
+        : column.wall === 'south'
+          ? { xMm: originX + centerAlong, yMm: originY + depthMm - projection / 2 }
+          : { xMm: originX + projection / 2, yMm: originY + centerAlong };
+    const sizeMm = column.wall === 'north' || column.wall === 'south'
+      ? { width: column.widthMm, depth: projection }
+      : { width: projection, depth: column.widthMm };
+    return { id: column.id, position, sizeMm };
+  });
+  return { polygon, walls, openings: planOpenings, columns };
+}
 
 export type RoomBuilderDimensions = {
   widthMm: number;
@@ -48,6 +105,10 @@ export function roomBuilderGeometryIssues(
           || (opening.sillMm ?? -1) < 0 || (opening.headMm ?? 0) <= (opening.sillMm ?? 0)
           || (opening.headMm ?? Infinity) > dimensions.ceilingHeightMm)) {
         issues.push(`Window on ${wall} wall needs a valid sill and head below the ${dimensions.ceilingHeightMm} mm ceiling.`);
+      }
+      if (opening.kind === 'door'
+        && (!Number.isFinite(opening.heightMm) || (opening.heightMm ?? 0) <= 0 || (opening.heightMm ?? Infinity) > dimensions.ceilingHeightMm)) {
+        issues.push(`Door on ${wall} wall needs a measured positive height no greater than the ${dimensions.ceilingHeightMm} mm ceiling.`);
       }
       if (opening.kind === 'structural_column' && (!Number.isFinite(opening.depthMm) || (opening.depthMm ?? 0) <= 0)) {
         issues.push(`Structural column on ${wall} wall needs a positive projection depth.`);

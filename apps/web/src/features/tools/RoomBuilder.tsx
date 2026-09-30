@@ -16,6 +16,7 @@ type Opening = {
   offsetMm: number;
   widthMm: number;
   depthMm?: number;
+  heightMm?: number;
   sillMm?: number;
   headMm?: number;
 };
@@ -286,6 +287,7 @@ export function RoomBuilder() {
         wall: 'north',
         offsetMm: 0,
         widthMm: 0,
+        ...(kind === 'door' ? { heightMm: 0 } : {}),
         ...(kind === 'window' ? { sillMm: 0, headMm: 0 } : {}),
         ...(kind === 'structural_column' ? { depthMm: 0 } : {}),
       },
@@ -554,6 +556,18 @@ export function RoomBuilder() {
                         />
                       </label>
                     </>
+                  )}
+                  {opening.kind === 'door' && (
+                    <label>
+                      Height (mm)
+                      <input
+                        type="number"
+                        min="1"
+                        max={ceilingHeightMm || undefined}
+                        value={opening.heightMm || ''}
+                        onChange={(event) => updateOpening(opening.id, { heightMm: event.target.value === '' ? 0 : Number(event.target.value) })}
+                      />
+                    </label>
                   )}
                   {opening.kind === 'structural_column' && (
                     <label>

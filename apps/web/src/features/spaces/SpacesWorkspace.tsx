@@ -32,6 +32,7 @@ import TopViewFloorplanEnhancer, {
 } from '../../components/spaces/TopViewFloorplanEnhancer';
 import WallBayEditor from '../../components/spaces/WallBayEditor';
 import FlooringStudio, { TILE_PRESETS } from '../../components/spaces/FlooringStudio';
+import { roomBuilderGeometryIssues, roomDraftToPlanGeometry } from '../tools/room-builder-geometry';
 import { type CompositionScheduleV1, type FloorSurfaceV1 } from '@ultida/contracts';
 import { getApiBase } from '../../lib/api-base';
 import './spaces.css';
@@ -68,7 +69,7 @@ interface PlanRoom {
 }
 interface PlanWall { id: string; start: Pt; end: Pt; isExterior?: boolean; thicknessMm?: number; heightMm?: number }
 interface PlanOpening { id: string; wallId: string; kind: string; offsetAlongWallMm: number; widthMm?: number; heightMm?: number; sillHeightMm?: number }
-interface PlanColumn { id: string; position: Pt; sizeMm?: number }
+interface PlanColumn { id: string; position: Pt; sizeMm?: number | { width: number; depth: number } }
 interface PlanBeam { id: string; start: Pt; end: Pt }
 interface PlanService { id: string; kind: string; position: Pt }
 interface PlanAnnotation { id: string; text: string; kind: string; position?: Pt }
@@ -417,7 +418,12 @@ export function SpacesWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
   const roomDraftRequested = searchParams.get('roomDraft') === '1';
   const pendingModuleRequested = searchParams.get('pendingModule') === '1';
-  const [roomDraftSummary, setRoomDraftSummary] = useState<{ name?: string; roomType?: string; widthMm?: number; depthMm?: number; ceilingHeightMm?: number; floorFinish?: string } | null>(null);
+  const [roomDraftSummary, setRoomDraftSummary] = useState<{
+    name?: string; roomType?: string; widthMm?: number; depthMm?: number; ceilingHeightMm?: number;
+    wallThicknessMm?: number; floorFinish?: string;
+    wallZones?: Partial<Record<'north' | 'east' | 'south' | 'west', string>>;
+    openings?: Array<{ id: string; kind: 'door' | 'window' | 'structural_column'; wall: 'north' | 'east' | 'south' | 'west'; offsetMm: number; widthMm: number; depthMm?: number; heightMm?: number; sillMm?: number; headMm?: number }>;
+  } | null>(null);
 
   const [plan, setPlan] = useState<CanonicalPlanFragment | null>(null);
   const [rooms, setRooms] = useState<PlanRoom[]>([]);
@@ -508,6 +514,7 @@ export function SpacesWorkspace() {
     if (tab === 'flooring') return 'flooring';
     return tab === 'modules' || tab === 'bays' ? 'modules' : 'candidates';
   });
+  const [showMoreRoomTools, setShowMoreRoomTools] = useState(false);
   const [compositionSchedules, setCompositionSchedules] = useState<Record<string, CompositionScheduleV1>>({});
   const [floorSurfaces, setFloorSurfaces] = useState<Record<string, FloorSurfaceV1>>({});
   const [canvasRenderMode, setCanvasRenderMode] = useState<'2d' | '3d_isometric' | 'stager'>('2d');
@@ -556,8 +563,11 @@ export function SpacesWorkspace() {
     const widthMm = Number(roomDraftSummary.widthMm);
     const depthMm = Number(roomDraftSummary.depthMm);
     const ceilingMm = Number(roomDraftSummary.ceilingHeightMm);
-    if (![widthMm, depthMm, ceilingMm].every((value) => Number.isFinite(value) && value > 0)) {
-      setSaveState('This room draft is missing confirmed width, depth, or ceiling measurements. Edit the values before adding it to the plan.');
+    const wallThicknessMm = Number(roomDraftSummary.wallThicknessMm);
+    const draftOpenings = Array.isArray(roomDraftSummary.openings) ? roomDraftSummary.openings : [];
+    const draftIssues = roomBuilderGeometryIssues({ widthMm, depthMm, ceilingHeightMm: ceilingMm, wallThicknessMm }, draftOpenings);
+    if (draftIssues.length) {
+      setSaveState(`Room draft needs correction before import: ${draftIssues[0]}`);
       return;
     }
 
@@ -569,14 +579,31 @@ export function SpacesWorkspace() {
       originX = maxX + 800;
     }
 
-    const polygon: Pt[] = [
-      { xMm: originX, yMm: originY },
-      { xMm: originX + widthMm, yMm: originY },
-      { xMm: originX + widthMm, yMm: originY + depthMm },
-      { xMm: originX, yMm: originY + depthMm },
-    ];
-
     const newRoomId = entityId();
+    const imported = roomDraftToPlanGeometry({
+      roomId: newRoomId,
+      originX,
+      originY,
+      widthMm,
+      depthMm,
+      ceilingHeightMm: ceilingMm,
+      wallThicknessMm,
+      openings: draftOpenings,
+    });
+    const polygon = imported.polygon;
+    const roleForZone: Record<string, string> = {
+      wardrobe_suite: 'wardrobe_wall', bed_headboard: 'bed_headboard_wall',
+      tv_entertainment: 'tv_wall', study_desk: 'study_wall',
+      mandir_sanctum: 'pooja_wall', crockery_unit: 'crockery_wall',
+      modular_kitchen: 'kitchen_working_wall', window_bay: 'window_wall',
+      open_circulation: 'open_circulation',
+    };
+    const zoneBySide = roomDraftSummary.wallZones ?? {};
+    const wallRoles = Object.fromEntries(imported.walls.map((wall, index) => {
+      const side = (['north', 'east', 'south', 'west'] as const)[index];
+      const role = zoneBySide[side] ? roleForZone[zoneBySide[side]!] : undefined;
+      return [wall.id, role];
+    }).filter((entry): entry is [string, string] => Boolean(entry[1])));
     const newRoom: PlanRoom = {
       id: newRoomId,
       name: roomDraftSummary.name || `Room ${rooms.length + 1}`,
@@ -584,15 +611,34 @@ export function SpacesWorkspace() {
       polygon,
       areaSqm: polyArea(polygon),
       ceilingHeightMm: ceilingMm,
+      wallRoles,
       requiredFurniture: [],
       included: true,
       floorFinish: roomDraftSummary.floorFinish || undefined,
+      verificationStatus: 'unverified',
     };
 
     snapshot();
-    setRooms((prev) => [...prev, newRoom]);
+    const nextRooms = [...rooms, newRoom];
+    const nextWalls = [...walls, ...imported.walls];
+    const nextOpenings = [...openings, ...imported.openings];
+    const nextColumns = [...columns, ...imported.columns];
+    setRooms(nextRooms);
+    setWalls(nextWalls);
+    setOpenings(nextOpenings);
+    setColumns(nextColumns);
     setSelectedRoom(newRoomId);
-    dismissRoomDraft();
+    setSaveState(`Saving ${newRoom.name}, its measured walls and ${imported.openings.length} door/window openings…`);
+    void saveGeometryVersion(nextRooms, { walls: nextWalls, openings: nextOpenings, columns: nextColumns }).then((committed) => {
+      const spaceRecordId = committed?.spaces.find((space) => space.space_id === newRoomId)?.id;
+      if (!spaceRecordId) {
+        setSaveState(`${newRoom.name} remains in the room draft. Geometry was not fully attached; retry Save geometry before continuing.`);
+        return;
+      }
+      setRooms((current) => current.map((room) => room.id === newRoomId ? { ...room, spaceRecordId } : room));
+      setSaveState(`${newRoom.name}, walls, and measured openings are saved. Confirm the room against the source plan before production.`);
+      dismissRoomDraft();
+    });
   }
 
   function addNewRoom(name: string, roomType: string, widthMm: number, depthMm: number, ceilingMm: number) {
@@ -836,7 +882,7 @@ export function SpacesWorkspace() {
     const roomCols = columns.filter(c => c.position.xMm >= b.minX && c.position.xMm <= b.maxX && c.position.yMm >= b.minY && c.position.yMm <= b.maxY);
     const deductions = [
       ...roomOpenings.map(o => ({ id: o.id, kind: 'opening' as const, widthMm: o.widthMm ?? 900, clearanceMm: 120 })),
-      ...roomCols.map(c => ({ id: c.id, kind: 'column' as const, widthMm: c.sizeMm ?? 300, clearanceMm: 200 })),
+      ...roomCols.map(c => ({ id: c.id, kind: 'column' as const, widthMm: typeof c.sizeMm === 'number' ? c.sizeMm : c.sizeMm?.width ?? 300, clearanceMm: 200 })),
     ];
     const usable = computeUsableWallLength(roomWalls.map(w => ({ id: w.id, lengthMm: wallLen(w) })), deductions);
     const furniture = roomFurnitureMap[room.id] ?? getInitialRoomFurniture(room, widthMm, depthMm, selectedRoom === room.id ? aiProposals : undefined);
@@ -1826,7 +1872,10 @@ export function SpacesWorkspace() {
   function addBeam() { setLineDraftStart(null); setTool('draw_beam'); setSaveState('Click the beam start point.'); }
   function addAnnotation(text: string) { snapshot(); setAnnotations(a => [...a, { id: entityId(), text, kind: 'note' }]); }
 
-  async function saveGeometryVersion(roomsOverride: PlanRoom[] = rooms): Promise<{ spaces: Array<{ id: string; space_id: string | null }> } | null> {
+  async function saveGeometryVersion(
+    roomsOverride: PlanRoom[] = rooms,
+    geometryOverride?: { walls?: PlanWall[]; openings?: PlanOpening[]; columns?: PlanColumn[]; beams?: PlanBeam[]; services?: PlanService[]; annotations?: PlanAnnotation[] },
+  ): Promise<{ spaces: Array<{ id: string; space_id: string | null }> } | null> {
     if (!supabase || !projectId) return null;
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return null; }
@@ -1834,7 +1883,16 @@ export function SpacesWorkspace() {
     const apiBase = getApiBase();
     const response = await fetch(`${apiBase}/projects/${projectId}/spaces/commit-geometry`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ geometry: { rooms: roomsOverride, walls, openings, columns, beams, services, annotations, ceilingHeightMm } }),
+      body: JSON.stringify({ geometry: {
+        rooms: roomsOverride,
+        walls: geometryOverride?.walls ?? walls,
+        openings: geometryOverride?.openings ?? openings,
+        columns: geometryOverride?.columns ?? columns,
+        beams: geometryOverride?.beams ?? beams,
+        services: geometryOverride?.services ?? services,
+        annotations: geometryOverride?.annotations ?? annotations,
+        ceilingHeightMm,
+      } }),
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) { setSaveState(payload?.message ?? 'Geometry could not be saved as a new plan version.'); return null; }
@@ -2992,8 +3050,8 @@ export function SpacesWorkspace() {
                           <Compass size={11} /> Align Vastu
                         </button>
                       )}
-                      <button type="button" className="room-ai-btn" title="AI Auto-Detect Layout" onClick={(e) => { e.stopPropagation(); setSelectedRoom(room.id); detectAiLayout(room); }}>
-                        <Sparkles size={12} /> AI Layout
+                      <button type="button" className="room-ai-btn" title="Create editable furniture layout ideas for this room; sizes and positions remain provisional until you adjust and save them." onClick={(e) => { e.stopPropagation(); setSelectedRoom(room.id); detectAiLayout(room); }}>
+                        <Sparkles size={12} /> Layout ideas
                       </button>
                     </div>
                   )}
@@ -3542,7 +3600,14 @@ export function SpacesWorkspace() {
                 );
               })}
 
-              {layers.columns && columns.map(c => { const p = toPx(c.position); return <rect key={c.id} x={p.x - 6} y={p.y - 6} width={12} height={12} fill="#444" stroke="#fff" />; })}
+              {layers.columns && columns.map((column) => {
+                const p = toPx(column.position);
+                const widthMm = typeof column.sizeMm === 'number' ? column.sizeMm : column.sizeMm?.width ?? 300;
+                const depthMm = typeof column.sizeMm === 'number' ? column.sizeMm : column.sizeMm?.depth ?? widthMm;
+                const widthPx = Math.max(8, widthMm * view.scale);
+                const depthPx = Math.max(8, depthMm * view.scale);
+                return <rect key={column.id} x={p.x - widthPx / 2} y={p.y - depthPx / 2} width={widthPx} height={depthPx} fill="#444" fillOpacity="0.88" stroke="#fff" strokeWidth={1.5}><title>{`Structural column ${widthMm} × ${depthMm} mm`}</title></rect>;
+              })}
               {layers.beams && beams.map(b => { const a = toPx(b.start), e2 = toPx(b.end); return <line key={b.id} x1={a.x} y1={a.y} x2={e2.x} y2={e2.y} stroke="#9b59b6" strokeWidth={3} strokeDasharray="4 3" />; })}
               {layers.services && services.map(s => { const p = toPx(s.position); return <circle key={s.id} cx={p.x} cy={p.y} r={6} fill="#27ae60" stroke="#fff" strokeWidth={1} />; })}
               {layers.annotations && annotations.map(a => { if (!a.position) return null; const p = toPx(a.position); return <text key={a.id} x={p.x} y={p.y} fontSize={10} fill="#7a3b00">{a.text}</text>; })}
@@ -3731,34 +3796,29 @@ export function SpacesWorkspace() {
                   {!activeCatalogWall && <p>Click a dark wall line in the 2D plan. Doors and windows are retained as protected placement zones.</p>}
                 </section>
 
-                <div className="space-panel-tabs" role="tablist" aria-label="Room configuration">
-                  <button type="button" role="tab" aria-selected={spacePanel === 'candidates'} className={spacePanel === 'candidates' ? 'active' : ''} onClick={() => setSpacePanel('candidates')}>
-                    <LayoutGrid size={13} /> Layout
-                  </button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'geometry'} className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}>
-                    <Columns size={13} /> Room
-                  </button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'modules'} className={spacePanel === 'modules' ? 'active' : ''} onClick={() => setSpacePanel('modules')}>
-                    <Boxes size={13} /> Furniture
-                  </button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'advisor'} className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}>
-                    <Sparkles size={13} /> Advice
-                  </button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'flooring'} className={spacePanel === 'flooring' ? 'active' : ''} onClick={() => setSpacePanel('flooring')}>
-                    <Grid size={13} /> Finishes
-                  </button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'brief'} className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}>
-                    <BookOpen size={13} /> Brief
-                  </button>
-                  <button type="button" role="tab" aria-selected={spacePanel === 'scene'} className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}>
-                    <Rotate3d size={13} /> 3D
-                  </button>
+                <div className="space-panel-controls">
+                  <div className="space-panel-control-row">
+                    <div className="space-panel-tabs" role="tablist" aria-label="Room configuration">
+                      <button type="button" role="tab" aria-selected={spacePanel === 'candidates'} className={spacePanel === 'candidates' ? 'active' : ''} onClick={() => setSpacePanel('candidates')}><LayoutGrid size={13} /> Layout</button>
+                      <button type="button" role="tab" aria-selected={spacePanel === 'geometry'} className={spacePanel === 'geometry' ? 'active' : ''} onClick={() => setSpacePanel('geometry')}><Columns size={13} /> Room</button>
+                      <button type="button" role="tab" aria-selected={spacePanel === 'modules'} className={spacePanel === 'modules' ? 'active' : ''} onClick={() => setSpacePanel('modules')}><Boxes size={13} /> Furniture</button>
+                      <button type="button" role="tab" aria-selected={spacePanel === 'flooring'} className={spacePanel === 'flooring' ? 'active' : ''} onClick={() => setSpacePanel('flooring')}><Grid size={13} /> Finishes</button>
+                    </div>
+                    <button type="button" className={`room-tools-toggle${showMoreRoomTools ? ' active' : ''}`} aria-expanded={showMoreRoomTools} aria-controls="spaces-extra-tools" onClick={() => setShowMoreRoomTools((value) => !value)}>
+                      {showMoreRoomTools ? 'Less' : 'More'}
+                    </button>
+                  </div>
+                  {showMoreRoomTools && <div id="spaces-extra-tools" className="space-panel-tabs space-panel-tabs--more" role="tablist" aria-label="More room tools">
+                    <button type="button" role="tab" aria-selected={spacePanel === 'advisor'} className={spacePanel === 'advisor' ? 'active' : ''} onClick={() => setSpacePanel('advisor')}><Sparkles size={13} /> Advice</button>
+                    <button type="button" role="tab" aria-selected={spacePanel === 'brief'} className={spacePanel === 'brief' ? 'active' : ''} onClick={() => setSpacePanel('brief')}><BookOpen size={13} /> Brief</button>
+                    <button type="button" role="tab" aria-selected={spacePanel === 'scene'} className={spacePanel === 'scene' ? 'active' : ''} onClick={() => setSpacePanel('scene')}><Rotate3d size={13} /> 3D details</button>
+                  </div>}
                 </div>
 
                 {spacePanel === 'candidates' && (
                   <div className="candidates-panel">
                     <p className="candidates-intro">
-                      Symbolic placements validated against wall fit, door swing, window clearance, circulation, and structural constraints for <strong>{sel.room.name}</strong>.
+                      Suggested furniture zones for <strong>{sel.room.name}</strong>. Choose a catalog module to preview and validate its real measured fit before saving.
                     </p>
                     <div className="candidates-grid-v2">
                       {/* Candidate 1: Circulation First */}
@@ -3774,7 +3834,7 @@ export function SpacesWorkspace() {
                           >
                             <div className="cand-head">
                               <span className="cand-title">Best Circulation</span>
-                              <span className="cand-score">{isApplied ? 'Active Applied' : '95% Valid'}</span>
+                              <span className="cand-score">{isApplied ? 'Active' : 'Suggested'}</span>
                             </div>
                             <div className="cand-preview-box">
                               <CandidateVectorPreview room={sel.room} walls={walls} openings={openings} candidateType="circulation" />
@@ -4909,6 +4969,13 @@ export function SpacesWorkspace() {
                 </div>
               </div>
               <button type="button" className="icon-btn" onClick={() => { setShowDesignLibrary(false); cancelPlacementDrag(); }} aria-label="Close design library"><X size={18} /></button>
+            </div>
+
+            <div className="dld-reference-import">
+              <div><strong>Need a style reference?</strong><small>Import a client image for inspiration. It never changes measured furniture dimensions.</small></div>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => projectId && navigate(`/library?projectId=${encodeURIComponent(projectId)}`)} disabled={!projectId}>
+                <ImageIcon size={13} /> Import image
+              </button>
             </div>
 
             <div className="dld-search-bar">

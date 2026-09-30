@@ -147,7 +147,7 @@ test('reconcileToElements never turns an unknown CV wall gap into a door or wind
 });
 
 test('reconcileToElements marks matching vision and CV door evidence as mixed', () => {
-  const ai = rawSample({ windowCandidates: [] });
+  const ai = rawSample({ windowCandidates: [], doorCandidates: [{ id: 'd1', confidence: 0.8, x: 260, y: 110, width: 45 }] });
   const { elements } = reconcileToElements(ai, {
     widthPx: 1000,
     heightPx: 1000,
@@ -156,6 +156,7 @@ test('reconcileToElements marks matching vision and CV door evidence as mixed', 
   }, '');
   const door = elements.find((element) => element.kind === 'door')!;
   assert.equal(door.source, 'mixed');
+  assert.deepEqual(door.geometry, { x: 250, y: 100, width: 36 }, 'corroborated opening geometry must use the deterministic CV measurement');
   assert.match(door.note ?? '', /Corroborated by a deterministic CV wall-gap trace/i);
 });
 
@@ -248,8 +249,8 @@ test('normalizeTesseractWords preserves page-relative word positions and rejects
     { text: 'bad', bbox: { x0: 4, x1: 4, y0: 2, y1: 10 } },
   ], 1000, 500);
   assert.deepEqual(found, [
-    { text: '3600', x: 500, y: 600 },
-    { text: 'mm', x: 535, y: 600 },
+    { text: '3600', x: 500, y: 600, width: 40, height: 40 },
+    { text: 'mm', x: 535, y: 600, width: 20, height: 40 },
   ]);
   assert.deepEqual(normalizeTesseractWords([{ text: '3600', bbox: { x0: 1, x1: 4, y0: 2, y1: 5 } }], 0, 500), []);
 });

@@ -815,6 +815,17 @@
 .space-panel-tabs { display: flex; flex-wrap: wrap; gap: 3px; padding: 3px; background: #f3efe7; border-radius: 8px; }
 .space-panel-tabs button { border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 10px; font-weight: 800; padding: 5px 8px; cursor: pointer; white-space: nowrap; flex: 1 1 0; min-width: 0; text-align: center; }
 .space-panel-tabs button.active { background: var(--surface); color: var(--text-secondary); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.space-panel-controls { display:grid; gap:4px; }
+.space-panel-control-row { display:flex; align-items:stretch; gap:5px; }
+.space-panel-control-row .space-panel-tabs { flex:1; }
+.room-tools-toggle { flex:0 0 auto; border:1px solid #e5ddcf; border-radius:7px; padding:5px 9px; background:#fff; color:#655747; font-size:10px; font-weight:800; cursor:pointer; }
+.room-tools-toggle:hover, .room-tools-toggle.active { background:#ede3d2; color:#3c2e20; }
+.space-panel-tabs--more { justify-content:flex-end; }
+.dld-reference-import { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:10px 14px 0; padding:10px 11px; border:1px solid #e8dcc8; border-radius:9px; background:#fbf8f1; }
+.dld-reference-import > div { display:grid; gap:3px; min-width:0; }
+.dld-reference-import strong { color:#493321; font-size:11px; }
+.dld-reference-import small { color:#766b5d; font-size:10px; line-height:1.35; }
+@media (max-width: 640px) { .dld-reference-import { align-items:flex-start; flex-direction:column; } }
 .panel-help { margin: 0; font-size: 11px; line-height: 1.45; color: var(--text-muted); }
 .props-body label { font-size: 11px; font-weight: 700; color: var(--text-secondary); }
 .props-body input, .props-body select { padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; }

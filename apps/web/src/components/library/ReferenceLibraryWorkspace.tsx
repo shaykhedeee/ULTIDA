@@ -1,6 +1,6 @@
 import { BookOpen, Library as LibraryIcon, Loader2, Palette, Search, Upload, Sparkles, Plus, Trash2, Layers, Move, Download, Layout, Check, ArrowRight, Home, Camera } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
@@ -278,7 +278,8 @@ const DEFAULT_MODULAR_CATALOG: CatalogModule[] = [
 export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { organizationId?: string | null; projectId?: string | null }) {
   const navigate = useNavigate();
   const { projectId: urlProjectId } = useParams<{ projectId?: string }>();
-  const activeProjectId = projectId ?? urlProjectId ?? null;
+  const [searchParams] = useSearchParams();
+  const activeProjectId = projectId ?? urlProjectId ?? searchParams.get('projectId') ?? null;
 
   const [activeTab, setActiveTab] = useState<'templates' | 'modules' | 'moodboard' | 'materials' | 'research'>('modules');
   const [moduleImageMode, setModuleImageMode] = useState<'photo' | 'nobg'>('nobg');
@@ -358,7 +359,14 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           if (live) setModules(payload.modules);
         }));
 
-      if (supabase && organizationId) {
+      if (supabase && activeProjectId && authorization) {
+        tasks.push(fetch(`${apiBase()}/projects/${activeProjectId}/references`, { headers: authorization })
+          .then(async (response) => {
+            const payload = await response.json().catch(() => null);
+            if (!response.ok || !Array.isArray(payload?.items)) throw new Error(payload?.message ?? 'Project visual references could not be loaded.');
+            if (live) setItems(payload.items as LibraryItem[]);
+          }));
+      } else if (supabase && organizationId) {
         const client = supabase;
         tasks.push((async () => {
           const result = await client
@@ -386,8 +394,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
         })());
       }
 
-      if (projectId && authorization) {
-        tasks.push(fetch(`${apiBase()}/projects/${projectId}/material-library`, { headers: authorization })
+      if (activeProjectId && authorization) {
+        tasks.push(fetch(`${apiBase()}/projects/${activeProjectId}/material-library`, { headers: authorization })
           .then(async (response) => {
             const payload = await response.json().catch(() => null);
             if (!response.ok) throw new Error(payload?.message ?? 'The project material library could not be loaded.');
@@ -408,7 +416,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     }
     void load();
     return () => { live = false; };
-  }, [organizationId, projectId]);
+  }, [organizationId, activeProjectId]);
 
   const search = query.trim().toLowerCase();
   const visibleTemplates = useMemo(() => items.filter((item) => {
@@ -451,8 +459,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   }
 
   async function uploadReference() {
-    if (!projectId || !referenceFile || !supabase) {
-      setStatus(!projectId ? 'Open a project before adding studio references.' : 'Choose a PNG, JPEG, or WebP image to add it to this project library.');
+    if (!activeProjectId || !referenceFile || !supabase) {
+      setStatus(!activeProjectId ? 'Open a project before adding a visual reference.' : 'Choose a PNG, JPEG, or WebP image to add it to this project library.');
       return;
     }
     const session = (await supabase.auth.getSession()).data.session;
@@ -461,13 +469,13 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     setStatus('Preparing a secure reference upload...');
     try {
       const headers = { authorization: `Bearer ${session.access_token}`, 'content-type': 'application/json' };
-      const initiated = await fetch(`${apiBase()}/projects/${projectId}/references/initiate`, { method: 'POST', headers, body: JSON.stringify({ fileName: referenceFile.name, mimeType: referenceFile.type, fileSize: referenceFile.size }) });
+      const initiated = await fetch(`${apiBase()}/projects/${activeProjectId}/references/initiate`, { method: 'POST', headers, body: JSON.stringify({ fileName: referenceFile.name, mimeType: referenceFile.type, fileSize: referenceFile.size }) });
       const initiation = await initiated.json().catch(() => null);
       if (!initiated.ok || !initiation?.token || !initiation?.storagePath) throw new Error(initiation?.message ?? 'The secure upload could not be prepared.');
       const stored = await supabase.storage.from(initiation.bucket ?? 'project-assets').uploadToSignedUrl(initiation.storagePath, initiation.token, referenceFile, { contentType: referenceFile.type });
       if (stored.error) throw stored.error;
       setStatus('Verifying and indexing your reference...');
-      const completed = await fetch(`${apiBase()}/projects/${projectId}/references/complete`, {
+      const completed = await fetch(`${apiBase()}/projects/${activeProjectId}/references/complete`, {
         method: 'POST', headers,
         body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: referenceFile.name, mimeType: referenceFile.type, fileSize: referenceFile.size, title: referenceFile.name.replace(/\.[^.]+$/, ''), tags: referenceTags.split(',').map((tag) => tag.trim()).filter(Boolean) }),
       });
@@ -482,7 +490,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   }
 
   async function addStarterMaterials() {
-    if (!projectId || !supabase) {
+    if (!activeProjectId || !supabase) {
       setStatus('Open this library from a project before creating its shared material palette.');
       return;
     }
@@ -491,7 +499,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     setAddingStarterMaterials(true);
     setStatus('Adding the curated laminate and edge-band starter palette…');
     try {
-      const response = await fetch(`${apiBase()}/projects/${projectId}/material-library/starter`, {
+      const response = await fetch(`${apiBase()}/projects/${activeProjectId}/material-library/starter`, {
         method: 'POST',
         headers: { authorization: `Bearer ${session.access_token}`, 'content-type': 'application/json' },
       });
@@ -717,18 +725,18 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       <Card className="workflow" style={{ marginBottom: 20 }}>
         <CardContent style={{ display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap', padding: 16 }}>
           <div style={{ flex: '1 1 260px' }}>
-            <strong style={{ display: 'block', fontSize: 14, color: '#1c1917', marginBottom: 4 }}>Add a project reference</strong>
-            <small style={{ color: '#78716c' }}>Images are advisory inspiration; approved plan and scene data stay authoritative.</small>
+            <strong style={{ display: 'block', fontSize: 14, color: '#1c1917', marginBottom: 4 }}>Add a visual reference</strong>
+            <small style={{ color: '#78716c' }}>Use client or product images for style inspiration. They never set dimensions or production geometry.</small>
           </div>
           <label style={{ display: 'grid', gap: 5, fontSize: 12, color: '#57534e' }}>
             Image
-            <input aria-label="Reference image" type="file" accept="image/png,image/jpeg,image/webp" disabled={!projectId || uploadingReference} onChange={(event) => setReferenceFile(event.target.files?.[0] ?? null)} />
+            <input aria-label="Reference image" type="file" accept="image/png,image/jpeg,image/webp" disabled={!activeProjectId || uploadingReference} onChange={(event) => setReferenceFile(event.target.files?.[0] ?? null)} />
           </label>
           <label style={{ display: 'grid', gap: 5, fontSize: 12, color: '#57534e' }}>
             Tags
-            <input aria-label="Reference tags" value={referenceTags} onChange={(event) => setReferenceTags(event.target.value)} placeholder="tv unit, fluted, warm wood" disabled={!projectId || uploadingReference} style={{ border: '1px solid #d6d3d1', borderRadius: 6, padding: '8px 10px', fontSize: 13 }} />
+            <input aria-label="Reference tags" value={referenceTags} onChange={(event) => setReferenceTags(event.target.value)} placeholder="tv unit, fluted, warm wood" disabled={!activeProjectId || uploadingReference} style={{ border: '1px solid #d6d3d1', borderRadius: 6, padding: '8px 10px', fontSize: 13 }} />
           </label>
-          <button type="button" onClick={() => void uploadReference()} disabled={!projectId || !referenceFile || uploadingReference} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, border: 0, borderRadius: 6, padding: '9px 12px', background: !projectId || !referenceFile || uploadingReference ? '#d6d3d1' : '#3d2a1a', color: '#fff', fontWeight: 700, cursor: !projectId || !referenceFile || uploadingReference ? 'not-allowed' : 'pointer' }}>
+          <button type="button" onClick={() => void uploadReference()} disabled={!activeProjectId || !referenceFile || uploadingReference} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, border: 0, borderRadius: 6, padding: '9px 12px', background: !activeProjectId || !referenceFile || uploadingReference ? '#d6d3d1' : '#3d2a1a', color: '#fff', fontWeight: 700, cursor: !activeProjectId || !referenceFile || uploadingReference ? 'not-allowed' : 'pointer' }}>
             <Upload size={15} /> {uploadingReference ? 'Adding...' : 'Add to library'}
           </button>
         </CardContent>
@@ -739,7 +747,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
         {([
           ['modules', 'Modular Templates', LibraryIcon, visibleModules.length],
           ['moodboard', 'Moodboard Studio', Sparkles, moodboardItems.length],
-          ['templates', 'Studio References', BookOpen, CURATED_VAULT_REFERENCES.length],
+          ['templates', activeProjectId ? 'Visual References' : 'Studio References', BookOpen, visibleTemplates.length + CURATED_VAULT_REFERENCES.length],
           ['materials', 'Project Materials', Palette, visibleMaterials.length],
           ['research', 'Research & Sourcing', Search, 4],
         ] as const).map(([id, label, Icon, count]) => (
@@ -985,8 +993,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                                 } catch {
                                   // ignore
                                 }
-                                if (projectId) {
-                                  navigate(`/projects/${projectId}/spaces?pendingModule=1`);
+                                if (activeProjectId) {
+                                  navigate(`/projects/${activeProjectId}/spaces?pendingModule=1`);
                                 } else {
                                   navigate('/projects');
                                 }
@@ -1205,9 +1213,21 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           </div>
         </div>
       )}
-      {/* TAB 3: STUDIO REFERENCES (ALL 60 PRODUCTION VAULT RENDERS) */}
+      {/* Imported project imagery remains advisory and separate from certified module geometry. */}
       {activeTab === 'templates' && (
         <Card className="workflow">
+          {activeProjectId && <section aria-label="Imported visual references" style={{ padding: 16, borderBottom: '1px solid #ebdccb' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+              <div><h2 style={{ margin: 0, fontSize: 16, color: '#29231e' }}>This project’s images</h2><p style={{ margin: '4px 0 0', color: '#78716c', fontSize: 12 }}>Visual guidance only · module sizes still come from the measured catalog.</p></div>
+              <span style={{ fontSize: 12, color: '#78716c' }}>{visibleTemplates.length} imported</span>
+            </div>
+            {visibleTemplates.length ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10 }}>
+              {visibleTemplates.map((item) => <article key={item.id} style={{ overflow: 'hidden', border: '1px solid #e7e5e4', borderRadius: 9, background: '#fff' }}>
+                {item.metadata?.previewUrl ? <img src={item.metadata.previewUrl} alt={`Visual reference: ${item.title}`} loading="lazy" style={{ width: '100%', height: 112, objectFit: 'cover', display: 'block' }} /> : <div style={{ height: 112, display: 'grid', placeItems: 'center', background: '#f5f1e8', color: '#8a6244', fontSize: 12 }}>Preview unavailable</div>}
+                <div style={{ padding: 9 }}><strong style={{ display: 'block', fontSize: 12, color: '#29231e' }}>{item.title}</strong><small style={{ color: '#78716c' }}>{(item.tags ?? []).slice(0, 3).join(' · ') || 'Project reference'}</small></div>
+              </article>)}
+            </div> : <p style={{ margin: 0, padding: 14, borderRadius: 8, background: '#faf8f5', color: '#78716c', fontSize: 13 }}>No images added yet. Use “Add a visual reference” above to import a client or style image.</p>}
+          </section>}
           {/* Quick Filter Category Chips */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>
             {([

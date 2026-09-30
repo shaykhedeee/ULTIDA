@@ -33,6 +33,7 @@ export interface FastRoom {
 }
 
 export interface FastTraceResult extends CvTraceEvidence {
+  walls: FastWall[];
   corners: FastCorner[];
   wallCount: number;
   openingCount: number;
@@ -41,8 +42,8 @@ export interface FastTraceResult extends CvTraceEvidence {
 }
 
 /**
- * Fast purely native TypeScript geometric floor plan tracer using Sharp's SIMD pixel decoding.
- * Operates without Python or external native binaries, completing in <50ms with pixel accuracy.
+ * Native TypeScript geometric floor-plan tracer using Sharp's pixel decoding.
+ * Operates without a Python interpreter or OpenCV installation; all results remain review evidence.
  */
 export async function tracePlanBuffer(
   input: Buffer | Uint8Array,
@@ -165,13 +166,7 @@ export async function tracePlanBuffer(
   return {
     widthPx: sourceW,
     heightPx: sourceH,
-    walls: significantWalls.map((w) => ({
-      x1: w.x1,
-      y1: w.y1,
-      x2: w.x2,
-      y2: w.y2,
-      thicknessPx: w.thicknessPx,
-    })),
+    walls: significantWalls,
     openings,
     corners,
     rooms,
@@ -567,6 +562,7 @@ function detectOpenings(
           const { kindHint, confidence, note } = classifyOpeningPatch(binary, w, h, center, gap, axisIsY);
 
           openings.push({
+            betweenWallIds: [a.id, b.id],
             approxCenterPx: center,
             approxWidthPx: Math.round(gap * 10) / 10,
             kindHint,

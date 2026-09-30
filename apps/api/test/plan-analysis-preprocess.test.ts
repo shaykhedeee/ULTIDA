@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { rasterizeImage, runWallTracer, classifyFile, buildVisionPrompt } from '../src/plan-analysis-service.js';
+import { buildDeterministicVisionOutput } from '../src/plan-analysis-service.js';
 import { OpenAIVisionProvider } from '@ultida/agent-core';
 
 const PROOF = new URL('../../../floorplan analyser/ultida-flow-kit/proof/test_floorplan_input.png', import.meta.url);
@@ -19,29 +20,29 @@ test('rasterizeImage produces a valid PNG buffer with metadata', async () => {
   assert.ok(result.width > 0 && result.height > 0);
 });
 
-test('runWallTracer runs deterministic OpenCV extraction on a real raster', async () => {
+test('runWallTracer returns native TypeScript trace evidence without requiring Python', async () => {
   const buffer = await readFile(PROOF);
   const raster = await rasterizeImage(buffer, 'image/png');
   const workDir = await mkdtemp(join(tmpdir(), 'ultida-cv-'));
   const pngPath = join(workDir, 'source.png');
   await writeFile(pngPath, raster.png);
   try {
-    const cv = await runWallTracer(pngPath);
-    if (cv === null) {
-      // CV is an evidence adapter; deployments without the optional Python
-      // runtime must remain honest and continue with provider analysis.
-      assert.ok(true, 'wall_tracer unavailable; optional evidence adapter skipped');
-      return;
-    }
-    assert.ok(typeof cv!.widthPx === 'number');
-    // The proof image contains walls; we do not assert a fixed count (tuning-dependent),
-    // only that the deterministic extractor returns a structured result.
-    assert.ok(Array.isArray(cv!.walls));
-    assert.ok(Array.isArray(cv!.openings));
-    console.log(`  [cv] walls=${cv!.walls.length} openings=${cv!.openings.length} size=${cv!.widthPx}x${cv!.heightPx}`);
+    const cv = await runWallTracer('this-path-does-not-exist.png', raster.png);
+    assert.ok(cv, 'the supplied image buffer should be traced without Python or a filesystem path');
+    assert.ok(cv.widthPx > 0 && cv.heightPx > 0);
+    assert.ok(cv.walls.length >= 4, 'the proof plan contains a closed perimeter');
+    assert.ok(Array.isArray(cv.openings));
+    console.log(`  [cv] native trace walls=${cv.walls.length} openings=${cv.openings.length} size=${cv.widthPx}x${cv.heightPx}`);
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }
+});
+
+test('deterministic analysis never invents perimeter walls or a room when trace evidence is absent', () => {
+  const output = buildDeterministicVisionOutput(null, '');
+  assert.deepEqual(output.wallCandidates, []);
+  assert.deepEqual(output.roomCandidates, []);
+  assert.ok(output.warnings.some((warning) => /no traceable wall geometry/i.test(warning)));
 });
 
 test('buildVisionPrompt requires JSON-only structured output and lists required categories', () => {

@@ -1,12 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { promisify } from 'node:util';
 import { writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { createWorker, type Worker } from 'tesseract.js';
+import type { Worker } from 'tesseract.js';
 import { getVisionProvider, type PlanVisionOutput } from '@ultida/agent-core';
 import {
   parseFeetInchesToMm,
@@ -15,10 +12,8 @@ import {
   type AutoCalibrationResult,
   type PlanVastuReport,
 } from '@ultida/plan-core';
-import { resolveWallTracerPath } from './wall-tracer.js';
 import { tracePlanBuffer } from './fast-wall-tracer.js';
-
-const execFileAsync = promisify(execFile);
+import { createLocalOcrWorker, hasLocalOcrAssets } from './local-ocr.js';
 
 
 export type FileCategory =
@@ -84,6 +79,7 @@ export type PlanIssueDraft = {
  * creates a review proposal when the vision model did not find the opening.
  */
 export type CvOpeningEvidence = {
+  betweenWallIds?: [string, string];
   approxCenterPx: { x: number; y: number };
   approxWidthPx: number;
   kindHint: 'door' | 'window' | 'unknown';
@@ -94,7 +90,7 @@ export type CvOpeningEvidence = {
 export type CvTraceEvidence = {
   widthPx: number;
   heightPx: number;
-  walls: Array<{ x1: number; y1: number; x2: number; y2: number; thicknessPx?: number }>;
+  walls: Array<{ id?: string; startCornerId?: string | null; endCornerId?: string | null; x1: number; y1: number; x2: number; y2: number; thicknessPx?: number; lengthPx?: number; confidence?: number }>;
   openings?: CvOpeningEvidence[];
   rooms?: Array<{
     x: number;
@@ -238,76 +234,14 @@ function distanceToSegment(px: number, py: number, x1: number, y1: number, x2: n
 const OCR_ASSOCIATION_RADIUS = 40;
 
 /**
- * Run the deterministic wall tracer on a raster PNG.
- * Tries the pure-TypeScript SIMD morphological tracer first (<50ms, zero external dependencies).
- * Falls back to OpenCV python wall_tracer if needed.
+ * Run the deterministic Sharp-backed TypeScript tracer on a raster image.
+ * The analysis path deliberately has no Python/OpenCV subprocess dependency.
  */
 export async function runWallTracer(pngPath: string, buffer?: Buffer): Promise<CvTraceEvidence | null> {
-  // 1. Pure-TypeScript native SIMD tracer (<50ms, 100% deterministic, zero external binaries)
   try {
     const { readFile } = await import('node:fs/promises');
     const imageBuf = buffer ?? (await readFile(pngPath));
-    const fastResult = await tracePlanBuffer(imageBuf);
-    if (fastResult && fastResult.walls.length > 0) {
-      return fastResult;
-    }
-  } catch {
-    // fall through to Python wall_tracer if native trace encountered an issue
-  }
-
-  // 2. Fall back to Python script if available
-  const scriptPath = resolveWallTracerPath();
-  if (!scriptPath) return null;
-  try {
-    const outPath = `${pngPath}.cv.json`;
-    let pythonError: unknown;
-    for (const executable of process.platform === 'win32' ? ['python', 'python3'] : ['python3', 'python']) {
-      try {
-        await execFileAsync(executable, [scriptPath, pngPath, outPath], { timeout: 120_000 });
-        pythonError = undefined;
-        break;
-      } catch (error) {
-        pythonError = error;
-      }
-    }
-    if (pythonError) throw pythonError;
-    const { readFile } = await import('node:fs/promises');
-    const raw = await readFile(outPath, 'utf-8');
-    const parsed = JSON.parse(raw) as {
-      sourceImageSize?: { widthPx: number; heightPx: number };
-      walls?: Array<{ x1: number; y1: number; x2: number; y2: number; thicknessPx?: number }>;
-      openings?: Array<{
-        approxCenterPx?: { x?: number; y?: number };
-        approxWidthPx?: number;
-        kindHint?: string;
-        confidence?: number;
-        note?: string;
-      }>;
-    };
-    return {
-      widthPx: parsed.sourceImageSize?.widthPx ?? 1000,
-      heightPx: parsed.sourceImageSize?.heightPx ?? 1000,
-      walls: (parsed.walls ?? []).map((w) => ({
-        x1: w.x1,
-        y1: w.y1,
-        x2: w.x2,
-        y2: w.y2,
-        thicknessPx: w.thicknessPx ?? 0,
-      })),
-      openings: (parsed.openings ?? []).flatMap((opening): CvOpeningEvidence[] => {
-        const x = Number(opening.approxCenterPx?.x);
-        const y = Number(opening.approxCenterPx?.y);
-        const width = Number(opening.approxWidthPx);
-        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || width <= 0) return [];
-        return [{
-          approxCenterPx: { x, y },
-          approxWidthPx: width,
-          kindHint: opening.kindHint === 'door' || opening.kindHint === 'window' ? opening.kindHint : 'unknown',
-          confidence: Number.isFinite(Number(opening.confidence)) ? Number(opening.confidence) : 0.45,
-          note: typeof opening.note === 'string' ? opening.note : undefined,
-        }];
-      }),
-    };
+    return await tracePlanBuffer(imageBuf);
   } catch {
     return null;
   }
@@ -317,18 +251,15 @@ export async function runWallTracer(pngPath: string, buffer?: Buffer): Promise<C
  * A single OCR word and where it sits on the page, normalized to the same
  * 0-1000 grid the vision candidates use.
  */
-export type OcrWord = { text: string; x: number; y: number };
+export type OcrWord = { text: string; x: number; y: number; width?: number; height?: number };
 
 let cachedWorkerPromise: Promise<Worker> | null = null;
 
 export async function getSharedOcrWorker(): Promise<Worker | null> {
-  if (process.env.VERCEL_URL && ![
-    join(process.cwd(), 'node_modules', 'tesseract.js-core', 'tesseract-core-relaxedsimd.wasm'),
-    join('/var/task', 'node_modules', 'tesseract.js-core', 'tesseract-core-relaxedsimd.wasm'),
-  ].some(existsSync)) return null;
+  if (!hasLocalOcrAssets()) return null;
 
   if (!cachedWorkerPromise) {
-    cachedWorkerPromise = createWorker('eng').catch((error) => {
+    cachedWorkerPromise = createLocalOcrWorker().catch((error) => {
       cachedWorkerPromise = null;
       throw error;
     });
@@ -348,7 +279,13 @@ export function normalizeTesseractWords(rawWords: unknown[], pageWidth: number, 
     const x0 = Number(box.x0), x1 = Number(box.x1), y0 = Number(box.y0), y1 = Number(box.y1);
     if (![x0, x1, y0, y1].every(Number.isFinite) || x1 <= x0 || y1 <= y0) return [];
     const clamp = (value: number) => Math.max(0, Math.min(1000, value));
-    return [{ text, x: clamp(((x0 + x1) / 2 / pageWidth) * 1000), y: clamp(((y0 + y1) / 2 / pageHeight) * 1000) }];
+    return [{
+      text,
+      x: clamp(((x0 + x1) / 2 / pageWidth) * 1000),
+      y: clamp(((y0 + y1) / 2 / pageHeight) * 1000),
+      width: clamp(((x1 - x0) / pageWidth) * 1000),
+      height: clamp(((y1 - y0) / pageHeight) * 1000),
+    }];
   });
 }
 
@@ -460,10 +397,6 @@ export function reconcileToElements(
   // CV detects a gap and its local visual cues; the vision pass identifies
   // semantics. Treat a nearby same-kind result as corroboration, and only add
   // unmatched *classified* gaps as review-only door/window proposals.
-  const hasNearbyCvOpening = (kind: 'door' | 'window', x: number, y: number, width: number) =>
-    cvOpenings.some((opening) => opening.kindHint === kind
-      && Math.hypot(opening.x - x, opening.y - y) <= Math.max(28, Math.abs(width) * 0.6, Math.abs(opening.width) * 0.6));
-
   const wallDist = (a: { x1?: number; y1?: number; x2?: number; y2?: number }, b: { x1: number; y1: number; x2: number; y2: number }) => {
     const d1 = Math.hypot((a.x1 ?? 0) - b.x1, (a.y1 ?? 0) - b.y1);
     const d2 = Math.hypot((a.x2 ?? 0) - b.x2, (a.y2 ?? 0) - b.y2);
@@ -527,14 +460,18 @@ export function reconcileToElements(
 
   for (const d of ai.doorCandidates) {
     const x = num(d.x); const y = num(d.y); const width = num(d.width);
-    const corroborated = hasNearbyCvOpening('door', x, y, width);
-    elements.push({ id: str(d.id, `d${elements.length}`), kind: 'door', label: `Door ${d.id ?? elements.length}`, confidence: num(d.confidence), status: 'needs_review', geometry: { x, y, width }, source: corroborated ? 'mixed' : d.source, note: corroborated ? `${d.notes ? `${d.notes} ` : ''}Corroborated by a deterministic CV wall-gap trace; confirm hinge and exact measured width.` : d.notes });
+    const cvMatch = cvOpenings.find((opening) => opening.kindHint === 'door'
+      && Math.hypot(opening.x - x, opening.y - y) <= Math.max(28, Math.abs(width) * 0.6, Math.abs(opening.width) * 0.6));
+    const corroborated = Boolean(cvMatch);
+    elements.push({ id: str(d.id, `d${elements.length}`), kind: 'door', label: `Door ${d.id ?? elements.length}`, confidence: num(d.confidence), status: 'needs_review', geometry: cvMatch ? { x: cvMatch.x, y: cvMatch.y, width: cvMatch.width } : { x, y, width }, source: corroborated ? 'mixed' : d.source, note: corroborated ? `${d.notes ? `${d.notes} ` : ''}Corroborated by a deterministic CV wall-gap trace; position and width use that measured trace. Confirm against a calibrated source before approval.` : d.notes });
   }
 
   for (const win of ai.windowCandidates) {
     const x = num(win.x); const y = num(win.y); const width = num(win.width);
-    const corroborated = hasNearbyCvOpening('window', x, y, width);
-    elements.push({ id: str(win.id, `win${elements.length}`), kind: 'window', label: `Window ${win.id ?? elements.length}`, confidence: num(win.confidence), status: 'needs_review', geometry: { x, y, width, height: num(win.height) }, source: corroborated ? 'mixed' : win.source, note: corroborated ? `${win.notes ? `${win.notes} ` : ''}Corroborated by a deterministic CV wall-gap trace; confirm sill and head heights.` : win.notes });
+    const cvMatch = cvOpenings.find((opening) => opening.kindHint === 'window'
+      && Math.hypot(opening.x - x, opening.y - y) <= Math.max(28, Math.abs(width) * 0.6, Math.abs(opening.width) * 0.6));
+    const corroborated = Boolean(cvMatch);
+    elements.push({ id: str(win.id, `win${elements.length}`), kind: 'window', label: `Window ${win.id ?? elements.length}`, confidence: num(win.confidence), status: 'needs_review', geometry: cvMatch ? { x: cvMatch.x, y: cvMatch.y, width: cvMatch.width, height: num(win.height) } : { x, y, width, height: num(win.height) }, source: corroborated ? 'mixed' : win.source, note: corroborated ? `${win.notes ? `${win.notes} ` : ''}Position and gap width use the corroborating deterministic CV trace; confirm sill/head heights against the source before approval.` : win.notes });
   }
 
   for (const opening of cvOpenings) {
@@ -703,49 +640,9 @@ export function buildDeterministicVisionOutput(
         source: 'line' as const,
       });
     }
-  } else if (wallCandidates.length >= 4) {
-    const minX = Math.min(...wallCandidates.map((w) => Math.min(w.x1, w.x2)));
-    const maxX = Math.max(...wallCandidates.map((w) => Math.max(w.x1, w.x2)));
-    const minY = Math.min(...wallCandidates.map((w) => Math.min(w.y1, w.y2)));
-    const maxY = Math.max(...wallCandidates.map((w) => Math.max(w.y1, w.y2)));
-    if (maxX > minX && maxY > minY) {
-      roomCandidates.push({
-        id: 'det-r-1',
-        label: 'Main Living Room',
-        confidence: 0.85,
-        polygon: [
-          [minX, minY],
-          [maxX, minY],
-          [maxX, maxY],
-          [minX, maxY],
-        ],
-        notes: 'Deterministic room boundary from traced walls bounding box',
-        source: 'line' as const,
-      });
-    }
   }
 
-  if (wallCandidates.length === 0) {
-    wallCandidates.push(
-      { id: 'det-w-1', x1: 120, y1: 140, x2: 880, y2: 140, thickness: 20, confidence: 0.82, notes: 'Deterministic perimeter north wall', source: 'line' as const },
-      { id: 'det-w-2', x1: 880, y1: 140, x2: 880, y2: 720, thickness: 20, confidence: 0.82, notes: 'Deterministic perimeter east wall', source: 'line' as const },
-      { id: 'det-w-3', x1: 880, y1: 720, x2: 120, y2: 720, thickness: 20, confidence: 0.82, notes: 'Deterministic perimeter south wall', source: 'line' as const },
-      { id: 'det-w-4', x1: 120, y1: 720, x2: 120, y2: 140, thickness: 20, confidence: 0.82, notes: 'Deterministic perimeter west wall', source: 'line' as const }
-    );
-  }
-
-  if (roomCandidates.length === 0) {
-    roomCandidates.push({
-      id: 'det-r-1',
-      label: 'Main Living Room',
-      confidence: 0.88,
-      polygon: [[120, 140], [880, 140], [880, 720], [120, 720]] as Array<[number, number]>,
-      notes: 'Deterministic room boundary from perimeter',
-      source: 'line' as const,
-    });
-  }
-
-
+  const hasTraceableGeometry = wallCandidates.length > 0;
   return {
     documentType: 'plan',
     orientation: 'north_up',
@@ -770,8 +667,11 @@ export function buildDeterministicVisionOutput(
       source: 'ocr' as const,
     })),
     uncertainRegions: [],
-    assumptions: ['Provisional deterministic trace generated from OpenCV edge analysis & OCR.'],
-    warnings: ['Deterministic fallback was used because real AI vision was unavailable.'],
+    assumptions: ['Detected geometry is provisional and requires calibration and designer review.'],
+    warnings: [
+      'Deterministic fallback was used because real AI vision was unavailable.',
+      ...(!hasTraceableGeometry ? ['No traceable wall geometry was found. Review the source image or add walls manually; no room dimensions were inferred.'] : []),
+    ],
   };
 }
 

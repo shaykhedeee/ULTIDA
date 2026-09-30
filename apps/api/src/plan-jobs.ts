@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,15 +6,17 @@ import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
-import { createWorker, type Worker } from 'tesseract.js';
+import type { Worker } from 'tesseract.js';
 import { analyzePlanWithProvider, type AnalysisGuideRegion } from './plan-analyzer.js';
 import { reconcilePlan, type CvTraceResult, type VisionSemanticResult } from './plan/reconcile_plan.js';
-import { resolveWallTracerPath } from './wall-tracer.js';
+import { tracePlanBuffer, toCvTraceResult } from './wall-tracer.js';
 import { extractPositionedMeasurements, normalizeTesseractWords } from './plan-analysis-service.js';
+import { createLocalOcrWorker, hasLocalOcrAssets } from './local-ocr.js';
 
 const execFileAsync = promisify(execFile);
 type Environment = Record<string, string | undefined>;
-type PlanJobRequest = { projectId: string; sourceAssetId: string; fileName: string; mimeType: string; analysisGuides?: AnalysisGuideRegion[]; idempotencyKey?: string };
+type PlanJobRequest = { projectId: string; sourceAssetId: string; fileName: string; mimeType: string; analysisMode?: 'offline' | 'assisted'; analysisGuides?: AnalysisGuideRegion[]; idempotencyKey?: string };
+function normalizePlanAnalysisMode(value: unknown): 'offline' | 'assisted' { return value === 'assisted' ? 'assisted' : 'offline'; }
 
 function deployedApiBase(environment: Environment) {
   const explicit = environment.ULTIDA_API_BASE_URL?.trim();
@@ -52,83 +53,14 @@ function detectRasterMimeType(bytes: Uint8Array): string | null {
   return null;
 }
 
-/**
- * Run the deterministic OpenCV wall-tracer as a separate Python process and
- * return its candidate geometry. Returns null when Python/OpenCV is not
- * available so the vision-only analysis can still proceed (never block the
- * whole job on a missing CV dependency — per ARCHITECTURE.md invariant #5).
- */
-async function runRemoteCvTrace(environment: Environment, raster: Uint8Array): Promise<{ result: CvTraceResult; stderr: string } | null> {
-  // OpenCV cannot fit within Vercel's Python function bundle limit. Hosted
-  // deployments use an explicitly configured dedicated CV service; without
-  // one, analysis remains reviewable vision evidence rather than pretending a
-  // self-call to a non-existent Vercel Python endpoint succeeded.
-  const endpoint = environment.PLAN_CV_SERVICE_URL?.trim();
-  const secret = environment.ULTIDA_WORKER_SHARED_SECRET || environment.WORKER_DISPATCH_SECRET;
-  if (!endpoint || !secret) return null;
+/** Run the same bundled TypeScript/Sharp tracer in local, serverless and worker hosts. */
+async function runCvTrace(raster: Uint8Array): Promise<{ result: CvTraceResult | null; stderr: string }> {
   try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-ultida-worker-secret': secret,
-      },
-      body: JSON.stringify({ imageBase64: Buffer.from(raster).toString('base64') }),
-      // CV is corroborating evidence. Do not keep the complete review model
-      // hostage to a cold Python function; the vision result can still move
-      // to explicit designer review when this bounded pass is unavailable.
-      signal: AbortSignal.timeout(boundedTimeout(environment.PLAN_CV_TIMEOUT_MS, 12_000, 5_000, 30_000)),
-    });
-    const payload = await response.json() as { success?: boolean; result?: CvTraceResult; code?: string };
-    if (response.ok && payload.success && payload.result?.schema === 'PlanAnalysisResultV1.wallCandidates') {
-      return { result: payload.result, stderr: '' };
-    }
-    return { result: null as unknown as CvTraceResult, stderr: `Remote CV unavailable: ${payload.code || response.status}` };
+    const traced = await tracePlanBuffer(Buffer.from(raster));
+    const result = toCvTraceResult(traced);
+    return { result, stderr: result.walls.length ? '' : 'No traceable wall geometry found in the source image.' };
   } catch (error) {
-    return { result: null as unknown as CvTraceResult, stderr: `Remote CV unavailable: ${error instanceof Error ? error.message : String(error)}` };
-  }
-}
-
-async function runCvTrace(environment: Environment, raster: Uint8Array, mimeType: string): Promise<{ result: CvTraceResult; stderr: string } | null> {
-  // Production uses an authenticated dedicated CV service only when it is
-  // explicitly configured. Local development still runs the identical source
-  // file directly, so both paths produce the same candidate contract.
-  const remote = await runRemoteCvTrace(environment, raster);
-  if (remote?.result) return remote;
-  // A deployed Node function cannot reliably spawn the Python/OpenCV runtime.
-  // Retain explicit remote evidence and let vision continue rather than adding
-  // a second, doomed local process delay.
-  if (remote && environment.VERCEL_URL) return remote;
-  const scriptPath = resolveWallTracerPath();
-  if (!scriptPath) return remote ?? { result: null as unknown as CvTraceResult, stderr: 'wall_tracer.py not found' };
-  const dir = await mkdtemp(join(tmpdir(), 'ultida-cv-'));
-  const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : mimeType === 'image/gif' ? 'gif' : 'jpg';
-  const inPath = join(dir, `plan.${extension}`);
-  const outPath = join(dir, 'trace.json');
-  try {
-    await writeFile(inPath, raster);
-    const candidates = Array.from(new Set([
-      process.env.CV_PYTHON_PATH,
-      process.platform === 'win32' ? 'python' : 'python3',
-      process.platform === 'win32' ? 'python3' : 'python',
-    ].filter(Boolean) as string[]));
-    let lastError: unknown = null;
-    for (const python of candidates) {
-      try {
-        await execFileAsync(python, [scriptPath, inPath, outPath], { timeout: 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
-        lastError = null;
-        break;
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    if (lastError) throw lastError;
-    const raw = await readFile(outPath, 'utf8');
-    return { result: JSON.parse(raw) as CvTraceResult, stderr: '' };
-  } catch (error) {
-    return { result: null as unknown as CvTraceResult, stderr: error instanceof Error ? error.message : String(error) };
-  } finally {
-    await rm(dir, { recursive: true, force: true });
+    return { result: null, stderr: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -151,23 +83,16 @@ function planDeadlineMs(environment: Environment) {
 
 /** OCR is supporting review evidence. It gets a deliberately short budget so
  * a slow language-data boot never makes a completed vision result look stuck. */
-async function runPlanOcr(environment: Environment, raster: Uint8Array): Promise<{ text: string; measurements: ReturnType<typeof extractPositionedMeasurements>; status: 'completed' | 'unavailable' }> {
-  // Vercel's Node function tracer does not currently bundle Tesseract's WASM
-  // payload. Calling createWorker in that state aborts the complete process
-  // from inside Emscripten (it is not a catchable recognition error), which
-  // makes an otherwise healthy durable analysis appear to freeze. OCR is
-  // corroborating evidence, so skip it truthfully when the runtime asset is
-  // absent; browser OCR and provider dimension extraction remain available.
-  if (environment.VERCEL_URL && ![
-    join(process.cwd(), 'node_modules', 'tesseract.js-core', 'tesseract-core-relaxedsimd.wasm'),
-    join('/var/task', 'node_modules', 'tesseract.js-core', 'tesseract-core-relaxedsimd.wasm'),
-  ].some(existsSync)) {
-    return { text: '', measurements: [], status: 'unavailable' };
+async function runPlanOcr(environment: Environment, raster: Uint8Array): Promise<{ text: string; words: ReturnType<typeof normalizeTesseractWords>; measurements: ReturnType<typeof extractPositionedMeasurements>; status: 'completed' | 'unavailable' }> {
+  // Local OCR language data and WASM are packaged with the API, so this path
+  // does not depend on a CDN or hosted OCR endpoint.
+  if (!hasLocalOcrAssets()) {
+    return { text: '', words: [], measurements: [], status: 'unavailable' };
   }
   let worker: Worker | null = null;
   let timedOut = false;
   const timeoutMs = boundedTimeout(environment.PLAN_OCR_TIMEOUT_MS, 8_000, 3_000, 20_000);
-  const workerPromise = createWorker('eng').then((created) => {
+  const workerPromise = createLocalOcrWorker().then((created) => {
     worker = created;
     if (timedOut) {
       void created.terminate().catch(() => {});
@@ -183,9 +108,9 @@ async function runPlanOcr(environment: Environment, raster: Uint8Array): Promise
     const text = recognition.data.text.trim();
     const page = recognition.data as typeof recognition.data & { width?: number; height?: number; words?: unknown[] };
     const words = normalizeTesseractWords(Array.isArray(page.words) ? page.words : [], Number(page.width), Number(page.height));
-    return { text, measurements: extractPositionedMeasurements(words), status: 'completed' };
+    return { text, words, measurements: extractPositionedMeasurements(words), status: 'completed' };
   } catch {
-    return { text: '', measurements: [], status: 'unavailable' };
+    return { text: '', words: [], measurements: [], status: 'unavailable' };
   } finally {
     const activeWorker = worker as Worker | null;
     if (activeWorker) {
@@ -196,6 +121,80 @@ async function runPlanOcr(environment: Environment, raster: Uint8Array): Promise
       void workerPromise.then((created) => created.terminate()).catch(() => {});
     }
   }
+}
+
+const ROOM_LABEL_TYPES: Array<{ pattern: RegExp; type: string }> = [
+  { pattern: /\b(balcony|verandah|veranda)\b/i, type: 'balcony' },
+  { pattern: /\b(kitchen|pantry)\b/i, type: 'kitchen' },
+  { pattern: /\b(master\s*bed|master\s*bedroom)\b/i, type: 'master_bedroom' },
+  { pattern: /\b(bed\s*room|bedroom)\b/i, type: 'bedroom' },
+  { pattern: /\b(living|lounge)\b/i, type: 'living' },
+  { pattern: /\b(dining)\b/i, type: 'dining' },
+  { pattern: /\b(pooja|puja|mandir)\b/i, type: 'pooja' },
+  { pattern: /\b(toilet|bath|bathroom|wc)\b/i, type: 'bathroom' },
+  { pattern: /\b(study|office)\b/i, type: 'study' },
+  { pattern: /\b(utility|wash)\b/i, type: 'utility' },
+];
+
+const FURNITURE_LABELS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\b(bed|cot)\b/i, label: 'Bed' },
+  { pattern: /\b(sofa|couch)\b/i, label: 'Sofa' },
+  { pattern: /\b(wardrobe|ward)\b/i, label: 'Wardrobe' },
+  { pattern: /\b(fridge|refrigerator)\b/i, label: 'Refrigerator' },
+  { pattern: /\b(desk|study table)\b/i, label: 'Desk' },
+  { pattern: /\b(dining table)\b/i, label: 'Dining table' },
+  { pattern: /\b(tv|television)\b/i, label: 'TV' },
+];
+
+/** Add only locally readable labels. OCR boxes identify text, never furniture footprints. */
+export function addOfflinePlanLabels(
+  proposals: Array<{ id?: string; kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string; source?: string; status?: string }>,
+  cv: CvTraceResult | null,
+  words: ReturnType<typeof normalizeTesseractWords>,
+) {
+  if (!cv || !words.length) return proposals;
+  const source = cv.sourceImageSize;
+  const rooms = (cv.rooms ?? []).map((room) => ({
+    x: room.x / source.widthPx * 1000,
+    y: room.y / source.heightPx * 1000,
+    width: room.width / source.widthPx * 1000,
+    height: room.height / source.heightPx * 1000,
+  }));
+  const updated = proposals.map((proposal) => ({ ...proposal, geometry: { ...proposal.geometry } }));
+  const roomProposals = updated.filter((proposal) => proposal.kind === 'room');
+  for (let index = 0; index < roomProposals.length; index += 1) {
+    const proposal = roomProposals[index]!;
+    const bounds = rooms[index];
+    if (!bounds) continue;
+    const labelWords = words.filter((word) => word.x >= bounds.x && word.x <= bounds.x + bounds.width && word.y >= bounds.y && word.y <= bounds.y + bounds.height);
+    const label = labelWords.map((word) => word.text).join(' ').replace(/\s+/g, ' ').trim();
+    const classification = ROOM_LABEL_TYPES.find((entry) => entry.pattern.test(label));
+    if (classification) {
+      proposal.note = `${classification.type === 'master_bedroom' ? 'Master bedroom' : classification.type[0]!.toUpperCase() + classification.type.slice(1).replaceAll('_', ' ')} — OCR room label; confirm the boundary.`;
+      proposal.confidence = Math.min(0.78, Math.max(Number(proposal.confidence ?? 0.4), 0.62));
+    }
+  }
+
+  const fixtureWords = new Set<string>();
+  for (const word of words) {
+    const normalized = word.text.trim().toLowerCase();
+    const match = FURNITURE_LABELS.find((entry) => entry.pattern.test(normalized));
+    if (!match || fixtureWords.has(`${normalized}:${Math.round(word.x)}:${Math.round(word.y)}`)) continue;
+    // Restrict furniture labels to a detected room candidate, so title blocks and legends
+    // outside the plan do not become symbols. The marker surrounds OCR text only.
+    if (!rooms.some((room) => word.x >= room.x && word.x <= room.x + room.width && word.y >= room.y && word.y <= room.y + room.height)) continue;
+    fixtureWords.add(`${normalized}:${Math.round(word.x)}:${Math.round(word.y)}`);
+    updated.push({
+      id: `ocr-fixture-${updated.length + 1}`,
+      kind: 'fixture',
+      confidence: 0.52,
+      source: 'ocr',
+      status: 'needs_review',
+      geometry: { x: word.x, y: word.y, width: Math.max(8, Number(word.width ?? 0)), depth: Math.max(8, Number(word.height ?? 0)) },
+      note: `${match.label} text label (OCR only); move/resize the review marker. Furniture footprint is not measured.`,
+    });
+  }
+  return updated;
 }
 
 /** Adapt the existing vision-analyzer proposals into the reconciler's semantic shape. */
@@ -324,6 +323,7 @@ function visionProposalsToSemantic(
         confidence: Number(p.confidence ?? 0.5),
       });
     } else if (p.kind === 'opening') {
+      if (Number(g.kind ?? 0) === 2) continue;
       openings.push({
         kind: Number(g.kind ?? 0) === 1 ? 'window' : 'door',
         approxCenterPx: { x: sourceGridToPixels(Number(g.x ?? 0), 'x', image), y: sourceGridToPixels(Number(g.y ?? 0), 'y', image) },
@@ -355,7 +355,7 @@ function visionProposalsToSemantic(
  * review. These are explicitly marked as derived assumptions and remain
  * editable/unapproved until the designer confirms the boundaries.
  */
-function supplementSparseVisionProposals(
+export function supplementSparseVisionProposals(
   proposals: Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string }>,
   cv: CvTraceResult,
 ) {
@@ -380,36 +380,43 @@ function supplementSparseVisionProposals(
     const y = (Number(geometry.y) / 1000) * source.heightPx;
     return Math.hypot(x - candidate.approxCenterPx.x, y - candidate.approxCenterPx.y) <= tolerancePx * 2;
   });
-  const hasRoom = supplemented.some((p) => p.kind === 'room');
   const walls = cv.walls.filter((w) => Number(w.lengthPx) >= 20);
-  if (!hasRoom && walls.length >= 2) {
-    const xs = walls.flatMap((w) => [w.x1, w.x2]);
-    const ys = walls.flatMap((w) => [w.y1, w.y2]);
-    const width = cv.sourceImageSize.widthPx;
-    const height = cv.sourceImageSize.heightPx;
-    const x = Math.max(0, Math.min(...xs));
-    const y = Math.max(0, Math.min(...ys));
-    const x2 = Math.min(width, Math.max(...xs));
-    const y2 = Math.min(height, Math.max(...ys));
-    if (x2 - x >= 40 && y2 - y >= 40) {
+  const hasRoom = supplemented.some((p) => p.kind === 'room');
+  if (!hasRoom) {
+    for (const room of cv.rooms ?? []) {
+      const width = cv.sourceImageSize.widthPx;
+      const height = cv.sourceImageSize.heightPx;
+      if (room.width < 20 || room.height < 20 || width <= 0 || height <= 0) continue;
+      const boundary = room.polygon ?? [];
       supplemented.push({
         kind: 'room',
-        confidence: 0.42,
-        geometry: { x: Math.round((x / width) * 1000), y: Math.round((y / height) * 1000), width: Math.round(((x2 - x) / width) * 1000), height: Math.round(((y2 - y) / height) * 1000) },
-        note: 'Derived plan envelope from traced walls; subdivide rooms during review.',
+        confidence: Number(room.confidence ?? 0.45),
+        geometry: {
+          x: Math.round((room.x / width) * 1000),
+          y: Math.round((room.y / height) * 1000),
+          width: Math.round((room.width / width) * 1000),
+          height: Math.round((room.height / height) * 1000),
+          ...(boundary.length >= 3 ? Object.fromEntries(boundary.flatMap(([x, y], index) => [
+            [`vertex${index}X`, Math.round((x / width) * 1000)],
+            [`vertex${index}Y`, Math.round((y / height) * 1000)],
+          ])) : {}),
+        },
+        note: `${room.label ?? 'Room'} candidate from enclosed raster region bounds; verify its boundary in plan review.`,
       });
     }
   }
   for (const opening of cv.openings ?? []) {
-      // An unclassified gap remains review evidence; it must never silently
-      // become a door merely because the compact proposal format uses 0/1.
-      if (opening.kindHint === 'unknown' || matchesExistingOpening(opening)) continue;
-      const kind = opening.kindHint === 'window' ? 1 : 0;
+      if (matchesExistingOpening(opening)) continue;
+      // Kind 2 is an unclassified gap. The review UI shows it as an annotation
+      // instead of falsely labelling it as a door.
+      const kind = opening.kindHint === 'unknown' ? 2 : opening.kindHint === 'window' ? 1 : 0;
       supplemented.push({
         kind: 'opening',
         confidence: Number(opening.confidence ?? 0.45),
         geometry: { x: Math.round((opening.approxCenterPx.x / cv.sourceImageSize.widthPx) * 1000), y: Math.round((opening.approxCenterPx.y / cv.sourceImageSize.heightPx) * 1000), width: Math.round((opening.approxWidthPx / cv.sourceImageSize.widthPx) * 1000), kind },
-        note: `${opening.note ?? 'Derived from a collinear wall gap.'} CV hint: ${opening.kindHint}.`,
+        note: opening.kindHint === 'unknown'
+          ? `Unclassified opening candidate: ${opening.note ?? 'wall gap detected'}. Confirm door, window, or reject.`
+          : `${opening.note ?? 'Derived from a collinear wall gap.'} CV hint: ${opening.kindHint}.`,
       });
   }
   // One vision wall is not an adequate representation of a multi-room plan.
@@ -544,7 +551,7 @@ export async function createPlanAnalysisJob(environment: Environment, request: P
     kind: 'plan-analysis',
     status: 'queued',
     idempotency_key: idempotencyKey,
-    input: { sourceAssetId: request.sourceAssetId, fileName: request.fileName, mimeType: request.mimeType, storagePath: asset.data.storage_path, analysisGuides: Array.isArray(request.analysisGuides) ? request.analysisGuides.slice(0, 24) : [], callbackBase },
+    input: { sourceAssetId: request.sourceAssetId, fileName: request.fileName, mimeType: request.mimeType, storagePath: asset.data.storage_path, analysisMode: normalizePlanAnalysisMode(request.analysisMode), analysisGuides: Array.isArray(request.analysisGuides) ? request.analysisGuides.slice(0, 24) : [], callbackBase },
     output: {}, request_id: requestId, queued_at: queuedAt,
     created_by: actorId
   }).select('id').single();
@@ -617,7 +624,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
     }, 25_000);
     try {
       await updateProgress('preparing', 'Preparing the uploaded source…');
-      const input = job.input as { sourceAssetId?: string; storagePath?: string; mimeType?: string; fileName?: string; analysisGuides?: AnalysisGuideRegion[] };
+      const input = job.input as { sourceAssetId?: string; storagePath?: string; mimeType?: string; fileName?: string; analysisMode?: 'offline' | 'assisted'; analysisGuides?: AnalysisGuideRegion[] };
       if (!input.storagePath || !input.mimeType || !input.fileName) throw new Error('Plan analysis job has incomplete source metadata.');
       const downloaded = await client.storage.from('project-assets').download(input.storagePath);
       if (downloaded.error || !downloaded.data) throw new Error(downloaded.error?.message ?? 'The uploaded plan asset could not be downloaded.');
@@ -631,16 +638,20 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       const briefRes = await client.from('project_briefs').select('brief').eq('project_id', job.project_id).maybeSingle();
       await updateProgress('analysing', 'Reading rooms, walls and openings…');
       const stageStartedAt = Date.now();
+      const analysisMode = normalizePlanAnalysisMode(input.analysisMode);
       const timed = async <T>(name: string, task: Promise<T>) => {
         const startedAt = Date.now();
         const value = await task;
         return { name, value, elapsedMs: Date.now() - startedAt };
       };
+      const visionTask: Promise<{ analysis: any | null; error: Error | null }> = analysisMode === 'assisted'
+          ? analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief, analysisGuides: Array.isArray(input.analysisGuides) ? input.analysisGuides : [] })
+            .then((analysis) => ({ analysis, error: null }))
+            .catch((error) => ({ analysis: null, error: error instanceof Error ? error : new Error('Plan vision analysis failed.') }))
+          : Promise.resolve({ analysis: null, error: null });
       const [analysisAttempt, cvTrace, ocr] = await Promise.all([
-        timed('vision', analyzePlanWithProvider(environment, { dataUrl: dataUrl(analysisMimeType, raster), fileName: input.fileName, mimeType: analysisMimeType, brief: briefRes.data?.brief, analysisGuides: Array.isArray(input.analysisGuides) ? input.analysisGuides : [] })
-          .then((analysis) => ({ analysis, error: null as Error | null }))
-          .catch((error) => ({ analysis: null, error: error instanceof Error ? error : new Error('Plan vision analysis failed.') }))),
-        timed('cv', runCvTrace(environment, raster, analysisMimeType).catch(() => null)),
+        timed('vision', visionTask),
+        timed('cv', runCvTrace(raster).catch((error) => ({ result: null, stderr: error instanceof Error ? error.message : String(error) }))),
         timed('ocr', runPlanOcr(environment, raster)),
       ]);
       await updateProgress('reconciling', 'Reconciling AI, drawing evidence and dimensions…');
@@ -654,8 +665,10 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       // usable structural set, retain that real evidence as a *review-only*
       // draft. It deliberately requires calibration and room subdivision;
       // nothing is silently declared site-verified.
-      if (!analysis && cvTrace.value?.result?.sourceImageSize && tracedWalls.length >= 2) {
-        const proposals = supplementSparseVisionProposals([], cvTrace.value.result as CvTraceResult);
+      if (!analysis && (analysisMode === 'offline' || (cvTrace.value?.result?.sourceImageSize && tracedWalls.length >= 2))) {
+        const proposals = cvTrace.value?.result
+          ? addOfflinePlanLabels(supplementSparseVisionProposals([], cvTrace.value.result), cvTrace.value.result, ocr.value.words)
+          : [];
         // OCR is independent evidence. Keep every unambiguous printed value in
         // the review model so the designer can attach it to a traced wall or
         // room after calibration instead of losing the measurement when the
@@ -670,21 +683,24 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         }
         const confidences = proposals.map((proposal) => Number(proposal.confidence ?? 0));
         analysis = {
-          provider: 'intake-parser',
+          provider: analysisMode === 'offline' ? 'native-local' : 'intake-parser',
           proposals,
-          intakeResult: { status: 'review_required', reason: 'Vision providers did not return reviewable structured geometry; deterministic wall trace was retained for designer review.' },
-          analysisVersion: 'floor-plan-cv-review-fallback.v1',
+          intakeResult: { status: 'review_required', reason: analysisMode === 'offline' ? 'Local CV/OCR analysis is enabled. Review and edit every detected boundary, opening, label and dimension before approval.' : 'Vision providers did not return reviewable structured geometry; deterministic wall trace was retained for designer review.' },
+          analysisVersion: analysisMode === 'offline' ? 'floor-plan-offline-review.v1' : 'floor-plan-cv-review-fallback.v1',
           source: { fileName: input.fileName, mimeType: analysisMimeType, checksumSha256: createHash('sha256').update(raster).digest('hex'), coordinateSpace: { width: 1000, height: 1000, units: 'source_relative' } },
           ocrEvidence: [],
           calibration: { status: 'required', trustedDimensionMm: null },
-          topologyIssues: [{ code: 'VISION_REVIEW_REQUIRED', severity: 'warning', message: 'AI vision did not return a complete semantic model. Review the traced walls, subdivide rooms, and calibrate one visible dimension.' }, { code: 'CALIBRATION_REQUIRED', severity: 'critical', message: 'Set one trusted visible dimension before approving measured geometry.' }],
-          providerRuns: [{ provider: 'intake-parser', model: 'wall_tracer.py', status: 'succeeded', latencyMs: 0, error: analysisAttempt.value.error?.message }],
+          topologyIssues: [
+            ...(tracedWalls.length ? [{ code: 'LOCAL_CANDIDATES_REQUIRE_REVIEW', severity: 'warning', message: 'Local detections are editable candidates. Check walls, openings, room labels and furniture labels before approval.' }] : [{ code: 'NO_TRACEABLE_GEOMETRY', severity: 'critical', message: 'No reliable wall or enclosed room outline was found locally. Add or correct visible geometry; no room box was guessed.' }]),
+            { code: 'CALIBRATION_REQUIRED', severity: 'critical', message: 'Set one trusted visible dimension before approving measured geometry.' },
+          ],
+          providerRuns: analysisMode === 'offline' ? [] : [{ provider: 'intake-parser', model: 'native-sharp-cv-ocr', status: 'succeeded', latencyMs: cvTiming + ocrTiming, ...(analysisAttempt.value.error ? { error: analysisAttempt.value.error.message } : {}) }],
           reviewStatus: 'needs_review',
           confidenceSummary: { minimum: confidences.length ? Math.min(...confidences) : 0, average: confidences.length ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length : 0, lowConfidenceCount: confidences.filter((value) => value < 0.7).length },
           verifier: null,
         };
       }
-      if (!analysis) throw analysisAttempt.value.error ?? new Error('No configured floor-plan analysis provider is available.');
+      if (!analysis) throw analysisAttempt.value.error ?? new Error('Local floor-plan analysis could not be created. Retry the image, or trace the visible structure in guided review.');
 
       const ocrAttached = attachPositionedOcrToDimensions(
         analysis.proposals as Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string; source?: string }>,
@@ -695,12 +711,12 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       // Deterministic CV geometry pass — runs alongside the vision pass and is
       // reconciled into a single candidate per ARCHITECTURE.md invariant #4.
       let reconciled = null;
-      let cvStatus = analysis.provider === 'intake-parser' ? 'cv_review_fallback' : 'skipped';
-      if (cvTrace.value && cvTrace.value.result && (cvTrace.value.result as unknown as CvTraceResult).walls) {
+      let cvStatus = analysis.provider === 'native-local' ? 'offline_cv_review' : analysis.provider === 'intake-parser' ? 'cv_review_fallback' : 'skipped';
+      if (cvTrace.value?.result && cvTrace.value.result.walls.length > 0) {
         try {
           const enrichedProposals = supplementSparseVisionProposals(
             analysis.proposals as Array<{ kind: string; geometry: Record<string, unknown>; confidence?: number; note?: string }>,
-            cvTrace.value.result as unknown as CvTraceResult,
+            cvTrace.value.result,
           );
           // Keep the enriched proposals as the editable review source. The
           // original provider response remains available in provenance/output.
@@ -709,7 +725,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
             enrichedProposals,
             cvTrace.value.result.sourceImageSize,
           );
-          reconciled = reconcilePlan(cvTrace.value.result as unknown as CvTraceResult, vision);
+          reconciled = reconcilePlan(cvTrace.value.result, vision);
           cvStatus = 'reconciled';
         } catch (reconcileError) {
           cvStatus = `reconcile_failed: ${reconcileError instanceof Error ? reconcileError.message : String(reconcileError)}`;
@@ -738,17 +754,17 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
         organization_id: job.organization_id,
         project_id: job.project_id,
         analysis_uuid: analysisUuid,
-        provider: primaryRun?.provider ?? 'unknown',
-        model: primaryRun?.model ?? 'unknown',
+        provider: analysisMode === 'offline' ? 'native-local' : primaryRun?.provider ?? 'unknown',
+        model: analysisMode === 'offline' ? 'sharp-tesseract-local' : primaryRun?.model ?? 'unknown',
         prompt_version: analysis.analysisVersion,
         source_file_name: input.fileName,
         source_mime_type: input.mimeType,
         input_sha256: analysis.source?.checksumSha256 ?? createHash('sha256').update(original).digest('hex'),
         preview_sha256: createHash('sha256').update(raster).digest('hex'),
-        request_payload: { brief: briefRes.data?.brief ?? null, analysisGuides: input.analysisGuides ?? [] },
+        request_payload: { brief: briefRes.data?.brief ?? null, analysisGuides: input.analysisGuides ?? [], analysisMode },
         deterministic: { cvStatus, cvCandidate: cvTrace.value?.result ?? null, reconciled, ocrEvidence: { status: ocr.value.status, text: ocr.value.text, measurements: ocr.value.measurements } },
         response_validated: analysis,
-        latency_ms: Math.max(0, Number(primaryRun?.latencyMs ?? 0)),
+        latency_ms: Math.max(0, Number(analysisMode === 'offline' ? cvTiming + ocrTiming : primaryRun?.latencyMs ?? 0)),
         usage: null,
         status: 'succeeded',
         error: null,
@@ -912,4 +928,4 @@ export async function processPlanAnalysisJob(environment: Environment, jobId: st
 
 // Narrow test seam for coordinate reconciliation. Runtime callers use only
 // the durable job functions above.
-export const __test__ = { visionProposalsToSemantic, hasReviewablePlanCoverage, normalizeRasterForVision, attachPositionedOcrToDimensions, addUnmatchedOcrAnnotations };
+export const __test__ = { visionProposalsToSemantic, hasReviewablePlanCoverage, normalizeRasterForVision, attachPositionedOcrToDimensions, addUnmatchedOcrAnnotations, supplementSparseVisionProposals, addOfflinePlanLabels, normalizePlanAnalysisMode };

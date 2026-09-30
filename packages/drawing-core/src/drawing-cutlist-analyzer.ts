@@ -12,8 +12,18 @@
  */
 
 import type { SceneV1, SceneModuleV1 } from './scene-types.js';
+import { z } from 'zod';
 
 export type GrainDirection = 'horizontal' | 'vertical' | 'none';
+export type CabinetDimensionUnit = 'mm' | 'cm' | 'm' | 'ft' | 'in';
+
+/** Convert an explicitly unit-labelled dimension to millimetres. Fractional mm
+ * are retained here; fabrication rows are rounded only when cut dimensions are emitted. */
+export function cabinetDimensionToMm(value: number, unit: CabinetDimensionUnit): number {
+  if (!Number.isFinite(value) || value <= 0) throw new RangeError('Cabinet dimensions must be positive finite numbers.');
+  const factor: Record<CabinetDimensionUnit, number> = { mm: 1, cm: 10, m: 1000, ft: 304.8, in: 25.4 };
+  return value * factor[unit];
+}
 
 export type CutlistPartSemanticType =
   | 'carcass_gable'
@@ -54,6 +64,18 @@ export interface AnalyzedCutlistPanel {
     tapeThicknessMm: number;
   };
   notes?: string;
+  /** Bottom elevation from finished floor level for internal components. */
+  installElevationsFromFloorMm?: number[];
+  externalFaceFinishCode?: string;
+  /** Surface materials are tracked separately from the substrate so laminate
+   * sheets are not confused with the structural board cutlist. */
+  faceFinishes?: Array<{ face: 'A' | 'B'; finishCode: string; areaSqm: number }>;
+}
+
+export interface LaminateTakeoff {
+  finishCode: string;
+  faceCount: number;
+  netAreaSqm: number;
 }
 
 export interface AnalyzedHardwareItem {
@@ -101,6 +123,27 @@ export interface DrawingBaySpec {
   drawerCount?: number;
   hasHangingRod?: boolean;
   shutterType?: 'single-door' | 'double-door' | 'sliding' | 'open' | 'glass-profile' | 'fluted';
+  /** Clear vertical hanging height, measured from drawer-bank top to underside of its cap shelf. */
+  hangingClearHeightMm?: number;
+  /** Nominal drawer-front module pitch; visible fascia is reduced by reveal gaps. */
+  drawerFrontHeightMm?: number;
+  /** Extra shelf panels above the hanging-cap shelf, distributed in the remaining top zone. */
+  shelvesInRemainderZone?: number;
+}
+
+export interface WardrobeBayVerticalSchedule {
+  bayId: string;
+  clearBayWidthMm: number;
+  drawerCount: number;
+  drawerFrontHeightMm: number;
+  drawerBankBottomMm: number;
+  drawerBankTopMm: number;
+  hangingClearHeightMm: number;
+  hangingClearBottomMm: number;
+  hangingClearTopMm: number;
+  hangingRodElevationMm: number | null;
+  shelfBottomElevationsMm: number[];
+  remainingShelfZoneHeightMm: number;
 }
 
 export interface DrawingCutlistInput {
@@ -115,12 +158,17 @@ export interface DrawingCutlistInput {
   loftHeightMm?: number;
   bays: DrawingBaySpec[];
   carcassCoreMaterial?: string;
+  shutterCoreMaterial?: string;
   externalFinishCodeA?: string;
   externalFinishCodeB?: string;
   internalFinishCode?: string;
   backPanelMaterial?: string;
+  drawerBottomMaterial?: string;
+  drawerBottomThicknessMm?: number;
   carcassThicknessMm?: number;
   backPanelThicknessMm?: number;
+  backPanelMount?: 'captured-groove' | 'overlay-structural';
+  assumptions?: string[];
   shutterThicknessMm?: number;
   dummyFillerLeftMm?: number;
   dummyFillerRightMm?: number;
@@ -147,8 +195,49 @@ export interface DrawingCutlistAnalysisResult {
   hardware: AnalyzedHardwareItem[];
   edgeBanding: AnalyzedEdgeBandingSchedule[];
   sheetEstimates: SheetOptimizationEstimate[];
+  laminateTakeoff: LaminateTakeoff[];
+  wardrobeBaySchedules: WardrobeBayVerticalSchedule[];
   auditIssues: DrawingCutlistAuditIssue[];
 }
+
+/** Strict boundary for authenticated draft-workbook requests. */
+export const DrawingCutlistInputSchema = z.object({
+  unitId: z.string().max(120).optional(),
+  unitTitle: z.string().max(180).optional(),
+  roomId: z.string().max(120).optional(),
+  wallId: z.string().max(120).optional(),
+  overallWidthMm: z.number().finite().positive().max(12000),
+  overallHeightMm: z.number().finite().positive().max(4000),
+  depthMm: z.number().finite().positive().max(1800),
+  plinthHeightMm: z.number().finite().min(0).max(500).optional(),
+  loftHeightMm: z.number().finite().min(0).max(1800).optional(),
+  bays: z.array(z.object({
+    id: z.string().max(120).optional(), label: z.string().max(120).optional(),
+    widthMm: z.number().finite().positive().max(12000),
+    type: z.enum(['wardrobe-shelves', 'wardrobe-hanging', 'drawers', 'base-cabinet', 'overhead', 'open-niche', 'custom']).optional(),
+    shelvesCount: z.number().int().min(0).max(30).optional(),
+    adjustableShelvesCount: z.number().int().min(0).max(30).optional(),
+    drawerCount: z.number().int().min(0).max(12).optional(),
+    hasHangingRod: z.boolean().optional(),
+    shutterType: z.enum(['single-door', 'double-door', 'sliding', 'open', 'glass-profile', 'fluted']).optional(),
+    hangingClearHeightMm: z.number().finite().min(0).max(2500).optional(),
+    drawerFrontHeightMm: z.number().finite().positive().max(500).optional(),
+    shelvesInRemainderZone: z.number().int().min(0).max(8).optional(),
+  }).strict()).min(1).max(12),
+  carcassCoreMaterial: z.string().max(120).optional(), shutterCoreMaterial: z.string().max(120).optional(),
+  externalFinishCodeA: z.string().max(120).optional(), externalFinishCodeB: z.string().max(120).optional(),
+  internalFinishCode: z.string().max(120).optional(), backPanelMaterial: z.string().max(120).optional(),
+  drawerBottomMaterial: z.string().max(120).optional(),
+  drawerBottomThicknessMm: z.number().finite().positive().max(50).optional(),
+  carcassThicknessMm: z.number().finite().positive().max(50).optional(),
+  backPanelThicknessMm: z.number().finite().positive().max(50).optional(),
+  backPanelMount: z.enum(['captured-groove', 'overlay-structural']).optional(),
+  assumptions: z.array(z.string().max(300)).max(30).optional(),
+  shutterThicknessMm: z.number().finite().positive().max(50).optional(),
+  dummyFillerLeftMm: z.number().finite().min(0).max(1000).optional(),
+  dummyFillerRightMm: z.number().finite().min(0).max(1000).optional(),
+  revealGapMm: z.number().finite().min(0).max(10).optional(),
+}).strict();
 
 export function calculateHingesPerDoor(doorHeightMm: number): number {
   if (doorHeightMm <= 900) return 2;
@@ -163,27 +252,55 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
   const roomId = input.roomId || 'room-main';
   const wallId = input.wallId || 'wall-main';
 
-  const overallW = Math.max(100, Math.round(input.overallWidthMm));
-  const overallH = Math.max(100, Math.round(input.overallHeightMm));
-  const carcassDepth = Math.max(100, Math.round(input.depthMm));
-  const plinthH = Math.max(0, input.plinthHeightMm ?? 100);
-  const loftH = Math.max(0, input.loftHeightMm ?? 0);
+  for (const [label, value] of [['width', input.overallWidthMm], ['height', input.overallHeightMm], ['depth', input.depthMm]] as const) {
+    if (!Number.isFinite(value) || value <= 0) throw new RangeError(`Cabinet ${label} must be a positive measured dimension in millimetres.`);
+  }
+  const overallW = Math.round(input.overallWidthMm);
+  const overallH = Math.round(input.overallHeightMm);
+  const carcassDepth = Math.round(input.depthMm);
+  const plinthH = input.plinthHeightMm ?? 100;
+  const loftH = input.loftHeightMm ?? 0;
 
   const tCarcass = input.carcassThicknessMm ?? 18;
-  const tBack = input.backPanelThicknessMm ?? 9;
+  const tBack = input.backPanelThicknessMm ?? 6;
+  const backPanelMount = input.backPanelMount ?? (tBack === 18 ? 'overlay-structural' : 'captured-groove');
   const tShutter = input.shutterThicknessMm ?? 18;
   const reveal = input.revealGapMm ?? 2;
   const fillerL = input.dummyFillerLeftMm ?? 0;
   const fillerR = input.dummyFillerRightMm ?? 0;
 
   const matCarcass = input.carcassCoreMaterial || 'HDHMR-18-WHITE';
-  const matLaminateA = input.externalFinishCodeA || 'LAM-EXT-PRIMARY';
+  const matLaminateA = input.externalFinishCodeA || '';
   const matLaminateB = input.externalFinishCodeB || matLaminateA;
-  const matBack = input.backPanelMaterial || 'MDF-09-WHITE';
+  const matBack = input.backPanelMaterial || 'MDF-06-WHITE';
+  const matDrawerBottom = input.drawerBottomMaterial || 'MDF-09-WHITE';
+  const tDrawerBottom = input.drawerBottomThicknessMm ?? 9;
 
   const panels: AnalyzedCutlistPanel[] = [];
   const hardware: AnalyzedHardwareItem[] = [];
   const auditIssues: DrawingCutlistAuditIssue[] = [];
+  for (const assumption of input.assumptions ?? []) {
+    auditIssues.push({ severity: 'warning', code: 'DESIGN_ASSUMPTION_REQUIRES_CONFIRMATION', message: assumption });
+  }
+  if (unitId.startsWith('preset-')) {
+    auditIssues.push({ severity: 'warning', code: 'PRESET_IS_NOT_SITE_MEASURED', message: 'Preset geometry is a design proposal, not a site-measured or construction-approved cutlist.' });
+  }
+  if (!input.externalFinishCodeA || !input.internalFinishCode) {
+    auditIssues.push({ severity: 'warning', code: 'FINISH_CODE_UNCONFIRMED', message: 'Enter actual external and internal finish codes; no laminate material quantity is included for a missing finish.' });
+  }
+  if (input.bays.some((bay) => (bay.drawerCount ?? (bay.type === 'drawers' ? 3 : 0)) > 0) && !input.drawerBottomMaterial) {
+    auditIssues.push({ severity: 'warning', code: 'DRAWER_BOTTOM_BOARD_ASSUMED', message: 'Drawer bottoms use a 9mm white MDF default. Confirm the drawer-bottom board code and thickness.' });
+  }
+
+  if (![6, 18].includes(tBack) || (tBack === 6 && backPanelMount !== 'captured-groove') || (tBack === 18 && backPanelMount !== 'overlay-structural')) {
+    throw new RangeError('Choose a 6mm captured-groove back or an 18mm overlay structural back; other thickness/mount combinations need a separately engineered detail.');
+  }
+  if (![tCarcass, tShutter, tDrawerBottom].every((value) => Number.isFinite(value) && value > 0)) {
+    throw new RangeError('Carcass and shutter board thicknesses must be positive finite measurements.');
+  }
+  if (![plinthH, loftH, fillerL, fillerR, reveal].every((value) => Number.isFinite(value) && value >= 0)) {
+    throw new RangeError('Plinth, loft, fillers, and reveal must be non-negative finite dimensions.');
+  }
 
   const carcassWidth = overallW - fillerL - fillerR;
   if (carcassWidth <= tCarcass * 2) {
@@ -196,6 +313,10 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
 
   const mainCarcassHeight = overallH - plinthH;
   const baseCarcassH = loftH > 0 ? mainCarcassHeight - loftH : mainCarcassHeight;
+  if (baseCarcassH <= tCarcass * 2 || carcassDepth <= (tBack === 18 ? tBack : 100)) {
+    throw new RangeError('Cabinet dimensions leave no usable carcass after the selected board thicknesses.');
+  }
+  const carcassMemberDepth = tBack === 18 ? carcassDepth - tBack : carcassDepth;
 
   if (fillerL > 0) {
     panels.push({
@@ -209,7 +330,8 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
       widthMm: fillerL,
       thicknessMm: tShutter,
       quantity: 1,
-      materialCode: matLaminateA,
+      materialCode: input.shutterCoreMaterial || matCarcass,
+      externalFaceFinishCode: matLaminateA || undefined,
       grainDirection: 'vertical',
       edging: '1L (Front)',
       edgeSchedule: { l1Mm: overallH, l2Mm: 0, w1Mm: 0, w2Mm: 0, tapeType: 'PVC-2MM', tapeThicknessMm: 2 },
@@ -228,7 +350,8 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
       widthMm: fillerR,
       thicknessMm: tShutter,
       quantity: 1,
-      materialCode: matLaminateA,
+      materialCode: input.shutterCoreMaterial || matCarcass,
+      externalFaceFinishCode: matLaminateA || undefined,
       grainDirection: 'vertical',
       edging: '1L (Front)',
       edgeSchedule: { l1Mm: overallH, l2Mm: 0, w1Mm: 0, w2Mm: 0, tapeType: 'PVC-2MM', tapeThicknessMm: 2 },
@@ -248,7 +371,8 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
       widthMm: plinthH,
       thicknessMm: tCarcass,
       quantity: 1,
-      materialCode: matLaminateA,
+      materialCode: input.shutterCoreMaterial || matCarcass,
+      externalFaceFinishCode: matLaminateA || undefined,
       grainDirection: 'horizontal',
       edging: '1L (Top)',
       edgeSchedule: { l1Mm: carcassWidth, l2Mm: 0, w1Mm: 0, w2Mm: 0, tapeType: 'PVC-08MM', tapeThicknessMm: 0.8 },
@@ -276,13 +400,14 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
       semanticType: 'carcass_gable',
       partName: 'Left Outer Gable',
       lengthMm: baseCarcassH,
-      widthMm: carcassDepth,
+      widthMm: carcassMemberDepth,
       thicknessMm: tCarcass,
       quantity: 1,
       materialCode: matCarcass,
+      externalFaceFinishCode: matLaminateA || undefined,
       grainDirection: 'vertical',
       edging: '1L (Front exposed) + 1W (Bottom)',
-      edgeSchedule: { l1Mm: baseCarcassH, l2Mm: 0, w1Mm: carcassDepth, w2Mm: 0, tapeType: 'PVC-08MM', tapeThicknessMm: 0.8 },
+      edgeSchedule: { l1Mm: baseCarcassH, l2Mm: 0, w1Mm: carcassMemberDepth, w2Mm: 0, tapeType: 'PVC-08MM', tapeThicknessMm: 0.8 },
       notes: 'Pre-drilled System 32 32mm pitch line boring',
     },
     {
@@ -293,20 +418,21 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
       semanticType: 'carcass_gable',
       partName: 'Right Outer Gable',
       lengthMm: baseCarcassH,
-      widthMm: carcassDepth,
+      widthMm: carcassMemberDepth,
       thicknessMm: tCarcass,
       quantity: 1,
       materialCode: matCarcass,
+      externalFaceFinishCode: matLaminateA || undefined,
       grainDirection: 'vertical',
       edging: '1L (Front exposed) + 1W (Bottom)',
-      edgeSchedule: { l1Mm: baseCarcassH, l2Mm: 0, w1Mm: carcassDepth, w2Mm: 0, tapeType: 'PVC-08MM', tapeThicknessMm: 0.8 },
+      edgeSchedule: { l1Mm: baseCarcassH, l2Mm: 0, w1Mm: carcassMemberDepth, w2Mm: 0, tapeType: 'PVC-08MM', tapeThicknessMm: 0.8 },
       notes: 'Pre-drilled System 32 32mm pitch line boring',
     }
   );
 
   const internalWidth = Math.max(0, carcassWidth - tCarcass * 2);
   const bottomPanelWidth = internalWidth;
-  const bottomPanelDepth = carcassDepth;
+  const bottomPanelDepth = carcassMemberDepth;
 
   panels.push(
     {
@@ -365,8 +491,8 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
     notes: 'Anti-shear alignment dowels',
   });
 
-  const backPanelW = bottomPanelWidth + 20;
-  const backPanelH = baseCarcassH - 10;
+  const backPanelW = tBack === 6 ? bottomPanelWidth + 20 : carcassWidth;
+  const backPanelH = tBack === 6 ? baseCarcassH - 10 : baseCarcassH;
 
   panels.push({
     id: `${unitId}-back-panel`,
@@ -374,16 +500,18 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
     moduleId: unitId,
     roomId,
     semanticType: 'back_panel',
-    partName: 'Carcass Back Panel (Groove inserted)',
+    partName: tBack === 6 ? '6mm Carcass Back Panel (Captured in groove)' : '18mm Structural Back Panel (Overlay)',
     lengthMm: backPanelH,
     widthMm: backPanelW,
     thicknessMm: tBack,
     quantity: 1,
     materialCode: matBack,
     grainDirection: 'vertical',
-    edging: 'None (Captured in 10mm carcass groove)',
+    edging: tBack === 6 ? 'None (Captured in 10mm carcass groove)' : 'Rear perimeter edge, overlay fixing',
     edgeSchedule: { l1Mm: 0, l2Mm: 0, w1Mm: 0, w2Mm: 0, tapeType: 'NONE', tapeThicknessMm: 0 },
-    notes: 'Slides into 10mm deep groove 20mm from rear edge',
+    notes: tBack === 6
+      ? '6mm board captured in 10mm deep groove 20mm from rear edge; carcass depth remains unchanged.'
+      : '18mm structural overlay; carcass members are shortened by 18mm so finished outside depth stays at the entered dimension.',
   });
 
   const bays = input.bays.length > 0 ? input.bays : [{ widthMm: internalWidth, type: 'wardrobe-shelves' as const }];
@@ -394,11 +522,22 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
 
   if (Math.abs(expectedTotalWidth - internalWidth) > 5) {
     auditIssues.push({
-      severity: 'warning',
+      severity: 'error',
       code: 'BAY_WIDTH_MISMATCH',
       message: `Sum of bays (${bayTotalW}mm) + ${partitionsCount} partition(s) (${partitionsCount * tCarcass}mm) = ${expectedTotalWidth}mm, but internal carcass width is ${internalWidth}mm (difference: ${expectedTotalWidth - internalWidth}mm).`,
     });
   }
+
+  if (!input.bays.length || input.bays.some((bay) => !Number.isFinite(bay.widthMm) || bay.widthMm <= 0)) {
+    throw new RangeError('Add positive measured clear widths for every cabinet bay before generating a cutlist.');
+  }
+  if (Math.abs(expectedTotalWidth - internalWidth) > 0.5) {
+    throw new RangeError(`Bay schedule is unresolved: clear bay widths plus dividers total ${expectedTotalWidth}mm, but usable internal width is ${internalWidth}mm. Adjust the bays before generating fabrication sizes.`);
+  }
+
+  const wardrobeBaySchedules = bays
+    .map((bay, index) => resolveWardrobeBayVerticalSchedule(bay, index, input))
+    .filter((schedule): schedule is WardrobeBayVerticalSchedule => schedule !== null);
 
   for (let i = 0; i < partitionsCount; i++) {
     panels.push({
@@ -409,7 +548,7 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
       semanticType: 'carcass_divider',
       partName: `Internal Vertical Divider (Bay ${i + 1} / ${i + 2})`,
       lengthMm: baseCarcassH - tCarcass * 2,
-      widthMm: carcassDepth - 20,
+      widthMm: carcassMemberDepth - 20,
       thicknessMm: tCarcass,
       quantity: 1,
       materialCode: matCarcass,
@@ -436,11 +575,14 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
   bays.forEach((bay, index) => {
     const bayNum = index + 1;
     const bayWidth = bay.widthMm;
-    const shelfWidth = bayWidth;
-    const shelfDepth = carcassDepth - 25;
+    const shelfWidth = bayWidth - 2;
+    const shelfDepth = carcassMemberDepth - 25;
 
-    const fixedShelves = bay.shelvesCount ?? (bay.type === 'wardrobe-shelves' ? 1 : 0);
-    const adjShelves = bay.adjustableShelvesCount ?? (bay.type === 'wardrobe-shelves' ? 3 : 1);
+    const verticalSchedule = wardrobeBaySchedules.find((schedule) => schedule.bayId === (bay.id ?? `bay-${bayNum}`));
+    const fixedShelves = verticalSchedule
+      ? verticalSchedule.shelfBottomElevationsMm.length
+      : bay.shelvesCount ?? (bay.type === 'wardrobe-shelves' ? 1 : 0);
+    const adjShelves = verticalSchedule ? 0 : bay.adjustableShelvesCount ?? (bay.type === 'wardrobe-shelves' ? 3 : 1);
 
     if (fixedShelves > 0) {
       panels.push({
@@ -454,6 +596,7 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
         widthMm: shelfDepth,
         thicknessMm: tCarcass,
         quantity: fixedShelves,
+        installElevationsFromFloorMm: verticalSchedule?.shelfBottomElevationsMm,
         materialCode: matCarcass,
         grainDirection: 'horizontal',
         edging: '1L (Front)',
@@ -508,7 +651,8 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
     const drawerCount = bay.drawerCount ?? (bay.type === 'drawers' ? 3 : 0);
     if (drawerCount > 0) {
       const runnerLen = carcassDepth >= 550 ? 500 : carcassDepth >= 500 ? 450 : 350;
-      const fasciaH = Math.round((750 / drawerCount) - reveal * 2);
+      const drawerPitch = bay.drawerFrontHeightMm ?? (750 / drawerCount);
+      const fasciaH = Math.round(drawerPitch - reveal * 2);
 
       panels.push({
         id: `${unitId}-bay${bayNum}-drawer-fascia`,
@@ -521,11 +665,17 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
         widthMm: fasciaH,
         thicknessMm: tShutter,
         quantity: drawerCount,
-        materialCode: matLaminateA,
+        installElevationsFromFloorMm: verticalSchedule
+          ? Array.from({ length: drawerCount }, (_, drawerIndex) => Math.round(verticalSchedule.drawerBankBottomMm + drawerIndex * drawerPitch + reveal))
+          : undefined,
+        materialCode: input.shutterCoreMaterial || matCarcass,
+        externalFaceFinishCode: matLaminateA || undefined,
         grainDirection: 'horizontal',
         edging: '2L + 2W (All 4 sides)',
         edgeSchedule: { l1Mm: bayWidth - reveal * 2, l2Mm: bayWidth - reveal * 2, w1Mm: fasciaH, w2Mm: fasciaH, tapeType: 'PVC-2MM', tapeThicknessMm: 2 },
-        notes: 'External finish drawer face with 2mm PVC edge',
+        notes: bay.drawerFrontHeightMm
+          ? `Nominal ${drawerPitch}mm drawer-front pitch; fascia cut height includes ${reveal}mm reveals at top and bottom.`
+          : 'External finish drawer face with 2mm PVC edge',
       });
 
       const boxSideH = Math.min(180, fasciaH - 40);
@@ -572,9 +722,9 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
           partName: `Bay ${bayNum} Drawer Box Bottom`,
           lengthMm: boxInnerW,
           widthMm: runnerLen,
-          thicknessMm: 9,
+          thicknessMm: tDrawerBottom,
           quantity: drawerCount,
-          materialCode: matBack,
+          materialCode: matDrawerBottom,
           grainDirection: 'none',
           edging: 'None',
           edgeSchedule: { l1Mm: 0, l2Mm: 0, w1Mm: 0, w2Mm: 0, tapeType: 'NONE', tapeThicknessMm: 0 },
@@ -619,7 +769,8 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
         widthMm: doorW,
         thicknessMm: tShutter,
         quantity: doorCount,
-        materialCode: finishCode,
+        materialCode: input.shutterCoreMaterial || matCarcass,
+        externalFaceFinishCode: finishCode || undefined,
         grainDirection: 'vertical',
         edging: '2L + 2W (All 4 perimeter edges)',
         edgeSchedule: { l1Mm: doorH, l2Mm: doorH, w1Mm: doorW, w2Mm: doorW, tapeType: 'PVC-2MM', tapeThicknessMm: 2 },
@@ -664,6 +815,44 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
       notes: 'Calculated according to door height standards',
     });
   }
+
+  // Structural board and decorative surfaces are separate BOM layers. A
+  // cabinet panel can carry different finishes on its two faces; quantities
+  // below are derived from the same cut dimensions shown in the panel list.
+  const laminateAreaByFinish = new Map<string, { faceCount: number; areaSqm: number }>();
+  for (const panel of panels) {
+    const faceArea = (panel.lengthMm * panel.widthMm * panel.quantity) / 1_000_000;
+    const finishes: Array<{ face: 'A' | 'B'; finishCode: string }> = [];
+    if (panel.semanticType === 'carcass_gable') {
+      if (panel.externalFaceFinishCode) finishes.push({ face: 'A', finishCode: panel.externalFaceFinishCode });
+      if (input.internalFinishCode) finishes.push({ face: 'B', finishCode: input.internalFinishCode });
+    } else if (['carcass_top_bottom', 'carcass_divider', 'shelf_fixed', 'shelf_adjustable'].includes(panel.semanticType)) {
+      if (panel.semanticType === 'carcass_top_bottom') {
+        if (input.internalFinishCode) finishes.push({ face: 'A', finishCode: input.internalFinishCode });
+        if (matLaminateA) finishes.push({ face: 'B', finishCode: matLaminateA });
+      } else if (input.internalFinishCode) {
+        finishes.push({ face: 'A', finishCode: input.internalFinishCode }, { face: 'B', finishCode: input.internalFinishCode });
+      }
+    } else if (['shutter', 'drawer_fascia', 'dummy_filler', 'skirting_fascia'].includes(panel.semanticType)) {
+      const externalFinish = panel.externalFaceFinishCode;
+      if (externalFinish) finishes.push({ face: 'A', finishCode: externalFinish });
+      if (input.internalFinishCode) finishes.push({ face: 'B', finishCode: input.internalFinishCode });
+    } else if (panel.semanticType === 'back_panel' && input.internalFinishCode) {
+      finishes.push({ face: 'A', finishCode: input.internalFinishCode });
+    }
+    panel.faceFinishes = finishes.map((finish) => ({ ...finish, areaSqm: Math.round(faceArea * 10000) / 10000 }));
+    for (const finish of finishes) {
+      const current = laminateAreaByFinish.get(finish.finishCode) ?? { faceCount: 0, areaSqm: 0 };
+      current.faceCount += panel.quantity;
+      current.areaSqm += faceArea;
+      laminateAreaByFinish.set(finish.finishCode, current);
+    }
+  }
+  const laminateTakeoff: LaminateTakeoff[] = [...laminateAreaByFinish.entries()].map(([finishCode, value]) => ({
+    finishCode,
+    faceCount: value.faceCount,
+    netAreaSqm: Math.round(value.areaSqm * 1000) / 1000,
+  }));
 
   const edgeMetersByType: Record<string, { tapeType: string; tapeThicknessMm: number; meters: number; app: string }> = {};
 
@@ -745,7 +934,72 @@ export function analyze2DDrawingsToCutlist(input: DrawingCutlistInput): DrawingC
     hardware,
     edgeBanding,
     sheetEstimates,
+    laminateTakeoff,
+    wardrobeBaySchedules,
     auditIssues,
+  };
+}
+
+/** Resolve the exact vertical zones once; the cutlist and elevation use this same schedule. */
+export function resolveWardrobeBayVerticalSchedule(
+  bay: DrawingBaySpec,
+  index: number,
+  input: Pick<DrawingCutlistInput, 'overallHeightMm' | 'plinthHeightMm' | 'loftHeightMm' | 'carcassThicknessMm' | 'revealGapMm'>,
+): WardrobeBayVerticalSchedule | null {
+  const hasVerticalStandard = bay.hangingClearHeightMm !== undefined || bay.drawerFrontHeightMm !== undefined || bay.shelvesInRemainderZone !== undefined;
+  if (!hasVerticalStandard) return null;
+  const carcassT = input.carcassThicknessMm ?? 18;
+  const plinth = input.plinthHeightMm ?? 100;
+  const loft = input.loftHeightMm ?? 0;
+  const reveal = input.revealGapMm ?? 2;
+  const baseHeight = input.overallHeightMm - plinth - loft;
+  const clearBottom = plinth + carcassT;
+  const clearTop = plinth + baseHeight - carcassT;
+  const clearHeight = clearTop - clearBottom;
+  const drawerCount = bay.drawerCount ?? (bay.type === 'drawers' ? 3 : 0);
+  const drawerPitch = bay.drawerFrontHeightMm ?? (drawerCount > 0 ? 750 / drawerCount : 0);
+  const drawerBankBottom = clearBottom;
+  const drawerBankTop = drawerBankBottom + drawerCount * drawerPitch;
+  const hangingHeight = bay.hangingClearHeightMm ?? 0;
+  const hangingBottom = drawerCount > 0 ? drawerBankTop : clearBottom;
+  const hangingTop = hangingBottom + hangingHeight;
+  const capShelfCount = hangingHeight > 0 ? 1 : 0;
+  const extraShelfCount = bay.shelvesInRemainderZone ?? 0;
+  const extraShelves = Math.floor(extraShelfCount);
+  if (!Number.isInteger(drawerCount) || drawerCount < 0 || drawerCount > 12 ||
+      !Number.isInteger(extraShelfCount) || extraShelfCount < 0 || extraShelfCount > 8 ||
+      !Number.isFinite(drawerPitch) || (drawerCount > 0 && drawerPitch <= 2 * reveal) ||
+      !Number.isFinite(hangingHeight) || hangingHeight < 0) {
+    throw new RangeError(`Bay ${bay.label ?? index + 1} has an invalid drawer, shelf, or hanging-zone schedule.`);
+  }
+  const shelfZoneBottom = hangingHeight > 0 ? hangingTop + carcassT : drawerBankTop;
+  const remainingHeight = clearTop - shelfZoneBottom;
+  if (drawerBankTop + hangingHeight + capShelfCount * carcassT > clearTop ||
+      remainingHeight < extraShelves * carcassT) {
+    throw new RangeError(`Bay ${bay.label ?? index + 1} does not have enough clear height for ${drawerCount} × ${drawerPitch}mm drawer fronts and ${hangingHeight}mm hanging clearance. Reduce a zone or increase the cabinet height.`);
+  }
+  const shelfBottomElevationsMm: number[] = [];
+  if (hangingHeight > 0) shelfBottomElevationsMm.push(hangingTop);
+  if (extraShelves > 0) {
+    const freeSpan = remainingHeight - extraShelves * carcassT;
+    for (let shelfIndex = 0; shelfIndex < extraShelves; shelfIndex++) {
+      shelfBottomElevationsMm.push(Math.round(shelfZoneBottom + freeSpan * (shelfIndex + 1) / (extraShelves + 1) + carcassT * shelfIndex));
+    }
+  }
+  const shelfZoneHeight = Math.max(0, clearTop - (shelfBottomElevationsMm.length ? shelfBottomElevationsMm[0] + carcassT : shelfZoneBottom));
+  return {
+    bayId: bay.id ?? `bay-${index + 1}`,
+    clearBayWidthMm: bay.widthMm,
+    drawerCount,
+    drawerFrontHeightMm: drawerPitch,
+    drawerBankBottomMm: drawerBankBottom,
+    drawerBankTopMm: drawerBankTop,
+    hangingClearHeightMm: hangingHeight,
+    hangingClearBottomMm: hangingBottom,
+    hangingClearTopMm: hangingTop,
+    hangingRodElevationMm: hangingHeight > 0 ? Math.round(hangingBottom + hangingHeight * 0.92) : null,
+    shelfBottomElevationsMm,
+    remainingShelfZoneHeightMm: Math.max(0, shelfZoneHeight),
   };
 }
 
@@ -775,8 +1029,13 @@ export function extractDrawingCutlistFromScene(
   const unitHeight = primaryModule?.heightMm || Math.min(2400, wallHeight - 300);
   const unitDepth = primaryModule?.depthMm || (primaryModule?.family?.includes('wardrobe') ? 580 : primaryModule?.family?.includes('kitchen') ? 560 : 450);
 
+  const fillerLeft = 0;
+  const fillerRight = 0;
+  const tCarcass = 18;
   const bayCount = Math.max(1, Math.round(unitWidth / 600));
-  const bayWidth = Math.round(unitWidth / bayCount);
+  const internalWidth = unitWidth - fillerLeft - fillerRight - tCarcass * 2;
+  const clearBayTotal = internalWidth - (bayCount - 1) * tCarcass;
+  const baseBayWidth = Math.floor(clearBayTotal / bayCount);
 
   const bays: DrawingBaySpec[] = [];
   for (let i = 0; i < bayCount; i++) {
@@ -784,13 +1043,13 @@ export function extractDrawingCutlistFromScene(
     bays.push({
       id: `bay-${i + 1}`,
       label: `Bay ${i + 1}`,
-      widthMm: i === bayCount - 1 ? unitWidth - (bayWidth * (bayCount - 1)) : bayWidth,
+      widthMm: i === bayCount - 1 ? clearBayTotal - baseBayWidth * (bayCount - 1) : baseBayWidth,
       type: isDrawerBay ? 'drawers' : 'wardrobe-shelves',
       shelvesCount: 1,
       adjustableShelvesCount: 3,
       drawerCount: isDrawerBay ? 3 : 0,
       hasHangingRod: !isDrawerBay,
-      shutterType: bayWidth > 550 ? 'double-door' : 'single-door',
+      shutterType: baseBayWidth > 550 ? 'double-door' : 'single-door',
     });
   }
 
@@ -805,13 +1064,17 @@ export function extractDrawingCutlistFromScene(
     plinthHeightMm: 100,
     loftHeightMm: unitHeight > 2400 ? 500 : 0,
     bays,
-    dummyFillerLeftMm: 30,
-    dummyFillerRightMm: 30,
+    dummyFillerLeftMm: fillerLeft,
+    dummyFillerRightMm: fillerRight,
     carcassCoreMaterial: 'HDHMR-18-WHITE',
     externalFinishCodeA: 'LAM-SF-ROYAL-TEAK',
     externalFinishCodeB: 'LAM-GLOSS-CREAM',
     internalFinishCode: 'LAM-LINER-FABRIC',
-    backPanelMaterial: 'MDF-09-WHITE',
+    backPanelMaterial: 'MDF-06-WHITE',
+    backPanelThicknessMm: 6,
+    drawerBottomMaterial: 'MDF-09-WHITE',
+    drawerBottomThicknessMm: 9,
+    assumptions: ['Bay composition, shelf/drawer count, plinth, and hardware are inferred from module family; confirm them against a dimensioned internal elevation before fabrication.'],
   };
 }
 
@@ -834,9 +1097,9 @@ export const DRAWING_CUTLIST_PRESETS: Record<string, DrawingCutlistInput> = {
     internalFinishCode: 'LAM-FABRIC-LINER',
     backPanelMaterial: 'MDF-09-WHITE',
     bays: [
-      { id: 'bay-1', label: 'Bay 1 (Drawers & Shelves)', widthMm: 780, type: 'drawers', shelvesCount: 1, adjustableShelvesCount: 2, drawerCount: 3, hasHangingRod: false, shutterType: 'single-door' },
-      { id: 'bay-2', label: 'Bay 2 (Double Hanging)', widthMm: 780, type: 'wardrobe-hanging', shelvesCount: 1, adjustableShelvesCount: 1, drawerCount: 0, hasHangingRod: true, shutterType: 'single-door' },
-      { id: 'bay-3', label: 'Bay 3 (Full Shelves)', widthMm: 780, type: 'wardrobe-shelves', shelvesCount: 1, adjustableShelvesCount: 4, drawerCount: 0, hasHangingRod: false, shutterType: 'single-door' },
+      { id: 'bay-1', label: 'Bay 1 (Drawers & Shelves)', widthMm: 756, type: 'drawers', shelvesCount: 1, adjustableShelvesCount: 2, drawerCount: 3, hasHangingRod: false, shutterType: 'single-door' },
+      { id: 'bay-2', label: 'Bay 2 (Double Hanging)', widthMm: 756, type: 'wardrobe-hanging', shelvesCount: 1, adjustableShelvesCount: 1, drawerCount: 0, hasHangingRod: true, shutterType: 'single-door' },
+      { id: 'bay-3', label: 'Bay 3 (Full Shelves)', widthMm: 756, type: 'wardrobe-shelves', shelvesCount: 1, adjustableShelvesCount: 4, drawerCount: 0, hasHangingRod: false, shutterType: 'single-door' },
     ],
   },
   kitchen_base: {
@@ -855,11 +1118,12 @@ export const DRAWING_CUTLIST_PRESETS: Record<string, DrawingCutlistInput> = {
     externalFinishCodeA: 'ACRYLIC-CHARCOAL-18',
     externalFinishCodeB: 'ACRYLIC-WHITE-18',
     internalFinishCode: 'LAM-OFFWHITE-08',
-    backPanelMaterial: 'BWP-PLY-09-WHITE',
+    backPanelMaterial: 'BWP-PLY-06-WHITE',
+    backPanelThicknessMm: 6,
     bays: [
-      { id: 'bay-1', label: 'Bay 1 (Cutlery Organizer)', widthMm: 600, type: 'drawers', shelvesCount: 0, adjustableShelvesCount: 0, drawerCount: 3, hasHangingRod: false, shutterType: 'open' },
-      { id: 'bay-2', label: 'Bay 2 (Tandem Pot Drawers)', widthMm: 700, type: 'drawers', shelvesCount: 0, adjustableShelvesCount: 0, drawerCount: 2, hasHangingRod: false, shutterType: 'open' },
-      { id: 'bay-3', label: 'Bay 3 (Under-Sink Base)', widthMm: 750, type: 'base-cabinet', shelvesCount: 1, adjustableShelvesCount: 0, drawerCount: 0, hasHangingRod: false, shutterType: 'double-door' },
+      { id: 'bay-1', label: 'Bay 1 (Cutlery Organizer)', widthMm: 580, type: 'drawers', shelvesCount: 0, adjustableShelvesCount: 0, drawerCount: 3, hasHangingRod: false, shutterType: 'open' },
+      { id: 'bay-2', label: 'Bay 2 (Tandem Pot Drawers)', widthMm: 680, type: 'drawers', shelvesCount: 0, adjustableShelvesCount: 0, drawerCount: 2, hasHangingRod: false, shutterType: 'open' },
+      { id: 'bay-3', label: 'Bay 3 (Under-Sink Base)', widthMm: 718, type: 'base-cabinet', shelvesCount: 1, adjustableShelvesCount: 0, drawerCount: 0, hasHangingRod: false, shutterType: 'double-door' },
     ],
   },
   tv_console: {
@@ -879,10 +1143,11 @@ export const DRAWING_CUTLIST_PRESETS: Record<string, DrawingCutlistInput> = {
     externalFinishCodeB: 'SLAT-WALNUT-ACOUSTIC',
     internalFinishCode: 'LAM-GREY-FABRIC',
     backPanelMaterial: 'MDF-09-BLACK',
+    backPanelThicknessMm: 6,
     bays: [
-      { id: 'bay-1', label: 'Left Fluted Shutter', widthMm: 780, type: 'custom', shelvesCount: 0, adjustableShelvesCount: 1, drawerCount: 0, hasHangingRod: false, shutterType: 'fluted' },
-      { id: 'bay-2', label: 'Center Media Open Niche', widthMm: 800, type: 'open-niche', shelvesCount: 1, adjustableShelvesCount: 0, drawerCount: 0, hasHangingRod: false, shutterType: 'open' },
-      { id: 'bay-3', label: 'Right Fluted Shutter', widthMm: 780, type: 'custom', shelvesCount: 0, adjustableShelvesCount: 1, drawerCount: 0, hasHangingRod: false, shutterType: 'fluted' },
+      { id: 'bay-1', label: 'Left Fluted Shutter', widthMm: 776, type: 'custom', shelvesCount: 0, adjustableShelvesCount: 1, drawerCount: 0, hasHangingRod: false, shutterType: 'fluted' },
+      { id: 'bay-2', label: 'Center Media Open Niche', widthMm: 776, type: 'open-niche', shelvesCount: 1, adjustableShelvesCount: 0, drawerCount: 0, hasHangingRod: false, shutterType: 'open' },
+      { id: 'bay-3', label: 'Right Fluted Shutter', widthMm: 776, type: 'custom', shelvesCount: 0, adjustableShelvesCount: 1, drawerCount: 0, hasHangingRod: false, shutterType: 'fluted' },
     ],
   },
   crockery_unit: {
@@ -902,9 +1167,10 @@ export const DRAWING_CUTLIST_PRESETS: Record<string, DrawingCutlistInput> = {
     externalFinishCodeB: 'LAM-BRONZE-METALLIC',
     internalFinishCode: 'LAM-SMOKED-WALNUT',
     backPanelMaterial: 'MIRROR-BRONZE-06',
+    backPanelThicknessMm: 6,
     bays: [
-      { id: 'bay-1', label: 'Glass Crockery Tower A', widthMm: 850, type: 'wardrobe-shelves', shelvesCount: 1, adjustableShelvesCount: 4, drawerCount: 2, hasHangingRod: false, shutterType: 'glass-profile' },
-      { id: 'bay-2', label: 'Glass Crockery Tower B', widthMm: 850, type: 'wardrobe-shelves', shelvesCount: 1, adjustableShelvesCount: 4, drawerCount: 0, hasHangingRod: false, shutterType: 'glass-profile' },
+      { id: 'bay-1', label: 'Glass Crockery Tower A', widthMm: 843, type: 'wardrobe-shelves', shelvesCount: 1, adjustableShelvesCount: 4, drawerCount: 2, hasHangingRod: false, shutterType: 'glass-profile' },
+      { id: 'bay-2', label: 'Glass Crockery Tower B', widthMm: 843, type: 'wardrobe-shelves', shelvesCount: 1, adjustableShelvesCount: 4, drawerCount: 0, hasHangingRod: false, shutterType: 'glass-profile' },
     ],
   },
 };
@@ -920,7 +1186,7 @@ export function generateDrawingCutlistSvg(
 ): string {
   const isBoth = viewMode === 'both';
   const totalSvgW = isBoth ? 1160 : 620;
-  const totalSvgH = 560;
+  const totalSvgH = 600;
 
   const panelW = 460;
   const panelH = 400;
@@ -1116,6 +1382,7 @@ export function generateDrawingCutlistSvg(
       bays.forEach((bay, bi) => {
         const bayPxW = bay.widthMm * scale;
         const bayRightX = innerX + bayPxW;
+        const verticalSchedule = resolveWardrobeBayVerticalSchedule(bay, bi, input);
 
         // Internal divider if not last bay
         if (bi < bays.length - 1) {
@@ -1137,48 +1404,49 @@ export function generateDrawingCutlistSvg(
         // Drawers pack
         const drawerCount = bay.drawerCount ?? (bay.type === 'drawers' ? 3 : 0);
         if (drawerCount > 0) {
-          const drawerTotalH = Math.min(baseCarcassPxH * 0.45, drawerCount * 38);
-          const singleDH = drawerTotalH / drawerCount;
-          const drawerBottomY = baseBottomY - tGablePx;
-
+          const drawerPitchMm = verticalSchedule?.drawerFrontHeightMm ?? (750 / drawerCount);
+          const drawerBaseMm = verticalSchedule?.drawerBankBottomMm ?? (plinthH + tGablePx / scale);
+          const revealMm = input.revealGapMm ?? 2;
           for (let d = 0; d < drawerCount; d++) {
-            const dy = drawerBottomY - (d + 1) * singleDH;
+            const fasciaBottomMm = drawerBaseMm + d * drawerPitchMm + revealMm;
+            const fasciaHeightMm = drawerPitchMm - 2 * revealMm;
+            const dy = groundY - (fasciaBottomMm + fasciaHeightMm) * scale;
             svg += `
-              <rect x="${innerX + 6}" y="${dy + 2}" width="${bayPxW - 12}" height="${singleDH - 4}" rx="2"
+              <rect x="${innerX + 6}" y="${dy}" width="${bayPxW - 12}" height="${fasciaHeightMm * scale}" rx="2"
                 fill="#fdfbf7" stroke="#78716c" stroke-width="1" />
-              <line x1="${innerX + 6}" y1="${dy + singleDH / 2}" x2="${bayRightX - 6}" y2="${dy + singleDH / 2}" stroke="#d6d3d1" stroke-width="0.6" stroke-dasharray="2 2" />
-              <text x="${innerX + bayPxW / 2}" y="${dy + singleDH / 2 + 2}" fill="#57534e" font-size="6.5" font-weight="600" text-anchor="middle">
-                DRAWER ${d + 1} (SOFT-CLOSE)
-              </text>
+              <text x="${innerX + bayPxW / 2}" y="${dy + fasciaHeightMm * scale / 2 + 2}" fill="#57534e" font-size="6.5" font-weight="600" text-anchor="middle">DRAWER ${d + 1} · ${Math.round(drawerPitchMm)} PITCH</text>
             `;
           }
         }
 
         // Hanging rod
         if (bay.hasHangingRod || bay.type === 'wardrobe-hanging') {
-          const rodY = loftBottomY + baseCarcassPxH * 0.35;
+          const rodY = verticalSchedule?.hangingRodElevationMm != null
+            ? groundY - verticalSchedule.hangingRodElevationMm * scale
+            : loftBottomY + baseCarcassPxH * 0.35;
           svg += `
             <line x1="${innerX + 5}" y1="${rodY}" x2="${bayRightX - 5}" y2="${rodY}" stroke="#64748b" stroke-width="2.5" />
             <circle cx="${innerX + 6}" cy="${rodY}" r="3" fill="#334155" />
             <circle cx="${bayRightX - 6}" cy="${rodY}" r="3" fill="#334155" />
             <text x="${innerX + bayPxW / 2}" y="${rodY - 5}" fill="#475569" font-size="7" font-weight="700" text-anchor="middle">
-              OVAL HANGING ROD
+              OVAL ROD · ${verticalSchedule ? `${verticalSchedule.hangingClearHeightMm}mm CLEAR` : 'POSITION TBC'}
             </text>
           `;
         }
 
         // Fixed & Adjustable Shelves
-        const fixedCount = bay.shelvesCount ?? 1;
-        const adjCount = bay.adjustableShelvesCount ?? 2;
+        const fixedCount = verticalSchedule ? verticalSchedule.shelfBottomElevationsMm.length : bay.shelvesCount ?? 1;
+        const adjCount = verticalSchedule ? 0 : bay.adjustableShelvesCount ?? 2;
 
         if (fixedCount > 0) {
-          const fsY = loftBottomY + baseCarcassPxH * 0.22;
-          svg += `
-            <rect x="${innerX}" y="${fsY}" width="${bayPxW}" height="${tGablePx}" fill="#d6c6b2" stroke="#57483b" stroke-width="0.8" />
-            <text x="${innerX + bayPxW / 2}" y="${fsY - 2}" fill="#78350f" font-size="6.5" font-weight="700" text-anchor="middle">
-              FS (FIXED SHELF)
-            </text>
-          `;
+          const elevations = verticalSchedule?.shelfBottomElevationsMm ?? [plinthH + baseCarcassPxH / scale * 0.22];
+          elevations.forEach((elevationMm, shelfIndex) => {
+            const fsY = groundY - (elevationMm + (input.carcassThicknessMm ?? 18)) * scale;
+            svg += `
+              <rect x="${innerX}" y="${fsY}" width="${bayPxW}" height="${tGablePx}" fill="#d6c6b2" stroke="#57483b" stroke-width="0.8" />
+              <text x="${innerX + bayPxW / 2}" y="${fsY - 2}" fill="#78350f" font-size="6.5" font-weight="700" text-anchor="middle">${verticalSchedule ? (shelfIndex === 0 && verticalSchedule.hangingClearHeightMm ? 'HANG CLEAR TOP / SHELF' : 'UPPER STORAGE SHELF') : 'FS (FIXED SHELF)'}</text>
+            `;
+          });
         }
 
         if (adjCount > 0) {
@@ -1209,6 +1477,15 @@ export function generateDrawingCutlistSvg(
           `;
         }
 
+        if (verticalSchedule) {
+          const labelX = bayRightX - 5;
+          svg += `<text x="${labelX}" y="${groundY - verticalSchedule.drawerBankTopMm * scale - 5}" text-anchor="end" fill="#7c2d12" font-size="6.5" font-weight="700">${verticalSchedule.drawerCount} × ${Math.round(verticalSchedule.drawerFrontHeightMm)} mm</text>`;
+          if (verticalSchedule.hangingClearHeightMm > 0) {
+            svg += `<text x="${labelX}" y="${groundY - (verticalSchedule.hangingClearBottomMm + verticalSchedule.hangingClearTopMm) * scale / 2}" text-anchor="end" fill="#1d4ed8" font-size="6.5" font-weight="700">${verticalSchedule.hangingClearHeightMm} mm CLEAR</text>`;
+          }
+          svg += `<text x="${innerX + bayPxW / 2}" y="${topY + 14}" text-anchor="middle" fill="#57534e" font-size="6.5">SHELF ZONE ${Math.round(verticalSchedule.remainingShelfZoneHeightMm)} mm</text>`;
+        }
+        svg += `<text x="${innerX + bayPxW / 2}" y="${groundY + 14}" text-anchor="middle" fill="#57534e" font-size="8" font-weight="600">${Math.round(bay.widthMm)} mm CLEAR BAY</text>`;
         innerX += bayPxW;
       });
     }
@@ -1222,6 +1499,14 @@ export function generateDrawingCutlistSvg(
        ${renderElevationPanel(590, 'internal')}`
     : renderElevationPanel(10, viewMode);
 
+  const finishesLine = [
+    `Core: ${input.carcassCoreMaterial || 'TBC'}`,
+    `External: ${input.externalFinishCodeA || 'TBC'}`,
+    `Internal: ${input.internalFinishCode || 'TBC'}`,
+    `Back: ${input.backPanelThicknessMm ?? 6}mm ${input.backPanelMount ?? 'captured-groove'} · ${input.backPanelMaterial || 'TBC'}`,
+  ].join('  |  ');
+  const footer = `<rect x="16" y="542" width="${totalSvgW - 32}" height="38" rx="4" fill="#f8f4ed" stroke="#d6c6b2"/><text x="26" y="557" font-size="8" font-weight="700" fill="#44403c">FINISH / CONSTRUCTION LEGEND</text><text x="26" y="570" font-size="7" fill="#57534e">${xmlEscapeSvg(finishesLine)}</text><text x="${totalSvgW - 24}" y="557" text-anchor="end" font-size="7" font-weight="700" fill="#b91c1c">DIMENSIONED DRAFT · CONFIRM BEFORE FABRICATION</text>`;
+
   return `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalSvgW} ${totalSvgH}" width="100%" height="100%">
       <defs>
@@ -1233,6 +1518,11 @@ export function generateDrawingCutlistSvg(
       <rect width="100%" height="100%" fill="#ffffff" />
       <rect width="100%" height="100%" fill="url(#cad-grid)" opacity="0.85" />
       ${svgContent}
+      ${footer}
     </svg>
   `;
+}
+
+function xmlEscapeSvg(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }

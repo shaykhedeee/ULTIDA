@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   analyze2DDrawingsToCutlist,
+  cabinetDimensionToMm,
   calculateHingesPerDoor,
   extractDrawingCutlistFromScene,
   generateDrawingCutlistSvg,
@@ -32,14 +33,14 @@ test('analyze2DDrawingsToCutlist produces complete carcass anatomy and hardware 
     bays: [
       {
         id: 'bay-1',
-        widthMm: 780,
+        widthMm: 756,
         type: 'drawers',
         drawerCount: 3,
         shutterType: 'single-door',
       },
       {
         id: 'bay-2',
-        widthMm: 780,
+        widthMm: 756,
         type: 'wardrobe-hanging',
         shelvesCount: 1,
         adjustableShelvesCount: 2,
@@ -48,7 +49,7 @@ test('analyze2DDrawingsToCutlist produces complete carcass anatomy and hardware 
       },
       {
         id: 'bay-3',
-        widthMm: 780,
+        widthMm: 756,
         type: 'wardrobe-shelves',
         shelvesCount: 1,
         adjustableShelvesCount: 3,
@@ -76,7 +77,7 @@ test('analyze2DDrawingsToCutlist produces complete carcass anatomy and hardware 
 
   const backPanel = result.panels.find((p) => p.semanticType === 'back_panel');
   assert.ok(backPanel, 'Back panel should exist');
-  assert.equal(backPanel.thicknessMm, 9, 'Back panel should be 9mm thick');
+  assert.equal(backPanel.thicknessMm, 6, 'Default back board is explicit 6mm captured plywood');
 
   // Verify Dummy Fillers
   const fillers = result.panels.filter((p) => p.semanticType === 'dummy_filler');
@@ -110,6 +111,95 @@ test('analyze2DDrawingsToCutlist produces complete carcass anatomy and hardware 
 
   const plinthLegs = result.hardware.find((h) => h.category === 'leg');
   assert.ok(plinthLegs, 'Plinth leveling legs should be included');
+});
+
+test('3ft x 7ft wardrobe inputs convert to mm and make separate core, internal/external laminate, and 6mm back schedules', () => {
+  const widthMm = cabinetDimensionToMm(3, 'ft');
+  const heightMm = cabinetDimensionToMm(7, 'ft');
+  const depthMm = cabinetDimensionToMm(2, 'ft');
+  const result = analyze2DDrawingsToCutlist({
+    unitId: 'custom-3x7', unitTitle: 'Custom 3ft × 7ft wardrobe',
+    overallWidthMm: widthMm, overallHeightMm: heightMm, depthMm,
+    plinthHeightMm: 100, carcassThicknessMm: 18,
+    backPanelThicknessMm: 6, backPanelMount: 'captured-groove',
+    backPanelMaterial: 'PLY-BACK-06', carcassCoreMaterial: 'HDHMR-18',
+    shutterCoreMaterial: 'HDHMR-18', externalFinishCodeA: 'LAM-EXT-OAK',
+    internalFinishCode: 'LAM-INT-WHITE',
+    bays: [{ id: 'bay-1', widthMm: Math.round(widthMm) - 2 * 18, type: 'wardrobe-shelves', shelvesCount: 1, adjustableShelvesCount: 3, hasHangingRod: true, shutterType: 'double-door' }],
+  });
+  assert.equal(result.overallWidthMm, 914);
+  assert.equal(result.overallHeightMm, 2134);
+  assert.equal(result.depthMm, 610);
+  assert.equal(result.panels.find((panel) => panel.semanticType === 'back_panel')?.thicknessMm, 6);
+  assert.equal(result.panels.find((panel) => panel.semanticType === 'carcass_gable')?.materialCode, 'HDHMR-18');
+  assert.ok(result.laminateTakeoff.some((finish) => finish.finishCode === 'LAM-EXT-OAK'));
+  assert.ok(result.laminateTakeoff.some((finish) => finish.finishCode === 'LAM-INT-WHITE'));
+  assert.ok(result.panels.find((panel) => panel.semanticType === 'shutter')?.faceFinishes?.some((finish) => finish.finishCode === 'LAM-INT-WHITE'));
+});
+
+test('18mm structural back changes the carcass cut depth and back panel dimensions', () => {
+  const result = analyze2DDrawingsToCutlist({
+    overallWidthMm: 1200, overallHeightMm: 2100, depthMm: 600,
+    backPanelThicknessMm: 18, backPanelMount: 'overlay-structural',
+    bays: [{ widthMm: 1164, type: 'wardrobe-shelves', shelvesCount: 1, adjustableShelvesCount: 1 }],
+  });
+  const gable = result.panels.find((panel) => panel.semanticType === 'carcass_gable');
+  const back = result.panels.find((panel) => panel.semanticType === 'back_panel');
+  assert.equal(gable?.widthMm, 582, 'the carcass depth is reduced by the structural back thickness');
+  assert.equal(back?.thicknessMm, 18);
+  assert.equal(back?.widthMm, 1200, 'overlay back spans the cabinet outside width');
+  assert.match(back?.notes ?? '', /members are shortened by 18mm/i);
+});
+
+test('invalid cabinet dimensions and inconsistent bay arithmetic block cutlist generation', () => {
+  assert.throws(() => analyze2DDrawingsToCutlist({ overallWidthMm: 0, overallHeightMm: 2100, depthMm: 600, bays: [{ widthMm: 564 }] }), /positive measured dimension/i);
+  assert.throws(() => analyze2DDrawingsToCutlist({ overallWidthMm: 1200, overallHeightMm: 2100, depthMm: 600, bays: [{ widthMm: 500 }] }), /Bay schedule is unresolved/i);
+  assert.throws(() => analyze2DDrawingsToCutlist({ overallWidthMm: 1200, overallHeightMm: 2100, depthMm: 600, backPanelThicknessMm: 9, bays: [{ widthMm: 1164 }] }), /Choose a 6mm captured-groove back or an 18mm overlay structural back/i);
+});
+
+test('cabinet dimension conversion rejects missing or non-positive sizes', () => {
+  assert.equal(cabinetDimensionToMm(3, 'ft'), 914.4000000000001);
+  assert.throws(() => cabinetDimensionToMm(0, 'ft'), /positive finite/i);
+  assert.throws(() => cabinetDimensionToMm(Number.NaN, 'mm'), /positive finite/i);
+});
+
+test('wardrobe standard schedule shares 1050mm hanging clearance and 200mm drawer pitch with cutlist and elevation', async () => {
+  const input = {
+    unitId: 'wardrobe-standard-3x7', overallWidthMm: 914, overallHeightMm: 2134, depthMm: 610,
+    plinthHeightMm: 100, carcassThicknessMm: 18, backPanelThicknessMm: 6,
+    bays: [{
+      id: 'bay-1', widthMm: 878, type: 'drawers' as const, drawerCount: 3,
+      drawerFrontHeightMm: 200, hasHangingRod: true, hangingClearHeightMm: 1050,
+      shelvesInRemainderZone: 1, shelvesCount: 1, adjustableShelvesCount: 0, shutterType: 'double-door' as const,
+    }],
+  };
+  const result = analyze2DDrawingsToCutlist(input);
+  const schedule = result.wardrobeBaySchedules[0]!;
+  assert.equal(schedule.drawerBankBottomMm, 118);
+  assert.equal(schedule.drawerBankTopMm, 718);
+  assert.equal(schedule.hangingClearHeightMm, 1050);
+  assert.equal(schedule.hangingClearTopMm, 1768);
+  assert.deepEqual(schedule.shelfBottomElevationsMm, [1768, 1942]);
+  assert.equal(schedule.remainingShelfZoneHeightMm, 330);
+  const drawerFaces = result.panels.find((panel) => panel.semanticType === 'drawer_fascia')!;
+  assert.equal(drawerFaces.widthMm, 196, '200mm nominal pitch less 2mm top/bottom reveal');
+  assert.deepEqual(drawerFaces.installElevationsFromFloorMm, [120, 320, 520]);
+  const shelf = result.panels.find((panel) => panel.semanticType === 'shelf_fixed')!;
+  assert.equal(shelf.quantity, 2);
+  assert.deepEqual(shelf.installElevationsFromFloorMm, [1768, 1942]);
+  const { generateDrawingCutlistSvg } = await import('../src/drawing-cutlist-analyzer.js');
+  const svg = generateDrawingCutlistSvg(input, 'internal');
+  assert.match(svg, /1050 mm CLEAR/);
+  assert.match(svg, /200 PITCH/);
+  assert.match(svg, /FINISH \/ CONSTRUCTION LEGEND/);
+  assert.match(svg, /DIMENSIONED DRAFT/);
+});
+
+test('wardrobe vertical schedule blocks zones that exceed the measured cabinet height', () => {
+  assert.throws(() => analyze2DDrawingsToCutlist({
+    overallWidthMm: 914, overallHeightMm: 1700, depthMm: 610, plinthHeightMm: 100,
+    bays: [{ widthMm: 878, type: 'drawers', drawerCount: 3, drawerFrontHeightMm: 200, hangingClearHeightMm: 1050, shelvesInRemainderZone: 1 }],
+  }), /does not have enough clear height/i);
 });
 
 test('extractDrawingCutlistFromScene derives valid input from a SceneV1', () => {

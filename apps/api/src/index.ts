@@ -33,7 +33,7 @@ import { analyzePlanWithProvider } from './plan-analyzer.js';
 import { AURA_TOOLS, listAuraTools, planAuraMessage, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
-import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProductionWorkbookXlsx, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateProductionDossierPdf, generateSketchUpRubyScript, nestPanels2D, optimizeMultiSheetNesting, generateCncPanelDxf, PdfWriter, type ProductionDossierSpecV1 } from '@ultida/drawing-core';
+import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProductionWorkbookXlsx, generateDrawingCutlistWorkbookXlsx, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateProductionDossierPdf, generateSketchUpRubyScript, analyze2DDrawingsToCutlist, DrawingCutlistInputSchema, nestPanels2D, optimizeMultiSheetNesting, generateCncPanelDxf, PdfWriter, type ProductionDossierSpecV1, type DrawingCutlistInput } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
 import { compileSceneV1, reconcileBays, reconcileSceneBays, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
@@ -1186,7 +1186,7 @@ app.post('/api/projects/:projectId/floor-plans/initiate', requireProjectUser, as
 app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const projectId = String(request.params.projectId);
-  const { assetId, storagePath, fileName, mimeType, fileSize, analysisGuides, startAnalysis = true } = request.body ?? {};
+  const { assetId, storagePath, fileName, mimeType, fileSize, analysisGuides, startAnalysis = true, analysisMode = 'offline' } = request.body ?? {};
   if (!assetId || !storagePath || !fileName) {
     return response.status(400).json({ success: false, code: 'INVALID_COMPLETE_PAYLOAD', message: 'assetId, storagePath, and fileName are required.' });
   }
@@ -1239,7 +1239,8 @@ app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, as
         ? [{ id: typeof guide.id === 'string' ? guide.id : undefined, label: typeof guide.label === 'string' ? guide.label.slice(0, 80) : undefined, x, y, width, height }]
         : [];
     }) : [];
-    const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId: asset.data.id, fileName, mimeType: normalizedMimeType, analysisGuides: sanitizedGuides, idempotencyKey: `plan:${projectId}:${asset.data.id}` }, userId);
+    const safeAnalysisMode = analysisMode === 'assisted' ? 'assisted' : 'offline';
+    const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId: asset.data.id, fileName, mimeType: normalizedMimeType, analysisMode: safeAnalysisMode, analysisGuides: sanitizedGuides, idempotencyKey: `plan:${projectId}:${asset.data.id}` }, userId);
     if (job.status === 'failed' || job.status === 'unavailable' || job.status === 'not_found') {
       const reason = 'reason' in job && typeof job.reason === 'string' ? job.reason : 'The file was stored, but analysis could not be queued.';
       return response.status(503).json({ success: false, code: 'PLAN_JOB_CREATE_FAILED', message: reason, detail: job });
@@ -1326,6 +1327,24 @@ app.post('/api/projects/:projectId/references/complete', requireProjectUser, asy
   } catch (error: any) {
     return response.status(500).json({ success: false, code: 'REFERENCE_COMPLETE_FAILED', message: error.message ?? 'The reference could not be saved.' });
   }
+});
+
+app.get('/api/projects/:projectId/references', requireProjectUser, async (request, response) => {
+  const projectId = String(request.params.projectId);
+  const client = getRequestSupabaseClient(request);
+  const result = await client.from('reference_library_items')
+    .select('id,title,kind,tags,notes,source,metadata,asset:project_assets(storage_path,mime_type)')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+  if (result.error) return response.status(500).json({ success: false, code: 'PROJECT_REFERENCES_READ_FAILED', message: result.error.message });
+  const items = await Promise.all((result.data ?? []).map(async (row: any) => {
+    const asset = Array.isArray(row.asset) ? row.asset[0] : row.asset;
+    const preview = asset?.storage_path && String(asset.mime_type ?? '').startsWith('image/')
+      ? await client.storage.from('project-assets').createSignedUrl(asset.storage_path, 3600)
+      : null;
+    return { ...row, asset: null, metadata: { ...(row.metadata ?? {}), ...(preview?.data?.signedUrl ? { previewUrl: preview.data.signedUrl } : {}) } };
+  }));
+  return response.json({ success: true, items });
 });
 
 // Retrieval is deliberately evidence-first: it only returns references inside
@@ -2230,6 +2249,34 @@ app.post('/api/projects/:projectId/material-assignments', requireProjectUser, as
   }).select('*').single();
   if (assignment.error) return response.status(500).json({ success: false, code: 'MATERIAL_ASSIGNMENT_CREATE_FAILED', message: assignment.error.message });
   return response.status(201).json({ success: true, assignment: assignment.data, invalidated: { scenes: true, artifacts: true, quotes: true } });
+});
+
+app.post('/api/projects/:projectId/production/cabinet-cutlist.xlsx', requireProjectUser, async (request, response) => {
+  const parsed = DrawingCutlistInputSchema.safeParse(request.body?.input);
+  if (!parsed.success) return response.status(400).json({
+    success: false, code: 'INVALID_CABINET_CUTLIST_INPUT',
+    message: 'Check the entered dimensions, bay schedule, and material fields. No workbook was generated.',
+    issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
+  });
+  try {
+    const input = { ...parsed.data, assumptions: [...(parsed.data.assumptions ?? []), 'Generated as a size-entry draft; no site-survey or manufacturing approval is implied.'] } as DrawingCutlistInput;
+    const analysis = analyze2DDrawingsToCutlist(input);
+    if (analysis.auditIssues.some((issue) => issue.severity === 'error')) return response.status(422).json({
+      success: false, code: 'CABINET_CUTLIST_AUDIT_BLOCKED',
+      message: 'Resolve the cabinet geometry audit issues before creating a draft workbook.',
+      issues: analysis.auditIssues.filter((issue) => issue.severity === 'error'),
+    });
+    const workbook = generateDrawingCutlistWorkbookXlsx(analysis, {
+      projectId: String(request.params.projectId),
+      provenance: 'Authenticated size-entry cabinet draft; verify dimensions and construction on site.',
+    });
+    response.setHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    response.setHeader('content-disposition', `attachment; filename="ultida-${analysis.unitId}-cutlist-draft.xlsx"`);
+    response.setHeader('x-ultida-release-status', 'review-required');
+    return response.send(workbook);
+  } catch (error: any) {
+    return response.status(422).json({ success: false, code: 'CABINET_CUTLIST_GENERATION_FAILED', message: error?.message ?? 'The entered cabinet schedule could not be calculated.' });
+  }
 });
 
 app.get('/api/projects/:projectId/scenes/preflight', requireProjectUser, async (request, response) => {

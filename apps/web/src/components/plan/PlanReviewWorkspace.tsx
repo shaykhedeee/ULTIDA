@@ -51,7 +51,7 @@ export type PlanElement = {
   id: string;
   kind: 'wall' | 'room' | 'door' | 'window' | 'fixture' | 'column' | 'beam' | 'service' | 'annotation';
   label: string;
-  roomType?: 'living' | 'master_bedroom' | 'bedroom' | 'kids_bedroom' | 'kitchen' | 'dining' | 'utility' | 'pooja' | 'bathroom' | 'study' | 'other';
+  roomType?: 'living' | 'master_bedroom' | 'bedroom' | 'kids_bedroom' | 'kitchen' | 'dining' | 'utility' | 'pooja' | 'bathroom' | 'study' | 'balcony' | 'other';
   confidence: number;
   status: 'proposed' | 'accepted' | 'rejected' | 'needs_review';
   color: string;
@@ -145,6 +145,8 @@ type Props = {
   onDownloadDxf?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null; geometryMode: GeometryMode }) => void;
   onSaveDraft?: (snapshot: { elements: PlanElement[]; issues: IssueItem[]; scale: ScaleCalibration | null; ceilingHeightMm: number | null; geometryMode: GeometryMode }) => void;
   onAnalysisGuidesChange?: (guides: Array<{ id: string; label: string; x: number; y: number; width: number; height: number }>) => void;
+  analysisMode?: 'offline' | 'assisted';
+  onAnalysisModeChange?: (mode: 'offline' | 'assisted') => void;
 };
 
 // ─── Default Detection Data ───────────────────────────────────────
@@ -437,6 +439,8 @@ export function PlanReviewWorkspace({
   onDownloadDxf,
   onSaveDraft,
   onAnalysisGuidesChange,
+  analysisMode = 'offline',
+  onAnalysisModeChange,
 }: Props) {
   const navigate = useNavigate();
   // State
@@ -556,18 +560,40 @@ export function PlanReviewWorkspace({
     const mapped = proposals.filter((proposal) => !zeroLengthCandidateIds.has(proposal.id)).map((proposal, index) => {
       const geometry = proposal.geometry ?? {};
       const proposalKind = proposal.kind === 'opening'
-        ? (geometry.kind === 1 ? 'window' : 'door')
+        ? (geometry.kind === 2 ? 'annotation' : geometry.kind === 1 ? 'window' : 'door')
         : proposal.kind === 'dimension' ? 'annotation' : proposal.kind;
-      const polygon = proposalKind === 'room' && geometry.x !== undefined && geometry.y !== undefined && geometry.width !== undefined && geometry.height !== undefined
-        ? [
-            { x: geometry.x, y: geometry.y },
-            { x: geometry.x + geometry.width, y: geometry.y },
-            { x: geometry.x + geometry.width, y: geometry.y + geometry.height },
-            { x: geometry.x, y: geometry.y + geometry.height },
-          ]
+      const encodedVertices = proposalKind === 'room'
+        ? Object.keys(geometry).flatMap((key) => {
+            const match = /^vertex(\d+)X$/.exec(key);
+            const y = geometry[`vertex${match?.[1]}Y`];
+            return match && typeof geometry[key] === 'number' && typeof y === 'number' ? [{ index: Number(match[1]), x: geometry[key] as number, y }] : [];
+          }).sort((a, b) => a.index - b.index)
+        : [];
+      const polygon = encodedVertices.length >= 3
+        ? encodedVertices.map(({ x, y }) => ({ x, y }))
+        : proposalKind === 'room' && geometry.x !== undefined && geometry.y !== undefined && geometry.width !== undefined && geometry.height !== undefined
+          ? [
+              { x: geometry.x, y: geometry.y },
+              { x: geometry.x + geometry.width, y: geometry.y },
+              { x: geometry.x + geometry.width, y: geometry.y + geometry.height },
+              { x: geometry.x, y: geometry.y + geometry.height },
+            ]
+          : undefined;
+      const validRoomTypes = ['living', 'master_bedroom', 'bedroom', 'kids_bedroom', 'kitchen', 'dining', 'utility', 'pooja', 'bathroom', 'study', 'balcony', 'other'] as const;
+      const note = String(proposal.note ?? '');
+      const inferredRoomType = /\b(balcony|veranda|verandah)\b/i.test(note) ? 'balcony'
+        : /\b(kitchen|pantry)\b/i.test(note) ? 'kitchen'
+        : /\b(master bedroom)\b/i.test(note) ? 'master_bedroom'
+        : /\b(bedroom|bed room)\b/i.test(note) ? 'bedroom'
+        : /\b(living|lounge)\b/i.test(note) ? 'living'
+        : /\b(dining)\b/i.test(note) ? 'dining'
+        : /\b(pooja|puja|mandir)\b/i.test(note) ? 'pooja'
+        : /\b(toilet|bath|bathroom|wc)\b/i.test(note) ? 'bathroom'
+        : /\b(study|office)\b/i.test(note) ? 'study'
+        : /\b(utility|wash)\b/i.test(note) ? 'utility' : undefined;
+      const roomType = proposalKind === 'room'
+        ? (typeof geometry.roomType === 'string' && (validRoomTypes as readonly string[]).includes(geometry.roomType) ? geometry.roomType as PlanElement['roomType'] : inferredRoomType)
         : undefined;
-      const validRoomTypes = ['living', 'master_bedroom', 'bedroom', 'kids_bedroom', 'kitchen', 'dining', 'utility', 'pooja', 'bathroom', 'study', 'other'] as const;
-      const roomType = proposalKind === 'room' && typeof geometry.roomType === 'string' && (validRoomTypes as readonly string[]).includes(geometry.roomType) ? geometry.roomType as PlanElement['roomType'] : undefined;
       return {
       id: proposal.id || `proposal-${index + 1}`,
       kind: proposalKind as PlanElement['kind'],
@@ -578,7 +604,7 @@ export function PlanReviewWorkspace({
       confidence: proposal.confidence,
       status: (proposal.status === 'accepted' || proposal.status === 'rejected' ? proposal.status : 'needs_review') as PlanElement['status'],
       color: proposal.kind === 'wall' ? '#2563eb' : proposal.kind === 'room' ? 'rgba(197,156,45,0.18)' : proposal.kind === 'fixture' ? '#7c3aed' : '#059669',
-      geometry: { ...geometry, ...(polygon ? { polygon } : {}) },
+      geometry: { ...geometry, ...(proposalKind === 'fixture' && geometry.depth !== undefined ? { height: geometry.depth } : {}), ...(polygon ? { polygon } : {}) },
       dimensionMm: proposal.kind === 'dimension' ? geometry.valueMm : undefined,
       wallId: typeof geometry.wallId === 'string' ? geometry.wallId : undefined,
       offsetAlongWallMm: typeof geometry.offsetMm === 'number' ? geometry.offsetMm : undefined,
@@ -1704,6 +1730,13 @@ export function PlanReviewWorkspace({
                   <Upload size={14} /> Upload Plan File
                   <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/avif,image/heic,image/heif,image/svg+xml,application/pdf,.tif,.tiff,.heic,.heif" onChange={onFile} style={{ display: 'none' }} />
                 </label>
+                {onAnalysisModeChange && <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+                  Analysis
+                  <select aria-label="Floor plan analysis mode" value={analysisMode} onChange={(event) => onAnalysisModeChange(event.target.value === 'assisted' ? 'assisted' : 'offline')} style={{ minHeight: 32, border: '1px solid var(--line)', borderRadius: 7, background: 'var(--surface)', color: 'var(--text-primary)', padding: '4px 8px' }}>
+                    <option value="offline">Local, no AI service</option>
+                    <option value="assisted">Local + connected AI</option>
+                  </select>
+                </label>}
                 <button
                   type="button"
                   onClick={handleAiAutoExtractAll}
@@ -1725,7 +1758,7 @@ export function PlanReviewWorkspace({
                   }}
                 >
                   {analysisInFlight ? <Loader2 size={14} className="ultida-spinner" /> : <Sparkles size={14} style={{ color: 'var(--gold)' }} />}
-                  {analysisInFlight ? 'AI Analysing Floor Plan...' : 'AI Vision Extract & Analyse Plan'}
+                  {analysisInFlight ? 'Analysing floor plan…' : analysisMode === 'offline' ? 'Analyze plan locally' : 'Analyze with optional AI'}
                 </button>
                 {highConfidenceRawCount > 0 && (
                   <button
@@ -1858,9 +1891,9 @@ export function PlanReviewWorkspace({
                     cursor: 'pointer',
                     boxShadow: '0 2px 8px rgba(197,156,45,0.25)',
                   }}
-                  title="Generate suggested room zoning, circulation paths, door swings, and furniture footprints"
+                  title="Create editable room zoning, circulation, door-swing and furniture proposals from the reviewed plan; this runs locally."
                 >
-                  <Sparkles size={14} /> ✨ Generate AI Spatial Layouts
+                  <Sparkles size={14} /> Suggest room layouts
                 </button>
                 <button
                   type="button"
@@ -3045,6 +3078,7 @@ export function PlanReviewWorkspace({
                       <option value="pooja">Pooja Room</option>
                       <option value="study">Study</option>
                       <option value="bathroom">Bathroom</option>
+                      <option value="balcony">Balcony</option>
                     </select>
                     <small style={{ display: 'block', marginTop: 4, color: 'var(--text-muted)' }}>Choose a type so the next screen can load the right furniture requirements and layout templates.</small>
                   </div>

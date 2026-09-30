@@ -39,6 +39,9 @@ test('requireProjectUser attaches ultidaUser with userId, projectId, and organiz
       body: JSON.stringify({ brief: { clientName: 'Test Client' } })
     });
     assert.equal(resNoAuth.status, 401);
+
+    const referenceRead = await fetch(`${baseUrl}/api/projects/proj-123/references`);
+    assert.equal(referenceRead.status, 401, 'project reference images must remain protected by project membership');
   });
 });
 

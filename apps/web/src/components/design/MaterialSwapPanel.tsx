@@ -19,10 +19,17 @@ type Props = {
 const apiBase = getApiBase();
 const slots: Array<{ id: MaterialSlot; label: string }> = [
   { id: 'shutter', label: 'Shutters' }, { id: 'carcass', label: 'Carcass' }, { id: 'back_panel', label: 'Back panel' },
-  { id: 'countertop', label: 'Countertop' }, { id: 'profile', label: 'Profile' }, { id: 'glass', label: 'Glass' },
+  { id: 'countertop', label: 'Countertop' }, { id: 'profile', label: 'Profile' }, { id: 'glass', label: 'Glass' }, { id: 'hardware', label: 'Handles & hardware' },
 ];
 const defaultSwatch = '#b6a28d';
 const materialColor = (material: Material) => material.metadata?.colourHex ?? material.metadata?.colorHex ?? defaultSwatch;
+const compatibleCategories: Record<MaterialSlot, string[]> = {
+  shutter: ['laminate', 'veneer', 'acrylic'], carcass: ['laminate', 'veneer', 'plywood', 'hdhmr'],
+  back_panel: ['laminate', 'veneer', 'plywood'], countertop: ['countertop', 'stone', 'laminate'],
+  profile: ['profile'], glass: ['glass'], hardware: ['hardware', 'handle'],
+  flooring: ['flooring', 'tile', 'stone', 'laminate'], wall: ['wall', 'wallcovering', 'paint'],
+  ceiling: ['ceiling', 'paint', 'gypsum'], lighting: ['lighting', 'electrical'],
+};
 
 export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, semanticSlot = 'shutter', currentLaminate = 'Unknown', onConfirmCatalogSwap, onPreviewCatalogSwap }: Props) {
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -62,9 +69,12 @@ export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, seman
   }, [projectId]);
 
   const laminates = useMemo(() => {
-    return materials.filter((item) => item.category === 'laminate');
-  }, [materials]);
-  const selected = materials.find((item) => item.id === materialId);
+    return materials.filter((item) => compatibleCategories[targetSlot].includes(String(item.category).toLowerCase()));
+  }, [materials, targetSlot]);
+  const selected = laminates.find((item) => item.id === materialId);
+  useEffect(() => {
+    if (!laminates.some((item) => item.id === materialId)) setMaterialId(laminates[0]?.id ?? '');
+  }, [laminates, materialId]);
   if (!entityId) return <div className="material-swap-panel"><p>Select an exact placed module before changing a laminate.</p></div>;
 
   const applyCatalogSwap = async (preview = false) => {
@@ -93,14 +103,14 @@ export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, seman
       <div className="material-swap-heading"><Layers3 size={15} /><div><h4>Targeted laminate swap</h4><small>The approved room, catalog swatch, measured edges, and selected-module region guide the visual revision. The saved scene assignment remains the construction authority.</small></div></div>
       <span className="material-slot-label">Apply to this component group</span>
       <div className="material-slot-grid">{slots.map((slot) => <button key={slot.id} type="button" className={targetSlot === slot.id ? 'active' : ''} disabled={pending} onClick={() => setTargetSlot(slot.id)}>{slot.label}</button>)}</div>
-      <span className="material-slot-label">Laminate palette</span>
+      <span className="material-slot-label">{targetSlot === 'hardware' ? 'Handle & hardware options' : targetSlot === 'glass' ? 'Glass options' : 'Compatible finish options'}</span>
       <div className="laminate-swatch-grid">
         {laminates.map((material) => <button key={material.id} type="button" aria-pressed={materialId === material.id} className={materialId === material.id ? 'selected' : ''} disabled={pending || loading} onClick={() => setMaterialId(material.id)}>
           <span className="laminate-swatch" style={{ background: materialColor(material) }} />
           <span>{material.name}</span><small>{material.brand ?? material.supplier ?? 'Studio'} · {material.thickness_mm ?? '—'} mm</small>
         </button>)}
       </div>
-      {!loading && !laminates.length && <p role="status">No saved laminate is available yet. The organization starter library must finish loading before a finish can be changed.</p>}
+      {!loading && !laminates.length && <p role="status">No {targetSlot.replace('_', ' ')} option is in this project’s catalog yet. Add a matching item to the studio library before assigning it.</p>}
       {selected && <div className="laminate-spec"><CheckCircle2 size={14} /><span><strong>{selected.name}</strong> · {selected.finish ?? 'finish to confirm'} · {selected.thickness_mm ?? '—'} mm laminate · {selected.metadata?.edgeBand?.thicknessMm ?? '—'} mm {selected.metadata?.edgeBand?.material ?? 'edge band'} · grain {selected.grain_direction ?? 'none'}</span></div>}
       <div className="material-swap-actions">
         <button type="button" disabled={pending || loading || !projectId || !selected || !moduleInstanceId} onClick={() => void applyCatalogSwap()}><RefreshCcw size={14} /> {pending ? 'Saving…' : 'Save component material'}</button>

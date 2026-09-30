@@ -67,3 +67,16 @@ test('preserves a classified CV-only opening for review without promoting an unk
   assert.deepEqual(result.openings, [{ kind: 'door', approxCenterPx: { x: 900, y: 300 }, approxWidthPx: 120, confidence: 0.65 }]);
   assert.match(result.reviewFlags.join(' '), /CV found a door gap/i);
 });
+
+test('uses deterministic CV opening location and width when semantic vision corroborates its kind', () => {
+  const result = reconcilePlan({
+    ...cv,
+    openings: [{ betweenWallIds: ['wall-1', 'wall-2'], approxCenterPx: { x: 900, y: 300 }, approxWidthPx: 120, kindHint: 'door', confidence: 0.82 }],
+  }, {
+    ...vision([]),
+    openings: [{ kind: 'door', approxCenterPx: { x: 915, y: 310 }, approxWidthPx: 145, confidence: 0.91 }],
+  });
+  assert.deepEqual(result.openings[0]?.approxCenterPx, { x: 900, y: 300 });
+  assert.equal(result.openings[0]?.approxWidthPx, 120);
+  assert.match(result.reviewFlags.join(' '), /location and width use the deterministic gap trace/i);
+});

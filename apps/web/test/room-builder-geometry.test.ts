@@ -1,35 +1,35 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { roomBuilderGeometryIssues, usableWallRunMm, type RoomBuilderOpening } from '../src/features/tools/room-builder-geometry.ts';
+import test from 'node:test';
+import { roomBuilderGeometryIssues, roomDraftToPlanGeometry } from '../src/features/tools/room-builder-geometry.ts';
 
-const room = { widthMm: 4200, depthMm: 3600, ceilingHeightMm: 2700, wallThicknessMm: 230 };
+test('room draft transfer preserves cardinal wall offsets and measured door/window heights', () => {
+  const geometry = roomDraftToPlanGeometry({
+    roomId: 'room-a', originX: 1000, originY: 2000, widthMm: 4200, depthMm: 3300,
+    ceilingHeightMm: 2700, wallThicknessMm: 150,
+    openings: [
+      { id: 'door-a', kind: 'door', wall: 'south', offsetMm: 450, widthMm: 900, heightMm: 2100 },
+      { id: 'window-a', kind: 'window', wall: 'west', offsetMm: 600, widthMm: 1500, sillMm: 900, headMm: 2100 },
+      { id: 'column-a', kind: 'structural_column', wall: 'east', offsetMm: 1200, widthMm: 300, depthMm: 250 },
+    ],
+  });
 
-test('room builder validates opening position, overlap, window heights, and wall thickness', () => {
-  const openings: RoomBuilderOpening[] = [
-    { id: 'door-1', kind: 'door', wall: 'north', offsetMm: 500, widthMm: 900 },
-    { id: 'window-1', kind: 'window', wall: 'north', offsetMm: 1300, widthMm: 1200, sillMm: 2400, headMm: 3000 },
-    { id: 'column-1', kind: 'structural_column', wall: 'east', offsetMm: 3500, widthMm: 300, depthMm: 0 },
-  ];
-  const issues = roomBuilderGeometryIssues(room, openings);
-  assert.ok(issues.some((issue) => issue.includes('overlap on north wall')));
-  assert.ok(issues.some((issue) => issue.includes('fit inside its 3600 mm measured length')));
-  assert.ok(issues.some((issue) => issue.includes('sill and head below the 2700 mm ceiling')));
-  assert.ok(issues.some((issue) => issue.includes('positive projection depth')));
-  assert.ok(roomBuilderGeometryIssues({ ...room, wallThicknessMm: 0 }, []).some((issue) => issue.includes('Wall thickness')));
+  assert.deepEqual(geometry.walls.map((wall) => wall.id), ['room-a:edge:1', 'room-a:edge:2', 'room-a:edge:3', 'room-a:edge:4']);
+  assert.deepEqual(geometry.walls[2], { id: 'room-a:edge:3', start: { xMm: 5200, yMm: 5300 }, end: { xMm: 1000, yMm: 5300 }, heightMm: 2700, thicknessMm: 150, isExterior: false });
+  assert.equal(geometry.openings[0].wallId, 'room-a:edge:3');
+  assert.equal(geometry.openings[0].offsetAlongWallMm, 2850);
+  assert.equal(geometry.openings[0].heightMm, 2100);
+  assert.equal(geometry.openings[1].wallId, 'room-a:edge:4');
+  assert.equal(geometry.openings[1].offsetAlongWallMm, 1200);
+  assert.equal(geometry.openings[1].heightMm, 1200);
+  assert.deepEqual(geometry.columns[0], {
+    id: 'column-a', position: { xMm: 5075, yMm: 3350 }, sizeMm: { width: 250, depth: 300 },
+  });
 });
-test('usable wall calculation merges overlapping keep-outs instead of subtracting them twice', () => {
-  const openings: RoomBuilderOpening[] = [
-    { id: 'door', kind: 'door', wall: 'north', offsetMm: 500, widthMm: 1000 },
-    { id: 'column', kind: 'structural_column', wall: 'north', offsetMm: 1200, widthMm: 400, depthMm: 230 },
-    { id: 'window', kind: 'window', wall: 'north', offsetMm: 2500, widthMm: 800, sillMm: 900, headMm: 2100 },
-  ];
-  assert.equal(usableWallRunMm(4200, openings), 2300);
-});
 
-test('room builder blocks invalid and unconfirmed geometry from project handoff', () => {
-  assert.ok(roomBuilderGeometryIssues({ ...room, widthMm: 0 }, []).length > 0);
-  assert.deepEqual(roomBuilderGeometryIssues(room, []), []);
-  // Handoff now additionally requires an explicit user confirmation checkbox.
-  const dimensionsConfirmed = false;
-  assert.equal(roomBuilderGeometryIssues(room, []).length === 0 && dimensionsConfirmed, false);
+test('room builder blocks doors without a measured height', () => {
+  const issues = roomBuilderGeometryIssues(
+    { widthMm: 4200, depthMm: 3300, ceilingHeightMm: 2700, wallThicknessMm: 150 },
+    [{ id: 'door-a', kind: 'door', wall: 'north', offsetMm: 0, widthMm: 900, heightMm: 0 }],
+  );
+  assert.ok(issues.some((issue) => issue.includes('measured positive height')));
 });

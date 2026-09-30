@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import sharp from 'sharp';
 import { tracePlanBuffer } from '../src/fast-wall-tracer.js';
+import { toCvTraceResult } from '../src/wall-tracer.js';
 
 const PROOF_IMG = new URL('../../../floorplan analyser/ultida-flow-kit/proof/test_floorplan_input.png', import.meta.url);
 
@@ -66,4 +67,15 @@ test('wall count and normalized total length converge across 4x resolution varia
   const mean = normalizedLengths.reduce((sum, length) => sum + length, 0) / normalizedLengths.length;
   const spread = (Math.max(...normalizedLengths) - Math.min(...normalizedLengths)) / mean;
   assert.ok(spread <= 0.05, `Normalized detected wall length diverged by ${(spread * 100).toFixed(1)}%`);
+});
+
+test('native trace maps stable wall and opening identities into the reconciliation contract', async () => {
+  const trace = await tracePlanBuffer(await readFile(PROOF_IMG));
+  const mapped = toCvTraceResult(trace);
+  assert.equal(mapped.schema, 'PlanAnalysisResultV1.wallCandidates');
+  assert.ok(mapped.walls.length >= 4);
+  assert.ok(mapped.walls.every((wall) => wall.id && wall.startCornerId && wall.endCornerId));
+  assert.ok(mapped.openings?.length);
+  assert.ok(mapped.openings.every((opening) => opening.betweenWallIds.every((wallId) => mapped.walls.some((wall) => wall.id === wallId))));
+  assert.ok(mapped.rooms?.length, 'detected enclosed regions remain available for explicit review');
 });

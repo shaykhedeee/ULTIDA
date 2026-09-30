@@ -120,6 +120,7 @@ test('legacy PDF, SVG and cutlist routes cannot export forged client-approved sc
       '/api/drawings/elevations.pdf',
       '/api/drawings/elevations.svg',
       '/api/production/cutlist',
+      '/api/projects/project-1/production/cabinet-cutlist.xlsx',
       '/api/production/cutlist.csv',
       '/api/production/wall-elevation.svg',
       '/api/production/boq',
@@ -166,6 +167,24 @@ test('authenticated export ignores caller scene and renders the exact approved p
       const svg = await response.text();
       assert.equal(response.status, 200, svg);
       assert.equal(svg, generateDrawingPackageSvg(approvedScene as any));
+
+      const cabinetWorkbook = await fetch(`${baseUrl}/api/projects/project-1/production/cabinet-cutlist.xlsx`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer test-session' },
+        body: JSON.stringify({ input: {
+          unitId: 'api-wardrobe-3x7', unitTitle: '3ft × 7ft Wardrobe', roomId: 'bedroom-1',
+          overallWidthMm: 914, overallHeightMm: 2134, depthMm: 610, plinthHeightMm: 100,
+          carcassCoreMaterial: 'HDHMR-18', externalFinishCodeA: 'EXT-OAK',
+          internalFinishCode: 'INT-WHITE', backPanelMaterial: 'PLY-6', backPanelThicknessMm: 6,
+          bays: [{ id: 'bay-1', widthMm: 878, type: 'drawers', drawerCount: 3, drawerFrontHeightMm: 200, hasHangingRod: true, hangingClearHeightMm: 1050, shelvesInRemainderZone: 1 }],
+        } }),
+      });
+      const cabinetBytes = Buffer.from(await cabinetWorkbook.arrayBuffer());
+      assert.equal(cabinetWorkbook.status, 200, cabinetBytes.toString('utf8'));
+      assert.match(cabinetWorkbook.headers.get('content-type') ?? '', /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/);
+      assert.match(cabinetWorkbook.headers.get('content-disposition') ?? '', /ultida-api-wardrobe-3x7-cutlist-draft\.xlsx/);
+      assert.equal(cabinetWorkbook.headers.get('x-ultida-release-status'), 'review-required');
+      assert.equal(cabinetBytes.subarray(0, 2).toString('utf8'), 'PK');
 
       const sketchup = await fetch(`${baseUrl}/api/projects/project-1/export/sketchup?sceneVersionId=scene-1`, {
         headers: { authorization: 'Bearer test-session' },

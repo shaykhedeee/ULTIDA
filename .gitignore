@@ -17,6 +17,7 @@ apps/*/tsconfig.tsbuildinfo
 
 # Local analysis/render fixtures and CLI metadata; never release as source.
 eng.traineddata
+!apps/api/eng.traineddata
 tmp_test_*.json
 tmp_test_*.png
 supabase/.temp/

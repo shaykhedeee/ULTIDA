@@ -2,13 +2,9 @@ import {
   Download, ImagePlus, ShieldCheck, Sparkles, TriangleAlert,
   Layers, Compass, Wrench, Settings, CheckCircle2, ChevronRight, FileCode, Check
 } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import './cnc-pattern-studio.css';
-import {
-  generateJaaliDxf,
-  JAALI_PATTERNS,
-  type JaaliPattern,
-} from './jaali-motifs';
+import { clipCncLineToPanel, jaaliInputIssues, validateCncPanelOperations } from './cnc-validation';
 
 // ─── Jaali Pattern Types & DXF Helpers ─────────────────────────────────────
 type Pattern = 'diamond' | 'arch' | 'circle' | 'om' | 'floral';
@@ -37,8 +33,10 @@ function dxfForJaali(pattern: Pattern, width: number, height: number, spacing: n
              dxfLine(0, height, 0, 0, 'OUTLINE');
   if (pattern === 'diamond') {
     for (let x = -height; x < width + height; x += spacing) {
-      body += dxfLine(x, 0, x + height, height);
-      body += dxfLine(x, height, x + height, 0);
+      const rising = clipCncLineToPanel(x, 0, x + height, height, width, height);
+      const falling = clipCncLineToPanel(x, height, x + height, 0, width, height);
+      if (rising) body += dxfLine(...rising);
+      if (falling) body += dxfLine(...falling);
     }
   } else if (pattern === 'circle') {
     for (let y = spacing / 2; y < height; y += spacing) {
@@ -131,7 +129,7 @@ export function CncPatternStudio() {
   const [machinePreset, setMachinePreset] = useState<'homag' | 'biesse' | 'scm' | 'generic'>('homag');
 
   // Load from active cutlist selection if sent from cutlist maker
-  useState(() => {
+  useEffect(() => {
     try {
       const active = window.localStorage.getItem('ultida_active_cnc_panel');
       if (active) {
@@ -141,7 +139,7 @@ export function CncPatternStudio() {
         if (parsed.thicknessMm) setPThickness(parsed.thicknessMm);
       }
     } catch {}
-  });
+  }, []);
 
   function applyPreset(preset: System32PanelPreset) {
     setPanelPreset(preset);
@@ -343,9 +341,10 @@ export function CncPatternStudio() {
       grooves.push({
         id: 'back-groove-01',
         x1: grooveX,
-        y1: 0,
+        // Keep the 3 mm cutter radius on-stock at the groove ends.
+        y1: 3,
         x2: grooveX,
-        y2: pLength,
+        y2: pLength - 3,
         width: 6,
         depth: 8,
         type: 'back_groove',
@@ -357,7 +356,10 @@ export function CncPatternStudio() {
   }, [panelPreset, pLength, pWidth, pThickness, enableLineBoring, enableHingeBoring, enableMinifix, enableBackGroove]);
 
   // ── Download System 32 Layered DXF ──
+  const cncIssues = validateCncPanelOperations({ widthMm: pWidth, lengthMm: pLength, thicknessMm: pThickness }, cncOperations);
+  const cncValid = cncIssues.length === 0;
   function downloadSystem32Dxf() {
+    if (!cncValid) return;
     let body = dxfLine(0, 0, pWidth, 0, 'A-OUTLINE-CUT') +
                dxfLine(pWidth, 0, pWidth, pLength, 'A-OUTLINE-CUT') +
                dxfLine(pWidth, pLength, 0, pLength, 'A-OUTLINE-CUT') +
@@ -385,7 +387,7 @@ export function CncPatternStudio() {
       '0', 'ENDSEC',
       '0', 'SECTION',
       '2', 'TABLES',
-      '0', 'TABLE', '2', 'LAYER', '70', '5',
+      '0', 'TABLE', '2', 'LAYER', '70', '6',
       '0', 'LAYER', '2', '0', '70', '0', '62', '7', '6', 'CONTINUOUS',
       '0', 'LAYER', '2', 'A-OUTLINE-CUT', '70', '0', '62', '7', '6', 'CONTINUOUS',
       '0', 'LAYER', '2', 'A-DRILL-BORING', '70', '0', '62', '4', '6', 'CONTINUOUS',
@@ -408,16 +410,17 @@ export function CncPatternStudio() {
     anchor.href = url;
     anchor.download = `ultida-cnc-${panelPreset}-${pWidth}x${pLength}mm-${machinePreset}.dxf`;
     anchor.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   // ── Download Standard ISO G-Code ──
   function downloadGCode() {
+    if (!cncValid) return;
     const lines = [
       '(==================================================)',
       `( ULTIDA CNC MACHINE CENTER: ${panelPreset.toUpperCase()} )`,
       `( DIMENSIONS: ${pWidth} x ${pLength} x ${pThickness} mm )`,
-      `( TARGET POST-PROCESSOR: ${machinePreset.toUpperCase()} )`,
+      `( SELECTED MACHINE LABEL: ${machinePreset.toUpperCase()} )`,
       `( TOTAL HOLES: ${cncOperations.holes.length} | GROOVES: ${cncOperations.grooves.length} )`,
       '(==================================================)',
       'G21 (Metric Units mm)',
@@ -474,7 +477,23 @@ export function CncPatternStudio() {
       lines.push('');
     }
 
-    // Tool 4: 6mm Router for Grooving
+    // Tool 4: 15mm Minifix Cam Borer
+    const holes15 = cncOperations.holes.filter(h => h.diameter === 15);
+    if (holes15.length > 0) {
+      lines.push('( --- TOOL 04: 15MM MINIFIX CAM BORER --- )');
+      lines.push('T04 M06');
+      lines.push('S3200 M03');
+      lines.push('G00 Z10.00');
+      for (const h of holes15) {
+        lines.push(`G00 X${h.x.toFixed(2)} Y${h.y.toFixed(2)}`);
+        lines.push(`G81 Z-${h.depth.toFixed(2)} R2.00 F400`);
+      }
+      lines.push('G80');
+      lines.push('G00 Z50.00');
+      lines.push('');
+    }
+
+    // Tool 5: 6mm Router for Grooving
     if (cncOperations.grooves.length > 0) {
       lines.push('( --- TOOL 05: 6MM GROOVE ENDMILL --- )');
       lines.push('T05 M06');
@@ -500,11 +519,12 @@ export function CncPatternStudio() {
     anchor.href = url;
     anchor.download = `ultida-cnc-${panelPreset}-${pWidth}x${pLength}mm.nc`;
     anchor.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   // ── Jaali Download ──
-  const validJaali = jWidth >= 100 && jHeight >= 100 && jSpacing >= 30 && jSpacing <= Math.min(jWidth, jHeight);
+  const jaaliIssues = jaaliInputIssues({ widthMm: jWidth, heightMm: jHeight, spacingMm: jSpacing, toolDiameterMm: jToolDiameter, materialThicknessMm: jMaterialThickness, minimumBridgeMm: jBridgeMm, pattern });
+  const validJaali = jaaliIssues.length === 0;
   function downloadJaali() {
     if (!validJaali) return;
     const blob = new Blob([dxfForJaali(pattern, jWidth, jHeight, jSpacing, jToolDiameter)], { type: 'application/dxf' });
@@ -513,7 +533,7 @@ export function CncPatternStudio() {
     anchor.href = url;
     anchor.download = `ultida-${pattern}-jaali-${jWidth}x${jHeight}mm.dxf`;
     anchor.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   return (
@@ -528,7 +548,7 @@ export function CncPatternStudio() {
             CNC Boring &amp; Joinery Studio
           </h1>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#78716c' }}>
-            Generate production-accurate 32mm pitch line boring, 35mm hinge cups, minifix cam connectors, back panel grooving, and G-code for industrial CNC beam saws and machining centers.
+            Preview and export measured DXF operations for panel drilling and routing. G-code covers the selected holes and grooves only; it does not cut the panel outline. Controller-specific postprocessing and machine simulation are required before machining.
           </p>
         </div>
 
@@ -592,6 +612,8 @@ export function CncPatternStudio() {
               <div style={{ display: 'flex', gap: 6 }}>
                 <button
                   onClick={downloadSystem32Dxf}
+                  disabled={!cncValid}
+                  title={cncValid ? 'Download panel DXF' : cncIssues[0]}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -610,6 +632,8 @@ export function CncPatternStudio() {
                 </button>
                 <button
                   onClick={downloadGCode}
+                  disabled={!cncValid}
+                  title={cncValid ? 'Download generic ISO output' : cncIssues[0]}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -747,6 +771,10 @@ export function CncPatternStudio() {
                 Target Operation: <strong>{selectedOperation}</strong>
               </div>
             )}
+            {!cncValid && <div role="alert" style={{ marginTop: 10, padding: 10, borderRadius: 7, background: '#fff1f0', color: '#8a251d', fontSize: 12 }}>
+              <strong>Exports paused: fix the panel operations first.</strong>
+              <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>{cncIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+            </div>}
           </section>
 
           {/* Right Column: Parameters, Presets & Controls */}
@@ -861,7 +889,7 @@ export function CncPatternStudio() {
             </div>
 
             <h2 style={{ fontSize: 16, fontWeight: 800, color: '#1c1917', margin: '0 0 10px' }}>
-              4. Target Machine Postprocessor
+              4. Machine label for the file
             </h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 6, marginBottom: 18 }}>
               {[
@@ -888,10 +916,14 @@ export function CncPatternStudio() {
                 </button>
               ))}
             </div>
+            <p style={{ margin: '-8px 0 16px', padding: 10, borderRadius: 7, background: '#fff7df', color: '#6c5015', fontSize: 11.5, lineHeight: 1.45 }}>
+              Machine choices label the file only. Downloads are generic ISO operations, not verified Homag, Biesse, or SCM postprocessors, and do not include the panel perimeter. Simulate them and have your machine operator approve tooling, origin, and setup before machining.
+            </p>
 
             <div style={{ display: 'flex', gap: 10 }}>
               <button
                 onClick={downloadSystem32Dxf}
+                disabled={!cncValid}
                 style={{
                   flex: 1,
                   display: 'inline-flex',
@@ -913,6 +945,7 @@ export function CncPatternStudio() {
 
               <button
                 onClick={downloadGCode}
+                disabled={!cncValid}
                 style={{
                   flex: 1,
                   display: 'inline-flex',
@@ -1043,6 +1076,9 @@ export function CncPatternStudio() {
               <label>Material thickness (mm)<input type="number" min={1} step="0.1" value={jMaterialThickness} onChange={(event) => setJMaterialThickness(Number(event.target.value))}/></label>
               <label>Minimum bridge (mm)<input type="number" min={1} step="0.1" value={jBridgeMm} onChange={(event) => setJBridgeMm(Number(event.target.value))}/></label>
             </div>
+            <p style={{ margin: '12px 0 0', color: '#6b5a45', fontSize: 11.5, lineHeight: 1.45 }}>
+              Bridge checking is currently calculated for the circular-hole pattern. Other motifs still need cutter compensation, minimum-web review, and CAM simulation before fabrication.
+            </p>
 
             <div style={{ marginTop: 18 }}>
               <button
@@ -1054,6 +1090,10 @@ export function CncPatternStudio() {
                 <Download size={16} /> Download Jaali DXF ({jWidth}×{jHeight}mm)
               </button>
             </div>
+            {jaaliIssues.length > 0 && <div role="alert" style={{ marginTop: 10, padding: 10, borderRadius: 7, background: '#fff1f0', color: '#8a251d', fontSize: 12 }}>
+              <strong>DXF export paused:</strong>
+              <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>{jaaliIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+            </div>}
           </section>
         </div>
       )}

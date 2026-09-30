@@ -518,6 +518,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
 
   // Plan state
   const [planFile, setPlanFile] = useState<File | null>(null);
+  const [planAnalysisMode, setPlanAnalysisMode] = useState<'offline' | 'assisted'>('offline');
   const [planPreview, setPlanPreview] = useState<string | null>(null);
   const [sceneApprovalError, setSceneApprovalError] = useState<{ code: string; message: string; issues: string[] } | null>(null);
   const [recompilingScene, setRecompilingScene] = useState(false);
@@ -971,7 +972,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         const completionHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
         const completed = await fetch(`${apiBase}/projects/${projectId}/floor-plans/complete`, {
         method: 'POST', headers: completionHeaders,
-        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size, analysisGuides, startAnalysis })
+        body: JSON.stringify({ assetId: initiation.assetId, storagePath: initiation.storagePath, fileName: planFile.name, mimeType: initiation.mimeType ?? mimeType, fileSize: planFile.size, analysisGuides, startAnalysis, analysisMode: planAnalysisMode })
       });
       const completion = await completed.json().catch(() => null);
        // A 202 is an accepted durable-job response. Older/local API processes
@@ -1000,7 +1001,9 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
          ? `Floor plan uploaded, but analysis failed: ${completion.error?.message ?? 'Open the retry action to run it again.'}`
          : completion.dispatch?.dispatched === false
          ? 'Plan analysis is queued. Cloudflare worker dispatch is not configured yet.'
-         : 'Plan analysis is queued with the real vision provider.');
+         : planAnalysisMode === 'offline'
+         ? 'Local plan analysis is queued. It runs CV and OCR without a hosted AI provider; every result remains editable for review.'
+         : 'AI-assisted plan analysis is queued. Local CV/OCR still supplies the geometry evidence.');
         return;
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Network request failed.';
@@ -1434,6 +1437,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
             onDownloadDxf={downloadPlanDxf}
             onSaveDraft={(snapshot) => void savePlanDraft(snapshot)}
             onAnalysisGuidesChange={setAnalysisGuides}
+            analysisMode={planAnalysisMode}
+            onAnalysisModeChange={setPlanAnalysisMode}
           />
         } />
         <Route path="spaces" element={

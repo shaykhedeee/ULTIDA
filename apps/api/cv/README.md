@@ -1,1 +1,1 @@
-`wall_tracer.py` in this directory is ULTIDA's single canonical deterministic floor-plan wall tracer.
+Floorplan analysis uses the bundled TypeScript/Sharp tracer at `src/fast-wall-tracer.ts` as its canonical runtime implementation. It runs without Python or OpenCV. This directory contains a legacy Python reference only; application analysis does not invoke it.

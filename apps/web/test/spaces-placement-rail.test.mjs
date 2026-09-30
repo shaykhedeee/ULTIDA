@@ -14,6 +14,8 @@ import { readFileSync } from 'node:fs';
 
 const workspace = readFileSync(new URL('../src/features/spaces/SpacesWorkspace.tsx', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../src/features/spaces/spaces.css', import.meta.url), 'utf8');
+const library = readFileSync(new URL('../src/components/library/ReferenceLibraryWorkspace.tsx', import.meta.url), 'utf8');
+const shell = readFileSync(new URL('../src/Shell.tsx', import.meta.url), 'utf8');
 
 test('the design library is a docked rail, not a canvas-obscuring modal', () => {
   assert.ok(!workspace.includes('design-library-drawer-backdrop'), 'the full-screen backdrop must not return');
@@ -80,4 +82,25 @@ test('placement still routes through the measured-wall API contract', () => {
   );
   assert.ok(workspace.includes('module-instances'), 'the persistence contract must be unchanged');
   assert.ok(workspace.includes("setSpacePanel('modules')"), 'the panel auto-switch must be preserved');
+});
+
+test('Spaces keeps common room tasks visible and puts secondary tools behind More', () => {
+  const tabsStart = workspace.indexOf('<div className="space-panel-tabs" role="tablist" aria-label="Room configuration">');
+  const tabsEnd = workspace.indexOf("                {spacePanel === 'candidates' && (", tabsStart);
+  const tabs = workspace.slice(tabsStart, tabsEnd);
+  assert.match(tabs, /Layout/);
+  assert.match(tabs, /Room/);
+  assert.match(tabs, /Furniture/);
+  assert.match(tabs, /Finishes/);
+  assert.match(tabs, /'Less' : 'More'/);
+  assert.ok(tabs.indexOf('More') < tabs.indexOf('Advice'), 'advice, brief, and 3D details should be secondary');
+  assert.ok(!shell.includes('className={`workflow-stage'), 'project stages should not be duplicated in the sidebar and top guide');
+});
+
+test('project visual references can be imported, reloaded, and remain separate from catalog geometry', () => {
+  assert.ok(workspace.includes('/library?projectId='), 'module rail should open the current project library');
+  assert.ok(library.includes("searchParams.get('projectId')"), 'library should retain project context');
+  assert.ok(library.includes('/references`'), 'library should fetch saved references after refresh');
+  assert.ok(library.includes('This project’s images'), 'saved project images should be visible in the library');
+  assert.ok(library.includes('never set dimensions or production geometry'), 'images must remain style references, not geometry');
 });
