@@ -29,7 +29,7 @@ import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
 import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, listDesignPresets, ModuleFamilySchema, getCatalogVault, CuratedLaminateCatalog, CATALOG_VERSION, getCatalogDigitalTwin } from '@ultida/catalog-core';
 import { CanonicalPlanModelSchema, parsePlanIntake } from '@ultida/plan-core';
 import { validateGeometry } from '@ultida/geometry-core';
-import { analyzePlanWithProvider } from './plan-analyzer.js';
+import { analyzePlanWithProvider, isPlanVisionProviderConfigured } from './plan-analyzer.js';
 import { AURA_TOOLS, listAuraTools, planAuraMessage, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
@@ -222,19 +222,7 @@ app.get('/api/health', async (_request, response) => {
       workerDispatchReady = false;
     }
   }
-  const hasPlanVisionProvider = Boolean(
-    process.env.OPENAI_API_KEY ||
-    process.env.GEMINI_VISION_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_AI_STUDIO_KEY_1 ||
-    process.env.GOOGLE_AI_STUDIO_KEY_2 ||
-    process.env.FLOORPLAN_VISION_URL ||
-    (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN && process.env.CLOUDFLARE_VISION_MODEL)
-  );
-  const planCvConfigured = Boolean(
-    process.env.PLAN_CV_SERVICE_URL?.trim()
-    && (process.env.ULTIDA_WORKER_SHARED_SECRET || process.env.WORKER_DISPATCH_SECRET)
-  );
+  const hasPlanVisionProvider = isPlanVisionProviderConfigured(process.env);
   return response.status(200).json({
     success: true,
     app: 'ultida',
@@ -245,7 +233,8 @@ app.get('/api/health', async (_request, response) => {
       previewDatabaseIsolated: deployment.previewDatabaseIsolated,
       durableJobs: hasServerSupabaseKey && workerDispatchReady,
       planVision: hasPlanVisionProvider,
-      planCv: planCvConfigured,
+      planCv: true,
+      planCvEngine: 'native-sharp-typescript',
       realImageGeneration: currentGateway.status().some((provider) => provider.configured && provider.operations.includes('generate'))
     },
     providers: currentGateway.status(),
@@ -1186,7 +1175,11 @@ app.post('/api/projects/:projectId/floor-plans/initiate', requireProjectUser, as
 app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const projectId = String(request.params.projectId);
-  const { assetId, storagePath, fileName, mimeType, fileSize, analysisGuides, startAnalysis = true, analysisMode = 'offline' } = request.body ?? {};
+  const { assetId, storagePath, fileName, mimeType, fileSize, analysisGuides, startAnalysis = true } = request.body ?? {};
+  const requestedAnalysisMode = request.body?.analysisMode ?? 'assisted';
+  if (requestedAnalysisMode !== 'assisted' && requestedAnalysisMode !== 'offline') {
+    return response.status(400).json({ success: false, code: 'INVALID_ANALYSIS_MODE', message: 'analysisMode must be "assisted" or "offline".' });
+  }
   if (!assetId || !storagePath || !fileName) {
     return response.status(400).json({ success: false, code: 'INVALID_COMPLETE_PAYLOAD', message: 'assetId, storagePath, and fileName are required.' });
   }
@@ -1239,7 +1232,7 @@ app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, as
         ? [{ id: typeof guide.id === 'string' ? guide.id : undefined, label: typeof guide.label === 'string' ? guide.label.slice(0, 80) : undefined, x, y, width, height }]
         : [];
     }) : [];
-    const safeAnalysisMode = analysisMode === 'assisted' ? 'assisted' : 'offline';
+    const safeAnalysisMode = requestedAnalysisMode;
     const job = await createPlanAnalysisJob(process.env, { projectId, sourceAssetId: asset.data.id, fileName, mimeType: normalizedMimeType, analysisMode: safeAnalysisMode, analysisGuides: sanitizedGuides, idempotencyKey: `plan:${projectId}:${asset.data.id}` }, userId);
     if (job.status === 'failed' || job.status === 'unavailable' || job.status === 'not_found') {
       const reason = 'reason' in job && typeof job.reason === 'string' ? job.reason : 'The file was stored, but analysis could not be queued.';

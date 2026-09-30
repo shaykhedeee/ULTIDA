@@ -439,7 +439,7 @@ export function PlanReviewWorkspace({
   onDownloadDxf,
   onSaveDraft,
   onAnalysisGuidesChange,
-  analysisMode = 'offline',
+  analysisMode = 'assisted',
   onAnalysisModeChange,
 }: Props) {
   const navigate = useNavigate();
@@ -1733,8 +1733,8 @@ export function PlanReviewWorkspace({
                 {onAnalysisModeChange && <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
                   Analysis
                   <select aria-label="Floor plan analysis mode" value={analysisMode} onChange={(event) => onAnalysisModeChange(event.target.value === 'assisted' ? 'assisted' : 'offline')} style={{ minHeight: 32, border: '1px solid var(--line)', borderRadius: 7, background: 'var(--surface)', color: 'var(--text-primary)', padding: '4px 8px' }}>
-                    <option value="offline">Local, no AI service</option>
-                    <option value="assisted">Local + connected AI</option>
+                    <option value="assisted">AI-assisted + local drawing checks</option>
+                    <option value="offline">Local-only, no AI service</option>
                   </select>
                 </label>}
                 <button
@@ -1758,7 +1758,7 @@ export function PlanReviewWorkspace({
                   }}
                 >
                   {analysisInFlight ? <Loader2 size={14} className="ultida-spinner" /> : <Sparkles size={14} style={{ color: 'var(--gold)' }} />}
-                  {analysisInFlight ? 'Analysing floor plan…' : analysisMode === 'offline' ? 'Analyze plan locally' : 'Analyze with optional AI'}
+                  {analysisInFlight ? 'Analysing floor plan…' : analysisMode === 'offline' ? 'Analyze locally' : 'Analyze with AI'}
                 </button>
                 {highConfidenceRawCount > 0 && (
                   <button

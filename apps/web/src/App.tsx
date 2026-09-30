@@ -517,7 +517,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
 
   // Plan state
   const [planFile, setPlanFile] = useState<File | null>(null);
-  const [planAnalysisMode, setPlanAnalysisMode] = useState<'offline' | 'assisted'>('offline');
+  const [planAnalysisMode, setPlanAnalysisMode] = useState<'offline' | 'assisted'>('assisted');
   const [planPreview, setPlanPreview] = useState<string | null>(null);
   const [sceneApprovalError, setSceneApprovalError] = useState<{ code: string; message: string; issues: string[] } | null>(null);
   const [recompilingScene, setRecompilingScene] = useState(false);
@@ -809,7 +809,13 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           setPlanProposals(payload.analysis.proposals);
           setPlanAnalysisIssues(payload.analysis.topologyIssues ?? []);
           setPlanAnalysed(true);
-          setPlanStatus('Provider analysis complete. Review and calibrate every proposal.');
+          const source = payload.analysis.analysisSource;
+          const provider = payload.analysis.analysisProvider ?? payload.analysis.provider;
+          setPlanStatus(source === 'local_fallback'
+            ? 'AI service did not return usable plan geometry. A local CV/OCR review draft is ready; check every wall and opening, then calibrate before approval.'
+            : source === 'local'
+              ? 'Local CV/OCR review draft is ready. Check every wall and opening, then calibrate before approval.'
+              : `AI-assisted analysis${provider ? ` (${provider})` : ''} is ready. Local CV/OCR checked the drawing evidence; review every proposal and calibrate before approval.`);
           if (stage === 'brief') navigate(`/projects/${projectId}/plan`);
         } else if (payload.status === 'failed') {
           setPlanStatus(payload.error?.message ?? 'Provider analysis failed. No geometry was generated.');
@@ -1001,8 +1007,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
          : completion.dispatch?.dispatched === false
          ? 'Plan analysis is queued. Cloudflare worker dispatch is not configured yet.'
          : planAnalysisMode === 'offline'
-         ? 'Local plan analysis is queued. It runs CV and OCR without a hosted AI provider; every result remains editable for review.'
-         : 'AI-assisted plan analysis is queued. Local CV/OCR still supplies the geometry evidence.');
+         ? 'Local-only analysis is queued. It runs CV and OCR without a hosted AI provider; every result remains editable for review.'
+         : 'AI-assisted analysis is queued. Local CV/OCR supplies the geometry evidence; AI suggestions remain reviewable and do not confirm scale.');
         return;
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Network request failed.';

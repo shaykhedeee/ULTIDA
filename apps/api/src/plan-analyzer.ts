@@ -35,6 +35,14 @@ function geminiVisionKey(environment: Environment) {
   return environment.GEMINI_VISION_API_KEY || environment.GEMINI_API_KEY || environment.GOOGLE_AI_STUDIO_KEY_1 || environment.GOOGLE_AI_STUDIO_KEY_2;
 }
 
+export function isPlanVisionProviderConfigured(environment: Environment) {
+  return Boolean(
+    environment.OPENAI_API_KEY
+    || geminiVisionKey(environment)
+    || (environment.CLOUDFLARE_ACCOUNT_ID && environment.CLOUDFLARE_AI_TOKEN)
+  );
+}
+
 export function compileBriefContext(brief?: Record<string, unknown>): string {
   if (!brief || Object.keys(brief).length === 0) {
     return '';

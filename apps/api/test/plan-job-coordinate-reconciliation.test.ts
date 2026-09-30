@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { __test__ } from '../src/plan-jobs.js';
+import { isPlanVisionProviderConfigured } from '../src/plan-analyzer.js';
 
 test('maps normalized vision coordinates into the CV source pixel space', () => {
   const vision = __test__.visionProposalsToSemantic([
@@ -61,11 +62,25 @@ test('does not preserve a legacy sparse result as a reviewable floor plan', () =
   ] }), true);
 });
 
-test('local analysis is the default and hosted vision requires explicit assisted mode', () => {
-  assert.equal(__test__.normalizePlanAnalysisMode(undefined), 'offline');
+test('AI-assisted analysis is the default while local-only mode remains explicit', () => {
+  assert.equal(__test__.normalizePlanAnalysisMode(undefined), 'assisted');
   assert.equal(__test__.normalizePlanAnalysisMode('offline'), 'offline');
   assert.equal(__test__.normalizePlanAnalysisMode('assisted'), 'assisted');
-  assert.equal(__test__.normalizePlanAnalysisMode('anything-else'), 'offline');
+  assert.equal(__test__.normalizePlanAnalysisMode('anything-else'), 'assisted');
+});
+
+test('plan AI readiness matches providers accepted by the analyzer', () => {
+  assert.equal(isPlanVisionProviderConfigured({}), false);
+  assert.equal(isPlanVisionProviderConfigured({ CLOUDFLARE_ACCOUNT_ID: 'account', CLOUDFLARE_AI_TOKEN: 'token' }), true);
+  assert.equal(isPlanVisionProviderConfigured({ CLOUDFLARE_ACCOUNT_ID: 'account', CLOUDFLARE_AI_TOKEN: 'token', CLOUDFLARE_VISION_MODEL: '' }), true);
+  assert.equal(isPlanVisionProviderConfigured({ GEMINI_API_KEY: 'key' }), true);
+  assert.equal(isPlanVisionProviderConfigured({ GOOGLE_AI_STUDIO_KEY_2: 'key' }), true);
+});
+
+test('analysis results disclose AI success, local fallback, and explicit local-only provenance', () => {
+  assert.deepEqual(__test__.analysisProvenance('assisted', 'gemini'), { analysisMode: 'assisted', analysisSource: 'ai_assisted', analysisProvider: 'gemini' });
+  assert.deepEqual(__test__.analysisProvenance('assisted', 'intake-parser'), { analysisMode: 'assisted', analysisSource: 'local_fallback', analysisProvider: null });
+  assert.deepEqual(__test__.analysisProvenance('offline', undefined), { analysisMode: 'offline', analysisSource: 'local', analysisProvider: null });
 });
 
 test('offline review preserves unknown opening gaps without calling them doors', () => {

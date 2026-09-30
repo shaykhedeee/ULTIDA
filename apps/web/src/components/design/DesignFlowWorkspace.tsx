@@ -1259,7 +1259,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       const ok = await onSceneApproved(id);
       if (ok) {
         setLocalSceneApproved(true);
-        setPlacementNotice('✅ Scene v1 approved! Solid 3D geometry, 4K AI renders, and DXF working drawings are now unlocked.');
+        setPlacementNotice('✅ Scene v1 approved! Solid 3D geometry, AI renders, and DXF working drawings are now unlocked.');
       } else {
         setPlacementNotice('Scene approval failed. Please check network and permissions.');
       }
@@ -1357,7 +1357,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
       const approved = await onSceneApproved(nextSceneId);
       if (approved) {
         setLocalSceneApproved(true);
-        setPlacementNotice(`🎉 Scene v1 compiled & approved with ${roomModules.length} modular units! 3D solid geometry, 4K AI renders, and DXF working drawings are now unlocked.`);
+        setPlacementNotice(`🎉 Scene v1 compiled & approved with ${roomModules.length} modular units! 3D solid geometry, AI renders, and DXF working drawings are now unlocked.`);
       } else {
         setPlacementNotice(`Scene v1 compiled. Click "Approve Scene" to finalize.`);
       }
@@ -1412,7 +1412,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
           setVisualState('This Preview is read-only. Open the production render studio to generate and save the AI image, or connect this Preview to its own Supabase database.');
           return;
         }
-        setVisualState(payload?.message ?? payload?.error ?? 'The render service could not create an image. Your approved scene is unchanged; try again when a provider is available.');
+        setVisualState(payload?.result?.message ?? payload?.result?.reason ?? payload?.message ?? payload?.error ?? 'The render service could not create an image. Your approved scene is unchanged; try again when a provider is available.');
         return;
 
       }
@@ -1551,7 +1551,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     <span className="provider-status" key={provider.id}>
                       <span className={`provider-dot${provider.configured ? ' provider-dot-ready' : ''}`} />
                       {provider.id}
-                      {provider.configured ? ' ready' : ' unavailable'}
+                      {provider.configured ? ' configured' : ' unavailable'}
                     </span>
                   ))
                 ) : (
@@ -1559,7 +1559,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 )}
               </div>
               <div className="provider-readiness" role="status">
-                {providers.some((provider) => provider.configured) ? 'A configured image provider is available. Render jobs will retain the scene, camera, material, and provider provenance.' : 'No image provider is configured. Scene compilation and deterministic 3D remain available; photorealistic generation is blocked until a provider is connected.'}
+                {providers.some((provider) => provider.configured) ? 'An image provider is configured. Each render request checks the provider response, saves the image privately, and links it to this approved scene.' : 'No image provider is configured. Scene compilation and deterministic 3D remain available; image generation needs a connected provider.'}
               </div>
               <div className="visual-controls visual-controls-stack">
                 <div className="scene-lock-summary" role="status">
@@ -3265,7 +3265,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                     disabled={!compiledSceneId}
                     style={{ background: 'linear-gradient(135deg, #c59c2d, #8f6c12)', color: '#fff', fontWeight: 800, fontSize: '12px' }}
                   >
-                    <Wand2 size={14} /> 4K AI Render →
+                    <Wand2 size={14} /> AI Render →
                   </Button>
                 </div>
               </div>
@@ -3330,7 +3330,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                         </div>
                         <div style={{ color: '#d6c7b8', fontSize: '12px', marginTop: 4, maxWidth: '640px', lineHeight: 1.45 }}>
                           {compiledSceneId
-                            ? 'The room scene geometry and parts have been compiled. Click "Approve Scene" below to lock this design and unlock 3D walkthrough, 4K AI renders, and DXF working drawings.'
+                            ? 'The room scene geometry and parts have been compiled. Click "Approve Scene" below to lock this design and unlock 3D walkthrough, AI renders, and DXF working drawings.'
                             : 'Automatically verifies all wall anchors, assigns premium 18mm HDHMR + Acrylic finishes, compiles the scene, and approves it in one single click.'}
                         </div>
                       </div>
@@ -3409,7 +3409,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                             SCENE V1 APPROVED & PRODUCTION READY
                           </div>
                           <div style={{ color: '#166534', fontSize: '12px', marginTop: 2 }}>
-                            All downstream 3D solid geometry, 4K AI renders, and DXF wall elevation drawings are unlocked.
+                            All downstream 3D solid geometry, AI renders, and DXF wall elevation drawings are unlocked.
                           </div>
                         </div>
                       </div>
@@ -3424,7 +3424,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                           onClick={() => navigate(`/projects/${projectId}/visualize`)}
                           style={{ background: 'linear-gradient(135deg, #c59c2d, #8f6c12)', color: '#fff', fontWeight: 800, fontSize: '12px', padding: '8px 14px' }}
                         >
-                          <Wand2 size={14} /> 4K AI Render →
+                          <Wand2 size={14} /> AI Render →
                         </Button>
                         <Button
                           onClick={() => navigate(`/projects/${projectId}/drawings`)}
@@ -3693,7 +3693,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 onClick={() => navigate(`/projects/${projectId}/visualize`)}
                 style={{ background: 'linear-gradient(135deg, #c59c2d, #8f6c12)', color: '#fff', fontWeight: 800, fontSize: '13px', padding: '10px 18px', borderRadius: '8px' }}
               >
-                <Wand2 size={15} /> 4K AI Render →
+                <Wand2 size={15} /> AI Render →
               </Button>
             </>
           ) : compiledSceneId ? (

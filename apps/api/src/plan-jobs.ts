@@ -16,7 +16,16 @@ import { createLocalOcrWorker, hasLocalOcrAssets } from './local-ocr.js';
 const execFileAsync = promisify(execFile);
 type Environment = Record<string, string | undefined>;
 type PlanJobRequest = { projectId: string; sourceAssetId: string; fileName: string; mimeType: string; analysisMode?: 'offline' | 'assisted'; analysisGuides?: AnalysisGuideRegion[]; idempotencyKey?: string };
-function normalizePlanAnalysisMode(value: unknown): 'offline' | 'assisted' { return value === 'assisted' ? 'assisted' : 'offline'; }
+function normalizePlanAnalysisMode(value: unknown): 'offline' | 'assisted' { return value === 'offline' ? 'offline' : 'assisted'; }
+function analysisProvenance(analysisMode: 'offline' | 'assisted', provider: string | undefined) {
+  if (analysisMode === 'offline' || provider === 'native-local') {
+    return { analysisMode, analysisSource: 'local' as const, analysisProvider: null };
+  }
+  if (provider === 'intake-parser') {
+    return { analysisMode, analysisSource: 'local_fallback' as const, analysisProvider: null };
+  }
+  return { analysisMode, analysisSource: 'ai_assisted' as const, analysisProvider: provider ?? null };
+}
 
 function deployedApiBase(environment: Environment) {
   const explicit = environment.ULTIDA_API_BASE_URL?.trim();
@@ -737,6 +746,7 @@ async function processClaimedPlanAnalysisJobs(environment: Environment, client: 
       await updateProgress('saving', 'Saving the review model…');
       const output = {
         ...analysis,
+        ...analysisProvenance(analysisMode, analysis.provider),
         sourceAssetId: input.sourceAssetId,
         sourceMimeType: input.mimeType,
         analysisMimeType,
@@ -928,4 +938,4 @@ export async function processPlanAnalysisJob(environment: Environment, jobId: st
 
 // Narrow test seam for coordinate reconciliation. Runtime callers use only
 // the durable job functions above.
-export const __test__ = { visionProposalsToSemantic, hasReviewablePlanCoverage, normalizeRasterForVision, attachPositionedOcrToDimensions, addUnmatchedOcrAnnotations, supplementSparseVisionProposals, addOfflinePlanLabels, normalizePlanAnalysisMode };
+export const __test__ = { visionProposalsToSemantic, hasReviewablePlanCoverage, normalizeRasterForVision, attachPositionedOcrToDimensions, addUnmatchedOcrAnnotations, supplementSparseVisionProposals, addOfflinePlanLabels, normalizePlanAnalysisMode, analysisProvenance };
