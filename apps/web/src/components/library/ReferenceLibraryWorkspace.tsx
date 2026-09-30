@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import { ModulePreview } from './ModulePreview';
 import ResearchSourcingPanel from './ResearchSourcingPanel';
-import { RECENT_REFERENCE_GALLERY, type RecentGalleryReference } from './recent-reference-gallery';
+import { RECENT_REFERENCE_GALLERY, REFERENCE_SPACE_LABELS, referenceDisplayTitle, referenceFocus, type RecentGalleryReference } from './recent-reference-gallery';
 
 type LibraryItem = {
   id: string;
@@ -195,6 +195,49 @@ const CURATED_VAULT_REFERENCES: Array<{
   ...RECENT_REFERENCE_GALLERY,
 ];
 
+type CuratedReference = (typeof CURATED_VAULT_REFERENCES)[number];
+const ROOM_REFERENCE_FILTERS = [
+  ['living', 'Living'], ['bedroom', 'Bedroom'], ['kitchen', 'Kitchen'], ['dining', 'Dining'],
+  ['bathroom', 'Bathroom'], ['pooja', 'Pooja'], ['study', 'Study'], ['utility', 'Utility'], ['entry', 'Entry'],
+] as const;
+const REFERENCE_TYPE_FILTERS = [
+  ['all', 'All references'], ['rooms', 'Room inspiration'], ['technical', 'Technical drawings'], ['materials', 'Material details'], ['boards', 'Project boards'],
+] as const;
+function referenceType(ref: CuratedReference): 'rooms' | 'technical' | 'materials' | 'boards' {
+  if (ref.kind === 'technical') return 'technical';
+  if (ref.kind === 'material-detail') return 'materials';
+  const labels = `${ref.title} ${ref.tags.join(' ')}`.toLowerCase();
+  if (/cad-elevation|technical-drawing|dimensioned|working-drawing|floor-plan|elevation-sheet/.test(labels)) return 'technical';
+  if (/dossier|design-board|moodboard|material-board|comparison-board/.test(labels)) return 'boards';
+  return 'rooms';
+}
+function referenceSpace(ref: CuratedReference): string {
+  const type = referenceType(ref);
+  if (type !== 'rooms') return type;
+  return REFERENCE_SPACE_LABELS[ref.room] ? ref.room : 'living';
+}
+function referenceFocusLabel(ref: CuratedReference): string {
+  const type = referenceType(ref);
+  if (type === 'technical') return 'Plans & elevations';
+  if (type === 'materials') return 'Material details';
+  if (type === 'boards') return 'Project boards';
+  return referenceFocus({ family: ref.family, room: referenceSpace(ref), kind: !ref.kind || ref.kind === 'existing-curated' ? 'render-or-inspiration' : ref.kind });
+}
+function referenceAuthorityLabel(ref: CuratedReference): string {
+  const type = referenceType(ref);
+  if (type === 'technical') return 'Technical reference · verify dimensions';
+  if (type === 'materials') return 'Material inspiration · not a supplier spec';
+  if (type === 'boards') return 'Design board · visual guidance';
+  return 'Style inspiration · not measured';
+}
+function referenceDescription(ref: CuratedReference): string {
+  const type = referenceType(ref);
+  if (type === 'technical') return 'Reference image only. Verify every annotation and dimension against an approved source drawing before use.';
+  if (type === 'materials') return 'Visual finish inspiration only. This image does not identify a supplier, product code, finish specification, or calibrated colour.';
+  if (type === 'boards') return 'A presentation or project board for visual direction. Confirm all products, dimensions, and finishes against approved project records.';
+  return 'Style inspiration only. The image does not define measured dimensions or certified construction geometry.';
+}
+
 const DEFAULT_PROJECT_MATERIALS: Material[] = [
   // ─── HIGH-GLOSS & ACRYLIC ───
   { id: 'mat-gloss-1', name: 'Mirror High-Gloss Pure White Acrylic', code: 'ROY-HG-WHT', category: 'laminate', finish: 'High-Gloss Acrylic Sheen (1.2mm)', thickness_mm: 1.2, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#FFFFFF' } },
@@ -316,6 +359,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const [status, setStatus] = useState('Modular catalog loaded.');
   const [vault, setVault] = useState<VaultEntry[]>([]);
   const [vaultRoom, setVaultRoom] = useState('all');
+  const [vaultReferenceType, setVaultReferenceType] = useState<'all' | 'rooms' | 'technical' | 'materials' | 'boards'>('all');
+  const [vaultFocus, setVaultFocus] = useState('all');
   const [vaultFamily, setVaultFamily] = useState('all');
   const [vaultState, setVaultState] = useState('all');
   const [moduleFamily, setModuleFamily] = useState('all');
@@ -1261,55 +1306,42 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
               </article>)}
             </div> : <p style={{ margin: 0, padding: 14, borderRadius: 8, background: '#faf8f5', color: '#78716c', fontSize: 13 }}>No images added yet. Use “Add a visual reference” above to import a client or style image.</p>}
           </section>}
-          {/* Quick Filter Category Chips */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>
-            {([
-              ['all', '✨ All References', 'all'],
-              ['living', '🛋️ Living & TV Walls', 'living'],
-              ['bedroom', '🛏️ Bedrooms & Wardrobes', 'bedroom'],
-              ['kitchen', '🍳 Kitchens', 'kitchen'],
-              ['dining', '🍽️ Dining & Bars', 'dining'],
-              ['bathroom', '🚿 Bathrooms & Vanity', 'bathroom'],
-              ['pooja', '🪔 Sacred Mandirs', 'pooja'],
-              ['study', '💼 Study & Desks', 'study'],
-              ['utility', '🧺 Utility & Laundry', 'utility'],
-              ['entry', '🚪 Entry & Storage', 'entry'],
-              ['technical', '📐 Technical Images', 'technical'],
-              ['materials', '🪵 Material Details', 'materials'],
-            ] as const).map(([k, label, fRoom]) => {
-              const isActive = (vaultRoom === fRoom);
-              const chipCount = fRoom === 'all' ? CURATED_VAULT_REFERENCES.length : CURATED_VAULT_REFERENCES.filter(r => r.room === fRoom || r.family === fRoom).length;
-              return (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setVaultRoom(isActive && fRoom !== 'all' ? 'all' : fRoom)}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: 999,
-                    border: isActive ? '1.5px solid var(--gold)' : '1px solid #d6d3d1',
-                    background: isActive ? 'rgba(197,156,45,0.12)' : '#fff',
-                    color: isActive ? 'var(--gold-dim)' : '#57534e',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    display: 'flex', alignItems: 'center', gap: 5,
-                  }}
-                >
-                  {label}
-                  <span style={{ fontSize: 10, opacity: 0.7, background: isActive ? 'rgba(197,156,45,0.2)' : '#f3efe7', borderRadius: 99, padding: '1px 5px' }}>{chipCount}</span>
-                </button>
-              );
-            })}
+          {/* Browse by reference type, room, and design focus independently. */}
+          <div style={{ display: 'grid', gap: 9, padding: '14px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ width: 76, color: '#78716c', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em' }}>Reference</span>
+              {REFERENCE_TYPE_FILTERS.map(([key, label]) => {
+                const active = vaultReferenceType === key;
+                const count = key === 'all' ? CURATED_VAULT_REFERENCES.length : CURATED_VAULT_REFERENCES.filter((ref) => referenceType(ref) === key).length;
+                return <button key={key} type="button" aria-pressed={active} onClick={() => { setVaultReferenceType(key); setVaultRoom('all'); if (key !== 'rooms') setVaultFocus('all'); }} style={{ padding: '6px 10px', borderRadius: 999, border: active ? '1.5px solid var(--gold)' : '1px solid #d6d3d1', background: active ? 'rgba(197,156,45,.12)' : '#fff', color: active ? 'var(--gold-dim)' : '#57534e', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{label} <span style={{ opacity: .65 }}>{count}</span></button>;
+              })}
+            </div>
+            {(vaultReferenceType === 'all' || vaultReferenceType === 'rooms') && <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+              <span style={{ width: 76, color: '#78716c', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em' }}>Room</span>
+              {([['all', 'All rooms'], ...ROOM_REFERENCE_FILTERS] as const).map(([key, label]) => {
+                const active = vaultRoom === key;
+                const count = key === 'all' ? CURATED_VAULT_REFERENCES.filter((ref) => referenceType(ref) === 'rooms').length : CURATED_VAULT_REFERENCES.filter((ref) => referenceType(ref) === 'rooms' && referenceSpace(ref) === key).length;
+                return <button key={key} type="button" aria-pressed={active} onClick={() => { setVaultRoom(key); setVaultReferenceType('rooms'); setVaultFocus('all'); }} style={{ padding: '5px 9px', borderRadius: 999, border: active ? '1.5px solid var(--gold)' : '1px solid #e7e0d6', background: active ? '#fff4d7' : '#fff', color: active ? '#765516' : '#57534e', fontSize: 11, fontWeight: 650, cursor: 'pointer' }}>{label} <span style={{ opacity: .6 }}>{count}</span></button>;
+              })}
+            </div>}
+            {vaultReferenceType === 'rooms' && <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+              <span style={{ width: 76, color: '#78716c', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em' }}>Design focus</span>
+              {['all', ...new Set(CURATED_VAULT_REFERENCES.filter((ref) => referenceType(ref) === 'rooms' && (vaultRoom === 'all' || referenceSpace(ref) === vaultRoom)).map(referenceFocusLabel))].map((focus) => {
+                const active = vaultFocus === focus;
+                const count = focus === 'all' ? CURATED_VAULT_REFERENCES.filter((ref) => referenceType(ref) === 'rooms' && (vaultRoom === 'all' || referenceSpace(ref) === vaultRoom)).length : CURATED_VAULT_REFERENCES.filter((ref) => referenceType(ref) === 'rooms' && (vaultRoom === 'all' || referenceSpace(ref) === vaultRoom) && referenceFocusLabel(ref) === focus).length;
+                return <button key={focus} type="button" aria-pressed={active} onClick={() => { setVaultFocus(focus); setVaultReferenceType('rooms'); }} style={{ padding: '5px 9px', borderRadius: 999, border: active ? '1.5px solid #9c7740' : '1px solid #e7e0d6', background: active ? '#f3eada' : '#fff', color: active ? '#634720' : '#57534e', fontSize: 11, fontWeight: 650, cursor: 'pointer' }}>{focus === 'all' ? 'All design types' : focus} <span style={{ opacity: .6 }}>{count}</span></button>;
+              })}
+            </div>}
           </div>
 
           <CardContent style={{ padding: 16 }}>
             {(() => {
               const filteredReferences = CURATED_VAULT_REFERENCES.filter((ref) => {
-                const matchRoom = vaultRoom === 'all' || ref.room === vaultRoom || ref.family === vaultRoom;
+                const matchType = vaultReferenceType === 'all' || referenceType(ref) === vaultReferenceType;
+                const matchRoom = vaultRoom === 'all' || referenceSpace(ref) === vaultRoom;
+                const matchFocus = vaultFocus === 'all' || referenceFocusLabel(ref) === vaultFocus;
                 const matchQuery = !search || `${ref.title} ${ref.room} ${ref.family} ${ref.tags.join(' ')} ${ref.sourceName ?? ''} ${ref.kind ?? ''}`.toLowerCase().includes(search);
-                return matchRoom && matchQuery;
+                return matchType && matchRoom && matchFocus && matchQuery;
               });
 
               if (!filteredReferences.length) {
@@ -1338,11 +1370,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                             image: ref.img,
                             title: ref.title,
                             family: ref.family,
-                            description: ref.kind === 'technical'
-                              ? 'Reference image only. Verify every annotation and dimension against an approved source drawing before use.'
-                              : ref.kind === 'material-detail'
-                                ? 'Visual finish inspiration only. This image does not identify a supplier, product code, finish specification, or calibrated colour.'
-                                : 'Style inspiration only. The image does not define measured dimensions or certified construction geometry.',
+                            description: referenceDescription(ref),
                           });
                         }}
                         style={{ position: 'relative', height: 190, background: '#1c1917', cursor: 'pointer', overflow: 'hidden' }}
@@ -1371,14 +1399,17 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                             textTransform: 'uppercase',
                           }}
                         >
-                          {ref.kind === 'technical' ? 'Technical image · verify separately' : ref.kind === 'material-detail' ? 'Finish inspiration · not a spec' : 'Style inspiration · not measured'}
+                          {referenceAuthorityLabel(ref)}
                         </span>
                       </div>
 
                       <div style={{ padding: '12px 14px 14px' }}>
                         <strong style={{ display: 'block', fontSize: 13.5, color: '#1c1917', marginBottom: 4 }}>
-                          {ref.title}
+                          {referenceDisplayTitle(ref as RecentGalleryReference)}
                         </strong>
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 7 }}>
+                          {[REFERENCE_SPACE_LABELS[referenceSpace(ref)] ?? 'Interior reference', referenceFocusLabel(ref)].map((label) => <span key={label} style={{ borderRadius: 999, padding: '3px 7px', background: '#f5efe3', color: '#71542c', fontSize: 10, fontWeight: 700 }}>{label}</span>)}
+                        </div>
                         <small style={{ display: 'block', color: '#78716c', fontSize: 10, marginBottom: 8 }}>
                           Source: {ref.sourceBatch ?? 'Existing studio gallery'} · visual only
                         </small>
@@ -1398,11 +1429,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                                 image: ref.img,
                                 title: ref.title,
                                 family: ref.family,
-                                description: ref.kind === 'technical'
-                                  ? 'Reference image only. Verify every annotation and dimension against an approved source drawing before use.'
-                                  : ref.kind === 'material-detail'
-                                    ? 'Visual finish inspiration only. This image does not identify a supplier, product code, finish specification, or calibrated colour.'
-                                    : 'Style inspiration only. The image does not define measured dimensions or certified construction geometry.',
+                                description: referenceDescription(ref),
                               });
                             }}
                             style={{

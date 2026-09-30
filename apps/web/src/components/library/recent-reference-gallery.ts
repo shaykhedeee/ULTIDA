@@ -1,6 +1,49 @@
 // Imported visual reference gallery. Images are inspiration only and never a source of measured geometry.
 export type RecentReferenceKind = 'render-or-inspiration' | 'collected-inspiration' | 'technical' | 'material-detail';
 export type RecentGalleryReference = { id: string; img: string; room: string; family: string; title: string; tags: string[]; kind: RecentReferenceKind; sourceName: string; sourceBatch: string; sourceSha256: string; sourceWidth?: number; sourceHeight?: number };
+
+/** Human-facing taxonomy for browsing visual references; never used as geometry or fabrication data. */
+export const REFERENCE_SPACE_LABELS: Record<string, string> = {
+  living: 'Living room', bedroom: 'Bedroom', kitchen: 'Kitchen', dining: 'Dining',
+  bathroom: 'Bathroom', pooja: 'Pooja / prayer', study: 'Study / home office',
+  utility: 'Utility / laundry', entry: 'Entry / foyer', technical: 'Technical drawings', materials: 'Material details',
+};
+
+const FAMILY_FOCUS: Record<string, string> = {
+  'tv-unit': 'TV & media walls', 'media-wall': 'TV & media walls', 'kitchen': 'Kitchen cabinetry',
+  'kitchen-base': 'Kitchen cabinetry', 'kitchen-wall': 'Kitchen cabinetry', 'kitchen-tall': 'Kitchen cabinetry',
+  'wardrobe': 'Wardrobes & storage', 'wardrobe-study': 'Wardrobe + study', 'bed': 'Beds & headboards',
+  'study': 'Study & workspaces', 'pooja': 'Pooja units', 'crockery': 'Crockery & display',
+  'bar': 'Bar & display storage', 'vanity': 'Vanity & bathroom storage', 'utility': 'Utility storage',
+  'entry': 'Entry & foyer storage', 'entryway': 'Entry & foyer storage', 'lighting': 'Lighting details', 'technical': 'Technical drawings',
+  'feature-wall': 'Feature walls & panelling', sofa: 'Sofas & living furniture', 'bedroom-suite': 'Bedroom suites',
+  'materials': 'Material details',
+};
+
+export function referenceFocus(reference: Pick<RecentGalleryReference, 'family' | 'room' | 'kind'>): string {
+  if (reference.kind === 'technical') return 'Technical drawings';
+  if (reference.kind === 'material-detail') return 'Material details';
+  const family = reference.family.toLowerCase();
+  if (FAMILY_FOCUS[family]) return FAMILY_FOCUS[family];
+  if (/wardrobe|closet|storage/.test(family)) return 'Wardrobes & storage';
+  if (/tv|media/.test(family)) return 'TV & media walls';
+  if (/kitchen/.test(family)) return 'Kitchen cabinetry';
+  if (/pooja|mandir/.test(family)) return 'Pooja units';
+  if (/study|desk|office/.test(family)) return 'Study & workspaces';
+  if (/dining|bar|crockery/.test(family)) return 'Dining & display storage';
+  if (/bath|vanity/.test(family)) return 'Vanity & bathroom storage';
+  return `${REFERENCE_SPACE_LABELS[reference.room] ?? 'Interior'} inspiration`;
+}
+
+export function referenceDisplayTitle(reference: Pick<RecentGalleryReference, 'title' | 'family' | 'room' | 'kind'>): string {
+  if (!/visual reference\s+\d+/i.test(reference.title)) return reference.title;
+  const space = REFERENCE_SPACE_LABELS[reference.room] ?? 'Interior';
+  const focus = referenceFocus(reference);
+  const sequence = reference.title.match(/(\d+)\s*$/)?.[1];
+  const category = space === focus ? space.replace(/s$/, '') : `${space} · ${focus}`;
+  return `${category}${sequence ? ` · ${sequence}` : ''}`;
+}
+
 export const RECENT_REFERENCE_GALLERY: RecentGalleryReference[] = [
   {
     "id": "recent-4b782577af18",

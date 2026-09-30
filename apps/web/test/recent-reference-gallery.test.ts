@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { RECENT_REFERENCE_GALLERY } from '../src/components/library/recent-reference-gallery.ts';
+import { RECENT_REFERENCE_GALLERY, REFERENCE_SPACE_LABELS, referenceDisplayTitle, referenceFocus } from '../src/components/library/recent-reference-gallery.ts';
 
 const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
 
@@ -32,4 +32,19 @@ test('technical drawings and finish details carry separate advisory labels', () 
   assert.ok(materials.length >= 3, 'expected material-detail references to remain separately searchable');
   assert.ok(technical.every((reference) => reference.tags.includes('verify-source-separately')));
   assert.ok(materials.every((reference) => reference.tags.includes('not-supplier-specification')));
+});
+
+test('reference taxonomy provides a useful room, design focus, and non-generic title for every import', () => {
+  const validSpaces = new Set(Object.keys(REFERENCE_SPACE_LABELS));
+  for (const reference of RECENT_REFERENCE_GALLERY) {
+    assert.ok(validSpaces.has(reference.room), `unclassified space on ${reference.id}: ${reference.room}`);
+    assert.ok(referenceFocus(reference).trim().length > 0, `missing design focus on ${reference.id}`);
+    const title = referenceDisplayTitle(reference);
+    assert.ok(title.trim().length > 0, `missing display title on ${reference.id}`);
+    assert.doesNotMatch(title, /visual reference\s+\d+/i, `generic fallback title remains on ${reference.id}`);
+  }
+  assert.equal(referenceFocus({ family: 'tv-unit', room: 'living', kind: 'render-or-inspiration' }), 'TV & media walls');
+  assert.equal(referenceFocus({ family: 'wardrobe', room: 'bedroom', kind: 'render-or-inspiration' }), 'Wardrobes & storage');
+  assert.equal(referenceFocus({ family: 'technical-reference', room: 'technical', kind: 'technical' }), 'Technical drawings');
+  assert.equal(referenceFocus({ family: 'material-detail', room: 'materials', kind: 'material-detail' }), 'Material details');
 });
