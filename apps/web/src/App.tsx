@@ -37,7 +37,6 @@ const PlanReviewWorkspace = lazy(() => import('./components/plan/PlanReviewWorks
 const LayoutConfigWorkspace = lazy(() => import('./components/layout/LayoutConfigWorkspace').then((module) => ({ default: module.LayoutConfigWorkspace })));
 const DesignFlowWorkspace = lazy(() => import('./components/design/DesignFlowWorkspace').then((module) => ({ default: module.DesignFlowWorkspace })));
 const CommercialWorkspace = lazy(() => import('./components/commercial/CommercialWorkspace').then((module) => ({ default: module.CommercialWorkspace })));
-const DeliveryWorkspace = lazy(() => import('./components/delivery/DeliveryWorkspace').then((module) => ({ default: module.DeliveryWorkspace })));
 const ReferenceLibraryWorkspace = lazy(() => import('./components/library/ReferenceLibraryWorkspace').then((module) => ({ default: module.ReferenceLibraryWorkspace })));
 const SpacesWorkspace = lazy(() => import('./features/spaces/SpacesWorkspace').then((module) => ({ default: module.SpacesWorkspace })));
 const RoomDesignStudio = lazy(() => import('./features/room-design/RoomDesignStudio').then((module) => ({ default: module.RoomDesignStudio })));
