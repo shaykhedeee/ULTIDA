@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import { ModulePreview } from './ModulePreview';
 import ResearchSourcingPanel from './ResearchSourcingPanel';
+import { RECENT_REFERENCE_GALLERY, type RecentGalleryReference } from './recent-reference-gallery';
 
 type LibraryItem = {
   id: string;
@@ -60,10 +61,11 @@ type Material = {
 
 export type MoodboardItem = {
   id: string;
-  type: 'module' | 'material' | 'swatch';
+  type: 'module' | 'material' | 'swatch' | 'reference';
   title: string;
   subtitle?: string;
   colorHex?: string;
+  image?: string;
   module?: CatalogModule;
   x: number;
   y: number;
@@ -115,7 +117,7 @@ const MODULE_REFERENCE_IMAGES: Record<string, string[]> = {
   storage: ['/reference-vault/008-5fd497f005d8.png', '/reference-vault/040-a7dcd66e4242.png', '/reference-vault/041-6770bf54ce43.png'],
 };
 
-const CURATED_VAULT_REFERENCES = [
+const EXISTING_CURATED_VAULT_REFERENCES = [
   { id: 'ref-001', img: '/reference-vault/001-ddc1891636f7.png', room: 'living', family: 'sofa', title: '2800mm Sectional Sofa & Dark Oak Coffee Table', tags: ['living', 'sofa', 'sectional', 'l-shaped'] },
   { id: 'ref-002', img: '/reference-vault/002-cab37cfa0bb2.png', room: 'dining', family: 'crockery', title: '1800mm Fluted Crockery Console & Glass Overhead Bar', tags: ['dining', 'crockery', 'fluted', 'bar'] },
   { id: 'ref-003', img: '/reference-vault/003-1f61a8aabde4.png', room: 'kitchen', family: 'kitchen-tall', title: 'Modular Kitchen with Dual Microwave/Oven Tall Tower', tags: ['kitchen', 'tall-unit', 'appliance', 'microwave'] },
@@ -176,6 +178,21 @@ const CURATED_VAULT_REFERENCES = [
   { id: 'ref-058', img: '/reference-vault/058-b3d36c0c874b.png', room: 'living', family: 'tv-unit', title: '2600mm TV Panel with White Fluted Surround & Halo LED Light', tags: ['living', 'tv-unit', 'halo-light', 'floating-console'] },
   { id: 'ref-059', img: '/reference-vault/059-28205fff47ae.png', room: 'kitchen', family: 'kitchen-tall', title: 'Minimalist Kitchen with Dual Oven Tower & Gas Cooktop', tags: ['kitchen', 'tall-tower', 'cooktop', 'microwave'] },
   { id: 'ref-060', img: '/reference-vault/060-70075531f7e7.png', room: 'bedroom', family: 'bed', title: 'Master Bedroom Suite: King Bed, 6-Door Wardrobe & Study Desk', tags: ['bedroom', 'suite', 'king-bed', '6-door-wardrobe'] },
+];
+
+const CURATED_VAULT_REFERENCES: Array<{
+  id: string;
+  img: string;
+  room: string;
+  family: string;
+  title: string;
+  tags: string[];
+  kind?: RecentGalleryReference['kind'] | 'existing-curated';
+  sourceName?: string;
+  sourceBatch?: string;
+}> = [
+  ...EXISTING_CURATED_VAULT_REFERENCES.map((reference) => ({ ...reference, kind: 'existing-curated' as const })),
+  ...RECENT_REFERENCE_GALLERY,
 ];
 
 const DEFAULT_PROJECT_MATERIALS: Material[] = [
@@ -1166,7 +1183,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                     backdropFilter: item.type === 'swatch' ? undefined : 'blur(8px)',
                     border: selectedMbItem === item.id ? '2px solid var(--gold)' : '1px solid rgba(0,0,0,0.12)',
                     borderRadius: item.type === 'swatch' ? 12 : 14,
-                    padding: item.type === 'swatch' ? 12 : 10,
+                    padding: item.type === 'reference' ? 0 : item.type === 'swatch' ? 12 : 10,
                     boxShadow: selectedMbItem === item.id ? '0 12px 28px rgba(197,156,45,0.25)' : '0 8px 24px rgba(0,0,0,0.12)',
                     cursor: 'grab',
                     transition: 'box-shadow 0.15s ease',
@@ -1196,6 +1213,19 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                     </div>
                   )}
 
+                  {item.type === 'reference' && item.image && (
+                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 12 }}>
+                      <img src={item.image} alt={`Visual inspiration: ${item.title}`} loading="lazy" style={{ width: '100%', height: Math.max(80, item.height - 52), objectFit: 'cover', display: 'block' }} />
+                      <div style={{ padding: '6px 8px', minHeight: 40, display: 'flex', gap: 6, justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <strong style={{ display: 'block', fontSize: 10, color: '#1c1917', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</strong>
+                          <small style={{ fontSize: 9, color: '#78716c' }}>Inspiration only</small>
+                        </div>
+                        <button type="button" aria-label={`Remove ${item.title} from moodboard`} onClick={(event) => { event.stopPropagation(); setMoodboardItems((prev) => prev.filter((entry) => entry.id !== item.id)); }} style={{ border: 0, background: 'transparent', color: '#991b1b', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>
+                      </div>
+                    </div>
+                  )}
+
                   {item.type === 'swatch' && (
                     <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%', color: '#1c1917' }}>
                       <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', background: 'rgba(255,255,255,0.85)', padding: '2px 6px', borderRadius: 4, width: 'fit-content' }}>
@@ -1216,6 +1246,9 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       {/* Imported project imagery remains advisory and separate from certified module geometry. */}
       {activeTab === 'templates' && (
         <Card className="workflow">
+          <div role="note" style={{ margin: 16, marginBottom: 0, padding: '10px 12px', border: '1px solid #ead8b5', borderRadius: 9, background: '#fffaf0', color: '#684c22', fontSize: 12 }}>
+            <strong>Visual references only.</strong> Renders, collected inspiration, elevations, and material details do not establish room dimensions, module construction, supplier availability, or fabrication approval. Use measured project geometry and verified catalog data for those decisions.
+          </div>
           {activeProjectId && <section aria-label="Imported visual references" style={{ padding: 16, borderBottom: '1px solid #ebdccb' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
               <div><h2 style={{ margin: 0, fontSize: 16, color: '#29231e' }}>This project’s images</h2><p style={{ margin: '4px 0 0', color: '#78716c', fontSize: 12 }}>Visual guidance only · module sizes still come from the measured catalog.</p></div>
@@ -1240,6 +1273,9 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
               ['pooja', '🪔 Sacred Mandirs', 'pooja'],
               ['study', '💼 Study & Desks', 'study'],
               ['utility', '🧺 Utility & Laundry', 'utility'],
+              ['entry', '🚪 Entry & Storage', 'entry'],
+              ['technical', '📐 Technical Images', 'technical'],
+              ['materials', '🪵 Material Details', 'materials'],
             ] as const).map(([k, label, fRoom]) => {
               const isActive = (vaultRoom === fRoom);
               const chipCount = fRoom === 'all' ? CURATED_VAULT_REFERENCES.length : CURATED_VAULT_REFERENCES.filter(r => r.room === fRoom || r.family === fRoom).length;
@@ -1272,7 +1308,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
             {(() => {
               const filteredReferences = CURATED_VAULT_REFERENCES.filter((ref) => {
                 const matchRoom = vaultRoom === 'all' || ref.room === vaultRoom || ref.family === vaultRoom;
-                const matchQuery = !search || `${ref.title} ${ref.room} ${ref.family} ${ref.tags.join(' ')}`.toLowerCase().includes(search);
+                const matchQuery = !search || `${ref.title} ${ref.room} ${ref.family} ${ref.tags.join(' ')} ${ref.sourceName ?? ''} ${ref.kind ?? ''}`.toLowerCase().includes(search);
                 return matchRoom && matchQuery;
               });
 
@@ -1302,7 +1338,11 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                             image: ref.img,
                             title: ref.title,
                             family: ref.family,
-                            description: `Curated masterclass design reference for ${ref.room.toUpperCase()} - ${ref.tags.join(', ')}.`,
+                            description: ref.kind === 'technical'
+                              ? 'Reference image only. Verify every annotation and dimension against an approved source drawing before use.'
+                              : ref.kind === 'material-detail'
+                                ? 'Visual finish inspiration only. This image does not identify a supplier, product code, finish specification, or calibrated colour.'
+                                : 'Style inspiration only. The image does not define measured dimensions or certified construction geometry.',
                           });
                         }}
                         style={{ position: 'relative', height: 190, background: '#1c1917', cursor: 'pointer', overflow: 'hidden' }}
@@ -1331,7 +1371,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                             textTransform: 'uppercase',
                           }}
                         >
-                          {ref.room} · {ref.family}
+                          {ref.kind === 'technical' ? 'Technical image · verify separately' : ref.kind === 'material-detail' ? 'Finish inspiration · not a spec' : 'Style inspiration · not measured'}
                         </span>
                       </div>
 
@@ -1339,6 +1379,9 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                         <strong style={{ display: 'block', fontSize: 13.5, color: '#1c1917', marginBottom: 4 }}>
                           {ref.title}
                         </strong>
+                        <small style={{ display: 'block', color: '#78716c', fontSize: 10, marginBottom: 8 }}>
+                          Source: {ref.sourceBatch ?? 'Existing studio gallery'} · visual only
+                        </small>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
                           {ref.tags.map((tag) => (
                             <span key={tag} style={{ background: '#f5f5f4', color: '#78716c', padding: '2px 6px', borderRadius: 4, fontSize: 10 }}>
@@ -1355,7 +1398,11 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                                 image: ref.img,
                                 title: ref.title,
                                 family: ref.family,
-                                description: `Curated masterclass design reference for ${ref.room.toUpperCase()} - ${ref.tags.join(', ')}.`,
+                                description: ref.kind === 'technical'
+                                  ? 'Reference image only. Verify every annotation and dimension against an approved source drawing before use.'
+                                  : ref.kind === 'material-detail'
+                                    ? 'Visual finish inspiration only. This image does not identify a supplier, product code, finish specification, or calibrated colour.'
+                                    : 'Style inspiration only. The image does not define measured dimensions or certified construction geometry.',
                               });
                             }}
                             style={{
@@ -1376,10 +1423,10 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                             onClick={() => {
                               const newItem: MoodboardItem = {
                                 id: `mb-${Date.now()}`,
-                                type: 'swatch',
+                                type: 'reference',
                                 title: ref.title,
-                                subtitle: `${ref.room.toUpperCase()} Reference`,
-                                colorHex: '#c59c2d',
+                                subtitle: 'Visual inspiration only',
+                                image: ref.img,
                                 x: 100 + Math.random() * 60,
                                 y: 100 + Math.random() * 60,
                                 width: 200,
