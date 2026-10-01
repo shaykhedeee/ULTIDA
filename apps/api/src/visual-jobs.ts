@@ -294,15 +294,14 @@ export async function measureRenderImage(scene: import('@ultida/scene-core').Sce
     measuredSkirtingCount: skirtingEvidence.filter(({ visible }) => visible).length,
     skirtingGeometryAligned: skirtingEvidence.every(({ boundaryAlignment }) => boundaryAlignment >= 0.12),
     focalModuleVisible: scene.modules.length === 0 || objectEvidence.some(({ visible }) => visible),
-    // A calibrated camera estimate needs a pose solver.  Until one is enabled,
-    // edge alignment produces a conservative pixel-derived deviation instead
-    // of claiming the locked camera matched exactly.
-    cameraSimilarityMm: Math.round((1 - alignment) * 1000),
+    // Keep the actual dimensionless image measurement. There is no calibrated
+    // pose solver here, so reporting a camera displacement in mm would invent evidence.
+    imageEdgeAlignment: alignment,
     measuredObjectIds: objectEvidence.filter(({ visible }) => visible).map(({ id }) => id),
     measuredMaterialRegionIds: materialEvidence.filter(({ visible }) => visible).map(({ id }) => id),
     // Cabinet divisions require a dedicated semantic detector.  Leaving this
     // undefined prevents a fabricated count from being treated as evidence.
-    inventedObjectLabels: [],
+    // Object masks test expected regions only; they cannot detect newly invented objects.
   };
 }
 

@@ -3,6 +3,7 @@ import { OpenAIVisionProvider } from './providers/openai-vision.js';
 import { GeminiVisionProvider } from './providers/gemini-vision.js';
 import { CloudflareVisionProvider } from './providers/cloudflare-vision.js';
 import { StructuredFloorplanVisionProvider } from './providers/structured-floorplan-vision.js';
+import { eligiblePlanVisionProviders } from './plan-provider-policy.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -23,19 +24,9 @@ export function getVisionProvider(env: Env, preferred?: 'openai' | 'gemini' | 'c
     providers.push({ key: 'cloudflare', make: () => new CloudflareVisionProvider(env) });
   }
 
-  if (!providers.length) return null;
-
-  if (preferred) {
-    const found = providers.find((p) => p.key === preferred);
-    if (found) return found.make();
-  }
-
-  // Prefer high-accuracy models (Gemini / OpenAI) whenever keys exist,
-  // falling back to Cloudflare Workers AI for zero-config hosted deployments.
-  const order: Array<'openai' | 'gemini' | 'cloudflare' | 'structured-floorplan'> = ['gemini', 'openai', 'cloudflare', 'structured-floorplan'];
-  for (const key of order) {
+  for (const key of eligiblePlanVisionProviders(env, preferred)) {
     const match = providers.find((p) => p.key === key);
     if (match) return match.make();
   }
-  return providers[0].make();
+  return null;
 }

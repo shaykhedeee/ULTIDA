@@ -287,8 +287,7 @@ export async function executeRenderJob(input: RenderJobInput): Promise<{ record:
         wallEdgesAligned: false,
         openingCountMatches: false,
         focalModuleVisible: false,
-        cameraSimilarityMm: Number.POSITIVE_INFINITY,
-        inventedObjectsDetected: false,
+        unmeasuredChecks: ['camera', 'invented_objects', 'openings', 'modules'],
         missingObjects: [],
       };
   const qaBlocking = qa.issues.filter((i) => i.severity === 'blocking').length > 0;

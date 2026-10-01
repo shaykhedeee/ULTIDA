@@ -17,3 +17,14 @@ test('rejects a module that would extend past the measured wall', () => {
   if (result.ok) return;
   assert.equal(result.code, 'MODULE_EXCEEDS_WALL');
 });
+
+test('invalid mounting elevations are rejected rather than silently grounded', () => {
+  for (const zMm of [NaN, Infinity, -1]) {
+    const result = resolveModuleWallAnchor(wall, { wallId: 'wall-a', offsetMm: 0, zMm }, 1800);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, 'MODULE_ELEVATION_INVALID');
+  }
+  const mounted = resolveModuleWallAnchor(wall, { wallId: 'wall-a', offsetMm: 0, zMm: 850 }, 1800);
+  assert.ok(mounted.ok);
+  assert.equal(mounted.anchor.zMm, 850);
+});

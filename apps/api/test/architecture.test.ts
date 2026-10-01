@@ -183,6 +183,7 @@ test('plan analyzer sends a plan to one primary provider unless verification is 
   try {
     const result = await analyzePlanWithProvider({
       GEMINI_API_KEY: 'gemini-test-key',
+      GEMINI_VISION_OPT_IN: 'true',
       CLOUDFLARE_ACCOUNT_ID: 'cf-account',
       CLOUDFLARE_AI_TOKEN: 'cf-token',
       CLOUDFLARE_VISION_MODEL: '@cf/meta/llama-3.2-11b-vision-instruct',
@@ -215,6 +216,7 @@ test('plan analyzer falls back only after the primary provider fails', async () 
   try {
     const result = await analyzePlanWithProvider({
       GEMINI_API_KEY: 'gemini-test-key',
+      GEMINI_VISION_OPT_IN: 'true',
       CLOUDFLARE_ACCOUNT_ID: 'cf-account',
       CLOUDFLARE_AI_TOKEN: 'cf-token',
       CLOUDFLARE_VISION_MODEL: '@cf/meta/llama-3.2-11b-vision-instruct',

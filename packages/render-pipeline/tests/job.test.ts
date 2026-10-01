@@ -44,6 +44,7 @@ const QA_EVIDENCE = {
   measuredObjectIds: ['tv-1'],
   measuredMaterialRegionIds: ['mat-tv'],
   cabinetDivisionCount: 0,
+  inventedObjectLabels: [],
 };
 
 const PERSPECTIVE_SCENE: any = {

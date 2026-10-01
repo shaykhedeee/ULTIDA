@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { renderScenePerspectiveArtifacts } from '@ultida/render-pipeline';
-import { evaluateRenderImageQA } from '../src/visual-jobs';
+import { evaluateRenderImageQA, measureRenderImage } from '../src/visual-jobs';
 
 const SCENE: any = {
   schema: 'scene.v1', units: 'mm', coordinateSystem: 'right-handed-z-up', projectId: 'project-1', floorPlanVersionId: 'plan-1',
@@ -34,6 +34,18 @@ test('live render QA accepts the deterministic edge raster that produced its tec
   const artifacts = renderScenePerspectiveArtifacts(SCENE, { width: 160, height: 120 });
   const qa = await evaluateRenderImageQA(SCENE, artifacts, artifacts.edgeMap.url);
   assert.equal(qa.issues.filter((issue) => issue.severity === 'blocking').length, 0, JSON.stringify(qa));
+  assert.equal(qa.cameraSimilarityMm, undefined);
+  assert.equal(qa.inventedObjectsDetected, undefined);
+  assert.ok(qa.unmeasuredChecks?.includes('camera'));
+  assert.ok(qa.unmeasuredChecks?.includes('invented_objects'));
+});
+
+test('image measurement reports edge alignment without inventing physical camera accuracy or semantic evidence', async () => {
+  const artifacts = renderScenePerspectiveArtifacts(SCENE, { width: 160, height: 120 });
+  const measured = await measureRenderImage(SCENE, artifacts, artifacts.edgeMap.url);
+  assert.ok(measured.imageEdgeAlignment != null && measured.imageEdgeAlignment >= 0 && measured.imageEdgeAlignment <= 1);
+  assert.equal(measured.cameraSimilarityMm, undefined);
+  assert.equal(measured.inventedObjectLabels, undefined);
 });
 
 test('AI visual proposals retain geometry QA evidence as review warnings instead of being silently discarded', async () => {

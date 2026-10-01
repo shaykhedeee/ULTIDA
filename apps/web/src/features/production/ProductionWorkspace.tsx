@@ -2110,7 +2110,17 @@ export function ProductionWorkspace({
                 <h4>Review the final document, then prepare fabrication</h4>
                 <div className="exports-primary-grid">
                   <Card className="featured-export">
-                    <CardHeader>Approved Design &amp; Production Document (PDF)</CardHeader>
+                    <CardHeader>Design Review Drawings (PDF)</CardHeader>
+                    <CardContent>
+                      <p>Measured plans and elevations from the saved approved design. Available before panel cutlist review; this drawing pack does not release fabrication.</p>
+                      <Button variant="primary" size="sm"
+                        disabled={!sceneApproved || !sceneVersionId}
+                        onClick={() => void downloadProductionFile('/drawings/elevations.pdf', `ultida-${sceneVersionId}-design-review.pdf`)}
+                      >Download Design PDF</Button>
+                    </CardContent>
+                  </Card>
+                  <Card className="featured-export">
+                    <CardHeader>Production Dossier (PDF)</CardHeader>
                     <CardContent>
                       <p>Index, wall elevations, carcass sections, fabrication rules, material summary, hardware and panel cutlist — all from this exact scene revision.</p>
                       <Button variant="primary" size="sm"

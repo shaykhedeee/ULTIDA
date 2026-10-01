@@ -13,6 +13,7 @@ export { PlanVisionOutputSchema, normalizeVisionOutput };
 export type { PlanVisionOutput };
 export type { VisionProvider };
 export { OpenAIVisionProvider, GeminiVisionProvider, CloudflareVisionProvider, StructuredFloorplanVisionProvider, getVisionProvider };
+export { eligiblePlanVisionProviders, type PlanVisionProviderId } from './plan-provider-policy.js';
 
 export const AgentExecutionStatusSchema = z.enum([
   'queued', 'validating', 'running', 'awaiting_confirmation', 'succeeded', 'failed', 'cancelled'

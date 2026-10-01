@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { PROMPT_VERSIONS } from '@ultida/agent-core';
+import { PROMPT_VERSIONS, eligiblePlanVisionProviders } from '@ultida/agent-core';
 import { PlanProposalSchema, parsePlanIntake, type PlanProposal, type PlanIntakeResult } from '@ultida/plan-core';
 
 type Environment = Record<string, string | undefined>;
@@ -36,11 +36,7 @@ function geminiVisionKey(environment: Environment) {
 }
 
 export function isPlanVisionProviderConfigured(environment: Environment) {
-  return Boolean(
-    environment.OPENAI_API_KEY
-    || geminiVisionKey(environment)
-    || (environment.CLOUDFLARE_ACCOUNT_ID && environment.CLOUDFLARE_AI_TOKEN)
-  );
+  return eligiblePlanVisionProviders(environment).some(id => id !== 'structured-floorplan');
 }
 
 export function compileBriefContext(brief?: Record<string, unknown>): string {
@@ -445,11 +441,9 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
     textContent: input.dataUrl.startsWith('data:text') ? Buffer.from(input.dataUrl.split(',')[1], 'base64').toString('utf-8') : undefined
   });
 
-  // Credentials are sufficient to enable the Cloudflare route: the adapter
-  // has a tested vision-model default and can fall through its model list.
-  // Requiring a model variable here incorrectly disabled the provider and
-  // prevented Gemini/OpenAI fallback from being selected predictably.
-  const configured = [environment.OPENAI_API_KEY ? 'openai' : null, geminiVisionKey(environment) ? 'gemini' : null, environment.CLOUDFLARE_ACCOUNT_ID && environment.CLOUDFLARE_AI_TOKEN ? 'cloudflare' : null].filter(Boolean) as Array<'openai' | 'gemini' | 'cloudflare'>;
+  // Cloudflare is first when configured. Paid providers need a separate studio
+  // opt-in; a key or preferred-provider setting alone never enables fallback.
+  const configured = eligiblePlanVisionProviders(environment).filter((id): id is 'openai' | 'gemini' | 'cloudflare' => id !== 'structured-floorplan');
 
   if (!configured.length) {
     const error = new Error('A real AI vision provider is required for floor-plan analysis.');
@@ -467,20 +461,11 @@ export async function analyzePlanWithProvider(environment: Environment, input: I
       runs.push({ provider, model: result.model, status: 'succeeded', latencyMs: Date.now() - started });
       return { provider, ...result };
     } catch (error) {
-      runs.push({ provider, model: provider === 'openai' ? environment.OPENAI_VISION_MODEL || 'gpt-4o-mini' : provider === 'gemini' ? environment.GEMINI_VISION_MODEL || 'gemini-3.6-flash' : environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL || '@cf/meta/llama-4-scout-17b-16e-instruct', status: 'failed', latencyMs: Date.now() - started, error: error instanceof Error ? error.message : 'Provider failed.' });
+      runs.push({ provider, model: provider === 'openai' ? environment.OPENAI_VISION_MODEL || 'gpt-4o-mini' : provider === 'gemini' ? environment.GEMINI_VISION_MODEL || 'gemini-2.5-flash' : environment.CLOUDFLARE_VISION_MODEL || environment.CLOUDFLARE_PLAN_MODEL || '@cf/meta/llama-4-scout-17b-16e-instruct', status: 'failed', latencyMs: Date.now() - started, error: error instanceof Error ? error.message : 'Provider failed.' });
       return null;
     }
   };
-  const requestedPrimary = environment.PLAN_ANALYZER_PRIMARY;
-  // Prefer high-accuracy vision models (Gemini / OpenAI) whenever keys are configured,
-  // falling back to Cloudflare Workers AI for zero-config hosted deployments.
-  const defaultOrder: Array<'openai' | 'gemini' | 'cloudflare'> = ['gemini', 'openai', 'cloudflare'];
-  const order = [
-    ...(requestedPrimary && configured.includes(requestedPrimary as 'openai' | 'gemini' | 'cloudflare')
-      ? [requestedPrimary as 'openai' | 'gemini' | 'cloudflare']
-      : []),
-    ...defaultOrder
-  ].filter((provider, index, list) => configured.includes(provider) && list.indexOf(provider) === index);
+  const order = configured;
 
   let primary: { provider: 'openai' | 'gemini' | 'cloudflare'; model: string; proposals: PlanProposal[] } | null = null;
   let verifier: { provider: 'openai' | 'gemini' | 'cloudflare'; model: string; proposals: PlanProposal[] } | null = null;

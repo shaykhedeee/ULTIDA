@@ -9,6 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { IndianModularCatalog } from '@ultida/catalog-core';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import type { RenderIntentV1 } from '@ultida/contracts';
+import { wallSolids } from '@ultida/scene-core';
 import { glbAssetPipeline, DIGITAL_TWIN_REFERENCE_PROFILES } from './glb-asset-pipeline';
 import { measuredRoomAreaSqm, measuredRoomCeilingHeightMm } from './scene-measurements';
 import './scene-studio.css';
@@ -19,7 +20,7 @@ type Scene = {
   schema: 'scene.v1';
   units: 'mm';
   rooms: Array<{ id: string; name: string; boundary: Array<{ xMm: number; yMm: number }> }>;
-  walls: Array<{ id: string; start: { xMm: number; yMm: number }; end: { xMm: number; yMm: number }; thicknessMm: number; heightMm: number; spaceIds?: string[] }>;
+  walls: Array<{ id: string; start: { xMm: number; yMm: number }; end: { xMm: number; yMm: number }; thicknessMm: number; heightMm: number; baseElevationMm: number; spaceIds?: string[] }>;
   openings: Array<{ id: string; wallId: string; offsetMm: number; widthMm: number; heightMm: number; sillHeightMm?: number; kind: 'door' | 'window' }>;
   modules: Array<{
     id: string;
@@ -130,8 +131,8 @@ export function createDefaultDemoScene(): Scene {
     units: 'mm',
     rooms: [{ id: 'room-master-bed', name: 'Master Bedroom', boundary: [{ xMm: 0, yMm: 0 }, { xMm: 4000, yMm: 0 }, { xMm: 4000, yMm: 3000 }, { xMm: 0, yMm: 3000 }, { xMm: 0, yMm: 0 }] }],
     walls: [
-      { id: 'wall-a', start: { xMm: 0, yMm: 0 }, end: { xMm: 4000, yMm: 0 }, thicknessMm: 150, heightMm: 2700, spaceIds: ['room-master-bed'] },
-      { id: 'wall-b', start: { xMm: 4000, yMm: 0 }, end: { xMm: 4000, yMm: 3000 }, thicknessMm: 150, heightMm: 2700, spaceIds: ['room-master-bed'] },
+      { id: 'wall-a', start: { xMm: 0, yMm: 0 }, end: { xMm: 4000, yMm: 0 }, thicknessMm: 150, heightMm: 2700, baseElevationMm: 0, spaceIds: ['room-master-bed'] },
+      { id: 'wall-b', start: { xMm: 4000, yMm: 0 }, end: { xMm: 4000, yMm: 3000 }, thicknessMm: 150, heightMm: 2700, baseElevationMm: 0, spaceIds: ['room-master-bed'] },
     ],
     openings: [],
     modules: [
@@ -240,10 +241,11 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
     const endY = Number(wall.end?.yMm ?? (wall.end as any)?.y);
     const wallThick = Number(wall.thicknessMm);
     const wallH = Number(wall.heightMm);
+    const baseElevation = Number(wall.baseElevationMm);
     const dx = endX - startX;
     const dz = endY - startY;
     const length = Math.hypot(dx, dz);
-    if (![startX, startY, endX, endY, wallThick, wallH].every(Number.isFinite) || length <= 0 || wallThick <= 0 || wallH <= 0) continue;
+    if (![startX, startY, endX, endY, wallThick, wallH, baseElevation].every(Number.isFinite) || length <= 0 || wallThick <= 0 || wallH <= 0) continue;
     const angle = Math.atan2(dz, dx);
     const openings = (scene.openings ?? []).filter((opening) => opening.wallId === wall.id).sort((a, b) => Number(a.offsetMm ?? (a as any).offsetAlongWallMm) - Number(b.offsetMm ?? (b as any).offsetAlongWallMm));
     if (openings.some((opening) => {
@@ -253,7 +255,6 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
       const sill = Number(opening.sillHeightMm ?? (opening as any).sillMm ?? 0);
       return ![offset, width, height, sill].every(Number.isFinite) || offset < 0 || width <= 0 || height <= 0 || offset + width > length || sill < 0 || sill + height > wallH;
     })) continue;
-    let cursor = 0;
     const addSegment = (from: number, to: number, bottomMm: number, heightMm: number, suffix: string) => {
       if (to - from <= 1 || heightMm <= 0) return;
       const geometry = new THREE.BoxGeometry(to - from, heightMm, wallThick);
@@ -261,33 +262,35 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       const midpoint = (from + to) / 2;
-      mesh.position.set(startX + Math.cos(angle) * midpoint, bottomMm + heightMm / 2, startY + Math.sin(angle) * midpoint);
+      mesh.position.set(startX + Math.cos(angle) * midpoint, baseElevation + bottomMm + heightMm / 2, startY + Math.sin(angle) * midpoint);
       mesh.rotation.y = -angle;
       mesh.name = `${wall.id}:${suffix}`;
       mesh.userData = { kind: 'wall', id: wall.id };
       group.add(mesh);
     };
+    wallSolids(length, wallH, openings.map(opening => ({
+      offsetMm: Number(opening.offsetMm ?? (opening as any).offsetAlongWallMm),
+      widthMm: Number(opening.widthMm),
+      heightMm: Number(opening.heightMm),
+      sillHeightMm: Number(opening.sillHeightMm ?? (opening as any).sillMm ?? 0),
+    }))).forEach((solid, index) => addSegment(solid.startMm, solid.endMm, solid.bottomMm, solid.heightMm, `solid:${index}`));
     for (const opening of openings) {
       const opOffset = Number(opening.offsetMm ?? (opening as any).offsetAlongWallMm);
       const opWidth = Number(opening.widthMm);
       const opHeight = Number(opening.heightMm);
       const sill = Number(opening.sillHeightMm ?? (opening as any).sillMm ?? 0);
-      const start = Math.max(cursor, opOffset);
-      addSegment(cursor, start, 0, wallH, 'solid');
+      const start = opOffset;
       const openingEnd = Math.min(length, opOffset + opWidth);
-      addSegment(start, openingEnd, 0, sill, `${opening.id}:sill`);
-      addSegment(start, openingEnd, sill + opHeight, wallH - sill - opHeight, `${opening.id}:head`);
-      cursor = Math.max(cursor, openingEnd);
 
       const opMid = (start + openingEnd) / 2;
-      const effectiveOpWidth = Math.max(200, openingEnd - start);
+      const effectiveOpWidth = openingEnd - start;
       const posX = startX + Math.cos(angle) * opMid;
       const posZ = startY + Math.sin(angle) * opMid;
 
       if (opening.kind === 'door') {
-        const doorLeafGeo = new THREE.BoxGeometry(effectiveOpWidth - 30, opHeight - 20, 36);
+        const doorLeafGeo = new THREE.BoxGeometry(effectiveOpWidth * 0.97, opHeight * 0.99, 36);
         const doorLeafMesh = new THREE.Mesh(doorLeafGeo, new THREE.MeshStandardMaterial({ color: '#5c3d2e', roughness: 0.55, metalness: 0.05 }));
-        doorLeafMesh.position.set(posX, sill + (opHeight - 20) / 2 + 10, posZ);
+        doorLeafMesh.position.set(posX, baseElevation + sill + opHeight / 2, posZ);
         doorLeafMesh.rotation.y = -angle;
         doorLeafMesh.castShadow = true;
         group.add(doorLeafMesh);
@@ -295,11 +298,11 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
         // Door knob / handle
         const knobGeo = new THREE.CylinderGeometry(15, 15, 60, 16);
         const knobMesh = new THREE.Mesh(knobGeo, new THREE.MeshStandardMaterial({ color: '#c59c2d', metalness: 0.9, roughness: 0.2 }));
-        knobMesh.position.set(posX + Math.cos(angle) * (effectiveOpWidth / 2 - 60), sill + 1000, posZ + Math.sin(angle) * (effectiveOpWidth / 2 - 60));
+        knobMesh.position.set(posX + Math.cos(angle) * effectiveOpWidth * 0.4, baseElevation + sill + Math.min(1000, opHeight * 0.5), posZ + Math.sin(angle) * effectiveOpWidth * 0.4);
         knobMesh.rotation.z = Math.PI / 2;
         group.add(knobMesh);
       } else if (opening.kind === 'window') {
-        const glassGeo = new THREE.BoxGeometry(effectiveOpWidth - 20, opHeight - 20, 10);
+        const glassGeo = new THREE.BoxGeometry(effectiveOpWidth * 0.98, opHeight * 0.98, 10);
         const glassMesh = new THREE.Mesh(glassGeo, new THREE.MeshPhysicalMaterial({
           color: '#e0f2fe',
           roughness: 0.05,
@@ -308,18 +311,18 @@ function addWallSegments(group: THREE.Group, scene: Scene, wallVisible: boolean)
           transparent: true,
           opacity: 0.65,
         }));
-        glassMesh.position.set(posX, sill + opHeight / 2, posZ);
+        glassMesh.position.set(posX, baseElevation + sill + opHeight / 2, posZ);
         glassMesh.rotation.y = -angle;
         group.add(glassMesh);
 
-        const winFrameGeo = new THREE.BoxGeometry(effectiveOpWidth, 35, wallThick + 24);
+        const frameHeight = Math.min(35, opHeight);
+        const winFrameGeo = new THREE.BoxGeometry(effectiveOpWidth, frameHeight, wallThick + 24);
         const winFrameMesh = new THREE.Mesh(winFrameGeo, new THREE.MeshStandardMaterial({ color: '#334155', metalness: 0.8, roughness: 0.25 }));
-        winFrameMesh.position.set(posX, sill + 18, posZ);
+        winFrameMesh.position.set(posX, baseElevation + sill + frameHeight / 2, posZ);
         winFrameMesh.rotation.y = -angle;
         group.add(winFrameMesh);
       }
     }
-    addSegment(cursor, length, 0, wallH, 'solid');
   }
 }
 

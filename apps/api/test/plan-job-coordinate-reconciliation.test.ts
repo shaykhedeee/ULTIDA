@@ -73,8 +73,10 @@ test('plan AI readiness matches providers accepted by the analyzer', () => {
   assert.equal(isPlanVisionProviderConfigured({}), false);
   assert.equal(isPlanVisionProviderConfigured({ CLOUDFLARE_ACCOUNT_ID: 'account', CLOUDFLARE_AI_TOKEN: 'token' }), true);
   assert.equal(isPlanVisionProviderConfigured({ CLOUDFLARE_ACCOUNT_ID: 'account', CLOUDFLARE_AI_TOKEN: 'token', CLOUDFLARE_VISION_MODEL: '' }), true);
-  assert.equal(isPlanVisionProviderConfigured({ GEMINI_API_KEY: 'key' }), true);
-  assert.equal(isPlanVisionProviderConfigured({ GOOGLE_AI_STUDIO_KEY_2: 'key' }), true);
+  assert.equal(isPlanVisionProviderConfigured({ GEMINI_API_KEY: 'key' }), false);
+  assert.equal(isPlanVisionProviderConfigured({ GOOGLE_AI_STUDIO_KEY_2: 'key' }), false);
+  assert.equal(isPlanVisionProviderConfigured({ GEMINI_API_KEY: 'key', GEMINI_VISION_OPT_IN: 'true' }), true);
+  assert.equal(isPlanVisionProviderConfigured({ GOOGLE_AI_STUDIO_KEY_2: 'key', GEMINI_VISION_OPT_IN: 'true' }), true);
 });
 
 test('analysis results disclose AI success, local fallback, and explicit local-only provenance', () => {

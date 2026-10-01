@@ -36,11 +36,15 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@types/node": "^22.15.0",
+    "postcss": "^8.5.28",
     "tsx": "^4.20.0",
     "typescript": "^5.8.0"
   },
   "overrides": {
-    "ikea-availability-checker": { "axios": "1.20.0" }
+    "ikea-availability-checker": {
+      "axios": "1.20.0"
+    },
+    "postcss": "^8.5.28"
   },
   "optionalDependencies": {
     "@rolldown/binding-linux-x64-gnu": "1.1.5"

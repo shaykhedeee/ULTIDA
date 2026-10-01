@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export { wallSolids, type WallOpeningRange, type WallSolid } from './wall-solids.js';
 
 export const RenderIntentV1Schema = z.object({
   version: z.literal(1),

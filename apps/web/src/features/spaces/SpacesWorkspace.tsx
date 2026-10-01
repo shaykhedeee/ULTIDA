@@ -873,7 +873,9 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       if (payload.previewUrl) setPlanPreviewUrl(payload.previewUrl);
       if (payload.source) setSourceMeta(payload.source);
       setLoadState(roomsP.length ? 'ready' : 'empty');
-    })();
+    })().catch(() => {
+      if (live) { setLoadState('error'); setSaveState('The saved room could not be loaded. Check your connection and retry; no draft was substituted.'); }
+    });
     return () => { live = false; };
   }, [projectId, reloadKey]);
 
@@ -1004,19 +1006,16 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       issues.filter(i => i.entityId === room.id)
     );
 
-    const vastuBlockingReasons = vastu.isCompliant
-      ? []
-      : [vastu.criticalRemedy || `Vastu directional alignment remedy needed (${vastu.score}% compliant)`];
-
     const compositeReadiness = {
       ...baseReadiness,
       vastuCompliant: vastu.isCompliant,
       vastuScore: vastu.score,
       vastuRemedies: vastu.findings.filter(f => f.status === 'remedy').map(f => f.advice),
-      blockingReasons: [...baseReadiness.blockingReasons, ...vastuBlockingReasons,
+      blockingReasons: [...baseReadiness.blockingReasons,
         ...(!scaleVerified ? ['Confirm plan scale before room approval.'] : []),
         ...(needsScaleReview(room, widthMm, depthMm) ? ['Review the measured room boundary before approval.'] : [])],
-      ready: baseReadiness.ready && vastu.isCompliant && scaleVerified && !needsScaleReview(room, widthMm, depthMm),
+      // Vastu is optional design advice, not measurement or fabrication evidence.
+      ready: baseReadiness.ready && scaleVerified && !needsScaleReview(room, widthMm, depthMm),
     };
 
     return {
@@ -1240,7 +1239,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
     return {
       id: wall.id,
       lengthMm: wallLen(wall),
-      openings: openings.filter((opening) => opening.wallId === wall.id).map((opening) => ({ id: opening.id, kind: opening.kind, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm ?? 900 })),
+      openings: openings.filter((opening) => opening.wallId === wall.id).map((opening) => ({ id: opening.id, kind: opening.kind, offsetMm: Number(opening.offsetAlongWallMm), widthMm: Number(opening.widthMm) })),
     };
   }, [sel?.room, selectedWall, walls, openings]);
 
@@ -1326,12 +1325,17 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
 
   async function quickFurnishRoomSuite(room: PlanRoom) {
     if (!projectId || !supabase) return;
+    if (sel?.room.id !== room.id) {
+      setSelectedRoom(room.id);
+      setSaveState(`${room.name} selected. Review its measured walls, then add starter furniture.`);
+      return;
+    }
     const rWalls = wallsForRoom(room);
     if (!rWalls.length) {
       setSaveState('This room has no measured walls yet. Calibrate the plan or trace walls first.');
       return;
     }
-    setSaveState(`⚡ Auto-furnishing ${room.name} with certified modular suite…`);
+    setSaveState(`Preparing catalog furniture for ${room.name}…`);
 
     const suiteModules: CatalogModule[] = [];
     const rType = room.roomType;
@@ -1364,16 +1368,17 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
     }
 
     setSelectedRoom(room.id);
+    let placed = 0;
     for (const mod of suiteModules) {
-      await placeCatalogModuleOnSelectedWall(mod);
+      if (await placeCatalogModuleOnSelectedWall(mod)) placed += 1;
     }
-    setSaveState(`✓ Furnished ${room.name} with ${suiteModules.length} modular unit${suiteModules.length === 1 ? '' : 's'}.`);
+    if (placed) setSaveState(`${placed} of ${suiteModules.length} starter units saved in ${room.name}. Review clearances and finishes before approval.`);
   }
 
   // ── AI Furniture Layout Detection Engine ──
   const detectAiLayout = (room: PlanRoom) => {
     setAiDetecting(true);
-    setSaveState(`Analyzing ${room.name} with AI layout solver…`);
+    setSaveState(`Preparing editable furniture ideas for ${room.name}…`);
     setTimeout(() => {
       const b = bbox(room.polygon);
       const width = b.maxX - b.minX;
@@ -1623,164 +1628,11 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
     void applyLayoutCandidateToScene(room, 'balanced');
   };
 
-  const detectDoorsAndWindows = (): PlanOpening[] => {
-    snapshot();
-    const newOpenings: PlanOpening[] = [...openings];
-    const existingWallIds = new Set(newOpenings.map(o => o.wallId));
-
-    // Calculate layout-wide bounding box to distinguish exterior perimeter from interior partitions
-    const allPts: Pt[] = rooms.flatMap(r => r.polygon ?? []).concat(walls.flatMap(w => [w.start, w.end]));
-    const layoutBbox = allPts.length ? bbox(allPts) : { minX: 0, minY: 0, maxX: 10000, maxY: 10000 };
-    const perimeterTol = 400; // mm from layout boundary
-
-    // For each room, ensure doors and windows
-    rooms.forEach((room) => {
-      const rWalls = wallsForRoom(room);
-      if (!rWalls.length) return;
-
-      // 1. Identify entrance / partition wall for doors
-      let doorPlaced = false;
-      for (const w of rWalls) {
-        const len = wallLen(w);
-        if (len < 1200) continue; // Wall too short for door + clearance
-
-        const isOuterWall = (
-          Math.min(Math.abs(w.start.xMm - layoutBbox.minX), Math.abs(w.end.xMm - layoutBbox.minX)) < perimeterTol ||
-          Math.min(Math.abs(w.start.xMm - layoutBbox.maxX), Math.abs(w.end.xMm - layoutBbox.maxX)) < perimeterTol ||
-          Math.min(Math.abs(w.start.yMm - layoutBbox.minY), Math.abs(w.end.yMm - layoutBbox.minY)) < perimeterTol ||
-          Math.min(Math.abs(w.start.yMm - layoutBbox.maxY), Math.abs(w.end.yMm - layoutBbox.maxY)) < perimeterTol
-        );
-
-        // Place door on interior partition wall
-        if (!isOuterWall && !doorPlaced && !existingWallIds.has(w.id)) {
-          const doorWidth = room.roomType === 'living' ? 1000 : 900;
-          const offset = Math.min(len - doorWidth - 150, Math.max(150, Math.round(len * 0.25)));
-          newOpenings.push({
-            id: entityId(),
-            wallId: w.id,
-            kind: 'door',
-            offsetAlongWallMm: offset,
-            widthMm: doorWidth,
-            heightMm: 2100,
-            sillHeightMm: 0,
-          });
-          existingWallIds.add(w.id);
-          doorPlaced = true;
-          break;
-        }
-      }
-
-      // If no internal door was placed (e.g. living room main entry), place on first suitable wall
-      if (!doorPlaced) {
-        const candidateWall = rWalls.find(w => wallLen(w) >= 1200 && !newOpenings.some(o => o.wallId === w.id && o.kind === 'door'));
-        if (candidateWall) {
-          const len = wallLen(candidateWall);
-          const doorWidth = room.roomType === 'living' ? 1000 : 900;
-          newOpenings.push({
-            id: entityId(),
-            wallId: candidateWall.id,
-            kind: 'door',
-            offsetAlongWallMm: Math.max(150, Math.min(len - doorWidth - 150, 250)),
-            widthMm: doorWidth,
-            heightMm: 2100,
-            sillHeightMm: 0,
-          });
-          existingWallIds.add(candidateWall.id);
-        }
-      }
-
-      // 2. Identify exterior wall for architectural window
-      if (room.roomType !== 'pooja') {
-        const outerWalls = rWalls.filter(w => {
-          const len = wallLen(w);
-          if (len < 1600) return false;
-          return (
-            Math.min(Math.abs(w.start.xMm - layoutBbox.minX), Math.abs(w.end.xMm - layoutBbox.minX)) < perimeterTol ||
-            Math.min(Math.abs(w.start.xMm - layoutBbox.maxX), Math.abs(w.end.xMm - layoutBbox.maxX)) < perimeterTol ||
-            Math.min(Math.abs(w.start.yMm - layoutBbox.minY), Math.abs(w.end.yMm - layoutBbox.minY)) < perimeterTol ||
-            Math.min(Math.abs(w.start.yMm - layoutBbox.maxY), Math.abs(w.end.yMm - layoutBbox.maxY)) < perimeterTol
-          );
-        });
-
-        const windowWall = outerWalls.find(w => !newOpenings.some(o => o.wallId === w.id)) || rWalls.find(w => wallLen(w) >= 2000 && !newOpenings.some(o => o.wallId === w.id));
-        if (windowWall) {
-          const wLen = wallLen(windowWall);
-          const winWidth = room.roomType === 'living' ? 1800 : room.roomType === 'kitchen' ? 1200 : 1500;
-          if (wLen >= winWidth + 400) {
-            newOpenings.push({
-              id: entityId(),
-              wallId: windowWall.id,
-              kind: 'window',
-              offsetAlongWallMm: Math.round((wLen - winWidth) / 2),
-              widthMm: winWidth,
-              heightMm: 1200,
-              sillHeightMm: 900,
-            });
-            existingWallIds.add(windowWall.id);
-          }
-        }
-      }
-    });
-
-    setOpenings(newOpenings);
-    setSaveState(`✨ AI detected & placed ${newOpenings.length} architectural doors and windows on room boundaries.`);
-    return newOpenings;
-  };
-
   const autoEnhanceAllRoomsAndFloorplan = () => {
-    snapshot();
-    const detectedOpenings = detectDoorsAndWindows();
-
-    const updatedRooms: PlanRoom[] = rooms.map((room) => {
-      const rWalls = wallsForRoom(room);
-      const wallRoles = { ...(room.wallRoles ?? {}) };
-      const categories = [...room.requiredFurniture];
-
-      if (room.roomType === 'living') {
-        if (rWalls[0]) wallRoles[rWalls[0].id] = 'tv_wall';
-        if (!categories.includes('tv_unit')) categories.push('tv_unit');
-        if (!categories.includes('sofa')) categories.push('sofa');
-      } else if (room.roomType === 'bedroom' || room.roomType === 'master_bedroom' || room.roomType === 'kids_bedroom') {
-        if (rWalls[0]) wallRoles[rWalls[0].id] = 'bed_headboard_wall';
-        if (rWalls[1]) wallRoles[rWalls[1].id] = 'wardrobe_wall';
-        if (!categories.includes('bed')) categories.push('bed');
-        if (!categories.includes('wardrobe')) categories.push('wardrobe');
-      } else if (room.roomType === 'kitchen') {
-        if (rWalls[0]) wallRoles[rWalls[0].id] = 'kitchen_working_wall';
-        if (!categories.includes('kitchen_base')) categories.push('kitchen_base');
-        if (!categories.includes('kitchen_overhead')) categories.push('kitchen_overhead');
-      } else if (room.roomType === 'dining') {
-        if (rWalls[0]) wallRoles[rWalls[0].id] = 'crockery_wall';
-        if (!categories.includes('dining_table')) categories.push('dining_table');
-        if (!categories.includes('crockery_unit')) categories.push('crockery_unit');
-      } else if (room.roomType === 'pooja') {
-        if (rWalls[0]) wallRoles[rWalls[0].id] = 'pooja_wall';
-        if (!categories.includes('pooja_unit')) categories.push('pooja_unit');
-      }
-
-      return {
-        ...room,
-        requiredFurniture: Array.from(new Set(categories)),
-        wallRoles,
-        verificationStatus: 'unverified',
-        floorFinish: room.floorFinish || (room.roomType === 'living' ? 'French Light Oak Herringbone' : room.roomType === 'kitchen' ? 'Roman Travertine' : 'Calacatta Gold'),
-      };
-    });
-
-    setRooms(updatedRooms);
-    setCanvasRenderMode('3d_isometric');
-    setSaveState(`AI enhanced all ${updatedRooms.length} rooms, placed ${detectedOpenings.length} doors & windows, and verified all spaces for 3D layout.`);
-    void saveGeometryVersion(updatedRooms);
-
-    // Apply layout candidates to scene for all rooms
-    void (async () => {
-      for (const r of updatedRooms) {
-        await applyLayoutCandidateToScene(r, 'balanced').catch(() => null);
-      }
-      setSaveState('All spaces verified with doors, windows, and modular units synced to 3D Scene.');
-    })();
+    if (!sel?.room) { setSaveState('Choose one room before preparing furniture suggestions.'); return; }
+    // These are editable layout ideas, never evidence of detected architecture.
+    detectAiLayout(sel.room);
   };
-
   function onCanvasClick(e: React.MouseEvent) {
     const pt = svgPoint(e);
     if (tool === 'measure') { if (!measureFrom) setMeasureFrom(pt); else { setMeasureTo(pt); } return; }
@@ -2069,64 +1921,24 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
     return persisted;
   }
   async function applyFeatureWallToSelectedWall(room: PlanRoom, targetWallId: string, wallTreatmentId: string) {
-    if (!supabase || !projectId) return;
-    const session = (await supabase.auth.getSession()).data.session;
-    if (!session?.access_token) { setSaveState('Session expired.'); return; }
-    const apiBase = getApiBase();
-    const wallObj = walls.find(w => w.id === targetWallId) ?? roomBoundaryWalls(room).find(w => w.id === targetWallId);
-    const wallLength = wallObj ? wallLen(wallObj) : 2400;
-
-    let templateId = 'wall-fluted-pu-2400';
-    let label = '2400 Fluted Charcoal PU Feature Wall';
-    let widthMm = Math.min(2400, Math.max(1200, Math.round(wallLength - 100)));
-
-    if (wallTreatmentId === 'acoustic-slat') {
-      templateId = 'wall-slat-acoustic-2400';
-      label = '2400 Vertical Walnut Acoustic Slat Wall';
-    } else if (wallTreatmentId === 'french-wainscot') {
-      templateId = 'wall-wainscot-french-3000';
-      label = '3000 French Classical Moulding & Wainscoting';
-      widthMm = Math.min(3000, Math.max(1200, Math.round(wallLength - 100)));
-    } else if (wallTreatmentId === 'calacatta-sintered') {
-      templateId = 'wall-sintered-calacatta-2400';
-      label = '2400 Calacatta Sintered Stone Feature Wall';
-    }
-
-    setSaveState(`Applying ${label} to Wall…`);
-    try {
-      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` };
-      const postRes = await fetch(`${apiBase}/projects/${projectId}/module-instances`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          // module_instances is keyed by the persisted space record, while the
-          // plan canvas uses the canonical plan-room id.
-          spaceId: room.spaceRecordId ?? room.id,
-          templateId,
-          category: 'feature-wall',
-          label,
-          config: {
-            family: 'feature-wall',
-            widthMm,
-            depthMm: 50,
-            heightMm: room.ceilingHeightMm ?? 2700,
-            zOffsetMm: 0,
-          },
-          position: {
-            wallId: targetWallId,
-            offsetMm: Math.max(0, Math.round((wallLength - widthMm) / 2)),
-          },
-        }),
-      });
-      if (postRes.ok) {
-        await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, { method: 'POST', headers });
-        setSaveState(`Added ${label} to Wall (${widthMm}mm run). 3D Scene updated.`);
-      }
-    } catch {
-      setSaveState('Feature wall placement could not be saved.');
-    }
+    const wall = wallsForRoom(room).find(candidate => candidate.id === targetWallId);
+    if (!wall || sel?.room.id !== room.id) { setSaveState('Select a saved measured wall in the active room.'); return; }
+    const templateIds: Record<string, string> = {
+      'acoustic-slat': 'wall-slat-acoustic-2400',
+      'french-wainscot': 'wall-wainscot-french-3000',
+      'calacatta-sintered': 'wall-sintered-calacatta-2400',
+    };
+    const template = IndianModularCatalog.find(candidate => candidate.id === (templateIds[wallTreatmentId] ?? 'wall-fluted-pu-2400'));
+    const heightMm = room.ceilingHeightMm ?? wall.heightMm;
+    if (!template || !Number.isFinite(heightMm) || Number(heightMm) <= 0) { setSaveState('Confirm the measured ceiling height and choose a catalog treatment before placing it.'); return; }
+    const context: CatalogWallContext = {
+      id: wall.id, lengthMm: wallLen(wall),
+      openings: openings.filter(opening => opening.wallId === wall.id).map(opening => ({ id: opening.id, kind: opening.kind, offsetMm: Number(opening.offsetAlongWallMm), widthMm: Number(opening.widthMm) })),
+    };
+    // Use the normal placement path: persisted room, approved layout, exact fit,
+    // server validation, saved module feedback and stale-output invalidation.
+    await placeCatalogModuleOnWall({ ...template, heightMm: Number(heightMm) }, context);
   }
-
   async function ensureApprovedRoomLayout(room: PlanRoom): Promise<boolean> {
     if (!projectId || !supabase || !room.spaceRecordId) return false;
     const session = (await supabase.auth.getSession()).data.session;
@@ -2181,6 +1993,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
    */
   async function placeCatalogModuleOnWall(module: CatalogModule, targetWall: CatalogWallContext, requestedOffsetMm?: number) {
     if (!sel || !projectId || !supabase) return;
+    try {
     const fit = reconcileCatalogModuleFit(targetWall, module);
     if (!fit?.fits || fit.suggestedOffsetMm === undefined) {
       setSaveState(fit?.issues[0] ?? 'This module does not fit the selected measured wall. Choose another wall or adjust the module in the bay editor.');
@@ -2235,7 +2048,6 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       return;
     }
     setSaveState(`Placing ${module.name} on the measured wall…`);
-    try {
       const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
@@ -2332,7 +2144,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       lengthMm: wallLen(wall),
       openings: openings
         .filter((opening) => opening.wallId === wall.id)
-        .map((opening) => ({ id: opening.id, kind: opening.kind, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm ?? 900 })),
+        .map((opening) => ({ id: opening.id, kind: opening.kind, offsetMm: Number(opening.offsetAlongWallMm), widthMm: Number(opening.widthMm) })),
     };
     const module = preview.module;
     const offsetMm = preview.offsetMm;
@@ -2368,7 +2180,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
         lengthMm: wallLen(wall),
         openings: openings
           .filter((op) => op.wallId === wall.id)
-          .map((op) => ({ id: op.id, kind: op.kind, offsetMm: op.offsetAlongWallMm ?? 0, widthMm: op.widthMm ?? 900 })),
+          .map((op) => ({ id: op.id, kind: op.kind, offsetMm: Number(op.offsetAlongWallMm), widthMm: Number(op.widthMm) })),
       },
     }));
 
@@ -2390,7 +2202,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       setSaveState(`No wall in this room has enough clear space for ${module.name} (${module.widthMm}mm). Try a smaller module or another room.`);
       return;
     }
-    await placeCatalogModuleOnWall(module, targetWallContext);
+    return placeCatalogModuleOnWall(module, targetWallContext);
   }
 
   /**
@@ -2423,7 +2235,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
         lengthMm: wallLen(best.wall),
         openings: openings
           .filter((opening) => opening.wallId === best!.wall.id)
-          .map((opening) => ({ id: opening.id, kind: opening.kind, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm ?? 900 })),
+          .map((opening) => ({ id: opening.id, kind: opening.kind, offsetMm: Number(opening.offsetAlongWallMm), widthMm: Number(opening.widthMm) })),
       },
     };
   }
@@ -2480,7 +2292,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       // Add one measured base unit per eligible wall; never overwrite existing furniture.
       for (const wall of wallsForRoom(styledRoom)) {
         if (savedModules.some(item => item.position_json?.wallId === wall.id)) continue;
-        const context: CatalogWallContext = { id: wall.id, lengthMm: wallLen(wall), openings: openings.filter(opening => opening.wallId === wall.id).map(opening => ({ id: opening.id, kind: opening.kind, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm ?? 900 })) };
+        const context: CatalogWallContext = { id: wall.id, lengthMm: wallLen(wall), openings: openings.filter(opening => opening.wallId === wall.id).map(opening => ({ id: opening.id, kind: opening.kind, offsetMm: Number(opening.offsetAlongWallMm), widthMm: Number(opening.widthMm) })) };
         const candidates = IndianModularCatalog.filter(module => module.family === 'kitchen-base' && !module.id.includes('island')).sort((a, b) => a.widthMm - b.widthMm);
         const module = candidates.find(candidate => reconcileCatalogModuleFit(context, candidate)?.fits);
         if (module && await placeCatalogModuleOnWall(module, context)) placed++;
@@ -3231,19 +3043,19 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                   type="button"
                   className="btn-gold-action"
                   onClick={autoEnhanceAllRoomsAndFloorplan}
-                  title="Auto-detect rooms, assign wall roles, place doors/windows, and verify all spaces"
-                  aria-label="AI Auto-Enhance Entire Plan"
+                  title="Prepare editable furniture suggestions for the selected room. Saved measurements remain unchanged."
+                  aria-label="Suggest furniture for this room"
                 >
-                  <Sparkles size={13} /> Auto-Furnish Plan
+                  <Sparkles size={13} /> Suggest room furniture
                 </button>
                 <button
                   type="button"
                   className="btn-dark-action"
-                  onClick={() => detectDoorsAndWindows()}
-                  title="Detect and place architectural doors on partition walls and windows on exterior perimeter walls"
-                  aria-label="Detect Doors and Windows"
+                  onClick={() => { setSpacePanel('geometry'); setLayers(current => ({ ...current, openings: true })); setSaveState('Review the plan’s saved doors and windows. Add or correct an opening using measured dimensions; room type alone cannot establish its position.'); }}
+                  title="Review and correct openings from the saved measured plan"
+                  aria-label="Review doors and windows"
                 >
-                  🚪 Detect Doors &amp; Windows
+                  Review doors &amp; windows
                 </button>
                 </>}
                 <div className="canvas-mode-toggle" role="group" aria-label="Floor plan view mode">
@@ -4014,7 +3826,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
             <div className="spaces-flow-note" role="status" style={{ margin: '10px 0 0' }}>
               {activeCatalogWall
                 ? <>Measured fit context: <strong>{Math.round(activeCatalogWall.lengthMm)} mm wall</strong> · {activeCatalogWall.openings.length} keep-out{activeCatalogWall.openings.length === 1 ? '' : 's'} · drag a card onto any wall to preview its true footprint before committing</>
-                : <>Select a room with measured walls or click <strong>⚡ Smart Place &amp; Fit</strong> to auto-assign the best clear wall span.</>}
+                : <>Select a room with measured walls, choose furniture, then preview it on the plan before saving.</>}
             </div>
 
             {sel?.room && (
@@ -4023,7 +3835,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                   <Sparkles size={16} className="text-gold" />
                   <div>
                     <strong>1-Click Suite: {sel.room.name}</strong>
-                    <small>Auto-place recommended System 32 certified modules</small>
+                    <small>Starter furniture · each saved placement is checked against room geometry</small>
                   </div>
                 </div>
                 <button
@@ -4093,20 +3905,20 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                       <div className="dld-card-actions">
                         <button
                           type="button"
-                          className={`btn-sm btn-full dld-btn-arm ${armed ? 'dld-btn-arm--active' : 'btn-ghost'}`}
+                          className={`btn-primary btn-sm btn-full dld-btn-arm ${armed ? 'dld-btn-arm--active' : ''}`}
                           title={armed ? 'Cancel placement (Escape).' : 'Arm this module, then click a measured wall on the plan.'}
                           onClick={() => (armed ? cancelPlacementDrag() : setDraggingModule(mod))}
                         >
-                          <MousePointer2 size={13} /> {armed ? 'Placement armed' : 'Click to place'}
+                          <MousePointer2 size={13} /> {armed ? 'Cancel placement' : 'Preview on plan'}
                         </button>
-                        <button
+                        {activeCatalogWall && <button
                           type="button"
-                          className="btn-primary btn-sm btn-full dld-btn-place"
-                          title={blocked ? 'Click to auto-find best fitting wall in room' : productionCertified ? 'Place this certified module on the selected wall.' : 'Place this module on wall.'}
+                          className="btn-ghost btn-sm btn-full dld-btn-place"
+                          title="Save on the selected wall using the measured fit check."
                           onClick={() => void placeCatalogModuleOnSelectedWall(mod)}
                         >
-                          <Plus size={13} /> {activeCatalogWall ? 'Place on selected wall' : '⚡ Smart Place & Fit'}
-                        </button>
+                          <Plus size={13} /> Save on selected wall
+                        </button>}
                       </div>
                     )}
                   </div>
@@ -4373,7 +4185,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                         <strong>Room Readiness &amp; Vastu Checklist</strong>
                       </div>
                       <Badge tone={sel.readiness.ready ? 'success' : 'warn'}>
-                        {sel.readiness.ready ? 'Ready for Layout' : !sel.vastu.isCompliant ? 'Vastu Remedy Needed' : 'Checklist Incomplete'}
+                        {sel.readiness.ready ? 'Ready for Layout' : 'Measurements need review'}
                       </Badge>
                     </div>
 
@@ -4435,7 +4247,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                     <strong>Interactive Wall Picker &amp; Elevation Setup</strong>
                     <p>Click a wall to inspect technical 2D elevation, door/window clearances, or apply Design Feature Walls.</p>
                     <div className="wall-picker-grid">
-                      {roomBoundaryWalls(sel.room).map((wall, index) => {
+                      {wallsForRoom(sel.room).map((wall, index) => {
                         const isSelected = selectedWall === wall.id;
                         const wLen = Math.round(wallLen(wall));
                         const label = `Wall ${String.fromCharCode(65 + index)}`;
@@ -4460,7 +4272,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                       <div className="wall-elevation-panel">
                         <div className="wep-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div>
-                            <span>Technical Elevation — {roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall) >= 0 ? `Wall ${String.fromCharCode(65 + roomBoundaryWalls(sel.room).findIndex(w => w.id === selectedWall))}` : 'Selected Wall'}</span>
+                            <span>Technical Elevation — {wallsForRoom(sel.room).findIndex(w => w.id === selectedWall) >= 0 ? `Wall ${String.fromCharCode(65 + wallsForRoom(sel.room).findIndex(w => w.id === selectedWall))}` : 'Selected Wall'}</span>
                             <small style={{ display: 'block' }}>Standard Height: {sel.room.ceilingHeightMm ?? ceilingHeightMm} mm</small>
                           </div>
                           <button
@@ -4486,7 +4298,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                         {/* 2D Technical Elevation Blueprint Vector */}
                         <div className="wep-canvas-box">
                           {(() => {
-                            const curWall = walls.find(w => w.id === selectedWall) || roomBoundaryWalls(sel.room).find(w => w.id === selectedWall);
+                            const curWall = walls.find(w => w.id === selectedWall) || wallsForRoom(sel.room).find(w => w.id === selectedWall);
                             const wLen = curWall ? Math.round(wallLen(curWall)) : Math.round(sel.widthMm || 3000);
                             const wallOpenings = openings.filter(o => o.wallId === selectedWall);
                             return (
@@ -4723,7 +4535,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                 })()}
 
                 {spacePanel === 'flooring' && (() => {
-                  const bWalls = roomBoundaryWalls(sel.room);
+                  const bWalls = wallsForRoom(sel.room);
                   const bWallIds = new Set(bWalls.map((w) => w.id));
                   const relevantDoorOpenings = openings
                     .filter((o) => (o.kind === 'door' || o.kind === 'passage') && (bWallIds.has(o.wallId) || !o.wallId))

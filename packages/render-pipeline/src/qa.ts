@@ -30,7 +30,10 @@ export interface MeasuredResult {
   /** Projected opening outlines (including sill and head) align with the approved scene. */
   openingGeometryAligned?: boolean;
   focalModuleVisible: boolean;
-  cameraSimilarityMm: number; // how far the rendered camera deviates from expected (mm)
+  /** Millimetres are valid only when a calibrated pose solver measured them. */
+  cameraSimilarityMm?: number;
+  /** Fraction of reference edges supported by the observed image; not a pose measurement. */
+  imageEdgeAlignment?: number;
   measuredObjectIds: string[]; // objects detected in the output
   measuredMaterialRegionIds: string[];
   cabinetDivisionCount?: number;
@@ -56,6 +59,13 @@ export function runRenderQA(
   geometryLock: 'strict' | 'moderate' | 'creative' = 'strict'
 ): RenderQAResult {
   const issues: QAIssue[] = [];
+  const cameraSimilarityMm = measured.cameraSimilarityMm != null && Number.isFinite(measured.cameraSimilarityMm) && measured.cameraSimilarityMm >= 0
+    ? measured.cameraSimilarityMm : undefined;
+  const unmeasuredChecks: string[] = [];
+  const unmeasured = (kind: string, message: string) => {
+    unmeasuredChecks.push(kind);
+    issues.push({ kind: `${kind}_unmeasured`, message, severity: 'warning' });
+  };
   const sev = (blocking: boolean): 'blocking' | 'warning' => (blocking && geometryLock === 'strict' ? 'blocking' : 'warning');
 
   // 1. Wall boundaries
@@ -63,14 +73,18 @@ export function runRenderQA(
     issues.push({ kind: 'wall_boundaries', message: 'Wall boundaries in the render do not align with the locked base geometry.', severity: sev(true) });
   }
   // 2. Doors
+  if (expectation.doorCount > 0 && measured.measuredDoorCount == null) unmeasured('doors', 'Door count has not been measured in this image.');
   if (measured.measuredDoorCount != null && measured.measuredDoorCount !== expectation.doorCount) {
     issues.push({ kind: 'doors', message: `Door count mismatch: expected ${expectation.doorCount}, found ${measured.measuredDoorCount}.`, severity: sev(true) });
   }
   // 3. Windows
+  if (expectation.windowCount > 0 && measured.measuredWindowCount == null) unmeasured('windows', 'Window count has not been measured in this image.');
   if (measured.measuredWindowCount != null && measured.measuredWindowCount !== expectation.windowCount) {
     issues.push({ kind: 'windows', message: `Window count mismatch: expected ${expectation.windowCount}, found ${measured.measuredWindowCount}.`, severity: sev(true) });
   }
   // 4. Module boxes
+  if (!measured.openingCountMatches) issues.push({ kind: 'opening_count', message: 'The measured opening count does not match the approved scene.', severity: sev(true) });
+  if (expectation.moduleCount > 0 && !measured.focalModuleVisible) issues.push({ kind: 'focal_module', message: 'The expected furniture is not visible in the output image.', severity: sev(true) });
   if (measured.measuredObjectIds.length < expectation.expectedObjectIds.length) {
     issues.push({ kind: 'module_boxes', message: `Module count low: expected ${expectation.expectedObjectIds.length}, found ${measured.measuredObjectIds.length}.`, severity: sev(true) });
   }
@@ -84,12 +98,17 @@ export function runRenderQA(
   if (measured.measuredSkirtingCount != null && measured.measuredSkirtingCount !== expectation.skirtingCount) {
     issues.push({ kind: 'skirting', message: `Skirting count mismatch: expected ${expectation.skirtingCount}, found ${measured.measuredSkirtingCount}.`, severity: sev(true) });
   }
+  if (expectation.skirtingCount > 0 && measured.measuredSkirtingCount == null) {
+    unmeasured('skirting', 'Skirting has not been measured in this image.');
+  }
   if (measured.skirtingGeometryAligned === false) {
     issues.push({ kind: 'skirting_geometry', message: 'Skirting geometry does not align with the approved floor perimeter and doorway exclusions.', severity: sev(true) });
   }
   // 6. Camera
-  if (measured.cameraSimilarityMm > (geometryLock === 'strict' ? 50 : 300)) {
-    issues.push({ kind: 'camera', message: `Camera deviates ${measured.cameraSimilarityMm.toFixed(0)}mm from the locked camera.`, severity: sev(true) });
+  if (cameraSimilarityMm == null) {
+    unmeasured('camera', 'Camera pose has not been measured. Image edge alignment cannot establish millimetre camera accuracy.');
+  } else if (cameraSimilarityMm > (geometryLock === 'strict' ? 50 : 300)) {
+    issues.push({ kind: 'camera', message: `Camera deviates ${cameraSimilarityMm.toFixed(0)}mm from the locked camera.`, severity: sev(true) });
   }
   // 7. Missing objects
   const missing = expectation.expectedObjectIds.filter((id) => !measured.measuredObjectIds.includes(id));
@@ -97,6 +116,12 @@ export function runRenderQA(
     issues.push({ kind: 'missing_objects', message: `Missing objects: ${missing.join(', ')}.`, severity: sev(true) });
   }
   // 8. Invented objects
+  if (measured.inventedObjectLabels == null) {
+    unmeasured('invented_objects', 'Unrequested objects have not been checked by a semantic image detector. Review the image before approval.');
+  }
+  if (expectation.cabinetDivisions > 0 && measured.cabinetDivisionCount == null) {
+    unmeasured('cabinet_divisions', 'Shutter and drawer divisions have not been measured in this image.');
+  }
   const invented = (measured.inventedObjectLabels ?? []).filter(Boolean);
   if (invented.length) {
     issues.push({ kind: 'invented_objects', message: `Model invented unrequested objects: ${invented.join(', ')}.`, severity: sev(true) });
@@ -112,8 +137,10 @@ export function runRenderQA(
     wallEdgesAligned: measured.wallEdgesAligned,
     openingCountMatches: measured.openingCountMatches,
     focalModuleVisible: measured.focalModuleVisible,
-    cameraSimilarityMm: measured.cameraSimilarityMm,
-    inventedObjectsDetected: (measured.inventedObjectLabels ?? []).length > 0,
+    cameraSimilarityMm,
+    imageEdgeAlignment: measured.imageEdgeAlignment,
+    inventedObjectsDetected: measured.inventedObjectLabels == null ? undefined : invented.length > 0,
+    unmeasuredChecks,
     missingObjects: missing,
   };
   return RenderQAResultSchema.parse(result);

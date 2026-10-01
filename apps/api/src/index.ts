@@ -239,7 +239,7 @@ app.get('/api/health', async (_request, response) => {
       planVision: hasPlanVisionProvider,
       planCv: true,
       planCvEngine: 'native-sharp-typescript',
-      realImageGeneration: currentGateway.status().some((provider) => provider.configured && provider.operations.includes('generate'))
+      realImageGeneration: currentGateway.status().some((provider) => provider.configured && provider.eligible && provider.operations.includes('generate'))
     },
     providers: currentGateway.status(),
     timestamp: new Date().toISOString()

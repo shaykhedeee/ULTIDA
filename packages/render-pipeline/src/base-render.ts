@@ -13,7 +13,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { SceneV1 } from '@ultida/scene-core';
+import { wallSolids, type SceneV1 } from '@ultida/scene-core';
 
 export interface SceneBox {
   id: string;
@@ -247,7 +247,6 @@ function scenePrimitives(scene: SceneV1): ScenePrimitive[] {
     const length = Math.hypot(dx, dz);
     if (!length) continue;
     const openings = scene.openings.filter((opening) => opening.wallId === wall.id).sort((a, b) => a.offsetMm - b.offsetMm);
-    let cursor = 0;
     const addSegment = (startMm: number, endMm: number, bottomMm: number, heightMm: number, suffix: string) => {
       if (endMm - startMm <= 1 || heightMm <= 1) return;
       const ux = dx / length; const uz = dz / length;
@@ -264,15 +263,9 @@ function scenePrimitives(scene: SceneV1): ScenePrimitive[] {
         faces: boxFaces(point(startMm, 0, -1), point(endMm, 0, -1), point(endMm, heightMm, -1), point(startMm, heightMm, -1), point(startMm, 0, 1), point(endMm, 0, 1), point(endMm, heightMm, 1), point(startMm, heightMm, 1)),
       });
     };
-    for (const opening of openings) {
-      const openingStart = Math.max(cursor, opening.offsetMm);
-      const openingEnd = Math.min(length, opening.offsetMm + opening.widthMm);
-      addSegment(cursor, openingStart, 0, wall.heightMm, 'solid');
-      addSegment(openingStart, openingEnd, 0, opening.sillHeightMm, `${opening.id}:sill`);
-      addSegment(openingStart, openingEnd, opening.sillHeightMm + opening.heightMm, wall.heightMm - opening.sillHeightMm - opening.heightMm, `${opening.id}:head`);
-      cursor = Math.max(cursor, openingEnd);
-    }
-    addSegment(cursor, length, 0, wall.heightMm, 'solid');
+    wallSolids(length, wall.heightMm, openings).forEach((solid, index) => {
+      addSegment(solid.startMm, solid.endMm, solid.bottomMm, solid.heightMm, `solid:${index}`);
+    });
   }
   // Old persisted scenes predate exact part geometry. They remain previewable
   // as envelopes; new scene.v1 compilations provide parts and take precedence.

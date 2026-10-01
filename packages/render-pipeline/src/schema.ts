@@ -53,8 +53,10 @@ export const RenderQAResultSchema = z.object({
   wallEdgesAligned: z.boolean(),
   openingCountMatches: z.boolean(),
   focalModuleVisible: z.boolean(),
-  cameraSimilarityMm: z.number(),
-  inventedObjectsDetected: z.boolean(),
+  cameraSimilarityMm: z.number().finite().nonnegative().optional(),
+  imageEdgeAlignment: z.number().min(0).max(1).optional(),
+  inventedObjectsDetected: z.boolean().optional(),
+  unmeasuredChecks: z.array(z.string()).optional(),
   missingObjects: z.array(z.string())
 });
 export type RenderQAResult = z.infer<typeof RenderQAResultSchema>;

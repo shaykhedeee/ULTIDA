@@ -31,6 +31,9 @@ export function resolveModuleWallAnchor(
   if (!request || typeof request.wallId !== 'string' || !Number.isFinite(request.offsetMm) || request.offsetMm < 0) {
     return { ok: false, code: 'MODULE_ANCHOR_REQUIRED', message: 'A module needs a wall ID and a non-negative millimetre offset.' };
   }
+  if (request.zMm !== undefined && (!Number.isFinite(request.zMm) || request.zMm < 0)) {
+    return { ok: false, code: 'MODULE_ELEVATION_INVALID', message: 'Module mounting height must be a finite non-negative millimetre value.' };
+  }
   const wall = walls.find((candidate) => candidate.id === request.wallId);
   if (!wall) return { ok: false, code: 'MODULE_WALL_NOT_FOUND', message: 'The module anchor must reference a wall in the active approved plan.' };
 
@@ -53,7 +56,7 @@ export function resolveModuleWallAnchor(
       offsetMm: request.offsetMm,
       xMm: wall.worldStart.xMm + directionX * request.offsetMm,
       yMm: wall.worldStart.yMm + directionY * request.offsetMm,
-      zMm: Number.isFinite(request.zMm) ? Number(request.zMm) : 0,
+      zMm: request.zMm ?? 0,
       rotationDeg: (Math.atan2(dy, dx) * 180) / Math.PI,
       anchor: 'wall',
     },

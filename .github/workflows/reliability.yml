@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - codex/release-recovery-20260728
+      - codex/ultida-unification
 
 permissions:
   contents: read
