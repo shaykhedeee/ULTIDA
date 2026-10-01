@@ -60,7 +60,7 @@ export const DEFAULT_WORKFLOW_STAGES: WorkflowStageConfig[] = [
   { id: 'brief',    label: 'Brief & Plan',        path: 'brief',    icon: BookOpen, status: 'not_started' },
   { id: 'spaces',   label: 'Rooms & Spaces',      path: 'spaces',   icon: Home,     status: 'not_started' },
   { id: '3d',       label: '3D Scene',             path: '3d',       icon: Wand2,    status: 'not_started' },
-  { id: 'drawings', label: 'Cutlist & Drawings',  path: 'drawings', icon: Ruler,    status: 'not_started' },
+  { id: 'drawings', label: 'Documents & Cutlist',  path: 'drawings', icon: Ruler,    status: 'not_started' },
   { id: 'estimate', label: 'Estimate & Delivery', path: 'estimate', icon: Receipt,  status: 'not_started' },
 ];
 
@@ -87,7 +87,10 @@ export function Shell({
   const inProject = Boolean(projectId);
   const doneStagesCount = workflowStages.filter((stage) => stage.status === 'done').length;
   const totalStagesCount = workflowStages.length;
-  const activeStageIdx = workflowStages.findIndex((stage) => location.pathname.includes(`/${stage.path}`));
+  const activeStageIdx = workflowStages.findIndex((stage) =>
+    location.pathname.includes(`/${stage.path}`)
+      || (stage.id === 'brief' && location.pathname.endsWith('/plan'))
+  );
   const activeStage = activeStageIdx >= 0 ? workflowStages[activeStageIdx] : null;
   const prevStage = activeStageIdx > 0 ? workflowStages[activeStageIdx - 1] : null;
   const nextStage = activeStageIdx >= 0 && activeStageIdx < workflowStages.length - 1 ? workflowStages[activeStageIdx + 1] : null;

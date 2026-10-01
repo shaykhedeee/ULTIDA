@@ -6,7 +6,6 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createCompiledModuleMeshes } from './compiled-module-meshes';
 import { supabase } from '../../lib/supabase';
-import { getApiBase } from '../../lib/api-base';
 import { IndianModularCatalog } from '@ultida/catalog-core';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import type { RenderIntentV1 } from '@ultida/contracts';
@@ -62,7 +61,7 @@ type Scene = {
 type Props = {
   sceneVersionId: string | null;
   projectId?: string | null;
-  onCompileScene?: () => Promise<string | void>;
+  onCompileScene?: (roomId: string | null) => Promise<string | void>;
 };
 type Preset = 'perspective' | 'front' | 'top' | 'walkthrough' | 'isometric';
 type LightingPreset = 'warm' | 'daylight' | 'evening';
@@ -528,11 +527,11 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   const requestedSceneVersionId = searchParams.get('sceneVersionId') || sceneVersionId;
   const canvasRef = useRef<HTMLDivElement>(null);
   const [scene, setScene] = useState<Scene | null>(null);
-  const [activeRooms, setActiveRooms] = useState<Array<{ id: string; name: string; roomType?: string; areaSqm?: number; polygon: Array<{ xMm: number; yMm: number }> }>>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(requestedRoomId);
   const [status, setStatus] = useState('Loading 3D scene geometry...');
   const [wallsVisible, setWallsVisible] = useState(true);
   const [ceilingVisible, setCeilingVisible] = useState(false);
+  const [viewResetKey, setViewResetKey] = useState(0);
   const [preset, setPreset] = useState<Preset>('perspective');
   const [lightingMode, setLightingMode] = useState<LightingPreset>('warm');
   const [selected, setSelected] = useState<string | null>(null);
@@ -590,12 +589,11 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
 
     let live = true;
     const loadScene = async () => {
+      setScene(null);
       setStatus('Loading persisted scene geometry...');
       const session = (await sb.auth.getSession()).data.session;
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-      const apiBase = getApiBase();
-
       let loadedScene: Scene | null = null;
 
       let query = sb.from('scene_versions').select('id,scene,status');
@@ -613,281 +611,9 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         }
       }
 
-      // If not in Supabase, check local storage for client-persisted scene.v1
-      if (!loadedScene && typeof window !== 'undefined') {
-        try {
-          const storedSceneStr = (requestedSceneVersionId ? window.localStorage.getItem(`ultida.scene.${requestedSceneVersionId}`) : null)
-            || (projectId ? window.localStorage.getItem(`ultida.scene.${projectId}`) : null);
-          if (storedSceneStr) {
-            const parsed = JSON.parse(storedSceneStr);
-            if (parsed?.schema === 'scene.v1' && parsed?.units === 'mm') {
-              loadedScene = { ...parsed, moduleParts: parsed.moduleParts ?? [] };
-            }
-          }
-        } catch {}
-      }
-
-      // Check if client-side localStorage has active placed modules from Stage 3
-      let localClientModules: any[] = [];
-      if (typeof window !== 'undefined' && projectId) {
-        try {
-          const rawLocalMods = window.localStorage.getItem(`ultida.modules.${projectId}`);
-          if (rawLocalMods) {
-            const parsed = JSON.parse(rawLocalMods);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              localClientModules = parsed;
-            }
-          }
-        } catch {}
-      }
-
-      if (!loadedScene) {
-        try {
-          const planRes = await fetch(`${apiBase}/projects/${projectId}/floor-plan/active`, { headers });
-          const planPayload = await planRes.json().catch(() => null);
-
-          if (planRes.ok && planPayload?.walls && planPayload?.rooms) {
-            const rawRooms = planPayload.rooms ?? [];
-            if (live) setActiveRooms(rawRooms);
-
-            let rawModules: any[] = [];
-            try {
-              const modRes = await fetch(`${apiBase}/projects/${projectId}/module-instances`, { headers });
-              const modPayload = await modRes.json().catch(() => null);
-              if (modRes.ok && Array.isArray(modPayload?.modules)) {
-                rawModules = modPayload.modules;
-              }
-            } catch {
-            }
-
-            const ceilingH = Number(planPayload.ceilingHeightMm ?? 2700);
-
-            const sceneRooms = rawRooms.map((r: any) => ({
-              id: r.id,
-              name: r.name || r.roomType || 'Room',
-              boundary: r.polygon ?? [],
-            }));
-
-            const sceneWalls = (planPayload.walls ?? []).map((w: any) => ({
-              id: w.id,
-              start: w.start ?? { xMm: 0, yMm: 0 },
-              end: w.end ?? { xMm: 1000, yMm: 0 },
-              thicknessMm: Number(w.thicknessMm ?? 150),
-              heightMm: Number(w.heightMm ?? ceilingH),
-            }));
-
-            const sceneOpenings = (planPayload.openings ?? []).map((o: any) => ({
-              id: o.id,
-              wallId: o.wallId,
-              offsetMm: Number(o.offsetMm ?? 0),
-              widthMm: Number(o.widthMm ?? 900),
-              heightMm: Number(o.heightMm ?? 2100),
-              sillHeightMm: Number(o.sillMm ?? 0),
-              kind: (o.kind === 'window' ? 'window' : 'door') as 'door' | 'window',
-            }));
-
-            // Prefer client-edited modules from Stage 3 if present
-            let finalModules: any[] = [];
-            if (localClientModules.length > 0) {
-              finalModules = localClientModules.map((m: any, idx: number) => {
-                let posX = Number(m.xMm);
-                let posY = Number(m.yMm);
-                let rot = Number(m.rotationDeg ?? 0);
-                if ((!Number.isFinite(posX) || !Number.isFinite(posY)) && m.wallId) {
-                  const anchorWall = sceneWalls.find((w: any) => w.id === m.wallId);
-                  if (anchorWall?.start && anchorWall?.end) {
-                    const dx = anchorWall.end.xMm - anchorWall.start.xMm;
-                    const dy = anchorWall.end.yMm - anchorWall.start.yMm;
-                    const len = Math.hypot(dx, dy) || 1;
-                    const nx = dx / len;
-                    const ny = dy / len;
-                    const off = Number(m.offsetMm ?? 100) + Number(m.widthMm ?? 1200) / 2;
-                    posX = Math.round(anchorWall.start.xMm + nx * off);
-                    posY = Math.round(anchorWall.start.yMm + ny * off);
-                    rot = Math.round((Math.atan2(dy, dx) * 180) / Math.PI);
-                  }
-                }
-                const targetRoomId = m.roomId || sceneRooms[0]?.id || 'room-default';
-                return {
-                  id: m.id || `mod-${idx}`,
-                  roomId: targetRoomId,
-                  family: m.family || 'modular',
-                  widthMm: Number(m.widthMm || 1800),
-                  depthMm: Number(m.depthMm || 600),
-                  heightMm: Number(m.heightMm || 2100),
-                  position: {
-                    xMm: Number.isFinite(posX) ? posX : 1200 + (idx % 3) * 800,
-                    yMm: Number.isFinite(posY) ? posY : 1200 + Math.floor(idx / 3) * 800,
-                  },
-                  rotationDeg: rot,
-                  materialId: m.materialId || 'mat-1',
-                };
-              });
-            } else if (rawModules.length > 0) {
-              finalModules = rawModules.map((m: any, idx: number) => {
-                const pos = m.position_json ?? {};
-                const conf = m.config_json ?? {};
-                return {
-                  id: m.id || `mod-${idx}`,
-                  roomId: String(m.space_id ?? pos.roomId ?? sceneRooms[0]?.id ?? ''),
-                  family: m.category || conf.family || 'modular',
-                  widthMm: Number(conf.widthMm ?? 1800),
-                  depthMm: Number(conf.depthMm ?? 600),
-                  heightMm: Number(conf.heightMm ?? 2100),
-                  position: { xMm: Number(pos.xMm ?? 1000 + (idx % 3) * 600), yMm: Number(pos.yMm ?? 1000 + Math.floor(idx / 3) * 600) },
-                  rotationDeg: Number(pos.rotationDeg ?? 0),
-                  materialId: 'mat-1',
-                };
-              });
-            }
-
-            if (finalModules.length === 0 && sceneRooms.length > 0) {
-              const synthesized: any[] = [];
-              sceneRooms.forEach((r: any, rIdx: number) => {
-                const b = r.boundary ?? [];
-                if (b.length < 3) return;
-                const minX = Math.min(...b.map((p: any) => p.xMm));
-                const maxX = Math.max(...b.map((p: any) => p.xMm));
-                const minY = Math.min(...b.map((p: any) => p.yMm));
-                const maxY = Math.max(...b.map((p: any) => p.yMm));
-                const width = Math.max(1200, maxX - minX);
-                const depth = Math.max(1200, maxY - minY);
-                const cx = minX + width / 2;
-                const cy = minY + depth / 2;
-                const rType = (r.name || '').toLowerCase();
-
-                if (rType.includes('living') || rType.includes('hall') || rType.includes('lounge')) {
-                  synthesized.push({
-                    id: `mod-tv-${rIdx}`,
-                    roomId: r.id,
-                    family: 'tv-unit',
-                    widthMm: Math.min(2400, Math.max(1600, width - 400)),
-                    depthMm: 400,
-                    heightMm: 2200,
-                    position: { xMm: cx, yMm: minY + 260 },
-                    rotationDeg: 0,
-                    materialId: 'mat-1',
-                  });
-                  synthesized.push({
-                    id: `mod-sofa-${rIdx}`,
-                    roomId: r.id,
-                    family: 'sofa',
-                    widthMm: Math.min(2400, Math.max(1600, width - 400)),
-                    depthMm: 1200,
-                    heightMm: 850,
-                    position: { xMm: cx, yMm: maxY - 750 },
-                    rotationDeg: 0,
-                    materialId: 'mat-3',
-                  });
-                } else if (rType.includes('bed')) {
-                  synthesized.push({
-                    id: `mod-bed-${rIdx}`,
-                    roomId: r.id,
-                    family: 'bed',
-                    widthMm: 1800,
-                    depthMm: 2100,
-                    heightMm: 1100,
-                    position: { xMm: cx, yMm: minY + 1150 },
-                    rotationDeg: 0,
-                    materialId: 'mat-1',
-                  });
-                  synthesized.push({
-                    id: `mod-wardrobe-${rIdx}`,
-                    roomId: r.id,
-                    family: 'wardrobe',
-                    widthMm: Math.min(2400, Math.max(1600, width - 400)),
-                    depthMm: 600,
-                    heightMm: 2400,
-                    position: { xMm: minX + 350, yMm: cy },
-                    rotationDeg: 90,
-                    materialId: 'mat-3',
-                  });
-                } else if (rType.includes('kitchen')) {
-                  synthesized.push({
-                    id: `mod-kit-base-${rIdx}`,
-                    roomId: r.id,
-                    family: 'kitchen-base',
-                    widthMm: Math.min(2800, Math.max(1800, width - 300)),
-                    depthMm: 600,
-                    heightMm: 860,
-                    position: { xMm: cx, yMm: minY + 350 },
-                    rotationDeg: 0,
-                    materialId: 'mat-2',
-                  });
-                } else if (rType.includes('dining')) {
-                  synthesized.push({
-                    id: `mod-dining-${rIdx}`,
-                    roomId: r.id,
-                    family: 'dining-table',
-                    widthMm: 1800,
-                    depthMm: 900,
-                    heightMm: 760,
-                    position: { xMm: cx, yMm: cy },
-                    rotationDeg: 0,
-                    materialId: 'mat-1',
-                  });
-                } else {
-                  synthesized.push({
-                    id: `mod-storage-${rIdx}`,
-                    roomId: r.id,
-                    family: 'wardrobe',
-                    widthMm: Math.min(1800, Math.max(1200, width - 600)),
-                    depthMm: 500,
-                    heightMm: 2100,
-                    position: { xMm: cx, yMm: minY + 300 },
-                    rotationDeg: 0,
-                    materialId: 'mat-1',
-                  });
-                }
-              });
-              if (synthesized.length > 0) {
-                finalModules = synthesized;
-              }
-            }
-
-            loadedScene = {
-              schema: 'scene.v1',
-              units: 'mm',
-              rooms: sceneRooms,
-              walls: sceneWalls,
-              openings: sceneOpenings,
-              modules: finalModules,
-              moduleParts: [],
-              lighting: [],
-              materials: [
-                { id: 'mat-1', name: 'Smoked Walnut Veneer', code: 'VIRGO-OAK-01', finish: 'Satin PU' },
-                { id: 'mat-2', name: 'Calacatta Gold Sintered Slab', code: 'SLAB-CAL-GOLD', finish: 'Polished' },
-                { id: 'mat-3', name: 'Matte Suede Zero-G Shutter', code: 'SHUT-LAM-SUEDE', finish: 'Anti-Fingerprint' },
-                { id: 'mat-4', name: 'Tinted Fluted Profile Glass', code: 'GLAS-FLUTED-TINT', finish: 'Anodized Bronze' },
-              ],
-              cameras: [{ id: 'camera-default', name: 'Perspective', position: { xMm: 2000, yMm: 1600, zMm: -4000 }, target: { xMm: 2000, yMm: 1200, zMm: 1200 }, lensMm: 35 }],
-            };
-          }
-        } catch {
-        }
-      }
-
-      // If loadedScene was loaded from cache but client has newer active modules, synchronize them
-      if (loadedScene && localClientModules.length > 0 && (!loadedScene.modules || loadedScene.modules.length === 0)) {
-        loadedScene = {
-          ...loadedScene,
-          modules: localClientModules.map((m: any, idx: number) => ({
-            id: m.id || `mod-${idx}`,
-            roomId: m.roomId || loadedScene!.rooms[0]?.id || 'room-master-bed',
-            family: m.family || 'modular',
-            widthMm: Number(m.widthMm || 1800),
-            depthMm: Number(m.depthMm || 600),
-            heightMm: Number(m.heightMm || 2100),
-            position: { xMm: Number(m.xMm ?? 1500 + (idx % 3) * 600), yMm: Number(m.yMm ?? 1500 + Math.floor(idx / 3) * 600) },
-            rotationDeg: Number(m.rotationDeg ?? 0),
-            materialId: m.materialId || 'mat-1',
-          })),
-        };
-      }
-
-      if (!loadedScene) {
-        loadedScene = createDefaultDemoScene();
-      }
+      // A project without a compiled scene stays uncompiled. Building a scene
+      // from plan/module fragments here would require guessed dimensions,
+      // transforms, materials, or camera data and could look authoritative.
 
       if (!live) return;
 
@@ -915,8 +641,8 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         setScene(activeScene);
         setStatus(`✨ 3D Geometry loaded: ${activeScene.rooms.length} rooms, ${activeScene.walls.length} walls, ${activeScene.openings.length} openings, ${activeScene.modules.length} modules.`);
       } else {
-        setScene(createDefaultDemoScene());
-        setStatus('✨ Demo 3D scene loaded.');
+        setScene(null);
+        setStatus('No compiled scene is saved for this project yet. Save the room modules, then compile the room to create its measured 3D scene.');
       }
     };
 
@@ -927,17 +653,13 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   async function compileOrRefreshScene() {
     setCompiling(true);
     try {
-      if (scene) {
-        setStatus('Refreshing the persisted scene version…');
-        setReloadKey((value) => value + 1);
-        return;
-      }
       if (!onCompileScene) {
         setStatus('Open Rooms & Modules, save a catalog module, then compile the scene.');
         return;
       }
-      setStatus('Compiling the persisted room modules into scene.v1…');
-      await onCompileScene();
+      setStatus('Compiling this room from its saved modules and finishes…');
+      const compiledVersionId = await onCompileScene(selectedRoomId);
+      if (!compiledVersionId) return;
       setReloadKey((value) => value + 1);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Scene compilation could not complete. Check the selected room module and finish assignments.');
@@ -1475,19 +1197,16 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       rendererInstanceRef.current = null;
       host.replaceChildren();
     };
-  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId, assetFilter, activeStoreyId, explodedAxonometric]);
+  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId, assetFilter, activeStoreyId, explodedAxonometric, viewResetKey]);
 
   const activeSelectedRoom = useMemo(() => {
     if (!scene) return null;
     return scene.rooms.find((r) => r.id === selectedRoomId) ?? scene.rooms[0] ?? null;
   }, [scene, selectedRoomId]);
 
-  const activeSelectedRoomMeta = useMemo(() => {
-    if (!activeSelectedRoom) return null;
-    return activeRooms.find((r) => r.id === activeSelectedRoom.id) ?? null;
-  }, [activeSelectedRoom, activeRooms]);
-  const selectedRoomAreaSqm = activeSelectedRoomMeta?.areaSqm
-    ?? (activeSelectedRoom ? measuredRoomAreaSqm(activeSelectedRoom.boundary) : null);
+  const selectedRoomAreaSqm = activeSelectedRoom
+    ? measuredRoomAreaSqm(activeSelectedRoom.boundary)
+    : null;
   const selectedRoomCeilingHeightMm = activeSelectedRoom
     ? measuredRoomCeilingHeightMm(activeSelectedRoom.id, scene?.rooms.length ?? 0, scene?.walls ?? [])
     : null;
@@ -1643,8 +1362,10 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         <Button variant={preset === 'walkthrough' ? 'default' : 'outline'} onClick={() => setPreset('walkthrough')}><Eye size={15} /> Walkthrough</Button>
         <Button variant={preset === 'top' ? 'default' : 'outline'} onClick={() => setPreset('top')}><Layers3 size={15} /> Plan</Button>
         <Button variant={preset === 'isometric' ? 'default' : 'outline'} onClick={() => setPreset('isometric')}><Rotate3D size={15} /> Isometric</Button>
-        <Button variant={wallsVisible ? 'default' : 'outline'} onClick={() => setWallsVisible((value) => !value)}><Box size={15} /> Walls</Button>
-        <Button variant={ceilingVisible ? 'default' : 'outline'} onClick={() => setCeilingVisible((value) => !value)}><Rotate3D size={15} /> Ceiling</Button>
+        <Button variant="outline" aria-pressed={!wallsVisible} onClick={() => setWallsVisible((value) => !value)}><Box size={15} /> {wallsVisible ? 'Hide walls' : 'Show walls'}</Button>
+        <Button variant="outline" aria-pressed={!ceilingVisible} title="Hide the ceiling to inspect the room. Saved geometry is unchanged." onClick={() => setCeilingVisible((value) => !value)}><Layers3 size={15} /> {ceilingVisible ? 'Remove ceiling' : 'Show ceiling'}</Button>
+        <Button variant={preset === 'front' ? 'default' : 'outline'} aria-pressed={preset === 'front'} onClick={() => setPreset('front')}><Ruler size={15} /> Front view</Button>
+        <Button variant="outline" onClick={() => setViewResetKey(value => value + 1)}><Camera size={15} /> Fit {selectedRoomId ? 'room' : 'scene'}</Button>
 
         {/* Lighting Atmosphere Selector */}
         <div style={{ display: 'inline-flex', background: '#f5f3ee', borderRadius: 8, padding: 2, border: '1px solid #e7e5e4', marginLeft: 4 }}>
@@ -1739,7 +1460,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
             onClick={() => void compileOrRefreshScene()}
             style={{ marginLeft: 'auto', background: 'linear-gradient(135deg, #c59c2d, #a88220)', color: '#1c1917', fontWeight: 800 }}
           >
-            {compiling ? 'Updating 3D Scene...' : scene ? '↻ Refresh 3D Scene' : '✨ Compile 3D Scene'}
+            {compiling ? 'Compiling room…' : 'Compile saved room'}
           </Button>
         )}
       </div>
@@ -1773,6 +1494,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         </div>
       )}
 
+      <p className="scene-view-help" role="status">{ceilingVisible ? 'Ceiling shown' : 'Ceiling removed for inspection'} · {wallsVisible ? 'Walls shown' : 'Walls hidden'}. View controls do not change the saved design. Drag to orbit, scroll to zoom.</p>
       <div className="scene-grid">
         <aside className="scene-assets-rail" aria-label="Scene assets">
           <div className="scene-assets-heading">
@@ -2142,7 +1864,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                   </h4>
                   <div style={{ fontSize: 12, color: '#44403c', lineHeight: 1.6 }}>
                     • <strong>{scene?.walls.length ?? 0} Walls</strong>: 150mm thick with bevel relief<br />
-                    • <strong>{scene?.openings.length ?? 0} Openings</strong>: Verified door & window frames<br />
+                    • <strong>{scene?.openings.length ?? 0} Openings</strong>: Saved doors & windows<br />
                   • <strong>Lighting</strong>: {scene?.lighting?.length ?? 0} authored fixtures + atmosphere controls
                   </div>
                 </div>

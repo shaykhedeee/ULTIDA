@@ -509,7 +509,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   const location = useLocation();
   const pathParts = location.pathname.split('/').filter(Boolean);
   const stageFromPath = pathParts[2] || 'brief';
-  const activeStageId = stage || stageFromPath;
+  const activeStageId = (stage || stageFromPath) === 'plan' ? 'brief' : stage || stageFromPath;
 
   // Project state
   const [projectName, setProjectName] = useState('');
@@ -874,13 +874,15 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
 
     let status: WorkflowStageConfig['status'] = 'not_started';
     const isServerDone = Boolean(serverStageMap[stageKey]);
-    if (stageKey === activeStageId) {
+    if (stageKey === 'brief' && briefSaved && planApproved) {
+      status = 'done';
+    } else if (stageKey === activeStageId) {
       status = 'in_progress';
     } else if (stageKey === 'brief' && (isServerDone || briefSaved)) {
-      status = 'done';
+      status = 'needs_review';
     } else if (stageKey === 'plan' && (isServerDone || planApproved)) {
       status = 'done';
-    } else if (stageKey === 'spaces' && (isServerDone || sceneApproved || Boolean(sceneVersionId))) {
+    } else if (stageKey === 'spaces' && (isServerDone || Boolean(sceneVersionId))) {
       status = 'done';
     } else if (stageKey === '3d' && (isServerDone || sceneApproved)) {
       status = 'done';
@@ -1300,31 +1302,90 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     return payload.layouts.filter((layout: any) => layout.space_id === spaceId && layout.status === 'candidate').map((layout: any) => layout.candidate_json).filter(Boolean) as LayoutCandidate[];
   }
 
-  async function saveScene(id: string, modules: typeof sceneModules, materials: any[] = []) {
+  async function saveScene(id: string, modules: typeof sceneModules, materials: any[] = [], requestedPlanRoomId?: string | null) {
     const accessToken = await getValidToken();
     const apiBase = getApiBase();
-    const roomId = modules[0]?.roomId;
-    if (!projectId || !accessToken || !roomId) {
-      setPlanStatus('Save a room and at least one placed module before compiling the scene.');
+    const planRoomId = requestedPlanRoomId ?? modules[0]?.roomId ?? null;
+    if (!projectId || !accessToken || !planRoomId) {
+      setPlanStatus('Choose a room in Spaces before compiling its saved design.');
       return undefined;
     }
-    const normalizedModules = modules.map((m) => ({ ...m, roomId }));
 
     try {
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
+      const planResponse = await fetch(`${apiBase}/projects/${projectId}/floor-plan/active`, { headers });
+      const planPayload = await planResponse.json().catch(() => null);
+      if (!planResponse.ok) {
+        setPlanStatus(planPayload?.message ?? 'Load the active approved plan before compiling a room.');
+        return undefined;
+      }
+      const selectedRoom = (planPayload?.rooms ?? []).find((room: any) => (String(room.id) === String(planRoomId) || String(room.spaceRecordId) === String(planRoomId)));
+      if (!selectedRoom?.spaceRecordId) {
+        setPlanStatus('This room is not attached to the active approved plan. Return to Spaces and choose the room again.');
+        return undefined;
+      }
+      const modulesResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances?spaceId=${encodeURIComponent(selectedRoom.spaceRecordId)}`, { headers });
+      const modulesPayload = await modulesResponse.json().catch(() => null);
+      const savedModules = Array.isArray(modulesPayload?.modules) ? modulesPayload.modules : [];
+      if (!modulesResponse.ok || savedModules.length === 0) {
+        setPlanStatus(modulesPayload?.message ?? 'Save at least one furniture module in this room before compiling its 3D scene.');
+        return undefined;
+      }
+
+      const readLocalRecord = (key: string): Record<string, any> | null => {
+        try {
+          const value = JSON.parse(window.localStorage.getItem(key) ?? 'null');
+          return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+        } catch { return null; }
+      };
+      const cachedSchedules = readLocalRecord(`ultida.compositionSchedules.${projectId}`);
+      const schedules = Array.isArray(planPayload?.sceneDesignInputs?.compositionSchedules)
+        ? planPayload.sceneDesignInputs.compositionSchedules : [];
+      const moduleWallIds = new Set(savedModules.map((module: any) => module.position_json?.wallId).filter((wallId: unknown): wallId is string => typeof wallId === 'string'));
+      const compositionSchedules = schedules.filter((schedule: any) => moduleWallIds.has(String(schedule?.wallId)));
+      const cachedSurfaces = readLocalRecord(`ultida.floorSurfaces.${projectId}`);
+      const floorCandidates = Array.isArray(planPayload?.sceneDesignInputs?.floorSurfaces)
+        ? planPayload.sceneDesignInputs.floorSurfaces : [];
+      const floorSurfaces = floorCandidates.filter((surface: any) => String(surface?.roomId) === String(planRoomId));
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ roomId, moduleInstanceIds: normalizedModules.map((module) => module.id), designVersion: 'room-design.v1', changeReason: 'Compiled from persisted room modules, component finishes, and active approved plan.v1' }),
+        headers,
+        body: JSON.stringify({
+          roomId: selectedRoom.spaceRecordId,
+          moduleInstanceIds: savedModules.map((module: any) => module.id),
+          compositionSchedules,
+          floorSurfaces,
+          designVersion: 'room-design.v1',
+          changeReason: 'Compiled from saved room modules, confirmed wall bays, floor finishes, and active approved plan.v1',
+        }),
       });
       const payload = await response.json().catch(() => null);
       if (response.ok && payload?.success && payload?.sceneVersion) {
         setSceneApprovalError(null);
         setSceneVersionId(payload.sceneVersion.id);
         setSceneVersionNumber(payload.sceneVersion.version_number);
-        setSceneModules(normalizedModules);
+        const compiledModules = Array.isArray(payload.sceneVersion.scene?.modules) ? payload.sceneVersion.scene.modules : [];
+        setSceneModules(compiledModules.map((module: any) => ({ ...module, label: module.label ?? module.family })));
         setSceneMaterials(Array.isArray(payload.materials) ? payload.materials : materials);
         setSceneApproved(false);
-        setPlanStatus('Measured scene compiled from the active approved plan. Review and approve it before rendering.');
+        let draftCleanupNotice = '';
+        try {
+          if (cachedSchedules && compositionSchedules.length) {
+            const savedWallIds = new Set(compositionSchedules.map((schedule: any) => String(schedule.wallId)));
+            const remainingSchedules = Object.fromEntries(Object.entries(cachedSchedules).filter(([wallId]) => !savedWallIds.has(wallId)));
+            if (Object.keys(remainingSchedules).length) window.localStorage.setItem(`ultida.compositionSchedules.${projectId}`, JSON.stringify(remainingSchedules));
+            else window.localStorage.removeItem(`ultida.compositionSchedules.${projectId}`);
+          }
+          if (cachedSurfaces && floorSurfaces.length) {
+            const remainingSurfaces = Object.fromEntries(Object.entries(cachedSurfaces).filter(([roomId]) => roomId !== String(planRoomId)));
+            if (Object.keys(remainingSurfaces).length) window.localStorage.setItem(`ultida.floorSurfaces.${projectId}`, JSON.stringify(remainingSurfaces));
+            else window.localStorage.removeItem(`ultida.floorSurfaces.${projectId}`);
+          }
+        } catch {
+          draftCleanupNotice = ' The room scene is saved, but this browser could not clear its local draft copy.';
+        }
+        setPlanStatus(`Saved ${compiledModules.length} module${compiledModules.length === 1 ? '' : 's'}, ${compositionSchedules.length} wall schedule${compositionSchedules.length === 1 ? '' : 's'}, and ${floorSurfaces.length} floor finish${floorSurfaces.length === 1 ? '' : 'es'} for ${selectedRoom.name}. Review and approve this scene before rendering.${draftCleanupNotice}`);
+        void fetchProjectStatus();
         return payload.sceneVersion.id as string;
       }
       setPlanStatus(payload?.message ?? 'The scene could not be saved. Check the room, plan, and module readiness, then retry.');
@@ -1449,7 +1510,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         <Route path="spaces" element={
           <RoomDesignStudio
             projectId={projectId ?? null}
-            spaces={<SpacesWorkspace />}
+            spaces={<SpacesWorkspace onReviewSavedRoom={async roomId => await saveScene('spaces.v1', sceneModules, sceneMaterials, roomId)} />}
           />
         } />
         <Route path="layouts" element={<Navigate to={`/projects/${projectId}/spaces?tab=spaces`} replace />} />
@@ -1471,8 +1532,8 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
               <SceneStudio
                 sceneVersionId={sceneVersionId}
                 projectId={projectId ?? null}
-                onCompileScene={async () => {
-                  await saveScene('spaces.v1', sceneModules, sceneMaterials);
+                onCompileScene={async (roomId) => {
+                  return await saveScene('spaces.v1', sceneModules, sceneMaterials, roomId);
                 }}
               />
             }
@@ -1485,7 +1546,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         {/* /production → silent redirect to Cutlist & Drawings */}
         <Route path="production" element={<Navigate to={`/projects/${projectId}/drawings`} replace />} />
         {/* /drawings = primary Cutlist Studio */}
-        <Route path="drawings" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} initialTab="cutlist" />} />
+        <Route path="drawings" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} initialTab="release" />} />
 
         <Route path="estimate" element={
           <CommercialWorkspace

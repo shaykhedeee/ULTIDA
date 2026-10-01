@@ -1,3 +1,4 @@
+import { rasterizePdfPage } from './pdf-rasterizer.js';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -472,6 +473,7 @@ async function rasterizePdf(bytes: Uint8Array) {
   const directory = await mkdtemp(join(tmpdir(), 'ultida-plan-'));
   const inputPath = join(directory, 'source.pdf'); const outputPrefix = join(directory, 'page');
   try {
+    try { return await rasterizePdfPage(bytes); } catch { /* Existing local decoders remain available as fallback. */ }
     await writeFile(inputPath, bytes);
     try {
       await execFileAsync(process.env.PDFTOPPM_PATH || 'pdftoppm', ['-f', '1', '-singlefile', '-png', '-r', '180', inputPath, outputPrefix], { windowsHide: true, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 });

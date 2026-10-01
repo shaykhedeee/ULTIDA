@@ -1,3 +1,4 @@
+import { prepareRoomReview } from './prepare-room-review';
 /* ═══════════════════════════════════════════════
    PHASE 4 — SPACES WORKSPACE
    Consumes the active approved floor-plan version.
@@ -22,7 +23,8 @@ import {
 } from '@ultida/spaces-core';
 import { reconcileModuleFit } from '@ultida/scene-core';
 import { reconcileCatalogPlacement } from '@ultida/scene-compiler';
-import { IndianModularCatalog, listCatalog, CuratedLaminateCatalog, type CatalogModule } from '@ultida/catalog-core';
+import { IndianModularCatalog, MODULE_STYLE_REFERENCES, listCatalog, CuratedLaminateCatalog, type CatalogModule } from '@ultida/catalog-core';
+
 import { ModulePreview } from '../../components/library/ModulePreview';
 import TopViewFloorplanEnhancer, {
   type TopViewFurniture,
@@ -42,6 +44,7 @@ type Pt = { xMm: number; yMm: number };
 interface PlanRoom {
   id: string;
   spaceRecordId?: string | null;
+  wallRefs?: string[];
   name: string;
   roomType: string;
   polygon: Pt[];
@@ -412,7 +415,7 @@ function getWallElevationTemplate(wallId: string | null, room: PlanRoom | null) 
   };
 }
 
-export function SpacesWorkspace() {
+export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (roomId: string) => Promise<string | void> } = {}) {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -427,6 +430,7 @@ export function SpacesWorkspace() {
 
   const [plan, setPlan] = useState<CanonicalPlanFragment | null>(null);
   const [rooms, setRooms] = useState<PlanRoom[]>([]);
+  const [approvedLayoutRooms, setApprovedLayoutRooms] = useState<string[]>([]);
   const [walls, setWalls] = useState<PlanWall[]>([]);
   const [openings, setOpenings] = useState<PlanOpening[]>([]);
   const [columns, setColumns] = useState<PlanColumn[]>([]);
@@ -438,7 +442,7 @@ export function SpacesWorkspace() {
   const [ceilingHeightMm, setCeilingHeightMm] = useState(2700);
   const [floorPlanVersionId, setFloorPlanVersionId] = useState<string>('');
   const [geometryMode, setGeometryMode] = useState<'initial_design' | 'final_production'>('final_production');
-  const [canvasFocus, setCanvasFocus] = useState<'room' | 'plan'>('plan');
+  const [canvasFocus, setCanvasFocus] = useState<'room' | 'plan'>('room');
 
   // Interactive Zoom, Pan, and Cursor state
   const [zoomLevel, setZoomLevel] = useState<number>(1);
@@ -481,6 +485,7 @@ export function SpacesWorkspace() {
   const [dropPreview, setDropPreview] = useState<ModulePlacementPreview | null>(null);
   const [dropCursor, setDropCursor] = useState<{ x: number; y: number } | null>(null);
   const [catalogQuery, setCatalogQuery] = useState('');
+  const [moduleStyleRefs, setModuleStyleRefs] = useState<Record<string, string>>({});
   const [catalogFilterFamily, setCatalogFilterFamily] = useState('all');
   const [catalogFitFilter, setCatalogFitFilter] = useState<'all' | 'fits'>('all');
 
@@ -493,6 +498,107 @@ export function SpacesWorkspace() {
   }, [pendingModuleRequested, searchParams, setSearchParams]);
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+  const [savedModules, setSavedModules] = useState<any[]>([]);
+  const [moduleReload, setModuleReload] = useState(0);
+  const [finishLibrary, setFinishLibrary] = useState<any[]>([]);
+  const [finishAssignments, setFinishAssignments] = useState<any[]>([]);
+  const [finishBusy, setFinishBusy] = useState(false);
+  const [finishReload, setFinishReload] = useState(0);
+  useEffect(() => {
+    let live = true;
+    setFinishLibrary([]); setFinishAssignments([]);
+    if (!projectId || !supabase) return;
+    void (async () => {
+      const session = (await supabase!.auth.getSession()).data.session; if (!session) return;
+      const response = await fetch(`${getApiBase()}/projects/${projectId}/design-context`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => null);
+      if (!live) return;
+      if (!response.ok) { setSaveState(payload?.message ?? 'Finishes could not be loaded.'); return; }
+      setFinishLibrary(payload?.context?.materialLibrary ?? []); setFinishAssignments(payload?.context?.materialAssignments ?? []);
+    })().catch(() => { if (live) setSaveState('Could not load saved finishes. Retry when connected.'); });
+    return () => { live = false; };
+  }, [projectId, finishReload]);
+  async function addStarterFinishes() {
+    if (!projectId || !supabase || finishBusy) return;
+    setFinishBusy(true);
+    try {
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session) throw new Error('Sign in again to add finishes.');
+      const response = await fetch(`${getApiBase()}/projects/${projectId}/material-library/starter`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.message ?? 'Materials could not be added.');
+      setFinishReload(value => value + 1);
+      setSaveState('Starter finishes added. Confirm supplier specifications before production, then assign your finishes below.');
+    } catch (error) { setSaveState(error instanceof Error ? error.message : 'Material setup failed.'); }
+    finally { setFinishBusy(false); }
+  }
+  function savedFinish(slot: string, moduleId?: string) {
+    const matches = finishAssignments.filter(item => item.semantic_slot === slot && (moduleId ? item.module_instance_id === moduleId || (item.target_kind === 'module' && item.target_id === moduleId) : item.target_kind === 'semantic_slot' && item.target_id === projectId));
+    return matches.sort((a, b) => Number(b.revision) - Number(a.revision))[0]?.material_id ?? '';
+  }
+  async function assignFinish(slot: 'carcass' | 'shutter' | 'back_panel', materialId: string, moduleId?: string) {
+    if (!projectId || !supabase || !materialId || finishBusy) return;
+    setFinishBusy(true);
+    try {
+      const session = (await supabase.auth.getSession()).data.session; if (!session) throw new Error('Sign in again to save finishes.');
+      const response = await fetch(`${getApiBase()}/projects/${projectId}/material-assignments`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ projectId, materialId, moduleInstanceId: moduleId ?? null, targetKind: moduleId ? 'module' : 'semantic_slot', targetId: moduleId ?? projectId, semanticSlot: slot, revision: 1, status: 'draft' }) });
+      const payload = await response.json().catch(() => null); if (!response.ok) throw new Error(payload?.message ?? 'Finish could not be saved.');
+      setFinishReload(value => value + 1);
+      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
+      setSaveState('Finish saved. Review the updated 3D scene before approving it again.');
+    } catch (error) { setSaveState(error instanceof Error ? error.message : 'Finish save failed.'); }
+    finally { setFinishBusy(false); }
+  }
+  const [kitchenStyle, setKitchenStyle] = useState('Warm oak');
+  const [kitchenBusy, setKitchenBusy] = useState(false);
+  const [selectedSavedModuleId, setSelectedSavedModuleId] = useState<string | null>(null);
+  const [moduleDraft, setModuleDraft] = useState<{ widthMm: string; depthMm: string; heightMm: string; offsetMm: string } | null>(null);
+  const [savingModule, setSavingModule] = useState(false);
+  const [showAdvancedCanvasTools, setShowAdvancedCanvasTools] = useState(false);
+  const [showRoomList, setShowRoomList] = useState(false);
+  const activeSpaceId = rooms.find(room => room.id === selectedRoom)?.spaceRecordId;
+  useEffect(() => {
+    let live = true;
+    setSavedModules([]);
+    if (!projectId || !activeSpaceId || !supabase) return;
+    void (async () => {
+      const session = (await supabase!.auth.getSession()).data.session;
+      if (!session) return;
+      const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances?spaceId=${encodeURIComponent(activeSpaceId)}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => null);
+      if (!live) return;
+      if (!response.ok) { setSaveState(payload?.message ?? 'Saved furniture could not be loaded. Retry before placing more items.'); return; }
+      setSavedModules((payload?.modules ?? []).filter((item: any) => ['validated', 'approved'].includes(item.status)));
+    })().catch(() => { if (live) setSaveState('Could not load saved furniture. Check your connection.'); });
+    return () => { live = false; };
+  }, [projectId, activeSpaceId, moduleReload]);
+  useEffect(() => { setSelectedSavedModuleId(null); setModuleDraft(null); }, [activeSpaceId]);
+  function selectSavedModule(item: any) {
+    setSelectedSavedModuleId(item.id);
+    setSelectedWall(item.position_json.wallId);
+    setSpacePanel('modules');
+    setModuleDraft({ widthMm: String(item.config_json.widthMm), depthMm: String(item.config_json.depthMm), heightMm: String(item.config_json.heightMm), offsetMm: String(item.position_json.offsetMm) });
+  }
+  async function saveSelectedModule() {
+    const item = savedModules.find(entry => entry.id === selectedSavedModuleId);
+    if (!item || !moduleDraft || !projectId || !supabase || savingModule) return;
+    const values = Object.fromEntries(Object.entries(moduleDraft).map(([key, value]) => [key, value.trim() ? Number(value) : NaN]));
+    if (![values.widthMm, values.depthMm, values.heightMm].every(value => Number.isFinite(value) && value > 0) || !Number.isFinite(values.offsetMm) || values.offsetMm < 0) {
+      setSaveState('Enter positive width, depth and height, and an offset of zero or more. All values are millimetres.'); return;
+    }
+    setSavingModule(true);
+    try {
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session) throw new Error('Sign in again before saving furniture.');
+      const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances/${item.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ expectedUpdatedAt: item.updated_at, reason: 'Adjusted furniture in room studio', config: { widthMm: values.widthMm, depthMm: values.depthMm, heightMm: values.heightMm }, position: { wallId: item.position_json.wallId, offsetMm: values.offsetMm } }) });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.module) throw new Error(payload?.message ?? 'Furniture could not be saved. Your draft is retained.');
+      setSavedModules(current => current.map(entry => entry.id === item.id ? payload.module : entry));
+      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
+      setSaveState(`${item.label} saved. Review the updated design in 3D before approving new outputs.`);
+    } catch (error) { setSaveState(error instanceof Error ? error.message : 'Furniture save failed. Retry when connected.'); }
+    finally { setSavingModule(false); }
+  }
   useEffect(() => {
     if (!projectId || !aiProposalRoomId || !aiProposals.length) return;
     try {
@@ -697,21 +803,9 @@ export function SpacesWorkspace() {
   }, [rooms]);
 
   useEffect(() => {
-    if (!projectId) return;
-    try {
-      const savedSurfaces = window.localStorage.getItem(`ultida.floorSurfaces.${projectId}`);
-      if (savedSurfaces) {
-        const parsed = JSON.parse(savedSurfaces);
-        if (parsed && typeof parsed === 'object') setFloorSurfaces(parsed);
-      }
-      const savedSchedules = window.localStorage.getItem(`ultida.compositionSchedules.${projectId}`);
-      if (savedSchedules) {
-        const parsed = JSON.parse(savedSchedules);
-        if (parsed && typeof parsed === 'object') setCompositionSchedules(parsed);
-      }
-    } catch {
-      // ignore
-    }
+    // Reload the authoritative saved room inputs; device drafts never establish approval.
+    setFloorSurfaces({});
+    setCompositionSchedules({});
   }, [projectId]);
 
   // ── Load approved plan geometry & source backdrop ──
@@ -733,6 +827,7 @@ export function SpacesWorkspace() {
         return {
           id: r.id,
           spaceRecordId: r.spaceRecordId,
+          wallRefs: r.wallRefs ?? [],
           name: r.name,
           roomType: inferRoomType(r.roomType, r.name, area, poly),
           polygon: poly,
@@ -756,9 +851,23 @@ export function SpacesWorkspace() {
       });
       if (!live) return;
       setPlan({ ceilingHeightMm: payload.ceilingHeightMm, walls: payload.walls, rooms: payload.rooms, openings: payload.openings, services: payload.services, obstacles: payload.columns } as any);
+      const layoutResponse = await fetch(`${apiBase}/projects/${projectId}/layouts`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const layoutPayload = await layoutResponse.json().catch(() => null);
+      if (!live) return;
+      setApprovedLayoutRooms(layoutResponse.ok ? (layoutPayload?.layouts ?? []).filter((layout: any) => layout.status === 'approved').map((layout: any) => String(layout.space_id)) : []);
       setRooms(roomsP); setSelectedRoom((current) => current ?? roomsP[0]?.id ?? null); setWalls(payload.walls ?? []); setOpenings(payload.openings ?? []);
       setColumns(payload.columns ?? []); setBeams(payload.beams ?? []); setServices(payload.services ?? []);
       setAnnotations(payload.annotations ?? []); setIssues(payload.issues ?? []);
+      if (Array.isArray(payload.sceneDesignInputs?.compositionSchedules)) {
+        setCompositionSchedules(Object.fromEntries(payload.sceneDesignInputs.compositionSchedules
+          .filter((schedule: any) => typeof schedule?.wallId === 'string')
+          .map((schedule: any) => [schedule.wallId, schedule])));
+      }
+      if (Array.isArray(payload.sceneDesignInputs?.floorSurfaces)) {
+        setFloorSurfaces(Object.fromEntries(payload.sceneDesignInputs.floorSurfaces
+          .filter((surface: any) => typeof surface?.roomId === 'string')
+          .map((surface: any) => [surface.roomId, surface])));
+      }
       setScaleVerified(payload.scaleVerified); setCeilingHeightMm(payload.ceilingHeightMm ?? 2700); setFloorPlanVersionId(payload.floorPlanVersionId ?? '');
       setGeometryMode(payload.geometryMode === 'initial_design' ? 'initial_design' : 'final_production');
       if (payload.previewUrl) setPlanPreviewUrl(payload.previewUrl);
@@ -798,6 +907,7 @@ export function SpacesWorkspace() {
     return edges;
   }
   function wallsForRoom(room: PlanRoom) {
+    if (room.wallRefs?.length) return walls.filter(wall => room.wallRefs!.includes(wall.id));
     const boundary = roomBoundaryWalls(room);
     const tolerance = 250;
     const closeToBoundary = (point: Pt) => boundary.some(edge => {
@@ -807,7 +917,7 @@ export function SpacesWorkspace() {
       return Math.hypot(point.xMm - (edge.start.xMm + t * dx), point.yMm - (edge.start.yMm + t * dy)) <= tolerance;
     });
     const detected = walls.filter(wall => closeToBoundary(wall.start) && closeToBoundary(wall.end));
-    return detected.length >= Math.min(3, boundary.length) ? detected : boundary;
+    return detected;
   }
 
   function getInitialRoomFurniture(
@@ -1799,6 +1909,23 @@ export function SpacesWorkspace() {
     setTool(nextTool);
   }
 
+  async function saveRoomDesignInputs(room: PlanRoom, schedules: Record<string, CompositionScheduleV1>, surfaces: Record<string, FloorSurfaceV1>) {
+    if (!supabase || !projectId || !room.spaceRecordId) { setSaveState('Save the room measurements first, then save its wall bays and flooring.'); return false; }
+    setSaveState(`Saving ${room.name}…`);
+    try {
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token) throw new Error('Sign in again to save this room.');
+      const roomWallIds = new Set(wallsForRoom(room).map(wall => wall.id));
+      const response = await fetch(`${getApiBase()}/projects/${projectId}/spaces/${room.spaceRecordId}/design-inputs`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ compositionSchedules: Object.values(schedules).filter(schedule => roomWallIds.has(schedule.wallId)), floorSurfaces: Object.values(surfaces).filter(surface => surface.roomId === room.id) }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.message ?? 'Room could not be saved. Retry after the connection is restored.');
+      setSaveState(`${room.name} saved to the project. Previous approvals and downloads need review after this change.`);
+      return true;
+    } catch (error) { setSaveState(error instanceof Error ? error.message : 'Room save failed. Your changes remain an unsaved draft.'); return false; }
+  }
   function patchRoom(id: string, patch: Partial<PlanRoom>) { setRooms(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r)); }
   function toggleFurniture(id: string, furnitureId: string) {
     snapshot();
@@ -1908,10 +2035,6 @@ export function SpacesWorkspace() {
       return null;
     }
     if (!supabase || !projectId) return null;
-    if (room.spaceRecordId && !room.requiredFurniture.length) {
-      setSaveState('Choose at least one required modular category before saving this room.');
-      return null;
-    }
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) { setSaveState('Session expired.'); return null; }
     const apiBase = getApiBase();
@@ -1940,6 +2063,7 @@ export function SpacesWorkspace() {
       return null;
     }
     const persisted = { ...room, verificationStatus: verificationStatus === 'verified' ? 'verified' : 'unverified' };
+    if (!await saveRoomDesignInputs(persisted, compositionSchedules, floorSurfaces)) return null;
     setRooms(current => current.map(candidate => candidate.id === room.id ? persisted : candidate));
     setSaveState(verificationStatus === 'verified' ? `${room.name} measurements and requirements verified.` : 'Room saved.');
     return persisted;
@@ -2010,7 +2134,7 @@ export function SpacesWorkspace() {
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` };
     const apiBase = getApiBase();
     const existing = await fetch(`${apiBase}/projects/${projectId}/layouts`, { headers }).then((response) => response.json().then((payload) => ({ response, payload }))).catch(() => null);
-    if (existing?.response.ok && Array.isArray(existing.payload?.layouts) && existing.payload.layouts.some((layout: any) => layout.space_id === room.spaceRecordId && layout.status === 'approved')) return true;
+    if (existing?.response.ok && Array.isArray(existing.payload?.layouts) && existing.payload.layouts.some((layout: any) => layout.space_id === room.spaceRecordId && layout.status === 'approved')) { setApprovedLayoutRooms(current => [...new Set([...current, room.spaceRecordId!])]); return true; }
 
     const candidateType = room.designPriority === 'storage' ? 'maximum_storage' : room.designPriority === 'circulation' ? 'best_circulation' : 'balanced';
     const candidatesResponse = await fetch(`${apiBase}/projects/${projectId}/layout-candidates`, {
@@ -2044,6 +2168,7 @@ export function SpacesWorkspace() {
       setSaveState(approvedPayload?.message ?? 'The measured layout could not be approved.');
       return false;
     }
+    setApprovedLayoutRooms(current => [...new Set([...current, room.spaceRecordId!])]);
     return true;
   }
 
@@ -2086,7 +2211,7 @@ export function SpacesWorkspace() {
     const categoryKey = module.family.includes('kitchen') ? 'kitchen_base' : module.family === 'tv-unit' ? 'tv_unit' : module.family === 'wardrobe' ? 'wardrobe' : module.family === 'crockery' ? 'crockery_unit' : module.family === 'study' ? 'study_unit' : module.family === 'pooja' ? 'pooja_unit' : module.family === 'bed' ? 'bed' : module.family === 'utility' ? 'utility_unit' : 'storage_unit';
     const roomWithRequirement = sel.room.requiredFurniture.includes(categoryKey)
       ? sel.room
-      : { ...sel.room, requiredFurniture: [...sel.room.requiredFurniture, categoryKey] };
+      : { ...sel.room, styleDirection: module.family.includes('kitchen') ? kitchenStyle : sel.room.styleDirection, requiredFurniture: [...sel.room.requiredFurniture, categoryKey] };
 
     // A production module needs its persisted space id. Persisting here keeps
     // canvas selection and the compiler anchored to the same approved room.
@@ -2126,6 +2251,7 @@ export function SpacesWorkspace() {
             heightMm: module.heightMm,
             zOffsetMm: 0,
             materialSlots: module.materialSlots,
+            designIntent: (() => { const reference = MODULE_STYLE_REFERENCES.find(item => item.id === moduleStyleRefs[module.id]); return reference ? { version: 1, style: `${reference.title}: ${reference.tags.join(', ')}`.slice(0, 120), palette: [], referenceAssetIds: [reference.id] } : undefined; })(),
           },
           position: { wallId: activeCatalogWall.id, offsetMm: placementOffsetMm },
         }),
@@ -2135,6 +2261,8 @@ export function SpacesWorkspace() {
         setSaveState(payload?.message ?? 'The module could not be placed. Check the approved room layout and measured wall clearance.');
         return;
       }
+      setSavedModules(current => [...current.filter(item => item.id !== payload.module.id), payload.module]);
+      setModuleReload(current => current + 1);
       // The API has invalidated downstream artifacts. Mirror that durable
       // change in the app shell so no screen can keep presenting an older
       // scene version as if it still represented this room.
@@ -2148,7 +2276,7 @@ export function SpacesWorkspace() {
       const offset = placementOffsetMm;
       setAiProposalRoomId(persistedRoom.id);
       setAiProposals((current) => [
-        ...current.filter((proposal) => proposal.moduleId !== module.id || proposal.wallId !== activeCatalogWall.id),
+        ...current,
         {
           id: String(payload?.module?.id ?? `${module.id}-${Date.now()}`),
           category: module.family,
@@ -2165,6 +2293,7 @@ export function SpacesWorkspace() {
       ]);
       setSpacePanel('modules');
       setSaveState(`${module.name} is placed on the measured wall. Adjust bays, fillers, shutters, and finishes below; the scene must be recompiled before 3D or renders update.`);
+      return true;
     } catch {
       setSaveState('The module placement request could not reach the project service. Nothing was added to the scene.');
     }
@@ -2232,7 +2361,7 @@ export function SpacesWorkspace() {
   async function placeCatalogModuleOnSelectedWall(module: CatalogModule) {
     let targetWallContext = activeCatalogWall;
     const roomWalls = sel?.room ? wallsForRoom(sel.room) : walls;
-    const availableWallCandidates = (roomWalls.length ? roomWalls : walls).map((wall) => ({
+    const availableWallCandidates = roomWalls.map((wall) => ({
       wall,
       context: {
         id: wall.id,
@@ -2271,7 +2400,7 @@ export function SpacesWorkspace() {
    */
   function resolveWallDropTarget(point: Pt): { wall: PlanWall; context: CatalogWallContext; offsetMm: number; distanceMm: number } | null {
     const roomWalls = sel?.room ? wallsForRoom(sel.room) : walls;
-    const candidates = roomWalls.length ? roomWalls : walls;
+    const candidates = roomWalls;
     let best: { wall: PlanWall; offsetMm: number; distanceMm: number } | null = null;
     for (const wall of candidates) {
       const dx = wall.end.xMm - wall.start.xMm;
@@ -2319,6 +2448,10 @@ export function SpacesWorkspace() {
       offsetMm: clamped,
     });
     const tooFar = target.distanceMm > SNAP_DISTANCE_MM;
+    const neighbour = savedModules.some(item => item.position_json?.wallId === target.wall.id && clamped < item.position_json.offsetMm + item.config_json.widthMm + 20 && clamped + module.widthMm > item.position_json.offsetMm - 20);
+    const doorClearance = target.context.openings.some(opening => opening.kind !== 'window' && clamped < opening.offsetMm + opening.widthMm + 150 && clamped + module.widthMm > opening.offsetMm - 150);
+    const tooTall = module.heightMm > (target.wall.heightMm ?? sel?.room.ceilingHeightMm ?? ceilingHeightMm);
+    const valid = scaleVerified && !tooFar && !neighbour && !doorClearance && !tooTall && atDrop.geometryValid;
     const issues = atDrop.reconciliation.issues
       .filter((issue) => issue.code !== 'SCHEDULE_UNCONFIRMED')
       .map((issue) => issue.message);
@@ -2330,11 +2463,30 @@ export function SpacesWorkspace() {
       wallLengthMm: target.context.lengthMm,
       offsetMm: clamped,
       module,
-      valid: !tooFar && atDrop.geometryValid,
-      reason: !tooFar && atDrop.geometryValid ? undefined : reason ?? 'This module cannot be placed here.',
+      valid,
+      reason: valid ? undefined : !scaleVerified ? 'Confirm plan scale before placing furniture.' : neighbour ? 'This position overlaps saved furniture or its 20 mm clearance.' : doorClearance ? 'Keep 150 mm clear of this door.' : tooTall ? 'This unit exceeds the measured ceiling height.' : reason ?? 'This module cannot be placed here.',
       start: target.wall.start,
       end: target.wall.end,
     };
+  }
+
+  async function furnishKitchen() {
+    if (!sel || kitchenBusy) return;
+    setKitchenBusy(true);
+    let placed = 0;
+    try {
+      const styledRoom = { ...sel.room, styleDirection: kitchenStyle };
+      if (!await persistRoom(styledRoom)) return;
+      // Add one measured base unit per eligible wall; never overwrite existing furniture.
+      for (const wall of wallsForRoom(styledRoom)) {
+        if (savedModules.some(item => item.position_json?.wallId === wall.id)) continue;
+        const context: CatalogWallContext = { id: wall.id, lengthMm: wallLen(wall), openings: openings.filter(opening => opening.wallId === wall.id).map(opening => ({ id: opening.id, kind: opening.kind, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm ?? 900 })) };
+        const candidates = IndianModularCatalog.filter(module => module.family === 'kitchen-base' && !module.id.includes('island')).sort((a, b) => a.widthMm - b.widthMm);
+        const module = candidates.find(candidate => reconcileCatalogModuleFit(context, candidate)?.fits);
+        if (module && await placeCatalogModuleOnWall(module, context)) placed++;
+      }
+      setSaveState(placed ? `${placed} kitchen base units saved. ${kitchenStyle} is your design direction; review appliances, finishes and clearances before approval.` : 'No kitchen units were added. Review the measured walls, existing furniture and placement errors.');
+    } finally { setKitchenBusy(false); }
   }
 
   async function applyLayoutCandidateToScene(room: PlanRoom, candidateType: 'circulation' | 'balanced' | 'storage' | 'luxury') {
@@ -2588,7 +2740,7 @@ export function SpacesWorkspace() {
   }, [catalogQuery, catalogFilterFamily, catalogFitFilter, sel?.room.roomType, activeCatalogWall]);
 
   return (
-    <div className={`spaces-workspace phase4${showDesignLibrary ? ' spaces-workspace--library-open' : ''}`} style={{ paddingBottom: 148 }}>
+    <div className={`spaces-workspace phase4${showDesignLibrary ? ' spaces-workspace--library-open' : ''}${showRoomList ? '' : ' spaces-workspace--focused'}`} style={{ paddingBottom: 48 }}>
       {/* Header */}
       <div className="page-header">
         <div className="page-header-text">
@@ -2601,15 +2753,15 @@ export function SpacesWorkspace() {
             <button className="icon-btn" onClick={undo} type="button" aria-label="Undo"><Undo2 size={15} /></button>
             <button className="icon-btn" onClick={redo} type="button" aria-label="Redo"><Redo2 size={15} /></button>
           </div>
-          <button
+          {showAdvancedCanvasTools && <button
             type="button"
             className="btn-secondary workspace-action btn-gold-subtle"
             onClick={harmonizeAllRoomsVastu}
             title="Automatically align all rooms and furniture to 100% Auspicious Vastu Shastra zones"
           >
             <Compass size={14} className="text-gold" /> ✨ Harmonize Vastu (All)
-          </button>
-          {sel?.room && (
+          </button>}
+          {showAdvancedCanvasTools && sel?.room && (
             <button
               type="button"
               className="btn-secondary workspace-action"
@@ -2619,10 +2771,12 @@ export function SpacesWorkspace() {
               <Zap size={14} className="text-gold" /> ⚡ 1-Click Furnish
             </button>
           )}
-          <button type="button" className="btn-primary workspace-action" onClick={() => setShowDesignLibrary(true)} title="Browse furniture that fits the selected room"><BookOpen size={14} /> Add furniture</button>
+          <button type="button" className="btn-primary workspace-action" disabled={!sel || loadState !== 'ready'} onClick={() => setShowDesignLibrary(current => !current)} title="Browse furniture that fits the selected room"><BookOpen size={14} /> {showDesignLibrary ? 'Close furniture library' : 'Add furniture'}</button>
+          <button type="button" className="btn-secondary workspace-action" aria-expanded={showAdvancedCanvasTools} onClick={() => setShowAdvancedCanvasTools(current => !current)}>{showAdvancedCanvasTools ? 'Fewer tools' : 'More tools'}</button>
+          <button type="button" className="btn-secondary workspace-action" aria-expanded={showRoomList} onClick={() => setShowRoomList(current => !current)}>{showRoomList ? 'Hide room list' : 'Room list'}</button>
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
-          <button className="btn-secondary workspace-action" onClick={() => void saveGeometryVersion()} title="Save room and placement changes"><Save size={14} /> Save changes</button>
-          <button className="btn-secondary proceed-header-action workspace-action" disabled={!rooms.length} onClick={() => navigate(`/projects/${projectId}/3d`)} title="Review the saved room design in 3D"><Rotate3d size={15} /> Review in 3D <ArrowRight size={14} /></button>
+          <button className="btn-secondary workspace-action" disabled={!sel} onClick={() => sel && void persistRoom(sel.room).catch(() => setSaveState('Room save failed. Your draft remains available.'))} title="Save this room’s settings, bays and floor finishes"><Save size={14} /> Save room</button>
+          <button className="btn-secondary proceed-header-action workspace-action" disabled={!sel?.room.spaceRecordId} onClick={async () => { if (!sel) return; try { const roomId = sel.room.id; const sceneId = await prepareRoomReview({ save: () => persistRoom(sel.room), approve: ensureApprovedRoomLayout, compile: async saved => { setSaveState('Preparing this room’s saved 3D scene…'); return await onReviewSavedRoom?.(saved.id); } }); if (!sceneId) { setSaveState('The room is saved, but its scene could not be prepared. Check the scene error above and confirm wall bays and saved furniture.'); return; } navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(roomId)}`); } catch (error) { setSaveState(error instanceof Error ? error.message : 'Room review could not be prepared. Your saved room is unchanged.'); } }} title="Save and prepare this room’s design before opening 3D"><Rotate3d size={15} /> Review in 3D <ArrowRight size={14} /></button>
         </div>
       </div>
 
@@ -3018,7 +3172,7 @@ export function SpacesWorkspace() {
                       <button
                         type="button"
                         className={`room-quick-approve ${readiness.ready ? 'ready' : ''}`}
-                        onClick={(event) => {
+                        onClick={async (event) => {
                           event.stopPropagation();
                           setSelectedRoom(room.id);
                           const cats = room.requiredFurniture.length
@@ -3029,12 +3183,10 @@ export function SpacesWorkspace() {
                             requiredFurniture: cats,
                             verificationStatus: 'verified',
                           };
-                          setRooms((rs) => rs.map((r) => (r.id === room.id ? targetRoom : r)));
-                          void persistRoom(targetRoom, 'verified');
-                          void applyLayoutCandidateToScene(targetRoom, 'balanced');
+                          try { const saved = await persistRoom(targetRoom, 'verified'); if (saved && await ensureApprovedRoomLayout(saved)) setSaveState(room.name + ' measurements saved and layout approved. Place furniture, then Review in 3D.'); } catch { setSaveState('Room approval could not be saved. Retry when the connection is restored.'); }
                         }}
                       >
-                        <CheckCircle2 size={13} /> {readiness.ready ? 'Room ready (Approved)' : !vastu.isCompliant ? 'Fix Vastu & Approve' : 'Approve & Verify Room'}
+                        <CheckCircle2 size={13} /> {approvedLayoutRooms.includes(room.spaceRecordId ?? '') && room.verificationStatus === 'verified' ? 'Room approved · saved' : 'Verify & approve room'}
                       </button>
                       {!vastu.isCompliant && (
                         <button
@@ -3063,12 +3215,18 @@ export function SpacesWorkspace() {
 
           {/* Region: Plan canvas + tools */}
           <section className="region canvas-region">
+            {sel?.room.roomType === 'kitchen' && <div className="kitchen-layout-bar">
+              <label>Kitchen style <select value={kitchenStyle} onChange={event => setKitchenStyle(event.target.value)}><option>Warm oak</option><option>Modern white</option><option>Matte sage</option><option>Dark contemporary</option></select></label>
+              <button type="button" disabled={kitchenBusy || !scaleVerified} onClick={() => void furnishKitchen().catch(() => setSaveState('Kitchen furnishing failed. Saved units remain visible; retry after reviewing the error.'))}>{kitchenBusy ? 'Adding kitchen units…' : 'Auto-furnish clear walls'}</button>
+              <small>Adds starter base units to empty walls. Review appliances and select finishes before approval.</small>
+            </div>}
             <div className="canvas-focus-bar">
               <div>
                 <strong>{sel?.room.name ?? 'Full plan'}</strong>
                 <span>{canvasRenderMode === '3d_isometric' ? '3D Enhanced Axonometric Floor Plan' : canvasFocus === 'room' ? (sel?.scaleReview ? 'Check room scale before layout' : 'Room verification view') : 'Full Apartment Overview'}</span>
               </div>
               <div className="canvas-focus-actions">
+                {showAdvancedCanvasTools && <>
                 <button
                   type="button"
                   className="btn-gold-action"
@@ -3087,6 +3245,7 @@ export function SpacesWorkspace() {
                 >
                   🚪 Detect Doors &amp; Windows
                 </button>
+                </>}
                 <div className="canvas-mode-toggle" role="group" aria-label="Floor plan view mode">
                   <button type="button" className={`canvas-mode-btn ${canvasRenderMode === '2d' ? 'active' : ''}`} onClick={() => setCanvasRenderMode('2d')}>
                     2D CAD
@@ -3541,7 +3700,25 @@ export function SpacesWorkspace() {
               })}
 
               {/* AI Proposals & Staged Furniture Envelopes on SVG Canvas */}
-              {layers.aiOverlay && showAiProposalsOnCanvas && (aiProposals.length > 0 ? aiProposals : []).map((prop) => {
+              {savedModules.map(item => {
+                const position = item.position_json;
+                const size = item.config_json;
+                if (![position?.xMm, position?.yMm, size?.widthMm, size?.depthMm].every(Number.isFinite)) return null;
+                const p = toPx(position);
+                return <g key={`saved-${item.id}`} role="button" tabIndex={0} aria-label={`Edit ${item.label}`} style={{ cursor: 'pointer' }} onClick={event => { event.stopPropagation(); selectSavedModule(item); }} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectSavedModule(item); } }} transform={`rotate(${position.rotationDeg ?? 0} ${p.x} ${p.y})`}><rect x={p.x} y={p.y} width={size.widthMm * view.scale} height={size.depthMm * view.scale} fill={selectedSavedModuleId === item.id ? '#c5dff3' : '#d8e8df'} fillOpacity="0.85" stroke={selectedSavedModuleId === item.id ? '#17669c' : '#26724d'} strokeWidth="2" /><text x={p.x + 4} y={p.y + 14} fontSize="11" fill="#163d2b">{item.label} · saved</text><title>{`${item.label}: ${size.widthMm} × ${size.depthMm} × ${size.heightMm} mm`}</title></g>;
+              })}
+              {selectedSavedModuleId && moduleDraft && (() => {
+                const item = savedModules.find(entry => entry.id === selectedSavedModuleId);
+                if (!item) return null;
+                const wall = walls.find(entry => entry.id === item.position_json.wallId);
+                const width = Number(moduleDraft.widthMm), depth = Number(moduleDraft.depthMm), offset = Number(moduleDraft.offsetMm);
+                if (!wall || !moduleDraft.widthMm.trim() || !moduleDraft.depthMm.trim() || !moduleDraft.offsetMm.trim() || ![width, depth, offset].every(Number.isFinite) || width <= 0 || depth <= 0 || offset < 0) return null;
+                const length = wallLen(wall);
+                if (!length) return null;
+                const p = toPx({ xMm: wall.start.xMm + (wall.end.xMm - wall.start.xMm) * offset / length, yMm: wall.start.yMm + (wall.end.yMm - wall.start.yMm) * offset / length });
+                return <g pointerEvents="none" transform={`rotate(${item.position_json.rotationDeg ?? 0} ${p.x} ${p.y})`}><rect x={p.x} y={p.y} width={width * view.scale} height={depth * view.scale} fill="#d5eafa" fillOpacity="0.35" stroke="#17669c" strokeWidth="2" strokeDasharray="6 4" /><text x={p.x + 4} y={p.y - 6} fontSize="11" fill="#17669c">Unsaved preview · checked when saved</text></g>;
+              })()}
+              {layers.aiOverlay && showAiProposalsOnCanvas && aiProposals.filter(prop => !savedModules.some(item => item.id === prop.id)).map((prop) => {
                 const pos = toPx(prop.position);
                 const widthPx = Math.max(30, prop.dimensionsMm.width * view.scale);
                 const depthPx = Math.max(24, prop.dimensionsMm.depth * view.scale);
@@ -3752,9 +3929,214 @@ export function SpacesWorkspace() {
             </footer>
           </section>
 
+      {showDesignLibrary && (
+          <aside className="design-library-rail" aria-label="Design library">
+            <div className="dld-header">
+              <div className="dld-title">
+                <BookOpen size={18} className="text-gold" />
+                <div>
+                  <h3>Design Library</h3>
+                  <small>Drag a module onto a measured wall</small>
+                </div>
+              </div>
+              <button type="button" className="icon-btn" onClick={() => { setShowDesignLibrary(false); cancelPlacementDrag(); }} aria-label="Close design library"><X size={18} /></button>
+            </div>
+
+            <div className="dld-reference-import">
+              <div><strong>Need a style reference?</strong><small>Import a client image for inspiration. It never changes measured furniture dimensions.</small></div>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => projectId && navigate(`/library?projectId=${encodeURIComponent(projectId)}`)} disabled={!projectId}>
+                <ImageIcon size={13} /> Import image
+              </button>
+            </div>
+
+            <div className="dld-search-bar">
+              <div className="search-input-wrap">
+                <Search size={15} />
+                <input
+                  placeholder="Search TV units, wardrobes, kitchens, crockery..."
+                  value={catalogQuery}
+                  onChange={(e) => setCatalogQuery(e.target.value)}
+                  aria-label="Search module library"
+                />
+                {catalogQuery && (
+                  <button type="button" className="dld-clear-btn" onClick={() => setCatalogQuery('')} aria-label="Clear search">
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+              <div className="dld-filter-selects">
+                <select value={catalogFilterFamily} onChange={(e) => setCatalogFilterFamily(e.target.value)} aria-label="Filter by module family">
+                  <option value="all">All Families ({IndianModularCatalog.length})</option>
+                  <option value="tv-unit">TV Units &amp; Consoles</option>
+                  <option value="wardrobe">Wardrobes &amp; Closets</option>
+                  <option value="kitchen-base">Kitchen Base</option>
+                  <option value="kitchen-wall">Kitchen Wall</option>
+                  <option value="kitchen-tall">Kitchen Tall</option>
+                  <option value="crockery">Crockery Units</option>
+                  <option value="bed">Beds &amp; Storage</option>
+                  <option value="study">Study Desks</option>
+                  <option value="pooja">Pooja Units</option>
+                  <option value="utility">Utility &amp; Vanity</option>
+                  <option value="storage">Storage &amp; Foyer</option>
+                </select>
+                <select value={catalogFitFilter} onChange={(e) => setCatalogFitFilter(e.target.value as 'all' | 'fits')} aria-label="Filter by measured wall fit">
+                  <option value="all">All fit states</option>
+                  <option value="fits">Fits current wall</option>
+                </select>
+              </div>
+              <div className="dld-category-chips" role="tablist" aria-label="Quick category filters">
+                {[
+                  { id: 'all', label: 'All' },
+                  { id: 'tv-unit', label: 'TV Units' },
+                  { id: 'wardrobe', label: 'Wardrobes' },
+                  { id: 'kitchen-base', label: 'Base' },
+                  { id: 'kitchen-wall', label: 'Wall' },
+                  { id: 'kitchen-tall', label: 'Tall' },
+                  { id: 'crockery', label: 'Crockery' },
+                  { id: 'bed', label: 'Beds' },
+                  { id: 'study', label: 'Study' },
+                  { id: 'pooja', label: 'Pooja' },
+                  { id: 'utility', label: 'Vanity' },
+                  { id: 'storage', label: 'Storage' },
+                ].map(chip => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    className={`dld-chip${catalogFilterFamily === chip.id ? ' dld-chip--active' : ''}`}
+                    onClick={() => setCatalogFilterFamily(chip.id)}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="spaces-flow-note" role="status" style={{ margin: '10px 0 0' }}>
+              {activeCatalogWall
+                ? <>Measured fit context: <strong>{Math.round(activeCatalogWall.lengthMm)} mm wall</strong> · {activeCatalogWall.openings.length} keep-out{activeCatalogWall.openings.length === 1 ? '' : 's'} · drag a card onto any wall to preview its true footprint before committing</>
+                : <>Select a room with measured walls or click <strong>⚡ Smart Place &amp; Fit</strong> to auto-assign the best clear wall span.</>}
+            </div>
+
+            {sel?.room && (
+              <div className="dld-quick-furnish-banner" style={{ margin: '10px 18px 0' }}>
+                <div className="dld-qf-info">
+                  <Sparkles size={16} className="text-gold" />
+                  <div>
+                    <strong>1-Click Suite: {sel.room.name}</strong>
+                    <small>Auto-place recommended System 32 certified modules</small>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn-primary btn-sm"
+                  onClick={() => void quickFurnishRoomSuite(sel.room)}
+                  title="Auto-furnish this room with certified modular joinery"
+                >
+                  ⚡ Auto-Furnish
+                </button>
+              </div>
+            )}
+
+            <div className="dld-grid">
+              {filteredCatalogModules.map((mod) => {
+                const fit = reconcileCatalogModuleFit(activeCatalogWall, mod);
+                const templateCertified = Boolean(mod.production.panelBased && mod.production.hardwareSchedule && mod.production.cutlistSupported);
+                const productionCertified = Boolean(templateCertified && fit?.productionCertified);
+                const fitVerified = Boolean(templateCertified && fit?.fitVerified);
+                const blocked = Boolean(fit && !fit.fits);
+                const armed = draggingModule?.id === mod.id;
+                return <div
+                  key={mod.id}
+                  className={`dld-card${armed ? ' dld-card--armed' : ''}${blocked ? ' dld-card--blocked' : ''}`}
+                  draggable={Boolean(sel)}
+                  onDragStart={(event) => {
+                    setDraggingModule(mod);
+                    event.dataTransfer.effectAllowed = 'copy';
+                    // Some browsers cancel a drag with no payload attached.
+                    event.dataTransfer.setData('text/plain', mod.id);
+                  }}
+                  onDragEnd={cancelPlacementDrag}
+                >
+                  <div className="dld-preview-wrap">
+                    <ModulePreview module={mod} interactive defaultView="real" />
+                  </div>
+                  <div className="dld-card-body">
+                    <div className="dld-card-tags">
+                      <Badge tone="neutral">{mod.family}</Badge>
+                      <small className="dld-sku">{mod.sku}</small>
+                    </div>
+                    <h4>{mod.name}</h4>
+                    <div className="dld-dim-pill">
+                      <span className="dld-dim-item"><strong>{mod.widthMm}</strong> W</span>
+                      <span className="dld-dim-sep">×</span>
+                      <span className="dld-dim-item"><strong>{mod.depthMm}</strong> D</span>
+                      <span className="dld-dim-sep">×</span>
+                      <span className="dld-dim-item"><strong>{mod.heightMm}</strong> H mm</span>
+                    </div>
+                    <div className="dld-card-tags">
+                      <Badge tone={productionCertified || fitVerified ? 'success' : fit ? 'warn' : 'neutral'}>
+                        {productionCertified ? 'Production certified' : fitVerified ? 'Fit verified · confirm scene' : fit && !fit.fits ? 'Blocked by measured geometry' : 'Visual draft'}
+                      </Badge>
+                      {fit?.fits && <small className="dld-placeable-tag">Placeable at {Math.round(fit.suggestedOffsetMm ?? 0)} mm</small>}
+                    </div>
+                    {mod.description && <p className="dld-desc">{mod.description}</p>}
+                    <div className="dld-style-references" draggable={false} onDragStart={event => event.stopPropagation()}>
+                      <label>Style reference <select aria-label={`Style reference for ${mod.name}`} value={moduleStyleRefs[mod.id] ?? ''} onChange={event => setModuleStyleRefs(current => ({ ...current, [mod.id]: event.target.value }))}><option value="">Use module design</option>{MODULE_STYLE_REFERENCES.filter(reference => (reference.family === mod.family || (mod.family.startsWith('kitchen-') && reference.family === 'kitchen'))).slice(0, 12).map(reference => <option key={reference.id} value={reference.id}>{reference.title}</option>)}</select></label>
+                      {(() => { const reference = MODULE_STYLE_REFERENCES.find(item => item.id === moduleStyleRefs[mod.id]); return reference ? <figure><img src={reference.imagePath} alt={reference.title} loading="lazy" /><figcaption>Appearance guidance for this unit’s AI render. Measurements and components stay unchanged.</figcaption></figure> : null; })()}
+                    </div>
+                    {fit && !fit.fits && <p className="dld-desc dld-desc--alert" role="alert">{fit.issues[0]}</p>}
+                    <div className="dld-slots">
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Finish Slots:</span>
+                      {mod.materialSlots.map((slot) => <Badge key={slot} tone="accent">{slot}</Badge>)}
+                    </div>
+                    {sel && (
+                      <div className="dld-card-actions">
+                        <button
+                          type="button"
+                          className={`btn-sm btn-full dld-btn-arm ${armed ? 'dld-btn-arm--active' : 'btn-ghost'}`}
+                          title={armed ? 'Cancel placement (Escape).' : 'Arm this module, then click a measured wall on the plan.'}
+                          onClick={() => (armed ? cancelPlacementDrag() : setDraggingModule(mod))}
+                        >
+                          <MousePointer2 size={13} /> {armed ? 'Placement armed' : 'Click to place'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-primary btn-sm btn-full dld-btn-place"
+                          title={blocked ? 'Click to auto-find best fitting wall in room' : productionCertified ? 'Place this certified module on the selected wall.' : 'Place this module on wall.'}
+                          onClick={() => void placeCatalogModuleOnSelectedWall(mod)}
+                        >
+                          <Plus size={13} /> {activeCatalogWall ? 'Place on selected wall' : '⚡ Smart Place & Fit'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>;
+              })}
+              {!filteredCatalogModules.length && <div className="props-empty">No modules match this room, family, and measured wall fit. Select another wall or switch to “All fit states” to inspect blocked templates.</div>}
+            </div>
+          </aside>
+      )}
+
+
           {/* Region: Properties (room / wall) */}
           <aside className="region props-region">
-            <div className="region-title"><Edit3 size={14} /> Properties &amp; Brief</div>
+            <div className="region-title"><Edit3 size={14} /> Room &amp; furniture details</div>
+            {sel && <section className="saved-furniture-inspector" aria-label="Saved room furniture">
+              <strong>{savedModules.length ? `Saved furniture in ${sel.room.name}` : 'Start furnishing this room'}</strong>
+              <p>{savedModules.length ? 'Select an item on the plan or below to adjust its size and wall position.' : 'Choose Add furniture, pick a unit, then click a clear measured wall. Green means the preview passes the available geometry checks; saving checks the current project again.'}</p>
+              <div className="saved-furniture-list">{savedModules.map(item => <button type="button" key={item.id} aria-pressed={selectedSavedModuleId === item.id} onClick={() => selectSavedModule(item)}>{item.label}</button>)}</div>
+              <div className="saved-furniture-fields">
+                <label>Standard internal laminate<select disabled={finishBusy} value={savedFinish('carcass')} onChange={event => void assignFinish('carcass', event.target.value)}><option value="">Select approved library material</option>{finishLibrary.filter(material => /laminate|liner/i.test(`${material.category} ${material.name}`)).map(material => <option key={material.id} value={material.id}>{material.name} · {material.code}</option>)}</select></label>
+                {selectedSavedModuleId && <label>This unit’s external finish<select disabled={finishBusy} value={savedFinish('shutter', selectedSavedModuleId)} onChange={event => void assignFinish('shutter', event.target.value, selectedSavedModuleId)}><option value="">Select external finish</option>{finishLibrary.filter(material => /laminate|veneer|acrylic/i.test(`${material.category} ${material.name}`)).map(material => <option key={material.id} value={material.id}>{material.name} · {material.code}</option>)}</select></label>}
+              </div>
+              <small>Internal standard applies across this project. External finish belongs to the selected unit. Board and backing thickness remain construction specifications.</small>
+              {!finishLibrary.length && <button type="button" disabled={finishBusy} onClick={() => void addStarterFinishes()}>Add starter finishes · supplier confirmation required</button>}
+              {selectedSavedModuleId && moduleDraft && <>
+                <div className="saved-furniture-fields">{(['widthMm', 'depthMm', 'heightMm', 'offsetMm'] as const).map(key => <label key={key}>{({ widthMm: 'Width', depthMm: 'Depth', heightMm: 'Height', offsetMm: 'Wall offset' })[key]} (mm)<input type="number" min={key === 'offsetMm' ? 0 : 0.1} step="any" value={moduleDraft[key]} onChange={event => setModuleDraft(current => current ? { ...current, [key]: event.target.value } : current)} /></label>)}</div>
+                <button type="button" disabled={savingModule} onClick={() => void saveSelectedModule()}>{savingModule ? 'Saving furniture…' : 'Save furniture changes'}</button>
+                <button type="button" disabled={savingModule} onClick={() => { setSelectedSavedModuleId(null); setModuleDraft(null); }}>Cancel edit</button>
+              </>}
+            </section>}
             {sel ? (
               <div className="props-body">
                 <div className="room-workflow-summary">
@@ -4313,7 +4695,7 @@ export function SpacesWorkspace() {
                               }
                               return next;
                             });
-                            setSaveState(`Wall ${activeWallLabel} bay schedule confirmed for production!`);
+                            void saveRoomDesignInputs(sel.room, { ...compositionSchedules, [activeWall.id]: confirmedSchedule }, floorSurfaces);
                           }}
                         />
                       ) : (
@@ -4382,7 +4764,7 @@ export function SpacesWorkspace() {
                         const summary = quantity
                           ? ` · ${quantity.netAreaSqm} m², ${quantity.totalTileCount} tiles, ${quantity.skirtingLinearM}m skirting`
                           : '';
-                        setSaveState(`✓ Flooring for ${sel.room.name} saved: ${finishName}${summary}`);
+                        void saveRoomDesignInputs(sel.room, compositionSchedules, { ...floorSurfaces, [sel.room.id]: surface });
                       }}
                     />
                   );
@@ -4958,190 +5340,6 @@ export function SpacesWorkspace() {
         forced the user to close it to see the plan they were placing against.
         As a rail it stays open while modules are dragged onto the canvas.
       */}
-      {showDesignLibrary && (
-          <aside className="design-library-rail" aria-label="Design library">
-            <div className="dld-header">
-              <div className="dld-title">
-                <BookOpen size={18} className="text-gold" />
-                <div>
-                  <h3>Design Library</h3>
-                  <small>Drag a module onto a measured wall</small>
-                </div>
-              </div>
-              <button type="button" className="icon-btn" onClick={() => { setShowDesignLibrary(false); cancelPlacementDrag(); }} aria-label="Close design library"><X size={18} /></button>
-            </div>
-
-            <div className="dld-reference-import">
-              <div><strong>Need a style reference?</strong><small>Import a client image for inspiration. It never changes measured furniture dimensions.</small></div>
-              <button type="button" className="btn-secondary btn-sm" onClick={() => projectId && navigate(`/library?projectId=${encodeURIComponent(projectId)}`)} disabled={!projectId}>
-                <ImageIcon size={13} /> Import image
-              </button>
-            </div>
-
-            <div className="dld-search-bar">
-              <div className="search-input-wrap">
-                <Search size={15} />
-                <input
-                  placeholder="Search TV units, wardrobes, kitchens, crockery..."
-                  value={catalogQuery}
-                  onChange={(e) => setCatalogQuery(e.target.value)}
-                  aria-label="Search module library"
-                />
-                {catalogQuery && (
-                  <button type="button" className="dld-clear-btn" onClick={() => setCatalogQuery('')} aria-label="Clear search">
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-              <div className="dld-filter-selects">
-                <select value={catalogFilterFamily} onChange={(e) => setCatalogFilterFamily(e.target.value)} aria-label="Filter by module family">
-                  <option value="all">All Families ({IndianModularCatalog.length})</option>
-                  <option value="tv-unit">TV Units &amp; Consoles</option>
-                  <option value="wardrobe">Wardrobes &amp; Closets</option>
-                  <option value="kitchen-base">Kitchen Base</option>
-                  <option value="kitchen-wall">Kitchen Wall</option>
-                  <option value="kitchen-tall">Kitchen Tall</option>
-                  <option value="crockery">Crockery Units</option>
-                  <option value="bed">Beds &amp; Storage</option>
-                  <option value="study">Study Desks</option>
-                  <option value="pooja">Pooja Units</option>
-                  <option value="utility">Utility &amp; Vanity</option>
-                  <option value="storage">Storage &amp; Foyer</option>
-                </select>
-                <select value={catalogFitFilter} onChange={(e) => setCatalogFitFilter(e.target.value as 'all' | 'fits')} aria-label="Filter by measured wall fit">
-                  <option value="all">All fit states</option>
-                  <option value="fits">Fits current wall</option>
-                </select>
-              </div>
-              <div className="dld-category-chips" role="tablist" aria-label="Quick category filters">
-                {[
-                  { id: 'all', label: 'All' },
-                  { id: 'tv-unit', label: 'TV Units' },
-                  { id: 'wardrobe', label: 'Wardrobes' },
-                  { id: 'kitchen-base', label: 'Base' },
-                  { id: 'kitchen-wall', label: 'Wall' },
-                  { id: 'kitchen-tall', label: 'Tall' },
-                  { id: 'crockery', label: 'Crockery' },
-                  { id: 'bed', label: 'Beds' },
-                  { id: 'study', label: 'Study' },
-                  { id: 'pooja', label: 'Pooja' },
-                  { id: 'utility', label: 'Vanity' },
-                  { id: 'storage', label: 'Storage' },
-                ].map(chip => (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    className={`dld-chip${catalogFilterFamily === chip.id ? ' dld-chip--active' : ''}`}
-                    onClick={() => setCatalogFilterFamily(chip.id)}
-                  >
-                    {chip.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="spaces-flow-note" role="status" style={{ margin: '10px 0 0' }}>
-              {activeCatalogWall
-                ? <>Measured fit context: <strong>{Math.round(activeCatalogWall.lengthMm)} mm wall</strong> · {activeCatalogWall.openings.length} keep-out{activeCatalogWall.openings.length === 1 ? '' : 's'} · drag a card onto any wall to preview its true footprint before committing</>
-                : <>Select a room with measured walls or click <strong>⚡ Smart Place &amp; Fit</strong> to auto-assign the best clear wall span.</>}
-            </div>
-
-            {sel?.room && (
-              <div className="dld-quick-furnish-banner" style={{ margin: '10px 18px 0' }}>
-                <div className="dld-qf-info">
-                  <Sparkles size={16} className="text-gold" />
-                  <div>
-                    <strong>1-Click Suite: {sel.room.name}</strong>
-                    <small>Auto-place recommended System 32 certified modules</small>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="btn-primary btn-sm"
-                  onClick={() => void quickFurnishRoomSuite(sel.room)}
-                  title="Auto-furnish this room with certified modular joinery"
-                >
-                  ⚡ Auto-Furnish
-                </button>
-              </div>
-            )}
-
-            <div className="dld-grid">
-              {filteredCatalogModules.map((mod) => {
-                const fit = reconcileCatalogModuleFit(activeCatalogWall, mod);
-                const templateCertified = Boolean(mod.production.panelBased && mod.production.hardwareSchedule && mod.production.cutlistSupported);
-                const productionCertified = Boolean(templateCertified && fit?.productionCertified);
-                const fitVerified = Boolean(templateCertified && fit?.fitVerified);
-                const blocked = Boolean(fit && !fit.fits);
-                const armed = draggingModule?.id === mod.id;
-                return <div
-                  key={mod.id}
-                  className={`dld-card${armed ? ' dld-card--armed' : ''}${blocked ? ' dld-card--blocked' : ''}`}
-                  draggable={Boolean(sel)}
-                  onDragStart={(event) => {
-                    setDraggingModule(mod);
-                    event.dataTransfer.effectAllowed = 'copy';
-                    // Some browsers cancel a drag with no payload attached.
-                    event.dataTransfer.setData('text/plain', mod.id);
-                  }}
-                  onDragEnd={cancelPlacementDrag}
-                >
-                  <div className="dld-preview-wrap">
-                    <ModulePreview module={mod} interactive defaultView="real" />
-                  </div>
-                  <div className="dld-card-body">
-                    <div className="dld-card-tags">
-                      <Badge tone="neutral">{mod.family}</Badge>
-                      <small className="dld-sku">{mod.sku}</small>
-                    </div>
-                    <h4>{mod.name}</h4>
-                    <div className="dld-dim-pill">
-                      <span className="dld-dim-item"><strong>{mod.widthMm}</strong> W</span>
-                      <span className="dld-dim-sep">×</span>
-                      <span className="dld-dim-item"><strong>{mod.depthMm}</strong> D</span>
-                      <span className="dld-dim-sep">×</span>
-                      <span className="dld-dim-item"><strong>{mod.heightMm}</strong> H mm</span>
-                    </div>
-                    <div className="dld-card-tags">
-                      <Badge tone={productionCertified || fitVerified ? 'success' : fit ? 'warn' : 'neutral'}>
-                        {productionCertified ? 'Production certified' : fitVerified ? 'Fit verified · confirm scene' : fit && !fit.fits ? 'Blocked by measured geometry' : 'Visual draft'}
-                      </Badge>
-                      {fit?.fits && <small className="dld-placeable-tag">Placeable at {Math.round(fit.suggestedOffsetMm ?? 0)} mm</small>}
-                    </div>
-                    {mod.description && <p className="dld-desc">{mod.description}</p>}
-                    {fit && !fit.fits && <p className="dld-desc dld-desc--alert" role="alert">{fit.issues[0]}</p>}
-                    <div className="dld-slots">
-                      <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Finish Slots:</span>
-                      {mod.materialSlots.map((slot) => <Badge key={slot} tone="accent">{slot}</Badge>)}
-                    </div>
-                    {sel && (
-                      <div className="dld-card-actions">
-                        <button
-                          type="button"
-                          className={`btn-sm btn-full dld-btn-arm ${armed ? 'dld-btn-arm--active' : 'btn-ghost'}`}
-                          title={armed ? 'Cancel placement (Escape).' : 'Arm this module, then click a measured wall on the plan.'}
-                          onClick={() => (armed ? cancelPlacementDrag() : setDraggingModule(mod))}
-                        >
-                          <MousePointer2 size={13} /> {armed ? 'Placement armed' : 'Click to place'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-primary btn-sm btn-full dld-btn-place"
-                          title={blocked ? 'Click to auto-find best fitting wall in room' : productionCertified ? 'Place this certified module on the selected wall.' : 'Place this module on wall.'}
-                          onClick={() => void placeCatalogModuleOnSelectedWall(mod)}
-                        >
-                          <Plus size={13} /> {activeCatalogWall ? 'Place on selected wall' : '⚡ Smart Place & Fit'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>;
-              })}
-              {!filteredCatalogModules.length && <div className="props-empty">No modules match this room, family, and measured wall fit. Select another wall or switch to “All fit states” to inspect blocked templates.</div>}
-            </div>
-          </aside>
-      )}
-
       {/* 3D Elevated Top-Down Floor Plan Render Modal */}
       {showFloorPlanRenderModal && (
         <div className="floor-render-modal-backdrop" onClick={() => setShowFloorPlanRenderModal(false)}>

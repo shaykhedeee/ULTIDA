@@ -1,3 +1,5 @@
+import { sceneDocumentSections } from './scene-document-sections.js';
+import { resolvePartMaterial } from './scene-part-material.js';
 import { existsSync } from 'node:fs';
 import { moduleRevisionsMatch } from './scene-module-revisions.js';
 import { resolve, dirname } from 'node:path';
@@ -6,6 +8,7 @@ import { PassThrough } from 'node:stream';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import cors from 'cors';
 import express from 'express';
+import { approveUnchangedDraft } from './scene-approval-write.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const rootEnv = [resolve(currentDir, '../.env'), resolve(currentDir, '../../.env'), resolve(currentDir, '../../../.env')].find((c) => existsSync(c));
@@ -23,6 +26,7 @@ if (typeof process.loadEnvFile === 'function') {
 import { getRequestSupabaseClient, getServerSupabaseClient } from './supabase.js';
 import { authenticateProjectUser, requireProjectUser, requireStudioUser } from './api-auth.js';
 import { CompositionScheduleV1Schema, MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, RenderIntentV1Schema, VisualProposalRequestSchema, buildFlooringQuantities, validateProjectBrief } from '@ultida/contracts';
+import { parseRoomDesignInputs } from './room-design-inputs.js';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { getIkeaResearchStock, parseIkeaStockQuery } from './research-sourcing.js';
 import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
@@ -35,7 +39,7 @@ import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } fr
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
 import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProductionWorkbookXlsx, generateDrawingCutlistWorkbookXlsx, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateProductionDossierPdf, generateSketchUpRubyScript, analyze2DDrawingsToCutlist, DrawingCutlistInputSchema, nestPanels2D, optimizeMultiSheetNesting, generateCncPanelDxf, PdfWriter, type ProductionDossierSpecV1, type DrawingCutlistInput } from '@ultida/drawing-core';
 import { migrateScene } from '@ultida/scene-core';
-import { compileSceneV1, reconcileBays, reconcileSceneBays, SceneCompilationError } from '@ultida/scene-compiler';
+import { compileSceneV1, reconcileBays, reconcileSceneBays, resolveRoomWalls, SceneCompilationError } from '@ultida/scene-compiler';
 import { resolveModuleWallAnchor } from './module-anchor.js';
 import { ModuleEditSchema, prepareModuleEdit, prepareModulePlacement, validateModuleClearance } from './module-edit.js';
 import { compileStoredModuleForScene } from './scene-module-parts.js';
@@ -595,7 +599,18 @@ app.post('/api/drawings/elevations.svg', requireProjectUser, async (request, res
   catch (error: any) { return response.status(error.status ?? 422).json({ success: false, code: error.code ?? 'PRODUCTION_SCENE_UNAVAILABLE', message: error.message, issues: error.issues }); }
   response.setHeader('content-type', 'image/svg+xml');
   if (wallId || options?.viewMode) {
-    return response.status(200).send(generateWallElevationSvg(normalized, wallId ?? '', options));
+    try {
+      const { productionParts, measurementStatus } = await readElevationProductionInputs(request, normalized);
+      return response.status(200).send(generateWallElevationSvg(normalized, wallId ?? '', {
+        ...options,
+        viewMode: 'fabrication',
+        measurementStatus,
+        productionParts,
+        provenance: options?.provenance ?? `Persisted scene ${String(request.body?.sceneVersionId ?? request.params.sceneVersionId ?? 'unknown')} · design ${normalized.metadata.designVersion} · certified production snapshot`,
+      }));
+    } catch (error: any) {
+      return response.status(error.status ?? 422).json({ success: false, code: error.code ?? 'ELEVATION_FAILED', message: error.message ?? 'The cutlist-linked elevation could not be generated.' });
+    }
   }
   return response.status(200).send(generateDrawingPackageSvg(normalized));
 });
@@ -684,6 +699,27 @@ async function readApprovedProductionContext(request: express.Request) {
   return { scene, snapshot: buildProductionSnapshot(scene, undefined, IndianModularCatalog) };
 }
 
+async function readElevationProductionInputs(request: express.Request, scene: ReturnType<typeof migrateScene>) {
+  const projectId = String(request.params.projectId ?? request.body?.projectId ?? '');
+  const sceneVersionId = String(request.params.sceneVersionId ?? request.body?.sceneVersionId ?? request.query.sceneVersionId ?? '');
+  const client = getRequestSupabaseClient(request);
+  const [planResult, reviewResult] = await Promise.all([
+    client.from('floor_plan_versions').select('status,approved_at,canonical_model').eq('project_id', projectId).eq('id', scene.floorPlanVersionId).maybeSingle(),
+    client.from('production_snapshot_reviews').select('status,approved_part_ids,review_notes,reviewed_at,reviewed_by').eq('project_id', projectId).eq('scene_version_id', sceneVersionId).maybeSingle(),
+  ]);
+  if (planResult.error) throw Object.assign(new Error(planResult.error.message), { status: 500, code: 'PLAN_MEASUREMENT_READ_FAILED' });
+  if (reviewResult.error && reviewResult.error.code !== 'PGRST205') throw Object.assign(new Error(reviewResult.error.message), { status: 500, code: 'PRODUCTION_REVIEW_READ_FAILED' });
+  const planModel = CanonicalPlanModelSchema.safeParse(planResult.data?.canonical_model);
+  const measurementStatus = planResult.data?.status === 'approved'
+    && Boolean(planResult.data?.approved_at)
+    && planModel.success
+    && planModel.data.scale?.verified === true
+    ? 'measured' as const
+    : 'unverified' as const;
+  const cutlist = applyProductionReview(buildCutlist(scene), reviewResult.error ? null : reviewResult.data);
+  return { productionParts: cutlist.parts, measurementStatus };
+}
+
 async function readApprovedProductionScene(request: express.Request) {
   return (await readApprovedProductionContext(request)).snapshot;
 }
@@ -744,7 +780,7 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
       lifestyleBrief: typeof briefData?.lifestyle === 'string' ? briefData.lifestyle : 'No approved project brief has been recorded for this scene.',
       roomsScope: scene.rooms.map((room) => {
         const modules = scene.modules.filter((module) => module.roomId === room.id);
-        const areaSqm = Math.abs(room.boundary.slice(0, -1).reduce((sum, point, index) => {
+        const areaSqm = Math.abs(room.boundary.reduce((sum, point, index) => {
           const next = room.boundary[index + 1] ?? room.boundary[0];
           return sum + point.xMm * next.yMm - next.xMm * point.yMm;
         }, 0)) / 2 / 1_000_000;
@@ -752,12 +788,9 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
       }),
       appliances: Array.isArray(briefData?.appliances) ? briefData.appliances.filter((item: any) => item && typeof item.name === 'string').map((item: any) => ({ name: item.name, brand: typeof item.brand === 'string' ? item.brand : undefined, model: typeof item.model === 'string' ? item.model : undefined, dimensionsMm: typeof item.dimensionsMm === 'string' ? item.dimensionsMm : undefined, status: ['client_provided', 'studio_supplied', 'provisional'].includes(item.status) ? item.status : 'provisional' })) : [],
     },
-    elevations: [],
+    ...sceneDocumentSections(scene),
     finishes: {
-      coreSubstrates: [],
-      surfaceFinishes: [],
-      edgeBanding: [],
-      hardwareStandards: [],
+      ...sceneDocumentSections(scene).finishes!,
       flooring,
     },
     bom: {
@@ -929,7 +962,14 @@ app.post('/api/production/wall-elevation.svg', requireProjectUser, async (reques
   try {
     const { wallId, options } = request.body ?? {};
     const { scene: normalized } = await readApprovedProductionContext(request);
-    const svg = generateWallElevationSvg(normalized, wallId ?? '', options);
+    const { productionParts, measurementStatus } = await readElevationProductionInputs(request, normalized);
+    const svg = generateWallElevationSvg(normalized, wallId ?? '', {
+      ...options,
+      viewMode: 'fabrication',
+      measurementStatus,
+      productionParts,
+      provenance: options?.provenance ?? `Persisted scene ${String(request.body?.sceneVersionId ?? request.params.sceneVersionId ?? 'unknown')} · design ${normalized.metadata.designVersion} · certified production snapshot`,
+    });
     response.setHeader('content-type', 'image/svg+xml');
     return response.status(200).send(svg);
   } catch (err: any) {
@@ -2071,7 +2111,7 @@ app.patch('/api/projects/:projectId/module-instances/:moduleId', requireProjectU
   const targetWall = parsed.data.position?.wallId ?? current.data.position_json?.wallId;
   const planRoomId = space.data.space_id;
   const room = plan.data.spaces.find((entry) => entry.id === planRoomId);
-  if (!room || !room.wallRefs.includes(targetWall)) return response.status(422).json({ success: false, code: 'MODULE_WALL_ROOM_MISMATCH', message: 'Select a measured wall belonging to this room.' });
+  if (!room || !resolveRoomWalls(plan.data, planRoomId).some(wall => wall.id === targetWall)) return response.status(422).json({ success: false, code: 'MODULE_WALL_ROOM_MISMATCH', message: 'Select a measured wall belonging to this room.' });
   const neighbours = await client.from('module_instances').select('*').eq('project_id', projectId).eq('space_id', current.data.space_id).in('status', ['validated', 'approved']);
   if (neighbours.error) return response.status(500).json({ success: false, code: 'MODULE_COLLISION_LOOKUP_FAILED', message: 'Unable to check neighbouring modules.' });
   const edit = prepareModuleEdit(current.data, parsed.data, plan.data, neighbours.data ?? []);
@@ -2351,7 +2391,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
 
   const roomId = typeof request.body?.roomId === 'string' ? request.body.roomId : '';
   if (!roomId) return response.status(400).json({ success: false, code: 'ROOM_REQUIRED', message: 'Compile scene.v1 for one approved room at a time.' });
-  const selectedSpace = await client.from('spaces').select('id,space_id,name,room_type').eq('project_id', projectId).eq('id', roomId).maybeSingle();
+  const selectedSpace = await client.from('spaces').select('id,space_id,name,room_type,settings_json').eq('project_id', projectId).eq('id', roomId).maybeSingle();
   if (selectedSpace.error) return response.status(500).json({ success: false, code: 'SPACE_READ_FAILED', message: selectedSpace.error.message });
   if (!selectedSpace.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected approved room could not be found.' });
   const sceneRoomId = String(selectedSpace.data.space_id ?? selectedSpace.data.id);
@@ -2421,7 +2461,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
   const materialByModuleAndSlot = new Map<string, string>();
   for (const assignment of latestBySlot.values()) {
     const materialId = String(assignment.material_id);
-    const semanticSlot = String(assignment.semantic_slot);
+    const semanticSlot = assignment.semantic_slot === 'back_panel' ? 'backPanel' : assignment.semantic_slot === 'profile' ? 'metal' : String(assignment.semantic_slot);
     const moduleId = String(assignment.module_instance_id ?? (assignment.target_kind === 'module' ? assignment.target_id : ''));
     if (moduleId) materialByModuleAndSlot.set(`${moduleId}:${semanticSlot}`, materialId);
     else if (assignment.target_kind !== 'module' && !materialBySlot.has(semanticSlot)) materialBySlot.set(semanticSlot, materialId);
@@ -2437,17 +2477,11 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
   }));
   const resolvedModuleParts = moduleParts.map((part) => ({
     ...part,
-    materialId: materialByModuleAndSlot.get(`${part.moduleId}:${String(part.semanticType ?? '')}`)
-      ?? materialByModuleAndSlot.get(`${part.moduleId}:shutter`)
-      ?? materialBySlot.get(String(part.semanticType ?? ''))
-      ?? defaultModuleMaterial
-      ?? part.materialId,
+    materialId: resolvePartMaterial(part, materialByModuleAndSlot, materialBySlot),
   }));
-  const requestedSchedulesRaw = Array.isArray(request.body?.compositionSchedules)
-    ? request.body.compositionSchedules
-    : request.body?.compositionSchedule
-      ? [request.body.compositionSchedule]
-      : [];
+  const savedDesignInputs = selectedSpace.data.settings_json?.designInputs;
+  if (!savedDesignInputs) return response.status(409).json({ success: false, code: 'ROOM_DESIGN_INPUTS_REQUIRED', message: 'Save this room’s wall bays and flooring in Spaces before reviewing its saved design in 3D.', issues: [{ message: 'Use Save room to persist the design inputs.' }] });
+  const requestedSchedulesRaw = savedDesignInputs.compositionSchedules;
   let compositionSchedules: import('@ultida/contracts').CompositionScheduleV1[] = [];
   try {
     compositionSchedules = requestedSchedulesRaw.map((candidate: unknown, index: number) => {
@@ -2477,12 +2511,13 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
       projectId,
       floorPlanVersionId: activePlan.data.id,
       plan: parsedPlan.data,
+      roomId: sceneRoomId,
       designVersion: typeof request.body?.designVersion === 'string' ? request.body.designVersion : 'spaces.v1',
       modules: resolvedSceneModules,
       moduleParts: resolvedModuleParts,
       materials,
       compositionSchedules,
-      floorSurfaces: Array.isArray(request.body?.floorSurfaces) ? request.body.floorSurfaces : undefined,
+      floorSurfaces: savedDesignInputs.floorSurfaces,
       designIntent: request.body?.designIntent ? RenderIntentV1Schema.parse(request.body.designIntent) : undefined,
       changeReason: typeof request.body?.changeReason === 'string' ? request.body.changeReason : undefined,
     });
@@ -2573,11 +2608,9 @@ app.post('/api/projects/:projectId/scenes/:sceneVersionId/approve', requireProje
   if (!moduleRevisionsMatch(sourceModuleIds, sourceModules.data ?? [], scene.sourceModuleRevisions, sceneVersion.data.created_at)) {
     return response.status(409).json({ success: false, code: 'SCENE_MODULE_VERSION_STALE', message: 'Modules changed after this scene was compiled. Compile a new scene before approval.', issues: [{ message: 'Modules changed after this scene was compiled. Compile a new scene before approval.' }] });
   }
-  const approved = await client.from('scene_versions').update({
-    status: 'approved',
-    scene: { ...scene, metadata: { ...(scene.metadata ?? {}), status: 'approved' } },
-  }).eq('id', sceneVersionId).select('id,status,version_number,scene,created_at').single();
+  const approved = await approveUnchangedDraft(client, projectId, sceneVersionId, scene);
   if (approved.error) return response.status(500).json({ success: false, code: 'SCENE_APPROVAL_FAILED', message: approved.error.message });
+  if (!approved.data) return response.status(409).json({ success: false, code: 'SCENE_APPROVAL_CHANGED', message: 'This scene changed while approval was being checked. Reload the current revision before approving.', issues: [{ message: 'Concurrent scene approval or geometry change detected. Reload and review the current revision.' }] });
   return response.json({ success: true, sceneVersion: approved.data });
 });
 
@@ -2618,6 +2651,28 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
     .eq('project_id', request.params.projectId)
     .eq('floor_plan_version_id', version.data.id);
   if (savedSpaces.error) return response.status(500).json({ success: false, code: 'SPACES_READ_FAILED', message: savedSpaces.error.message });
+  const latestSceneResult = await client.from('scene_versions')
+    .select('id,status,scene')
+    .eq('project_id', request.params.projectId)
+    .eq('floor_plan_version_id', version.data.id)
+    .order('version_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latestSceneResult.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: latestSceneResult.error.message });
+  const latestScene = latestSceneResult.data?.scene as { compositions?: Array<Record<string, unknown>>; floors?: Array<{ surfaces?: Array<Record<string, unknown>> }> } | null;
+  const savedRoomDesignInputs = (savedSpaces.data ?? []).flatMap((space: any) => space.settings_json?.designInputs ? [space.settings_json.designInputs] : []);
+  const savedRoomIds = new Set((savedSpaces.data ?? []).filter((space: any) => space.settings_json?.designInputs).map((space: any) => String(space.space_id ?? space.id)));
+  const savedPlanModel = CanonicalPlanModelSchema.safeParse(version.data.canonical_model);
+  const replacedWallIds = new Set(savedPlanModel.success ? [...savedRoomIds].flatMap(roomId => resolveRoomWalls(savedPlanModel.data, roomId).map(wall => wall.id)) : []);
+  const sceneDesignInputs = savedRoomDesignInputs.length ? {
+    compositionSchedules: [...(latestScene?.compositions ?? []).filter(schedule => !replacedWallIds.has(String(schedule.wallId))), ...savedRoomDesignInputs.flatMap((inputs: any) => inputs.compositionSchedules ?? [])],
+    floorSurfaces: [...(latestScene?.floors ?? []).flatMap(floor => floor.surfaces ?? []).filter(surface => !savedRoomIds.has(String(surface.roomId))), ...savedRoomDesignInputs.flatMap((inputs: any) => inputs.floorSurfaces ?? [])],
+  } : latestScene ? {
+    sceneVersionId: latestSceneResult.data?.id,
+    status: latestSceneResult.data?.status,
+    compositionSchedules: Array.isArray(latestScene.compositions) ? latestScene.compositions : [],
+    floorSurfaces: Array.isArray(latestScene.floors) ? latestScene.floors.flatMap((floor) => Array.isArray(floor.surfaces) ? floor.surfaces : []) : [],
+  } : null;
   const savedSpaceRows = savedSpaces.data ?? [];
   const savedSpaceByPlanRoomId = new Map(savedSpaceRows.filter((space: any) => space.space_id).map((space: any) => [String(space.space_id), space]));
   const normalizeSpaceLabel = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ');
@@ -2638,6 +2693,7 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
     return {
       id: r.id,
       spaceRecordId: saved?.id ?? null,
+      wallRefs: savedPlanModel.success ? resolveRoomWalls(savedPlanModel.data, r.id).map(wall => wall.id) : [],
       name: saved?.name ?? roomName,
       roomType: saved?.room_type ?? roomType,
       polygon: r.worldPolygon ?? r.worldGeometry?.polygon ?? r.polygon ?? [],
@@ -2697,8 +2753,30 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
       || (Number(plan.source?.mmPerPixel) > 0 && Number(plan.source?.verifiedDimensionMm) > 0),
     ceilingHeightMm: Number(plan.ceilingHeightMm ?? 2700),
     geometryMode: String(plan.geometryMode ?? 'final_production'),
-    rooms, walls, openings, columns, beams, services, annotations, issues,
+    rooms, walls, openings, columns, beams, services, annotations, issues, sceneDesignInputs,
   });
+});
+
+app.put('/api/projects/:projectId/spaces/:spaceId/design-inputs', requireProjectUser, async (request, response) => {
+  const client = getRequestSupabaseClient(request);
+  const current = await client.from('spaces').select('id,space_id,settings_json,floor_plan_version_id,updated_at').eq('id', request.params.spaceId).eq('project_id', request.params.projectId).maybeSingle();
+  if (current.error || !current.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'Save this room before saving its wall bays and floor layout.' });
+  const plan = await client.from('floor_plan_versions').select('canonical_model,active_version').eq('id', current.data.floor_plan_version_id).eq('project_id', request.params.projectId).maybeSingle();
+  if (plan.error || !plan.data?.active_version) return response.status(409).json({ success: false, code: 'ROOM_PLAN_STALE', message: 'Reload the current plan before saving this room.' });
+  const planRoomId = String(current.data.space_id ?? current.data.id);
+  const parsedPlan = CanonicalPlanModelSchema.safeParse(plan.data.canonical_model);
+  if (!parsedPlan.success) return response.status(422).json({ success: false, code: 'ROOM_PLAN_INVALID', message: 'The saved plan needs geometry review before this room can be saved.' });
+  const wallIds = new Set(resolveRoomWalls(parsedPlan.data, planRoomId).map(wall => wall.id));
+  let parsedInputs: ReturnType<typeof parseRoomDesignInputs>;
+  try { parsedInputs = parseRoomDesignInputs(request.body, planRoomId, wallIds); }
+  catch (error) { return response.status(422).json({ success: false, code: 'ROOM_DESIGN_INPUTS_INVALID', message: error instanceof Error ? error.message : 'Confirm the room walls and floor measurements before saving.' }); }
+  const invalidationError = await invalidateModuleOutputs(client, String(request.params.projectId));
+  if (invalidationError) return response.status(503).json({ success: false, code: 'ROOM_DESIGN_INVALIDATION_FAILED', message: invalidationError });
+  const designInputs = { ...parsedInputs, savedAt: new Date().toISOString() };
+  const saved = await client.from('spaces').update({ settings_json: { ...(current.data.settings_json ?? {}), designInputs }, updated_at: designInputs.savedAt }).eq('id', current.data.id).eq('project_id', request.params.projectId).eq('updated_at', current.data.updated_at).select('id').maybeSingle();
+  if (saved.error) return response.status(500).json({ success: false, code: 'ROOM_DESIGN_SAVE_FAILED', message: saved.error.message });
+  if (!saved.data) return response.status(409).json({ success: false, code: 'ROOM_DESIGN_EDIT_CONFLICT', message: 'This room changed while saving. Reload its saved state before retrying.' });
+  return response.json({ success: true, designInputs, invalidated: { scenes: true, artifacts: true, quotes: true } });
 });
 
 app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (request, response) => {

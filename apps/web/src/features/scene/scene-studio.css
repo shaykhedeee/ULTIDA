@@ -12,3 +12,7 @@
 @media (max-width: 1024px){.scene-grid{grid-template-columns:1fr}.scene-assets-rail{min-height:0}.scene-assets-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:180px}.scene-viewport{height:500px;min-height:440px}.scene-canvas{min-height:420px}.scene-inspector{max-height:none}.scene-camera-list{grid-template-columns:repeat(2,1fr)}}
 @media (max-width: 768px){.scene-viewport{height:420px;min-height:360px}.scene-assets-list{grid-template-columns:repeat(2,minmax(0,1fr))}.scene-camera-list{grid-template-columns:repeat(2,1fr)}}
 @media (max-width: 480px){.scene-studio{padding:8px;border-radius:0}.scene-heading{align-items:flex-start;flex-direction:column;gap:8px}.scene-readiness-list{grid-template-columns:1fr}.scene-assets-list{grid-template-columns:1fr}.scene-camera-list{grid-template-columns:1fr}.scene-viewport{height:320px;min-height:280px}.scene-inspector{border-radius:14px 14px 0 0;padding:12px}}
+.scene-toolbar button { min-height:36px; font-size:12px; padding:6px 10px; }
+.scene-toolbar button[aria-pressed="true"] { background:#3b301a!important; border-color:#c59c2d!important; color:#f8e7be!important; }
+.scene-view-help { margin:0; padding:8px 10px; border:1px solid #39352f; border-radius:7px; color:#c8c0b4; font-size:12px; line-height:1.5; }
+.scene-toolbar button:focus-visible { outline:2px solid #e4b65d; outline-offset:3px; }

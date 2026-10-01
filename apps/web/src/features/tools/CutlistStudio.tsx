@@ -25,6 +25,9 @@ import {
 } from './sliding-door-calculator';
 import { QrCode, Tag, Sparkles, AlertTriangle } from 'lucide-react';
 import './cutlist-studio.css';
+import { buildMeasuredUnitParts, readDxfRectangles, type MeasuredUnit } from './measured-unit-cutlist';
+import { buildCutlistDraftWorkbook } from './cutlist-draft-workbook';
+import { readCutlistDraft } from './cutlist-draft';
 
 export function CutlistStudio() {
   const [selectedPresetKey, setSelectedPresetKey] = useState<string>('wardrobe_4door');
@@ -41,6 +44,50 @@ export function CutlistStudio() {
   const [uploadText, setUploadText] = useState('');
   const [statusMessage, setStatusMessage] = useState('Cutlist & Nesting Studio ready. Review the fit and material warnings before exporting.');
   const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [units, setUnits] = useState<MeasuredUnit[]>([]);
+  const [unitName, setUnitName] = useState('Unit 1');
+  const [unitWidth, setUnitWidth] = useState('');
+  const [unitHeight, setUnitHeight] = useState('');
+  const [unitDepth, setUnitDepth] = useState('');
+  const [unitStyle, setUnitStyle] = useState<'open' | 'swing'>('swing');
+  const [unitShelves, setUnitShelves] = useState('2');
+  const [unitBack, setUnitBack] = useState<6 | 18>(6);
+  const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
+  const [cadOutlines, setCadOutlines] = useState<ReturnType<typeof readDxfRectangles>>([]);
+  const [draftLoading, setDraftLoading] = useState(true);
+  const [draftKey, setDraftKey] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const session = supabase ? (await supabase.auth.getSession()).data.session : null;
+      const key = `ultida.cutlist-draft.v1.${session?.user.id ?? 'offline'}`;
+      try {
+        const saved = localStorage.getItem(key);
+        if (!live) return;
+        if (saved) { const draft = readCutlistDraft(saved); setParts(draft.parts); setUnits(draft.units); setSpaceTitle(draft.title); if (draft.settings) { setKerfMm(draft.settings.kerfMm); setTrimMm(draft.settings.trimMm); setSheetSizePreset(draft.settings.sheetSizePreset); } setStatusMessage('Your local cutlist draft was restored. It is not an approved production release.'); }
+        setDraftKey(key);
+      } catch { if (live) setStatusMessage('Saved draft could not be restored. It has been preserved in this browser; export or inspect it before replacing it.'); }
+    })().catch(() => { if (live) setStatusMessage('Could not initialize draft recovery. Keep this screen open until you export your work.'); }).finally(() => { if (live) setDraftLoading(false); });
+    return () => { live = false; };
+  }, []);
+  useEffect(() => {
+    if (!draftKey) return;
+    try { localStorage.setItem(draftKey, JSON.stringify({ version: 1, parts, units, title: spaceTitle, settings: { kerfMm, trimMm, sheetSizePreset } })); }
+    catch { setStatusMessage('The browser could not save this draft. Export your workbook before leaving.'); }
+  }, [draftKey, parts, units, spaceTitle, kerfMm, trimMm, sheetSizePreset]);
+  useEffect(() => () => { if (referenceUrl) URL.revokeObjectURL(referenceUrl); }, [referenceUrl]);
+  const previewUnit: MeasuredUnit = { id: 'preview', name: unitName, widthMm: Number(unitWidth), heightMm: Number(unitHeight), depthMm: Number(unitDepth), shelves: Number(unitShelves), doors: unitStyle === 'swing' ? 2 : 0, backThicknessMm: unitBack };
+  const previewValidation = useMemo(() => { try { return { parts: buildMeasuredUnitParts(previewUnit, materialPreset), error: null }; } catch (error) { return { parts: [], error: error instanceof Error ? error.message : 'Confirm unit dimensions.' }; } }, [unitWidth, unitHeight, unitDepth, unitShelves, unitStyle, unitBack, materialPreset]);
+  function addMeasuredUnit() {
+    if (draftLoading) { setStatusMessage('Restoring your draft. Please wait before adding panels.'); return; }
+    if (!unitName.trim() || !unitShelves.trim() || previewValidation.error) { setStatusMessage(previewValidation.error ?? 'Enter a unit name and shelf count.'); return; }
+    const unit = { ...previewUnit, id: crypto.randomUUID(), name: unitName.trim() };
+    setParts(current => [...current, ...buildMeasuredUnitParts(unit, materialPreset)]);
+    setUnits(current => [...current, unit]);
+    setSpaceTitle('Measured multi-unit cutlist');
+    setUnitName(`Unit ${units.length + 2}`);
+    setStatusMessage(`${unit.name} added without replacing earlier units. Review the draft construction and laminate allowances before manufacture.`);
+  }
 
   // Sliding Door Deduction State
   const [slidingModalOpen, setSlidingModalOpen] = useState(false);
@@ -95,6 +142,7 @@ export function CutlistStudio() {
   const slidingSpecConfirmed = verifiedSlidingSignature === slidingSpecSignature;
 
   function appendSlidingPanels() {
+    if (draftLoading) { setStatusMessage('Restoring your draft. Please wait before adding panels.'); return; }
     if (!activeSlidingResult || !slidingSpecConfirmed) return;
     const calculationId = globalThis.crypto?.randomUUID?.() ?? `batch-${Date.now()}`;
     const batch = calculateSlidingDoorDeductions({
@@ -128,22 +176,7 @@ export function CutlistStudio() {
     })();
   }, []);
 
-  // Initialize with the selected modular preset
-  useEffect(() => {
-    const preset = MODULAR_PRESETS[selectedPresetKey];
-    if (preset) {
-      const generated = generateParametricCabinetAnatomy(
-        preset.label,
-        preset.width,
-        preset.height,
-        preset.depth,
-        materialPreset
-      );
-      setParts(generated.parts);
-      setSpaceTitle(preset.label);
-      setActiveSheetIndex(0);
-    }
-  }, [selectedPresetKey, materialPreset]);
+  // No automatic sample panels. Material changes apply to the next unit only.
 
   // Sheet dimensions based on selection
   const sheetDimensions = useMemo(() => {
@@ -232,19 +265,24 @@ export function CutlistStudio() {
   // Handlers
   function handlePresetChange(key: string) {
     setSelectedPresetKey(key);
-    setStatusMessage(`Loaded modular preset: ${MODULAR_PRESETS[key]?.label}`);
+    const preset = MODULAR_PRESETS[key];
+    if (preset) { setUnitName(preset.label); setUnitWidth(String(preset.width)); setUnitHeight(String(preset.height)); setUnitDepth(String(preset.depth)); }
+    setStatusMessage('Suggested dimensions loaded into the unit form. Review construction and add explicitly; existing units are unchanged.');
   }
 
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    if (draftLoading) { setStatusMessage('Restoring your draft. Please wait before adding panels.'); return; }
     const file = e.target.files?.[0];
     if (!file) return;
+    if (/\.dwg$/i.test(file.name)) { setStatusMessage('DWG is a binary AutoCAD format. Export a millimetre DXF with closed unit outlines, then upload it for review. No panels were inferred.'); return; }
 
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = String(event.target?.result ?? '');
       try {
+        if (/\.dxf$/i.test(file.name)) { setCadOutlines(readDxfRectangles(content)); setStatusMessage('DXF outlines loaded for review only. Choose the actual unit outline and confirm depth, boards and internals before adding it.'); return; }
         const parsed = parse2DDrawingFile(content, file.name, materialPreset);
-        setParts(parsed.parts);
+        setParts(current => [...current, ...parsed.parts.map(part => ({ ...part, id: `${crypto.randomUUID()}:${part.id}`, partInstanceId: `${crypto.randomUUID()}:${part.partInstanceId}` }))]);
         setSpaceTitle(parsed.title);
         setActiveSheetIndex(0);
         setStatusMessage(`Successfully parsed 2D file "${file.name}" with ${parsed.parts.length} joinery parts.`);
@@ -256,10 +294,11 @@ export function CutlistStudio() {
   }
 
   function handlePasteSubmit() {
+    if (draftLoading) { setStatusMessage('Restoring your draft. Please wait before adding panels.'); return; }
     if (!uploadText.trim()) return;
     try {
       const parsed = parse2DDrawingFile(uploadText, 'Pasted-2D-Drawing', materialPreset);
-      setParts(parsed.parts);
+      setParts(current => [...current, ...parsed.parts.map(part => ({ ...part, id: `${crypto.randomUUID()}:${part.id}`, partInstanceId: `${crypto.randomUUID()}:${part.partInstanceId}` }))]);
       setSpaceTitle(parsed.title);
       setActiveSheetIndex(0);
       setUploadModalOpen(false);
@@ -281,6 +320,13 @@ export function CutlistStudio() {
     a.click();
     URL.revokeObjectURL(url);
     setStatusMessage('Exported detailed production cutlist CSV.');
+  }
+  function downloadWorkbook() {
+    try {
+      const bytes = buildCutlistDraftWorkbook(nestingResult, units, spaceTitle);
+      const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'ULTIDA-cutlist-DRAFT.xlsx'; anchor.click(); URL.revokeObjectURL(url);
+    } catch (error) { setStatusMessage(error instanceof Error ? error.message : 'Workbook export failed.'); }
   }
 
   function downloadDxf() {
@@ -316,13 +362,13 @@ export function CutlistStudio() {
         <div className="cs-hero-actions">
           <button type="button" className="cs-btn" onClick={() => fileInputRef.current?.click()} title="Upload a JSON or CSV panel schedule with measured part sizes">
             <Upload size={14} />
-            <span>Upload Panel Schedule</span>
+            <span>Import DXF / panel list</span>
           </button>
           <input
             type="file"
             ref={fileInputRef}
             style={{ display: 'none' }}
-            accept=".json,.csv"
+            accept=".json,.csv,.dxf,.dwg"
             onChange={handleFileUpload}
           />
 
@@ -353,7 +399,8 @@ export function CutlistStudio() {
             <span>Print Part Stickers</span>
           </button>
 
-          <button type="button" className="cs-btn primary" onClick={downloadCsv} disabled={!nestingComplete} title={nestingComplete ? 'Download CSV cutlist with laminate schedules' : 'Resolve unplaced parts before export'}>
+          <button type="button" className="cs-btn primary" disabled={!nestingComplete} onClick={downloadWorkbook}><Download size={14} /> Excel workbook (draft)</button>
+          <button type="button" className="cs-btn" onClick={downloadCsv} disabled={!nestingComplete} title={nestingComplete ? 'Download CSV cutlist with laminate schedules' : 'Resolve unplaced parts before export'}>
             <Download size={14} />
             <span>Export CSV Cutlist</span>
           </button>
@@ -368,6 +415,31 @@ export function CutlistStudio() {
             <span>Print Dossier</span>
           </button>
         </div>
+      </section>
+
+      <section className="cs-card cs-unit-builder" aria-label="Measured multi-unit builder">
+        <h2>Build your unit cutlist</h2>
+        <p>Enter overall millimetre dimensions. Add as many units as needed; compatible boards are nested together. This recipe uses butt joints, inset fronts and a surface-mounted back.</p>
+        <div className="cs-unit-fields">
+          <label>Unit name<input value={unitName} onChange={event => setUnitName(event.target.value)} /></label>
+          <label>Width (mm)<input type="number" value={unitWidth} onChange={event => setUnitWidth(event.target.value)} /></label>
+          <label>Height (mm)<input type="number" value={unitHeight} onChange={event => setUnitHeight(event.target.value)} /></label>
+          <label>Depth (mm)<input type="number" value={unitDepth} onChange={event => setUnitDepth(event.target.value)} /></label>
+          <label>Front style<select value={unitStyle} onChange={event => setUnitStyle(event.target.value as 'open' | 'swing')}><option value="swing">Two inset swing doors</option><option value="open">Open shelving</option></select></label>
+          <label>Shelves<input type="number" min="0" max="20" step="1" value={unitShelves} onChange={event => setUnitShelves(event.target.value)} /></label>
+          <label>Back plywood<select value={unitBack} onChange={event => setUnitBack(Number(event.target.value) as 6 | 18)}><option value="6">6 mm surface-mounted back</option><option value="18">18 mm surface-mounted back</option></select></label>
+          <label>Optional style photo<input type="file" accept="image/*" onChange={event => { const file = event.target.files?.[0]; setReferenceUrl(file ? URL.createObjectURL(file) : null); }} /></label>
+        </div>
+        {cadOutlines.length > 0 && <div><strong>Review CAD outlines — not all rectangles represent units</strong>{cadOutlines.map((outline, index) => <button type="button" key={index} onClick={() => { setUnitWidth(String(outline.widthMm)); setUnitHeight(String(outline.heightMm)); setUnitDepth(''); setStatusMessage('Outline dimensions copied. Confirm orientation, depth, construction and internal layout before adding this unit.'); }}>Layer {outline.layer}: {outline.widthMm} × {outline.heightMm} mm</button>)}</div>}
+        <div className="cs-unit-previews">
+          <div><strong>2D front · measured envelope</strong>{!previewValidation.error && <svg viewBox={`-30 -30 ${previewUnit.widthMm + 60} ${previewUnit.heightMm + 60}`} aria-label="Unit elevation preview"><rect width={previewUnit.widthMm} height={previewUnit.heightMm} fill="#eadcc5" stroke="#53422e" strokeWidth="5" />{unitStyle === 'swing' && <line x1={previewUnit.widthMm / 2} y1="0" x2={previewUnit.widthMm / 2} y2={previewUnit.heightMm} stroke="#53422e" strokeWidth="4" />}{Array.from({ length: previewUnit.shelves }, (_, index) => <line key={index} x1="18" x2={previewUnit.widthMm - 18} y1={(index + 1) * previewUnit.heightMm / (previewUnit.shelves + 1)} y2={(index + 1) * previewUnit.heightMm / (previewUnit.shelves + 1)} stroke="#53422e" strokeDasharray="10 10" strokeWidth="3" />)}</svg>}</div>
+          <div><strong>3D schematic · same overall dimensions</strong>{!previewValidation.error && <svg viewBox={`-30 -${previewUnit.depthMm * .4 + 30} ${previewUnit.widthMm + previewUnit.depthMm * .4 + 60} ${previewUnit.heightMm + previewUnit.depthMm * .4 + 60}`} aria-label="Unit axonometric preview"><polygon points={`0,0 ${previewUnit.depthMm * .4},${-previewUnit.depthMm * .4} ${previewUnit.widthMm + previewUnit.depthMm * .4},${-previewUnit.depthMm * .4} ${previewUnit.widthMm},0`} fill="#cdbb9f" stroke="#53422e" strokeWidth="4" /><polygon points={`${previewUnit.widthMm},0 ${previewUnit.widthMm + previewUnit.depthMm * .4},${-previewUnit.depthMm * .4} ${previewUnit.widthMm + previewUnit.depthMm * .4},${previewUnit.heightMm - previewUnit.depthMm * .4} ${previewUnit.widthMm},${previewUnit.heightMm}`} fill="#ac9472" stroke="#53422e" strokeWidth="4" /><rect width={previewUnit.widthMm} height={previewUnit.heightMm} fill="#eadcc5" stroke="#53422e" strokeWidth="4" /></svg>}</div>
+          {referenceUrl && <div><strong>Style reference only</strong><img src={referenceUrl} alt="Selected unit style reference" /></div>}
+        </div>
+        {previewValidation.error && <p role="status">{previewValidation.error}</p>}
+        <button type="button" className="cs-btn" disabled={!!previewValidation.error} onClick={addMeasuredUnit}>Add unit to cutlist</button>
+        <p>Materials below apply to the next unit. Already-added units retain their specifications. Laminate sheet figures are area estimates, not a separate laminate cutting plan.</p>
+        {units.map(unit => <div key={unit.id}>{unit.name} · {unit.widthMm} × {unit.depthMm} × {unit.heightMm} mm · {unit.backThicknessMm} mm back <button type="button" onClick={() => { setUnits(current => current.filter(item => item.id !== unit.id)); setParts(current => current.filter(part => !part.id.startsWith(`${unit.id}:`))); }}>Remove unit</button></div>)}
       </section>
 
       {/* ─── Key Metrics Strip ─── */}
@@ -727,7 +799,7 @@ export function CutlistStudio() {
             <div className="cs-canvas-legend">
               <div className="cs-legend-item">
                 <span className="cs-legend-swatch" style={{ background: '#c59c2d' }} />
-                <span>External Shutter (1.0mm Decorative Laminate)</span>
+                <span>External Shutter (Decorative laminate (area estimate))</span>
               </div>
               <div className="cs-legend-item">
                 <span className="cs-legend-swatch" style={{ background: '#2563eb' }} />
@@ -865,17 +937,17 @@ export function CutlistStudio() {
                 <strong>{nestingResult.summary.laminateRequirement.carcassPlySheets} Sheets</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed var(--line)', paddingBottom: 6 }}>
-                <span style={{ color: 'var(--text-muted)' }}>9mm Backing Ply</span>
+                <span style={{ color: 'var(--text-muted)' }}>Backing plywood · actual stock</span>
                 <strong>{nestingResult.summary.laminateRequirement.backingPlySheets} Sheets</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed var(--line)', paddingBottom: 6 }}>
-                <span style={{ color: 'var(--text-muted)' }}>1.0mm Decorative Laminate</span>
+                <span style={{ color: 'var(--text-muted)' }}>Decorative laminate (area estimate)</span>
                 <strong style={{ color: 'var(--gold-dim)' }}>
                   {nestingResult.summary.laminateRequirement.externalDecorativeSheets} Sheets
                 </strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed var(--line)', paddingBottom: 6 }}>
-                <span style={{ color: 'var(--text-muted)' }}>0.8mm White Suede Liner</span>
+                <span style={{ color: 'var(--text-muted)' }}>Internal liner (area estimate)</span>
                 <strong>{nestingResult.summary.laminateRequirement.internalLinerSheets} Sheets</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed var(--line)', paddingBottom: 6 }}>

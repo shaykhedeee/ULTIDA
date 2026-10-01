@@ -20,6 +20,31 @@ test('compiles approved canonical geometry without inventing walls or rooms', ()
   assert.deepEqual(scene.moduleParts, []);
 });
 
+test('room compilation excludes other rooms, walls and their openings', () => {
+  const otherRoomId = 'c8c4f9c1-390d-4cf3-bf95-3ce6e2d64b22';
+  const otherWallId = 'd8c4f9c1-390d-4cf3-bf95-3ce6e2d64b22';
+  const scopedPlan = {
+    ...plan,
+    spaces: [{ ...plan.spaces[0], wallRefs: [plan.walls[0].id] }, { ...plan.spaces[0], id: otherRoomId, wallRefs: [otherWallId] }],
+    walls: [...plan.walls, { ...plan.walls[0], id: otherWallId, worldStart: { xMm: 5000, yMm: 0 }, worldEnd: { xMm: 9000, yMm: 0 } }],
+    openings: [
+      { id: 'e8c4f9c1-390d-4cf3-bf95-3ce6e2d64b22', wallId: plan.walls[0].id, offsetMm: 100, widthMm: 900, heightMm: 2100, verification: 'verified' },
+      { id: 'f8c4f9c1-390d-4cf3-bf95-3ce6e2d64b22', wallId: otherWallId, offsetMm: 100, widthMm: 900, heightMm: 2100, verification: 'verified' },
+    ],
+  };
+  const scene = compileSceneV1({ projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan: scopedPlan, roomId: plan.spaces[0].id });
+  assert.deepEqual(scene.rooms.map(room => room.id), [plan.spaces[0].id]);
+  assert.deepEqual(scene.walls.map(wall => wall.id), [plan.walls[0].id]);
+  assert.deepEqual(scene.openings.map(opening => opening.id), [scopedPlan.openings[0].id]);
+  assert.equal(scopedPlan.spaces.length, 2, 'Room scoping must not mutate the saved whole plan');
+});
+
+test('room compilation blocks missing wall lineage and furniture from another room', () => {
+  const input = { projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan: { ...plan, walls: plan.walls.map((wall: any) => ({ ...wall, worldStart: { xMm: 10000, yMm: 10000 }, worldEnd: { xMm: 14000, yMm: 10000 } })) }, roomId: plan.spaces[0].id };
+  assert.throws(() => compileSceneV1(input), (error: unknown) => error instanceof SceneCompilationError && error.issues.some(issue => issue.code === 'SCENE_ROOM_WALLS_UNCONFIRMED'));
+  assert.throws(() => compileSceneV1({ ...input, modules: [{ id: 'foreign-module', roomId: 'another-room', family: 'wardrobe', widthMm: 600, depthMm: 600, heightMm: 2100, xMm: 0, yMm: 0 }] }), (error: unknown) => error instanceof SceneCompilationError && error.issues.some(issue => issue.code === 'SCENE_ROOM_MODULE_MISMATCH'));
+});
+
 test('preserves exact compiled cabinet parts separately from module envelopes', () => {
   const scene = compileSceneV1({
     projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan,
@@ -242,3 +267,19 @@ test('compileSceneV1 registers module lighting anchors into scene.lighting', () 
   assert.equal(pendant.heightMm, 1800);
 });
 
+
+test('3D readiness rejects invalid opening ranges and preserves stacked openings', () => {
+  const scene = compileSceneV1({ projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan });
+  const wall = scene.walls[0];
+  scene.openings = [{ id: 'door-check', wallId: wall.id, kind: 'door', offsetMm: 100, widthMm: 900, heightMm: 2100, sillHeightMm: 0, confidence: 1 }];
+  assert.ok(!checkRenderReadiness(scene).issues.some(issue => issue.code.startsWith('OPENING_')));
+  scene.openings[0].heightMm = 3000;
+  assert.ok(checkRenderReadiness(scene).issues.some(issue => issue.code === 'OPENING_OUTSIDE_WALL'));
+  scene.openings[0].heightMm = 2100;
+  scene.openings.push({ id: 'window-check', wallId: wall.id, kind: 'window', offsetMm: 100, widthMm: 900, heightMm: 300, sillHeightMm: 2200, confidence: 1 });
+  assert.ok(!checkRenderReadiness(scene).issues.some(issue => issue.code === 'OPENING_OVERLAP'));
+  scene.openings[1].sillHeightMm = 1000;
+  assert.ok(checkRenderReadiness(scene).issues.some(issue => issue.code === 'OPENING_OVERLAP'));
+  scene.openings[1].wallId = 'missing-wall';
+  assert.ok(checkRenderReadiness(scene).issues.some(issue => issue.code === 'OPENING_WALL_MISSING'));
+});

@@ -125,6 +125,7 @@ export interface NestingOptimizationResult {
       internalLinerSheets: number;
       backingPlySheets: number;
       carcassPlySheets: number;
+      byFinish?: Array<{ finishCode: string; areaSqm: number; estimatedSheets: number; usage: 'decorative' | 'liner' }>;
     };
     edgeBandingRequirement: {
       pvc2mmMeters: number;
@@ -405,10 +406,25 @@ export function optimizeGuillotineNesting(
   // These are area-only lower bounds, not a laminate nesting plan. Actual
   // quantities can be higher because separate decor codes cannot share stock,
   // and grain, trimming, kerf, and defects consume additional area.
-  const externalDecorativeSheets = Math.ceil(externalPanelAreaSqm / standardSheetSqm);
-  const internalLinerSheets = Math.ceil((internalPanelAreaSqm * 2 + externalPanelAreaSqm + backingAreaSqm) / standardSheetSqm);
-  const carcassPlySheets = Math.ceil((internalPanelAreaSqm + externalPanelAreaSqm) / standardSheetSqm);
-  const backingPlySheets = Math.ceil(backingAreaSqm / standardSheetSqm);
+  const finishAreas = new Map<string, { finishCode: string; areaSqm: number; usage: 'decorative' | 'liner' }>();
+  for (const part of parts) {
+    const area = part.lengthMm * part.widthMm * part.quantity / 1e6;
+    for (const face of [
+      { code: part.isExternal ? part.externalLaminateCode : undefined, usage: 'decorative' as const, faces: 1 },
+      { code: part.internalLinerCode, usage: 'liner' as const, faces: part.isExternal || part.classification === 'back_panel' ? 1 : 2 },
+    ]) {
+      if (!face.code?.trim()) continue;
+      const key = `${face.usage}:${face.code.trim()}`;
+      const current = finishAreas.get(key) ?? { finishCode: face.code.trim(), areaSqm: 0, usage: face.usage };
+      current.areaSqm += area * face.faces;
+      finishAreas.set(key, current);
+    }
+  }
+  const byFinish = [...finishAreas.values()].map(finish => ({ ...finish, estimatedSheets: Math.ceil(finish.areaSqm / standardSheetSqm) }));
+  const externalDecorativeSheets = byFinish.filter(finish => finish.usage === 'decorative').reduce((sum, finish) => sum + finish.estimatedSheets, 0);
+  const internalLinerSheets = byFinish.filter(finish => finish.usage === 'liner').reduce((sum, finish) => sum + finish.estimatedSheets, 0);
+  const backingPlySheets = allOptimizedSheets.filter(sheet => sheet.placedPanels.every(panel => panel.classification === 'back_panel')).length;
+  const carcassPlySheets = allOptimizedSheets.length - backingPlySheets;
 
   return {
     sheets: allOptimizedSheets,
@@ -423,6 +439,7 @@ export function optimizeGuillotineNesting(
       totalSheetsCount: allOptimizedSheets.length,
       sheetsByMaterial,
       laminateRequirement: {
+        byFinish,
         externalDecorativeSheets,
         internalLinerSheets,
         backingPlySheets,
@@ -635,12 +652,8 @@ function packSingleMaterialGuillotine(
       remnants: freeRects.filter((r) => r.w >= 100 && r.h >= 100),
     });
 
-    // Guard against infinite loop if an oversized panel can't fit on any sheet
-    if (!placedAnyInPass && remaining.length > 0) {
-      console.warn('Oversized panel cannot fit in usable sheet area:', remaining[0]);
-      // Force place with warning or break to prevent hang
-      break;
-    }
+    // Retry remaining panels on fresh stock; zero placements on an empty sheet stops the loop.
+
   }
 
   return sheets;
@@ -1251,6 +1264,7 @@ export const MODULAR_PRESETS: Record<string, { label: string; width: number; hei
 export function exportCutlistToCsv(result: NestingOptimizationResult, spaceTitle: string): string {
   const rows: string[][] = [
     ['ULTIDA PRECISION CUTLIST & NESTING DOSSIER', spaceTitle],
+    ['Release status', 'DRAFT - NOT FOR CONSTRUCTION. Confirm dimensions, joinery, face allowances and hardware.'],
     ['Overall Board Yield', `${result.summary.overallYieldPct}%`],
     ['Total Scrap / Wastage', `${result.summary.overallWastePct}%`],
     ['Total Sheets Required', `${result.summary.totalSheetsCount} sheets`],
@@ -1269,7 +1283,7 @@ export function exportCutlistToCsv(result: NestingOptimizationResult, spaceTitle
     ]),
     [],
     ['DETAILED PANEL CUTTING SCHEDULE'],
-    ['Sheet #', 'Seq #', 'Part ID', 'Part Name', 'Length (mm)', 'Width (mm)', 'Thick (mm)', 'Rotated', 'Grain', 'Material', 'Edge Banding'],
+    ['Sheet #', 'Seq #', 'Part ID', 'Part Name', 'Length (mm)', 'Width (mm)', 'Thick (mm)', 'Rotated', 'Grain', 'Material', 'Edge Banding', 'Construction notes'],
     ...result.sheets.flatMap((s) =>
       s.placedPanels.map((p) => [
         `Sheet ${s.sheetIndex}`,
@@ -1283,15 +1297,17 @@ export function exportCutlistToCsv(result: NestingOptimizationResult, spaceTitle
         p.grain,
         s.materialName,
         p.edgeBandingText,
+        p.partRef.notes ?? '',
       ])
     ),
     [],
     ['LAMINATE PROCUREMENT SCHEDULE'],
-    ['Laminate Type', 'Sheets Required (8x4 ft)', 'Specification'],
-    ['External Decorative Laminate (Front)', `${result.summary.laminateRequirement.externalDecorativeSheets}`, '1.0mm Premium Acrylic / Textured Woodgrain with protective film'],
-    ['Internal Balancing Liner (Both Faces)', `${result.summary.laminateRequirement.internalLinerSheets}`, '0.8mm Off-White Suede Finish Anti-Bacterial Liner'],
-    ['Carcass Plywood Board (18mm)', `${result.summary.laminateRequirement.carcassPlySheets}`, '18mm BWP Marine Plywood IS:710 Grade'],
-    ['Backing Plywood Board (9mm)', `${result.summary.laminateRequirement.backingPlySheets}`, '9mm BWP Plywood IS:710 Grade'],
+    ['Finish code', 'Area-based sheet estimate for selected stock size', 'Usage / net face area; separate nesting still required'],
+    ...(result.summary.laminateRequirement.byFinish ?? []).map(finish => [finish.finishCode, String(finish.estimatedSheets), `${finish.usage}: ${finish.areaSqm.toFixed(3)} m2`]),
+    [],
+    ['BOARD PROCUREMENT - ACTUAL NESTED SHEETS'],
+    ['Material group', 'Sheets'],
+    ...Object.entries(result.summary.sheetsByMaterial).map(([material, count]) => [material, String(count)]),
     [],
     ['EDGE BANDING SCHEDULE'],
     ['Tape Specification', 'Running Meters Required', 'Application'],
@@ -1307,6 +1323,7 @@ export function exportCutlistToCsv(result: NestingOptimizationResult, spaceTitle
 
 export function exportNestingToDxf(result: NestingOptimizationResult): string {
   const lines: string[] = [
+    '999', 'ULTIDA DRAFT - NOT FOR CONSTRUCTION. Confirm joinery and machining before release.',
     '0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC',
     '0', 'SECTION', '2', 'TABLES',
     '0', 'TABLE', '2', 'LAYER', '70', '5',

@@ -37,7 +37,7 @@ type DesignFocus = 'all' | 'modules' | 'materials';
 type MaterialSlot = 'carcass' | 'shutter' | 'back_panel' | 'countertop' | 'profile' | 'glass';
 type ScenePreflightModule = { id: string; roomId: string; label: string; family: string; readiness: { layoutApproved: boolean; wallAnchorSaved: boolean; positionResolved: boolean; dimensionsValid: boolean; materialsSaved: boolean }; missingMaterialSlots: string[]; sceneReady: boolean };
 type ScenePreflight = { room: { id: string; planRoomId?: string; name: string; roomType: string }; modules: ScenePreflightModule[]; requestedModuleIds: string[]; sceneReady: boolean; blockers: Array<Record<string, unknown>> };
-type Props = { stage: Stage; focus?: DesignFocus; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[]) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
+type Props = { stage: Stage; focus?: DesignFocus; projectId: string | null; planApproved: boolean; briefComplete: boolean; sceneVersionId: string | null; sceneApproved: boolean; modules: Module[]; materials: any[]; onSceneCreated: (id: string, modules: Module[], materials: any[], roomId?: string | null) => Promise<string | void>; onSceneApproved: (sceneVersionId?: string) => Promise<boolean> };
 const apiBase = getApiBase();
 // Production is the safe, durable render workspace. Preview deployments are
 // intentionally read-only until they are connected to an isolated database.
@@ -1567,6 +1567,11 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   <span>Camera, room shell, openings, ceiling and module bounds come from scene.v1 and cannot be changed by the image model.</span>
                   <small>{sceneVersionId ? `Scene ${sceneVersionId.slice(0, 8)} linked` : 'Compile a scene to continue'}</small>
                 </div>
+                {!sceneLinked && (
+                  <Button onClick={async () => { setApprovingScene(true); try { const selected = spaces.find(item => item.id === spaceId); const id = await onSceneCreated('', modules, materials, selected?.space_id ?? spaceId); setVisualState(id ? 'Saved 3D scene prepared. Review it, then approve before generating an image.' : 'The scene was not prepared. Check the project error and confirm saved furniture and wall bays in Rooms.'); } catch (error) { setVisualState(error instanceof Error ? error.message : 'Could not prepare the saved room scene.'); } finally { setApprovingScene(false); } }} disabled={approvingScene || !spaceId}>
+                    {approvingScene ? 'Preparing 3D…' : 'Prepare saved room for 3D'}
+                  </Button>
+                )}
                 {!sceneApproved && sceneLinked && (
                   <Button
                     onClick={async () => {
@@ -3812,7 +3817,7 @@ function DrawingCoreWallElevation({
       if (renderType === 'shop-sheet') {
         return generateArchitecturalShopSheetSvg(scene, activeWallId, { selectedModuleId: selectedModuleId ?? undefined, activeWallName });
       }
-      return generateWallElevationSvg(scene, activeWallId, { selectedModuleId: selectedModuleId ?? undefined, activeWallName });
+      return generateWallElevationSvg(scene, activeWallId, { selectedModuleId: selectedModuleId ?? undefined, activeWallName, viewMode: 'fabrication' });
     } catch (err: any) {
       return `<div style="padding: 24px; color: #dc2626; font-size: 13px;">Elevation generation error: ${err?.message ?? 'Unknown error'}</div>`;
     }

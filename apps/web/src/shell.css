@@ -583,7 +583,12 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
 }
 
 @media (max-width: 768px) {
-  .ultida-shell { grid-template-columns: 0 1fr; }
+  /* The sidebar becomes fixed-position below this breakpoint, so it no longer
+     occupies grid column 1. Give the remaining main area the full grid width
+     explicitly (including when the desktop sidebar is in its collapsed state). */
+  .ultida-shell,
+  .ultida-shell.sidebar-collapsed { grid-template-columns: minmax(0, 1fr); }
+  .shell-main { grid-column: 1; width: 100%; min-width: 0; }
   .sidebar-backdrop.active {
     display: block;
     opacity: 1;

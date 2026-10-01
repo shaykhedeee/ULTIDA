@@ -1,0 +1,25 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { PassThrough } from 'node:stream';
+import { generateProductionDossierPdf } from '@ultida/drawing-core';
+import { sceneDocumentSections } from '../src/scene-document-sections.js';
+test('document includes saved plan, independent finish legend and rotated unit component dimensions', async () => {
+  const scene = { walls: [{ id: 'wall-a', start: { xMm: 0, yMm: 0 }, end: { xMm: 3000, yMm: 0 } }], openings: [{ id: 'door-1', wallId: 'wall-a', kind: 'door', widthMm: 900, heightMm: 2100, offsetMm: 100 }], rooms: [{ id: 'room', name: 'Dining' }], modules: [{ id: 'unit', roomId: 'room', family: 'crockery', widthMm: 1200, heightMm: 2100, depthMm: 450, position: { xMm: 1000, yMm: 1000, zMm: 100 }, rotationDeg: 90, materialSlots: { carcass: 'ivory', shutter: 'oak' } }], moduleParts: [{ id: 'shelf', moduleId: 'unit', semanticType: 'shelf', name: 'Shelf', widthMm: 1164, heightMm: 18, position: { xMm: 1000, yMm: 982, zMm: 900 }, materialId: 'ivory' }], materials: [{ id: 'ivory', name: 'Internal ivory', code: 'INT-IV' }, { id: 'oak', name: 'Oak external', code: 'EXT-OAK' }] };
+  const sections = sceneDocumentSections(scene as any);
+  assert.equal(sections.floorPlan?.openings[0].widthMm, 900);
+  assert.ok(Math.abs(sections.elevations[0].internalJoinery[0].xMm - 18) < 1e-6);
+  assert.equal(sections.elevations[0].internalJoinery[0].yMm, 800);
+  assert.equal(sections.elevations[0].internalJoinery[0].specNote, 'INT-IV');
+  assert.equal(sections.finishes?.surfaceFinishes.length, 2);
+  const stream = new PassThrough(); const chunks: Buffer[] = [];
+  stream.on('data', chunk => chunks.push(Buffer.from(chunk)));
+  const done = new Promise<void>((resolve, reject) => { stream.on('end', resolve); stream.on('error', reject); });
+  generateProductionDossierPdf({ schema: 'production.dossier.v1', project: { name: 'Saved design', clientName: 'Test client', location: 'Test site', designerName: 'Test studio', date: '2026-10-01', revision: 'REV-1', status: 'approved' }, ...sections }, stream);
+  await done; const bytes = Buffer.concat(chunks);
+  assert.equal(bytes.subarray(0, 4).toString(), '%PDF'); assert.ok(bytes.length > 5000);
+  const content = bytes.toString('utf8');
+  assert.ok(content.includes('SAVED ROOM PLAN'));
+  assert.ok(content.includes('Doors: amber'));
+  assert.ok(!content.includes('PARAMETRIC DIGITAL TWIN VERIFIED'));
+  assert.ok(!content.includes('APPROVED FOR PRODUCTION'));
+});

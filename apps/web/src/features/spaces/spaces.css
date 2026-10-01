@@ -1359,11 +1359,9 @@
    Docked, not modal. The catalog must never obscure the plan canvas, because
    every placement decision depends on seeing the wall being placed against. */
 .design-library-rail {
-  position: fixed;
-  top: 0;
-  right: 0;
-  width: clamp(380px, 28vw, 450px);
-  height: 100dvh;
+  position: relative;
+  width: 100%;
+  max-height: 360px;
   background: var(--surface);
   border-left: 1px solid var(--line);
   box-shadow: -10px 0 30px rgba(0, 0, 0, 0.12);
@@ -1376,10 +1374,10 @@
 /* Reserve the rail's width so the canvas reflows beside it rather than
    sitting underneath it. */
 .spaces-workspace--library-open {
-  padding-right: clamp(392px, calc(28vw + 12px), 462px);
+  padding-right: 0;
 }
 @media (max-width: 900px) {
-  .design-library-rail { width: 100vw; }
+  .design-library-rail { width: 100%; }
   .spaces-workspace--library-open { padding-right: 0; }
 }
 @keyframes slideLeft {
@@ -3606,3 +3604,39 @@
   gap: 8px;
 }
 
+
+/* Keep the measured plan dominant; inspectors live beneath it. */
+.spaces-workspace .spaces-layout { grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); grid-template-areas: "rooms canvas" "rooms props" "rooms context"; gap: 12px; }
+.spaces-workspace .props-region { position: static; max-height: none; min-width: 0; }
+.spaces-workspace .plan-canvas { min-height: 620px; }
+.spaces-workspace .design-library-rail { border: 1px solid var(--line); border-radius: 12px; margin-top: 12px; box-shadow: none; animation: none; }
+.spaces-workspace .dld-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.kitchen-layout-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 10px; }
+.kitchen-layout-bar label { display: flex; gap: 8px; align-items: center; }
+.kitchen-layout-bar button, .kitchen-layout-bar select { padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text-primary); }
+.kitchen-layout-bar small { color: var(--text-muted); }
+@media (max-width: 760px) {
+ .spaces-workspace .spaces-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "rooms" "canvas" "props" "context"; }
+ .spaces-workspace .plan-canvas { min-height: 440px; }
+ .spaces-workspace .design-library-rail { max-height: 420px; }
+}
+
+/* Catalog and selected furniture belong next to the room, before deep settings. */
+.spaces-workspace .spaces-layout { grid-template-areas: "rooms canvas" "rooms library" "rooms props" "rooms context"; }
+.spaces-layout > .design-library-rail { grid-area: library; max-height: 320px; margin-top: 0; }
+.saved-furniture-inspector { padding: 14px; border-bottom: 1px solid var(--line); }
+.saved-furniture-inspector p { font-size: 12px; color: var(--text-muted); margin: 6px 0 10px; }
+.saved-furniture-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.saved-furniture-inspector button { padding: 8px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text-primary); margin: 4px 6px 4px 0; }
+.saved-furniture-inspector button[aria-pressed="true"] { border-color: #17669c; background: #e7f2fa; }
+.saved-furniture-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.saved-furniture-fields label { font-size: 12px; display: flex; flex-direction: column; gap: 5px; }
+.saved-furniture-fields input { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+@media (max-width: 760px) {
+ .spaces-workspace .spaces-layout { grid-template-areas: "rooms" "canvas" "library" "props" "context"; }
+ .saved-furniture-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.spaces-workspace--focused .spaces-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "canvas" "library" "props" "context"; }
+.spaces-workspace--focused .room-list { display: none; }
+.spaces-workspace .saved-furniture-inspector button:focus-visible, .spaces-workspace svg [role="button"]:focus-visible { outline: 3px solid #17669c; outline-offset: 3px; }
+.dld-style-references label{display:grid;gap:5px;font-size:12px}.dld-style-references select{width:100%;min-width:0}.dld-style-references figure{margin:8px 0}.dld-style-references img{width:100%;height:150px;object-fit:contain;border-radius:8px;background:#f5f3ee}.dld-style-references figcaption{font-size:11px;line-height:1.5;color:var(--text-secondary)}

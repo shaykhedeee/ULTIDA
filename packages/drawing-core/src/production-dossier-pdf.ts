@@ -218,7 +218,7 @@ export function generateProductionDossierPdf(
     // Brand Block (Left)
     writer.font('Helvetica-Bold').fontSize(12).fillColor('#c59c2d').text('ULTIDA ARCHITECTURAL OS', 36, tbY + 10);
     writer.font('Helvetica').fontSize(7.5).fillColor('#e2e8f0').text('Turnkey Precision CAD & CNC Manufacturing Dossier', 36, tbY + 26);
-    writer.font('Helvetica').fontSize(6.5).fillColor('#94a3b8').text('Conforms to IS 710 Marine / HDHMR & System 32 Joinery Standard', 36, tbY + 36);
+    writer.font('Helvetica').fontSize(6.5).fillColor('#94a3b8').text('Specifications require approved material and fabrication schedules', 36, tbY + 36);
 
     // Center Details
     writer.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff').text(dossier.project.name.toUpperCase(), 300, tbY + 10, { width: 300 });
@@ -251,7 +251,7 @@ export function generateProductionDossierPdf(
   const statusColor = dossier.project.status === 'locked' ? '#059669' : '#0284c7';
   writer.roundedRect(pw - 260, 48, 200, 36, 4).fillColor(statusColor).fill();
   writer.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff').text('AUTHORIZATION STATUS:', pw - 250, 54);
-  writer.font('Helvetica-Bold').fontSize(11).fillColor('#ffffff').text('APPROVED FOR PRODUCTION', pw - 250, 67);
+  writer.font('Helvetica-Bold').fontSize(11).fillColor('#ffffff').text(dossier.project.status === 'draft' ? 'DRAFT - NOT FOR CONSTRUCTION' : 'DESIGN ' + dossier.project.status.toUpperCase(), pw - 250, 67);
 
   // Credentials Grid
   const credX = 40;
@@ -280,47 +280,46 @@ export function generateProductionDossierPdf(
     { headerBg: '#0f172a', headerColor: '#ffffff', rowAltBg: '#f8fafc', fontSize: 7.5, cellPadding: 4 }
   );
 
-  // Right Side: 3D Perspective Hero Viewport
-  const heroX = 500;
-  const heroY = 105;
-  const heroW = pw - 540;
-  const heroH = 200;
-
-  writer.font('Helvetica-Bold').fontSize(10).fillColor('#1c1917').text('2. 3D PERSPECTIVE VIEWPORT (HERO SHIFT)', heroX, heroY);
+  // Saved-plan overview; no invented cabinet or render-verification claim.
+  const heroX = 500, heroY = 105, heroW = pw - 540, heroH = 200;
+  writer.font('Helvetica-Bold').fontSize(10).fillColor('#1c1917').text('2. SAVED ROOM PLAN', heroX, heroY);
   writer.rect(heroX, heroY + 16, heroW, heroH).fillColor('#f8fafc').fill();
-  writer.rect(heroX, heroY + 16, heroW, heroH).lineWidth(1).strokeColor('#334155').stroke();
-
-  // Perspective CAD Lines (Isometric representation)
-  writer.save().strokeColor('#94a3b8').lineWidth(0.75);
-  // Floor grid
-  writer.line(heroX, heroY + 16 + heroH, heroX + 60, heroY + 16 + heroH - 50);
-  writer.line(heroX + 60, heroY + 16 + heroH - 50, heroX + heroW - 60, heroY + 16 + heroH - 50);
-  writer.line(heroX + heroW - 60, heroY + 16 + heroH - 50, heroX + heroW, heroY + 16 + heroH);
-  // Walls
-  writer.line(heroX + 60, heroY + 16 + heroH - 50, heroX + 60, heroY + 36);
-  writer.line(heroX + heroW - 60, heroY + 16 + heroH - 50, heroX + heroW - 60, heroY + 36);
-  writer.line(heroX + 60, heroY + 36, heroX + heroW - 60, heroY + 36);
-  writer.restore();
-
-  // Simulated Modular Units in perspective
-  writer.rect(heroX + 80, heroY + 70, heroW - 160, 95).fillColor('#e2e8f0').fill();
-  writer.rect(heroX + 80, heroY + 70, heroW - 160, 95).lineWidth(1.2).strokeColor('#1c1917').stroke();
-  writer.font('Helvetica-Bold').fontSize(9).fillColor('#1c1917').text('3D SCENE MODEL — CANONICAL PROJECTION', heroX + 90, heroY + 80);
-  writer.font('Helvetica').fontSize(7.5).fillColor('#475569').text('Full spatial geometry compiled directly from scene.v1.\nAll casework sub-assemblies, clearances & material slots verified.', heroX + 90, heroY + 98, { width: heroW - 180 });
-
-  // Hero Caption Banner
-  writer.rect(heroX, heroY + 16 + heroH - 24, heroW, 24).fillColor('#1c1917').fill();
-  writer.font('Helvetica-Bold').fontSize(8).fillColor('#c59c2d').text('3D RENDER & PARAMETRIC DIGITAL TWIN VERIFIED', heroX + 12, heroY + 16 + heroH - 16);
-
+  const plan = dossier.floorPlan;
+  if (plan?.walls.length) {
+    const points = plan.walls.flatMap(wall => [wall.start, wall.end]);
+    const minX = Math.min(...points.map(point => point.x)), minY = Math.min(...points.map(point => point.y));
+    const width = Math.max(...points.map(point => point.x)) - minX;
+    const height = Math.max(...points.map(point => point.y)) - minY;
+    const scale = Math.min((heroW - 32) / Math.max(width, 1), (heroH - 50) / Math.max(height, 1));
+    const originX = heroX + (heroW - width * scale) / 2, originY = heroY + 28 + (heroH - 50 - height * scale) / 2;
+    const project = (x: number, y: number) => ({ x: originX + (x - minX) * scale, y: originY + (y - minY) * scale });
+    for (const wall of plan.walls) {
+      const a = project(wall.start.x, wall.start.y), b = project(wall.end.x, wall.end.y);
+      writer.save().lineWidth(2).strokeColor('#334155').line(a.x, a.y, b.x, b.y).restore();
+    }
+    for (const opening of plan.openings) {
+      const wall = plan.walls.find(candidate => candidate.id === opening.wallId);
+      if (!wall) continue;
+      const length = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y);
+      if (length <= 0) continue;
+      const ux = (wall.end.x - wall.start.x) / length, uy = (wall.end.y - wall.start.y) / length;
+      const a = project(wall.start.x + ux * opening.offsetMm, wall.start.y + uy * opening.offsetMm);
+      const b = project(wall.start.x + ux * (opening.offsetMm + opening.widthMm), wall.start.y + uy * (opening.offsetMm + opening.widthMm));
+      writer.save().lineWidth(4).strokeColor('#f8fafc').line(a.x, a.y, b.x, b.y).lineWidth(1).strokeColor(opening.kind === 'door' ? '#b45309' : '#0284c7').line(a.x, a.y, b.x, b.y).restore();
+    }
+    writer.font('Helvetica').fontSize(7).fillColor('#475569').text('Doors: amber | Windows: blue | Overview: not to scale', heroX + 8, heroY + heroH);
+  } else {
+    writer.font('Helvetica').fontSize(9).fillColor('#475569').text('No saved plan supplied. Geometry requires confirmation.', heroX + 16, heroY + 60, { width: heroW - 32 });
+  }
   // Legal Manufacturing Declarations
   const declY = 328;
   writer.rect(40, declY, pw - 80, 56).fillColor('#fef2f2').fill();
   writer.rect(40, declY, pw - 80, 56).lineWidth(0.8).strokeColor('#ef4444').stroke();
   writer.font('Helvetica-Bold').fontSize(8).fillColor('#b91c1c').text('CRITICAL MANUFACTURING & SIGN-OFF MANDATES:', 50, declY + 8);
   writer.font('Helvetica').fontSize(7).fillColor('#7f1d1d').text(
-    '1. All dimensions in this document are finished millimetres checked on site with laser distance meter prior to CAD drafting.\n' +
+    '1. Dimensions derive from supplied geometry; confirm site measurements before fabrication.\n' +
     '2. Production cutting and CNC boring start strictly after this document is approved; no dimensional alterations are permitted post-release.\n' +
-    '3. Substrates conform to IS 710 Boiling Water Proof (BWP) Marine Plywood & Action TESA HDHMR with System 32 joinery tolerances (±0.5mm).',
+    '3. Substrates, hardware and machining tolerances require explicit specification and release approval.',
     50,
     declY + 22,
     { width: pw - 100, lineGap: 3 }

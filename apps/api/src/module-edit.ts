@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { CanonicalPlanModel } from '@ultida/plan-core';
 import { resolveModuleWallAnchor } from './module-anchor.js';
 import { compileStoredModuleForScene } from './scene-module-parts.js';
+import { resolveRoomWalls } from '@ultida/scene-compiler';
 
 export const ModuleEditSchema = z.object({
   expectedUpdatedAt: z.string().datetime({ offset: true }),
@@ -88,7 +89,7 @@ export function prepareModuleEdit(module: EditableModule, edit: z.infer<typeof M
 export function prepareModulePlacement(module: EditableModule, plan: CanonicalPlanModel, roomId: string, neighbours: EditableModule[]) {
   if (!plan.scale?.verified) return { ok: false as const, code: 'PLAN_SCALE_NOT_CONFIRMED', message: 'Confirm the plan calibration before saving a module placement.' };
   const room = plan.spaces.find((entry) => entry.id === roomId);
-  if (!room || !room.wallRefs.includes(module.position_json.wallId)) return { ok: false as const, code: 'MODULE_WALL_ROOM_MISMATCH', message: 'Select a measured wall belonging to this room.' };
+  if (!room || !resolveRoomWalls(plan, roomId).some(wall => wall.id === module.position_json.wallId)) return { ok: false as const, code: 'MODULE_WALL_ROOM_MISMATCH', message: 'Select a measured wall belonging to this room.' };
   const anchor = resolveModuleWallAnchor(plan.walls, { wallId: module.position_json.wallId, offsetMm: module.position_json.offsetMm, zMm: module.position_json.zMm }, Number(module.config_json.widthMm));
   if (!anchor.ok) return anchor;
   const candidate = { ...module, position_json: anchor.anchor };

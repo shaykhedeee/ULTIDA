@@ -558,3 +558,5 @@ export {
   type CncPanel,
   type CabinetCncPackage,
 } from './cnc-post-processor.js';
+
+export { MODULE_STYLE_REFERENCES } from './module-style-references.js';

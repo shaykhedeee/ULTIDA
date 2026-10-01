@@ -38,78 +38,25 @@ const sampleWardrobeScene: SceneV1 = {
   metadata: { status: 'approved', designVersion: '02' },
 };
 
-test('generateArchitecturalShopSheetSvg renders full external elevation with carcass and laminate legends', () => {
+test('external mode never fabricates cabinet details when scene parts are missing', () => {
   const svg = generateArchitecturalShopSheetSvg(sampleKitchenScene, 'wall-a', {
     viewMode: 'external',
-    unitTitle: 'KITCHEN WALL-A EXTERNAL:',
-    clientName: 'MR.SACHIN & MRS.SAMMITHA',
-    projectName: 'B-307, SAMSUDHI',
-    laminateA: 'VIRGO MICA-6344 SF',
-    laminateB: 'VIRGO MICA-1409 SHG',
-    carcassCoreMaterial: 'PLYWOOD - BWP-710 GRADE',
     measurementStatus: 'measured',
-    provenance: 'Approved site measurement survey S-11',
   });
-
-  // Basic SVG assertions
   assert.ok(svg.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
-  assert.ok(svg.includes('<svg width="1200" height="750"'));
-
-  // Header Banner
-  assert.ok(svg.includes('KITCHEN WALL-A EXTERNAL:'));
-  assert.ok(svg.includes('MEASURED GEOMETRY'));
-  assert.ok(svg.includes('Approved site measurement survey S-11'));
-  assert.ok(svg.includes('UNITS: MM'));
-
-  // Top View Plan
-  assert.ok(svg.includes('TOP VIEW'));
-  assert.ok(svg.includes('pattern id="diagonalHatch"'));
-
-  // Casework External Elements
-  assert.ok(svg.includes('GRANITE 40mm'));
-  assert.ok(svg.includes('GOLA PROFILE'));
-  assert.ok(svg.includes('CUTLERY INLET'));
-  assert.ok(svg.includes('CUP AND SAUCER INLET'));
-  assert.ok(svg.includes('THALLI INLET'));
-  assert.ok(svg.includes('PROFILE SHUTTER WITH BLACK FLUTED GLASS'));
-  assert.ok(svg.includes('SKIRTING 100mm'));
-  assert.ok(svg.includes('FALSE CEILING FILLER 50mm'));
-
-  // Persisted wall openings remain visible and are scheduled from scene data.
-  assert.ok(svg.includes('data-opening-id="window-a"'));
-  assert.ok(svg.includes('WINDOW 750W × 900H · SILL 1100'));
-  assert.ok(svg.includes('OPENING SCHEDULE'));
-
-  // Carcass & Laminate Legend Box
-  assert.ok(svg.includes('LEGEND'));
-  assert.ok(svg.includes('CARCASS'));
-  assert.ok(svg.includes('560+20MM'));
-  assert.ok(svg.includes('300+20MM'));
-  assert.ok(svg.includes('450+20MM'));
-  assert.ok(svg.includes('PLYWOOD - BWP-710 GRADE'));
-  assert.ok(svg.includes('LAMINATE'));
-  assert.ok(svg.includes('VIRGO MICA-6344 SF'));
-  assert.ok(svg.includes('VIRGO MICA-1409 SHG'));
-
-  // Title Block
-  assert.ok(svg.includes('MR.SACHIN &amp; MRS.SAMMITHA') || svg.includes('MR.SACHIN'));
-  assert.ok(svg.includes('B-307, SAMSUDHI'));
-  assert.ok(svg.includes('APPROVED FOR PRODUCTION'));
-  assert.ok(svg.includes('WALL wall-a'));
-  assert.ok(svg.includes('UNITS: MM · DO NOT SCALE'));
-  assert.ok(svg.includes('PROVENANCE: Approved site measurement survey S-11'));
+  assert.match(svg, /COMPILED COMPONENT GEOMETRY REQUIRED/);
+  assert.match(svg, /NOT FOR CONSTRUCTION/);
+  assert.doesNotMatch(svg, /GRANITE 40mm|GOLA PROFILE|SKIRTING 100mm|FALSE CEILING FILLER 50mm/);
 });
 
-test('generateArchitecturalShopSheetSvg marks unverified geometry as non-construction data', () => {
-  const svg = generateArchitecturalShopSheetSvg(sampleKitchenScene, 'wall-a');
+test('legacy presentation elevations mark unverified geometry as non-construction data', () => {
+  const svg = generateArchitecturalShopSheetSvg(sampleKitchenScene, 'wall-a', { viewMode: 'external' });
 
-  assert.ok(svg.includes('NOT FOR CONSTRUCTION — REVIEW REQUIRED'));
-  assert.ok(svg.includes('UNVERIFIED GEOMETRY · DO NOT SCALE DRAWING'));
-  assert.ok(svg.includes('CLIENT NOT ASSIGNED'));
-  assert.ok(svg.includes('FINISH TO BE CONFIRMED'));
+  assert.match(svg, /NOT FOR CONSTRUCTION/);
+  assert.match(svg, /COMPILED COMPONENT GEOMETRY REQUIRED/);
 });
 
-test('generateArchitecturalShopSheetSvg renders internal joinery section with System 32 and shelf notations', () => {
+test('internal mode refuses assumed wardrobe zones when compiled parts are missing', () => {
   const svg = generateArchitecturalShopSheetSvg(sampleWardrobeScene, 'wall-mbr', {
     viewMode: 'internal',
     unitTitle: 'MBR WARDROBE INTERNAL:',
@@ -118,25 +65,65 @@ test('generateArchitecturalShopSheetSvg renders internal joinery section with Sy
     carcassCoreMaterial: 'PLYWOOD - MR-303 GRADE',
   });
 
-  // Internal Joinery notations
-  assert.ok(svg.includes('MBR WARDROBE INTERNAL:'));
-  assert.ok(svg.includes('HANGER SPACE 1050mm'));
-  assert.ok(svg.includes('LOCKABLE CASH DRAWER'));
-  assert.ok(svg.includes('SAREE ORGANIZER DRAWER'));
-  assert.ok(svg.includes('FS: FIXED SHELF'));
-  assert.ok(svg.includes('AS: ADJUSTABLE SHELF'));
-  assert.ok(svg.includes('EQ: EQUAL DISTANCE'));
-  assert.ok(svg.includes('PLYWOOD - MR-303 GRADE'));
+  assert.match(svg, /COMPILED COMPONENT GEOMETRY REQUIRED/);
+  assert.doesNotMatch(svg, /HANGER SPACE 1050|LOCKABLE CASH DRAWER|SAREE ORGANIZER DRAWER/);
 });
 
-test('generateWallElevationSvg delegates cleanly to shop-sheet renderer when requested', () => {
+test('shop-sheet mode uses the scene-derived cutlist elevation and refuses missing parts', () => {
   const svg = generateWallElevationSvg(sampleKitchenScene, 'wall-a', {
     viewMode: 'shop-sheet',
     unitTitle: 'KITCHEN WORKSHOP DRAWING',
   });
-  assert.ok(svg.includes('TOP VIEW'));
-  assert.ok(svg.includes('CARCASS'));
-  assert.ok(svg.includes('LAMINATE'));
+  assert.match(svg, /COMPILED COMPONENT GEOMETRY REQUIRED/);
+  assert.match(svg, /NOT FOR CONSTRUCTION/);
+});
+
+test('fabrication elevation uses exact scene part IDs and cutlist dimensions', () => {
+  const scene: SceneV1 = {
+    ...sampleKitchenScene,
+    modules: [{ id: 'kit-base-1', family: 'kitchen-base', roomId: 'kitchen-1', widthMm: 1200, depthMm: 560, heightMm: 850, position: { xMm: 0, yMm: 0, zMm: 0 }, rotationDeg: 0 }],
+    walls: [{ ...sampleKitchenScene.walls[0]!, spaceIds: ['kitchen-1'] }],
+    moduleParts: [
+      { id: 'kit-base-1-left-side', moduleId: 'kit-base-1', roomId: 'kitchen-1', semanticType: 'carcass', name: 'Left side panel', widthMm: 18, depthMm: 560, heightMm: 814, position: { xMm: 0, yMm: 0, zMm: 18 }, rotationDeg: 0, materialId: 'mat-carcass' },
+      { id: 'kit-base-1-shutter-1', moduleId: 'kit-base-1', roomId: 'kitchen-1', semanticType: 'shutter', name: 'Door front', widthMm: 564, depthMm: 18, heightMm: 700, position: { xMm: 18, yMm: 0, zMm: 100 }, rotationDeg: 0, materialId: 'mat-shutter' },
+    ],
+    materials: [{ id: 'mat-carcass', name: 'Warm oak', code: 'OAK-18' }, { id: 'mat-shutter', name: 'Ivory matte', code: 'IV-09' }],
+  };
+  const svg = generateArchitecturalShopSheetSvg(scene, 'wall-a', {
+    viewMode: 'fabrication', measurementStatus: 'measured',
+    productionParts: [
+      { id: 'kit-base-1-left-side', sourcePartId: 'kit-base-1-left-side', moduleId: 'kit-base-1', partName: 'Left side panel', semanticType: 'carcass', lengthMm: 814, widthMm: 560, thicknessMm: 18, materialCode: 'OAK-18', quantity: 1, status: 'review_required' },
+      { id: 'kit-base-1-shutter-1', sourcePartId: 'kit-base-1-shutter-1', moduleId: 'kit-base-1', partName: 'Door front', semanticType: 'shutter', lengthMm: 700, widthMm: 564, thicknessMm: 18, materialCode: 'IV-09', quantity: 1, status: 'review_required' },
+    ],
+  });
+  assert.match(svg, /data-part-id="kit-base-1-left-side"/);
+  assert.match(svg, /data-part-id="kit-base-1-shutter-1"/);
+  assert.match(svg, /814×560×18 · QTY 1/);
+  assert.match(svg, /700×564×18 · QTY 1/);
+  assert.match(svg, /OAK-18 · GRAIN/);
+  assert.match(svg, /IV-09 · GRAIN/);
+  assert.match(svg, /data-opening-id="window-a"/);
+  assert.match(svg, /NOT FOR CONSTRUCTION/);
+  assert.doesNotMatch(svg, /HANGER SPACE 1050|SKIRTING 100mm|FALSE CEILING FILLER 50mm/);
+  const external = generateArchitecturalShopSheetSvg(scene, 'wall-a', { viewMode: 'external' });
+  const internal = generateArchitecturalShopSheetSvg(scene, 'wall-a', { viewMode: 'internal' });
+  assert.match(external, /data-part-id="kit-base-1-shutter-1"/);
+  assert.doesNotMatch(external, /data-part-id="kit-base-1-left-side"/);
+  assert.match(internal, /data-part-id="kit-base-1-left-side"/);
+  assert.doesNotMatch(internal, /data-part-id="kit-base-1-shutter-1"/);
+});
+
+test('certified part schedule cannot silently omit component rows from the elevation', () => {
+  const scene: SceneV1 = {
+    ...sampleWardrobeScene,
+    moduleParts: [{ id: 'wardrobe-shelf-1', moduleId: 'wardrobe-mbr', semanticType: 'shelf', name: 'Shelf 1', widthMm: 564, depthMm: 544, heightMm: 18, position: { xMm: 18, yMm: 0, zMm: 1200 } }],
+  };
+  const svg = generateArchitecturalShopSheetSvg(scene, 'wall-mbr', {
+    viewMode: 'fabrication',
+    productionParts: [{ id: 'different-id', sourcePartId: 'missing-scene-part', moduleId: 'wardrobe-mbr', partName: 'Unknown panel', lengthMm: 564, widthMm: 544, thicknessMm: 18, materialCode: 'OAK', quantity: 1, status: 'review_required' }],
+  });
+  assert.match(svg, /CUTLIST \/ SCENE COMPONENT MISMATCH/);
+  assert.match(svg, /1 cutlist row\(s\) do not map to a compiled component ID/);
 });
 
 /**
@@ -185,5 +172,5 @@ test('an empty sheet still reports the measured shell that is on record', () => 
 test('a wall that does carry casework is unaffected by the empty-sheet path', () => {
   const svg = generateArchitecturalShopSheetSvg(sampleKitchenScene, 'wall-a', { measurementStatus: 'measured' });
   assert.doesNotMatch(svg, /NO MODULES PLACED/);
-  assert.ok(svg.includes('<svg width="1200" height="750"'));
+  assert.match(svg, /<svg[^>]*width="1200" height="750"/);
 });

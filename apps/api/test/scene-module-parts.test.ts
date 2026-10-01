@@ -62,3 +62,28 @@ test('compiles a hydraulic storage bed into traceable panels and hardware', () =
   assert.ok(result.parts.some((part) => part.semanticType === 'hardware'));
   assert.ok(result.parts.every((part) => part.moduleId === 'bed-1' && part.roomId === 'bedroom-1'));
 });
+
+test('unit appearance survives compilation without changing measured parts', () => {
+  const base = { id: 'crockery-style', space_id: 'dining-1', category: 'crockery', template_id: 'crockery-1800', config_json: { family: 'crockery', widthMm: 1800, depthMm: 450, heightMm: 2400 }, position_json: { wallId: 'wall-a', xMm: 0, yMm: 0, rotationDeg: 0, anchor: 'wall' } };
+  const plain = compileStoredModuleForScene(base, walls);
+  const styled = compileStoredModuleForScene({ ...base, config_json: { ...base.config_json, designIntent: { version: 1, style: 'Warm oak and black glass', palette: [], referenceAssetIds: ['studio-crockery-warm-oak'] } } }, walls);
+  assert.ok(plain.ok && styled.ok);
+  if (!plain.ok || !styled.ok) return;
+  assert.deepEqual(styled.parts, plain.parts);
+  assert.equal(styled.module.designIntent?.referenceAssetIds[0], 'studio-crockery-warm-oak');
+  assert.equal(styled.module.widthMm, 1800);
+  const bad = compileStoredModuleForScene({ ...base, config_json: { ...base.config_json, designIntent: { version: 9 } } }, walls);
+  assert.equal(bad.ok, false);
+});
+
+test('loft remains inside measured ceiling and uses the saved height and mounting level', () => {
+  const unit = { id: 'loft-unit', space_id: 'bedroom', category: 'wardrobe', template_id: 'wardrobe-1800', config_json: { family: 'wardrobe', widthMm: 1800, depthMm: 600, heightMm: 2400, configuration: { includeLoft: true, loftHeightMm: 450 } }, position_json: { wallId: 'wall-a', xMm: 0, yMm: 0, rotationDeg: 0, zMm: 100 } };
+  const result = compileStoredModuleForScene(unit, walls);
+  assert.ok(result.ok); if (!result.ok) return;
+  const loft = result.parts.find(part => part.semanticType === 'loft');
+  assert.ok(loft); assert.equal(loft.heightMm, 450); assert.equal(loft.zMm, 2050);
+  const tall = compileStoredModuleForScene({ ...unit, position_json: { ...unit.position_json, zMm: 400 } }, walls);
+  assert.equal(tall.ok, false); if (!tall.ok) assert.equal(tall.code, 'MODULE_EXCEEDS_HEIGHT');
+  const unknown = compileStoredModuleForScene(unit, [{ ...walls[0], heightMm: 0 }]);
+  assert.equal(unknown.ok, false); if (!unknown.ok) assert.equal(unknown.code, 'ROOM_CEILING_UNCONFIRMED');
+});

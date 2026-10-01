@@ -19,6 +19,7 @@ export type CompiledModulePart = {
   materialId?: string;
   materialSlots?: Partial<Record<'carcass' | 'shutter' | 'hardware' | 'countertop' | 'backPanel' | 'glass' | 'metal' | 'lighting', string>>;
   glbUrl?: string;
+  designIntent?: RenderIntentV1;
   semanticType?: string;
   name?: string;
   kind?: string;
@@ -32,6 +33,7 @@ export type SceneCompilerInput = {
   floorPlanVersionId: string;
   designVersion: string;
   plan: CanonicalPlanModel;
+  roomId?: string;
   modules?: CompiledModulePart[];
   moduleParts?: CompiledModulePart[];
   materials?: Array<{ id: string; name: string; code: string; finish?: string; colorHex?: string; roughness?: number; metalness?: number; unitCost?: number }>;
@@ -271,6 +273,18 @@ export function checkRenderReadiness(scene: SceneV1) {
   }
   for (const opening of scene.openings) {
     if (opening.kind === 'window' && opening.sillHeightMm < 0) issues.push({ code: 'UNVERIFIED_WINDOW_HEIGHT', severity: 'critical', message: `Window ${opening.id} has an invalid sill height.` });
+    const wall = scene.walls.find(candidate => candidate.id === opening.wallId);
+    if (!wall) {
+      issues.push({ code: 'OPENING_WALL_MISSING', severity: 'critical', message: `Opening ${opening.id} references a missing wall. Reassign it before reviewing 3D.` });
+      continue;
+    }
+    const length = Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm);
+    if (![opening.offsetMm, opening.widthMm, opening.heightMm, opening.sillHeightMm].every(Number.isFinite) || opening.offsetMm < 0 || opening.widthMm <= 0 || opening.heightMm <= 0 || opening.offsetMm + opening.widthMm > length || opening.sillHeightMm < 0 || opening.sillHeightMm + opening.heightMm > wall.heightMm) {
+      issues.push({ code: 'OPENING_OUTSIDE_WALL', severity: 'critical', message: `Opening ${opening.id} exceeds its measured wall or ceiling. Confirm its offset, width, sill and head height.` });
+    }
+    if (scene.openings.some(other => other.id !== opening.id && other.wallId === opening.wallId && Math.min(other.offsetMm + other.widthMm, opening.offsetMm + opening.widthMm) > Math.max(other.offsetMm, opening.offsetMm) && Math.min(other.sillHeightMm + other.heightMm, opening.sillHeightMm + opening.heightMm) > Math.max(other.sillHeightMm, opening.sillHeightMm))) {
+      issues.push({ code: 'OPENING_OVERLAP', severity: 'critical', message: `Opening ${opening.id} overlaps another opening on wall ${opening.wallId}. Correct the detected ranges.` });
+    }
   }
   for (const module of scene.modules) {
     if (![module.widthMm, module.depthMm, module.heightMm, module.position.xMm, module.position.yMm, module.position.zMm].every(Number.isFinite) || module.widthMm <= 0 || module.depthMm <= 0 || module.heightMm <= 0) issues.push({ code: 'MODULE_INVALID', severity: 'critical', message: `Module ${module.id} has invalid dimensions or position.` });
@@ -429,6 +443,25 @@ function compileModuleLighting(moduleParts: SceneV1['moduleParts']): SceneV1['li
   });
 }
 
+export function resolveRoomWalls(plan: Pick<CanonicalPlanModel, 'spaces' | 'walls'>, roomId: string) {
+  const room = plan.spaces.find(space => space.id === roomId);
+  if (!room) return [];
+  const refs = new Set(room.wallRefs);
+  const polygon = room.worldPolygon ?? [];
+  const onSegment = (point: { xMm: number; yMm: number }, start: typeof point, end: typeof point, tolerance: number) => {
+    const dx = end.xMm - start.xMm, dy = end.yMm - start.yMm;
+    const lengthSquared = dx * dx + dy * dy;
+    if (!lengthSquared) return false;
+    const t = Math.max(0, Math.min(1, ((point.xMm - start.xMm) * dx + (point.yMm - start.yMm) * dy) / lengthSquared));
+    return Math.hypot(point.xMm - start.xMm - t * dx, point.yMm - start.yMm - t * dy) <= tolerance;
+  };
+  return plan.walls.filter(wall => refs.has(wall.id) || wall.adjacentSpaces.includes(roomId) || polygon.some((start, index) => {
+    const end = polygon[(index + 1) % polygon.length];
+    const tolerance = Math.max(0.5, (wall.thicknessMm ?? 0) / 2);
+    return onSegment(wall.worldStart, start, end, tolerance) && onSegment(wall.worldEnd, start, end, tolerance);
+  }));
+}
+
 export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
   const validation = validateCanonicalPlan(input.plan);
   if (!validation.valid) {
@@ -436,7 +469,11 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
   }
 
   const defaultFloorId = 'floor-1';
-  const spaces = input.plan.spaces;
+  const spaces = input.roomId ? input.plan.spaces.filter(space => space.id === input.roomId) : input.plan.spaces;
+  if (input.roomId && spaces.length !== 1) throw new SceneCompilationError([{ code: 'SCENE_ROOM_MISSING', message: 'The selected room is missing from the saved plan.' }]);
+  if (input.roomId && [...(input.modules ?? []), ...(input.moduleParts ?? [])].some(module => module.roomId !== input.roomId)) throw new SceneCompilationError([{ code: 'SCENE_ROOM_MODULE_MISMATCH', message: 'Every item must belong to the selected room.' }]);
+  const roomWalls = input.roomId ? resolveRoomWalls(input.plan, input.roomId) : input.plan.walls;
+  if (input.roomId && !roomWalls.length) throw new SceneCompilationError([{ code: 'SCENE_ROOM_WALLS_UNCONFIRMED', message: 'Confirm the walls belonging to this room before reviewing it in 3D.' }]);
   const rooms = spaces.map((space) => ({
     id: space.id,
     spaceId: space.id,
@@ -445,7 +482,7 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     boundary: space.worldPolygon ?? space.sourcePolygon.map((point) => ({ xMm: point.x, yMm: point.y })),
     confidence: space.confidence ?? 1,
   }));
-  const walls = input.plan.walls.map((wall) => ({
+  const walls = roomWalls.map((wall) => ({
     id: wall.id,
     floorId: defaultFloorId,
     start: wall.worldStart,
@@ -453,10 +490,11 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     thicknessMm: wall.thicknessMm ?? 0,
     heightMm: wall.heightMm ?? 0,
     baseElevationMm: 0,
-    spaceIds: wall.adjacentSpaces,
+    spaceIds: input.roomId ? wall.adjacentSpaces.filter(id => id === input.roomId) : wall.adjacentSpaces,
     confidence: wall.confidence ?? 1,
   }));
-  const openings = input.plan.openings.map((opening) => {
+  const roomWallIds = new Set(roomWalls.map(wall => wall.id));
+  const openings = input.plan.openings.filter(opening => roomWallIds.has(opening.wallId)).map((opening) => {
     const isWindow = 'sillMm' in opening;
     return {
       id: opening.id,
@@ -483,6 +521,7 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     materialId: module.materialId,
     materialSlots: module.materialSlots,
     glbUrl: module.glbUrl,
+    designIntent: module.designIntent,
     confidence: 1,
   }));
   const moduleParts = (input.moduleParts ?? []).map((part) => ({

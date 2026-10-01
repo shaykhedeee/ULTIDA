@@ -1,0 +1,30 @@
+import { strToU8, zipSync } from 'fflate';
+import type { NestingOptimizationResult } from './cutlist-optimizer';
+import type { MeasuredUnit } from './measured-unit-cutlist';
+
+type Cell = string | number;
+const xml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]!);
+const column = (index: number): string => index < 26 ? String.fromCharCode(65 + index) : column(Math.floor(index / 26) - 1) + column(index % 26);
+
+/** Browser-safe draft workbook. Physical IDs are exactly the IDs used by nesting/labels. */
+export function buildCutlistDraftWorkbook(result: NestingOptimizationResult, units: MeasuredUnit[], title: string): Uint8Array {
+  if (result.summary.blockingIssues.length || result.summary.unplacedParts.length || !result.sheets.length) throw new Error('Resolve missing/unplaced panels before exporting a workbook.');
+  const panels = result.sheets.flatMap(sheet => sheet.placedPanels.map(panel => ({ sheet, panel })));
+  const sheets: Array<{ name: string; rows: Cell[][] }> = [
+    { name: 'Read me', rows: [['Status', 'DRAFT - NOT FOR CONSTRUCTION'], ['Title', title], ['Units', 'millimetres; area in square metres; edging in metres'], ['Source', 'Standalone entered/imported schedule; not an approved project scene'], ['Construction', 'Confirm board/finished dimensions, joinery, face allowances, fitting clearances and hardware'], ['Laminate quantities', 'Area estimates by finish and selected stock size; not an optimized laminate face cutting plan'], ['Hardware', 'Not inferred. Add a reviewed hardware schedule before production.']] },
+    { name: 'Units', rows: [['Unit ID', 'Name', 'Overall width mm', 'Overall depth mm', 'Overall height mm', 'Back mm', 'Shelves', 'Doors'], ...units.map(unit => [unit.id, unit.name, unit.widthMm, unit.depthMm, unit.heightMm, unit.backThicknessMm, unit.shelves, unit.doors])] },
+    { name: 'Panels', rows: [['Panel ID', 'Unit', 'Room', 'Part', 'Cut length mm', 'Cut width mm', 'Thickness mm', 'Core material', 'Decorative face', 'Internal liner', 'Grain', 'Sheet', 'Rotated', 'Notes'], ...panels.map(({ sheet, panel }) => [panel.id, panel.partRef.moduleName ?? '', panel.partRef.roomName ?? '', panel.name, panel.partRef.lengthMm, panel.partRef.widthMm, panel.partRef.thicknessMm, panel.partRef.materialCode, panel.partRef.externalLaminateCode ?? '', panel.partRef.internalLinerCode ?? '', panel.grain, sheet.sheetIndex, panel.rotated ? '90 degrees' : 'No', panel.partRef.notes ?? 'Review imported construction'])] },
+    { name: 'Laminate estimates', rows: [['Finish code', 'Usage', 'Net face area sqm', 'Estimated stock sheets'], ...(result.summary.laminateRequirement.byFinish ?? []).map(finish => [finish.finishCode, finish.usage, finish.areaSqm, finish.estimatedSheets])] },
+    { name: 'Nesting', rows: [['Panel ID', 'Sheet', 'Material', 'Stock width mm', 'Stock height mm', 'X mm', 'Y mm', 'Placed width mm', 'Placed height mm', 'Rotated'], ...panels.map(({ sheet, panel }) => [panel.id, sheet.sheetIndex, sheet.materialCode, sheet.sheetWidthMm, sheet.sheetHeightMm, panel.x, panel.y, panel.w, panel.h, panel.rotated ? 'Yes' : 'No'])] },
+    { name: 'Edging and labels', rows: [['Panel ID', 'Unit', 'Part', 'Length edge 1', 'Length edge 2', 'Width edge 1', 'Width edge 2'], ...panels.map(({ panel }) => [panel.id, panel.partRef.moduleName ?? '', panel.name, panel.partRef.edgeBanding.l1, panel.partRef.edgeBanding.l2, panel.partRef.edgeBanding.w1, panel.partRef.edgeBanding.w2])] },
+    { name: 'Stock', rows: [['Material group', 'Actual nested board sheets'], ...Object.entries(result.summary.sheetsByMaterial)] },
+  ];
+  const files: Record<string, Uint8Array> = {};
+  const put = (path: string, content: string) => { files[path] = strToU8(content); };
+  put('[Content_Types].xml', `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`);
+  put('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+  put('xl/workbook.xml', `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((sheet, index) => `<sheet name="${xml(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('')}</sheets></workbook>`);
+  put('xl/_rels/workbook.xml.rels', `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('')}</Relationships>`);
+  sheets.forEach((sheet, index) => put(`xl/worksheets/sheet${index + 1}.xml`, `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetData>${sheet.rows.map((row, r) => `<row r="${r + 1}">${row.map((value, c) => typeof value === 'number' && Number.isFinite(value) ? `<c r="${column(c)}${r + 1}"><v>${value}</v></c>` : `<c r="${column(c)}${r + 1}" t="inlineStr"><is><t xml:space="preserve">${xml(value)}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`));
+  return zipSync(files);
+}

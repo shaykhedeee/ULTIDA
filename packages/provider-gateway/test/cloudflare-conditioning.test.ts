@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { createProviderGateway } from '../src/index.ts';
 
-test('Cloudflare FLUX receives deterministic base, depth, edge, and material references', async () => {
+test('Cloudflare FLUX receives unit style imagery alongside deterministic scene references', async () => {
   const pngBytes = await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 128, g: 128, b: 128, alpha: 1 } } }).png().toBuffer();
   const PNG = `data:image/png;base64,${pngBytes.toString('base64')}`;
   const originalFetch = globalThis.fetch;
@@ -20,7 +20,7 @@ test('Cloudflare FLUX receives deterministic base, depth, edge, and material ref
     const gateway = createProviderGateway({ CLOUDFLARE_ACCOUNT_ID: 'account', CLOUDFLARE_AI_TOKEN: 'token' });
     const result = await gateway.createVisualProposal({
       projectId: 'project-1', sceneVersionId: 'a0000000-0000-4000-8000-000000000001', roomId: 'room-1',
-      sourceAssets: [PNG], referenceAssets: [], masks: [], operation: 'generate', style: 'Warm contemporary',
+      sourceAssets: [PNG], referenceAssets: [PNG], masks: [], operation: 'generate', style: 'Warm contemporary',
       structuredPrompt: 'Use image 0 as the approved scene and preserve it.', negativePrompt: 'Do not alter geometry.',
       quality: 'review', providerPreference: ['cloudflare'],
       conditioningIntent: 'reference',
@@ -28,7 +28,7 @@ test('Cloudflare FLUX receives deterministic base, depth, edge, and material ref
     });
     assert.equal(result.status, 'succeeded', JSON.stringify(result));
     assert.deepEqual(fieldNames.filter((name) => name.startsWith('input_image_')), [
-      'input_image_0', 'input_image_1', 'input_image_2', 'input_image_3',
+      'input_image_0', 'input_image_1', 'input_image_2', 'input_image_3', 'input_image_4',
     ]);
   } finally {
     globalThis.fetch = originalFetch;

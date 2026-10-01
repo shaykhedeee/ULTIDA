@@ -106,7 +106,7 @@ interface ProductionWorkspaceProps {
 }
 
 function resolveTab(raw: string | undefined): TabId {
-  if (!raw) return 'cutlist';
+  if (!raw) return 'release';
   if (raw === 'elevations' || raw === 'drawings') return 'drawings';
   if (raw === 'parts' || raw === 'cutlist') return 'cutlist';
   if (raw === 'release' || raw === 'exports') return 'release';
@@ -115,10 +115,11 @@ function resolveTab(raw: string | undefined): TabId {
 }
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
-  { id: 'cutlist',  label: 'Cutlist',           icon: <ClipboardList size={14} /> },
+  { id: 'release', label: 'Final document', icon: <Download size={14} /> },
+  { id: 'cutlist', label: 'Cutlist', icon: <ClipboardList size={14} /> },
   { id: 'hardware', label: 'Hardware',           icon: <Package size={14} /> },
   { id: 'drawings', label: 'Drawings',           icon: <FileText size={14} /> },
-  { id: 'release',  label: 'Release & Export',   icon: <Download size={14} /> },
+
 ];
 
 // ─── Board Optimizer ─────────────────────────────────────────────────────────
@@ -785,7 +786,7 @@ export function ProductionWorkspace({
       <div className="production-main">
 
         {/* ── Tab bar ── */}
-        <nav className="production-tabs" aria-label="Cutlist Studio tabs">
+        <nav className="production-tabs" aria-label="Design documents and fabrication">
           {TABS.map((tab) => (
             <button
               key={tab.id}
@@ -2068,6 +2069,10 @@ export function ProductionWorkspace({
               {/* Release checklist */}
               <div className="release-section">
                 <h4>Production Release</h4>
+                {!sceneApproved && <div role="status">
+                  <p>{sceneVersionId ? 'Review and approve your saved 3D design before releasing documents.' : 'Save your room and prepare its 3D design before generating documents.'}</p>
+                  <button type="button" onClick={() => navigate(`/projects/${projectId}/${sceneVersionId ? '3d' : 'spaces'}`)}>{sceneVersionId ? 'Review saved 3D design' : 'Finish room design'}</button>
+                </div>}
                 <div className="release-checklist">
                   <div className={`release-item ${sceneApproved ? 'pass' : 'fail'}`}><CheckCircle2 size={15} /> Scene approved</div>
                   <div className={`release-item ${parts.length > 0 ? 'pass' : 'fail'}`}><CheckCircle2 size={15} /> Panel cutlist loaded ({parts.length} parts)</div>
@@ -2102,10 +2107,10 @@ export function ProductionWorkspace({
 
               {/* Primary exports */}
               <div className="release-section">
-                <h4>Export Production Outputs</h4>
+                <h4>Review the final document, then prepare fabrication</h4>
                 <div className="exports-primary-grid">
                   <Card className="featured-export">
-                    <CardHeader>Complete Production Pack (PDF)</CardHeader>
+                    <CardHeader>Approved Design &amp; Production Document (PDF)</CardHeader>
                     <CardContent>
                       <p>Index, wall elevations, carcass sections, fabrication rules, material summary, hardware and panel cutlist — all from this exact scene revision.</p>
                       <Button variant="primary" size="sm"

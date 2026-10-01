@@ -1,0 +1,38 @@
+.reference-library-workspace {
+  box-sizing: border-box;
+  width: 100%;
+  padding-bottom: 20px !important;
+}
+
+.library-preview-dialog {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  overflow: auto;
+}
+
+@media (max-width: 680px) {
+  .reference-library-workspace {
+    padding: 16px !important;
+  }
+
+  .library-preview-dialog {
+    display: flex !important;
+    flex-direction: column;
+    width: min(94vw, 560px) !important;
+    max-height: 90dvh;
+    overflow-y: auto;
+  }
+
+  .library-preview-dialog > div:first-child {
+    flex: 0 0 34dvh;
+    min-height: 180px !important;
+    height: 34dvh !important;
+  }
+
+  .library-preview-dialog > div:nth-child(2) {
+    gap: 16px;
+    min-height: 240px;
+    padding: 16px !important;
+    border-left: 0 !important;
+    border-top: 1px solid #27272a;
+  }
+}

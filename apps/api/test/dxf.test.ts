@@ -210,6 +210,50 @@ test('authenticated export ignores caller scene and renders the exact approved p
   });
 });
 
+test('production elevation binds its component schedule to the persisted certified cutlist rows', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnv = { url: process.env.SUPABASE_URL, publishableKey: process.env.SUPABASE_PUBLISHABLE_KEY, secretKey: process.env.SUPABASE_SECRET_KEY };
+  process.env.SUPABASE_URL = 'https://unit-test.supabase.co';
+  process.env.SUPABASE_PUBLISHABLE_KEY = 'unit-test-key';
+  delete process.env.SUPABASE_SECRET_KEY;
+  const scene = structuredClone(approvedScene) as any;
+  scene.modules[0].position = { xMm: 400, yMm: 240, zMm: 0 };
+  scene.moduleParts.forEach((part: any) => { part.position = { ...part.position, yMm: 240 }; });
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const requestUrl = input instanceof Request ? input.url : String(input);
+    const url = new URL(requestUrl);
+    if (url.hostname !== 'unit-test.supabase.co') return originalFetch(input, init);
+    if (url.pathname === '/auth/v1/user') return Response.json({ id: 'user-1', email: 'designer@example.test' });
+    if (url.pathname === '/rest/v1/projects') return Response.json([{ id: 'project-1', organization_id: 'org-1' }]);
+    if (url.pathname === '/rest/v1/organization_members') return Response.json([{ organization_id: 'org-1' }]);
+    if (url.pathname === '/rest/v1/scene_versions') return Response.json([{ id: 'scene-1', status: 'approved', scene }]);
+    if (url.pathname === '/rest/v1/floor_plan_versions') return Response.json([]);
+    if (url.pathname === '/rest/v1/production_snapshot_reviews') return Response.json([]);
+    return Response.json({ message: `Unexpected test request: ${url.pathname}` }, { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/production/wall-elevation.svg`, {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer test-session' },
+        body: JSON.stringify({ projectId: 'project-1', sceneVersionId: 'scene-1', wallId: 'wall-1', options: { measurementStatus: 'measured' } }),
+      });
+      const svg = await response.text();
+      assert.equal(response.status, 200, svg);
+      assert.match(svg, /data-part-id="module-1-part-1"/);
+      assert.match(svg, /CUTLIST-LINKED COMPONENT SCHEDULE/);
+      assert.match(svg, /module-1-part-1 · Wardrobe side panel/);
+      assert.match(svg, /NOT FOR CONSTRUCTION/);
+      assert.match(svg, /Measurement confirmation is missing\./);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalEnv.url === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = originalEnv.url;
+    if (originalEnv.publishableKey === undefined) delete process.env.SUPABASE_PUBLISHABLE_KEY; else process.env.SUPABASE_PUBLISHABLE_KEY = originalEnv.publishableKey;
+    if (originalEnv.secretKey === undefined) delete process.env.SUPABASE_SECRET_KEY; else process.env.SUPABASE_SECRET_KEY = originalEnv.secretKey;
+  }
+});
+
 test('plan analyzer never claims success without an analyzer key or explicit baseline mode', async () => {
   const previousOpenAi = process.env.OPENAI_API_KEY;
   const previousGemini = process.env.GEMINI_API_KEY;

@@ -1,3 +1,4 @@
+import { RenderIntentV1Schema } from '@ultida/contracts';
 import { COMPILER_REGISTRY, type CategoryType, type Part } from '@ultida/module-framework';
 import type { CompiledModulePart } from '@ultida/scene-compiler';
 import { IndianModularCatalog } from '@ultida/catalog-core';
@@ -58,6 +59,8 @@ export function compileStoredModuleForScene(
 ): { ok: true; module: CompiledModulePart; parts: CompiledModulePart[] } | { ok: false; code: string; message: string } {
   const config = module.config_json ?? {};
   const position = module.position_json ?? {};
+  const intent = config.designIntent === undefined ? null : RenderIntentV1Schema.safeParse(config.designIntent);
+  if (intent && !intent.success) return { ok: false, code: 'MODULE_STYLE_INVALID', message: 'The unit style reference is invalid. Choose it again from the library.' };
   const widthMm = Number(config.widthMm);
   const depthMm = Number(config.depthMm);
   const heightMm = Number(config.heightMm);
@@ -65,7 +68,8 @@ export function compileStoredModuleForScene(
   const yMm = Number(position.yMm);
   const rotationDeg = Number(position.rotationDeg ?? 0);
   const family = String(config.family ?? module.category);
-  if (![widthMm, depthMm, heightMm, xMm, yMm, rotationDeg].every(Number.isFinite)) {
+  const zMm = Number(position.zMm ?? 0);
+  if (![widthMm, depthMm, heightMm, xMm, yMm, rotationDeg, zMm].every(Number.isFinite) || Math.min(widthMm, depthMm, heightMm) <= 0 || zMm < 0) {
     return { ok: false, code: 'MODULE_INSTANCE_NOT_SCENE_READY', message: `Module ${module.id} has incomplete millimetre geometry.` };
   }
 
@@ -77,6 +81,7 @@ export function compileStoredModuleForScene(
     // browser module config. The renderer falls back to this exact envelope if
     // the optional digital twin cannot load.
     glbUrl: catalogModule?.glbUrl,
+    designIntent: intent?.success ? intent.data : undefined,
   };
   const islandTemplate = ['kit-island-waterfall-1800', 'wardrobe-island-jewellery-900'].includes(module.template_id ?? '');
   const category = islandTemplate ? 'island' : compilerCategory(family);
@@ -85,6 +90,8 @@ export function compileStoredModuleForScene(
   const wallId = typeof position.wallId === 'string' ? position.wallId : '';
   const wall = walls.find((candidate) => candidate.id === wallId);
   if (!wall) return { ok: false, code: 'MODULE_WALL_NOT_FOUND', message: `Module ${module.id} references a wall outside the active plan.` };
+  if (!Number.isFinite(wall.heightMm) || Number(wall.heightMm) <= 0) return { ok: false, code: 'ROOM_CEILING_UNCONFIRMED', message: 'Confirm the measured wall and ceiling height before compiling this room.' };
+  if (zMm + heightMm > Number(wall.heightMm)) return { ok: false, code: 'MODULE_EXCEEDS_HEIGHT', message: `Module ${module.id} reaches ${zMm + heightMm} mm but the measured ceiling is ${wall.heightMm} mm. Reduce its height or mounting level.` };
   const compiler = COMPILER_REGISTRY[category];
   const configuration = typeof config.configuration === 'object' && config.configuration ? config.configuration as Record<string, unknown> : {};
   const parameters = typeof config.parameters === 'object' && config.parameters ? config.parameters as Record<string, unknown> : {};
@@ -120,6 +127,7 @@ export function compileStoredModuleForScene(
       shutterStyle,
       handleStyle,
       includeLoft,
+      ...(configuration.loftHeightMm !== undefined ? { loftHeightMm: configuration.loftHeightMm } : {}),
       glassProfile,
       profileGlassOption: glassProfile,
     },

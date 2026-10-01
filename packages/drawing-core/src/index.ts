@@ -1748,7 +1748,7 @@ export function generateProjectBOQ(scene: SceneV1, customRates?: Record<string, 
 }
 
 export function generateWallElevationSvg(scene: SceneV1, wallId: string, options?: import('./shop-drawing-renderer.js').ShopDrawingOptions): string {
-  if (options?.viewMode === 'shop-sheet' || options?.viewMode === 'internal' || options?.unitTitle) {
+  if (options?.viewMode === 'shop-sheet' || options?.viewMode === 'fabrication' || options?.viewMode === 'internal' || options?.unitTitle) {
     return generateArchitecturalShopSheetSvg(scene, wallId, options);
   }
   const wall = (scene.walls ?? []).find((w: SceneV1['walls'][number]) => w.id === wallId) || scene.walls?.[0];
@@ -2102,4 +2102,5 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
 
 export { generateSketchUpRubyScript } from './sketchup-exporter.js';
 export { generateArchitecturalShopSheetSvg, type ShopDrawingOptions } from './shop-drawing-renderer.js';
+export { generateSceneFabricationElevationSvg, type ElevationCutlistPart } from './scene-elevation-renderer.js';
 export * from './drawing-cutlist-analyzer.js';

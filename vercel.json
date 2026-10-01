@@ -6,7 +6,7 @@
   "framework": "vite",
   "functions": {
     "api/[...path].ts": {
-      "includeFiles": "{apps/api/dist/**,apps/api/eng.traineddata,node_modules/tesseract.js/src/**,node_modules/tesseract.js-core/**,packages/**/dist/**,node_modules/@ultida/**}",
+      "includeFiles": "{apps/api/dist/**,apps/api/eng.traineddata,node_modules/tesseract.js/src/**,node_modules/tesseract.js-core/**,packages/**/dist/**,node_modules/@ultida/**,node_modules/pdfjs-dist/**,node_modules/@napi-rs/canvas*/**}",
       "maxDuration": 60
     }
   },

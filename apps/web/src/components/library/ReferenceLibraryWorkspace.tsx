@@ -1,5 +1,5 @@
 import { BookOpen, Library as LibraryIcon, Loader2, Palette, Search, Upload, Sparkles, Plus, Trash2, Layers, Move, Download, Layout, Check, ArrowRight, Home, Camera } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
@@ -7,6 +7,7 @@ import { getApiBase } from '../../lib/api-base';
 import { ModulePreview } from './ModulePreview';
 import ResearchSourcingPanel from './ResearchSourcingPanel';
 import { RECENT_REFERENCE_GALLERY, REFERENCE_SPACE_LABELS, referenceDisplayTitle, referenceFocus, type RecentGalleryReference } from './recent-reference-gallery';
+import './reference-library.css';
 
 type LibraryItem = {
   id: string;
@@ -73,6 +74,31 @@ export type MoodboardItem = {
   height: number;
   zIndex: number;
 };
+
+type MoodboardDraft = { items: MoodboardItem[]; background: 'linen' | 'clay' | 'dark' | 'white' };
+function moodboardStorageKey(projectId?: string | null) {
+  return projectId ? `ultida.moodboard.${projectId}.v1` : 'ultida.moodboard.studio.v1';
+}
+function readMoodboardDraft(projectId?: string | null): MoodboardDraft {
+  const fallback = { items: MOODBOARD_PRESETS.living, background: 'linen' as const };
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(moodboardStorageKey(projectId)) ?? 'null');
+    if (!parsed || !Array.isArray(parsed.items)) return fallback;
+    const items = parsed.items.filter((item: unknown): item is MoodboardItem => {
+      if (!item || typeof item !== 'object') return false;
+      const value = item as MoodboardItem;
+      return typeof value.id === 'string' && typeof value.title === 'string'
+        && ['module', 'material', 'swatch', 'reference'].includes(value.type)
+        && [value.x, value.y, value.width, value.height, value.zIndex].every(Number.isFinite)
+        && value.width > 0 && value.height > 0;
+    });
+    const background = ['linen', 'clay', 'dark', 'white'].includes(parsed.background) ? parsed.background : 'linen';
+    return { items, background };
+  } catch {
+    return fallback;
+  }
+}
 
 const MOODBOARD_PRESETS: Record<string, MoodboardItem[]> = {
   living: [
@@ -238,31 +264,15 @@ function referenceDescription(ref: CuratedReference): string {
   return 'Style inspiration only. The image does not define measured dimensions or certified construction geometry.';
 }
 
-const DEFAULT_PROJECT_MATERIALS: Material[] = [
-  // ─── HIGH-GLOSS & ACRYLIC ───
-  { id: 'mat-gloss-1', name: 'Mirror High-Gloss Pure White Acrylic', code: 'ROY-HG-WHT', category: 'laminate', finish: 'High-Gloss Acrylic Sheen (1.2mm)', thickness_mm: 1.2, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#FFFFFF' } },
-  { id: 'mat-gloss-2', name: 'Ultra High-Gloss Cashmere Acrylic', code: 'ROY-HG-CSH', category: 'laminate', finish: 'Ultra-Gloss Acrylic (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#E3DAC9' } },
-  { id: 'mat-gloss-3', name: 'Ultra High-Gloss Anthracite Acrylic', code: 'ROY-HG-ANT', category: 'laminate', finish: 'Mirror Gloss Acrylic (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#2C3038' } },
-
-  // ─── SUPER-MATTE ───
-  { id: 'mat-matte-1', name: 'Zero-G Anti-Fingerprint Sandstone Matte', code: 'MER-ZG-SND', category: 'laminate', finish: 'Soft-Touch Zero-G Matte (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Merino', availability: 'in_stock', metadata: { colorHex: '#C9B59B' } },
-  { id: 'mat-matte-2', name: 'Deep Nero Ingo Super-Matte', code: 'FNX-SM-NERO', category: 'laminate', finish: 'Thermal Healing Super-Matte (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Fenix NTM', availability: 'in_stock', metadata: { colorHex: '#18181B' } },
-  { id: 'mat-matte-3', name: 'Silk Touch Velvet Sage Matte', code: 'ROY-ST-SGE', category: 'laminate', finish: 'Silk Touch Soft Matte (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#8A9A86' } },
-
-  // ─── WOODGRAIN & FLUTED ───
-  { id: 'mat-wood-1', name: 'Smoked Crown Walnut Veneer', code: 'CBX-WG-WLN', category: 'laminate', finish: 'Synchronized Natural Grain (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Cubex', availability: 'in_stock', metadata: { colorHex: '#654230' } },
-  { id: 'mat-wood-2', name: 'Natural Dune Oak Textured', code: 'VRG-WG-OAK', category: 'laminate', finish: 'Natural Dune Woodgrain (0.8mm)', thickness_mm: 0.8, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Virgo', availability: 'in_stock', metadata: { colorHex: '#A77B5B' } },
-  { id: 'mat-flute-1', name: 'Fluted Charcoal Matte PU Panel', code: 'ROY-FLUTE-PU', category: 'laminate', finish: 'Fluted Suede PU Touch (18mm)', thickness_mm: 18, edge_band_status: 'not_required', supplier: 'Royal Crown', availability: 'in_stock', metadata: { colorHex: '#332F2C' } },
-
-  // ─── STONE, GLASS & HARDWARE ───
-  { id: 'mat-slab-1', name: 'Calacatta Gold Sintered Porcelain Slab', code: 'SLAB-CAL-GOLD', category: 'countertop', finish: 'Bookmatched Polished (12mm)', thickness_mm: 12, edge_band_status: 'not_required', supplier: 'Laminam', availability: 'in_stock', metadata: { colorHex: '#F4F1EA' } },
-  { id: 'mat-slab-2', name: 'Roman Travertine Honed Stone Slab', code: 'SLAB-TRAV-ROMAN', category: 'countertop', finish: 'Honed Matte Unfilled (20mm)', thickness_mm: 20, edge_band_status: 'not_required', supplier: 'Artisan Stone Works', availability: 'in_stock', metadata: { colorHex: '#CFBC9F' } },
-  { id: 'mat-glas-1', name: 'Tinted Fluted Aluminium Profile Glass', code: 'GLAS-FLUTED-TINT', category: 'profile_glass', finish: 'Graphite Anodized Profile (8mm)', thickness_mm: 8, edge_band_status: 'not_required', supplier: 'Hafele Glass', availability: 'in_stock', metadata: { colorHex: '#4D5557' } },
-  { id: 'mat-hard-4', name: 'Hettich Sensys Obsidian Soft-Close Hinges', code: 'HARD-HET-SENSYS', category: 'hardware', finish: 'Concealed Obsidian Black Hinge', thickness_mm: 0, edge_band_status: 'not_required', supplier: 'Hettich Germany', availability: 'in_stock', metadata: { colorHex: '#94A3B8' } },
-
-  // ─── BASE PLY & SUBSTRATES ───
-  { id: 'mat-core-1', name: 'Action TESA 18mm HDHMR Green Core Board', code: 'CORE-HDHMR-18', category: 'core_panel', finish: 'High Density Moisture Resistant (850 kg/m³)', thickness_mm: 18, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'Action TESA', availability: 'in_stock', metadata: { colorHex: '#6E8B76' } },
-  { id: 'mat-core-3', name: 'CenturyPly 19mm Club Prime 710 BWP Marine Ply', code: 'CORE-BWP-19', category: 'core_panel', finish: 'Boiling Water Proof Calibrated Hardwood', thickness_mm: 19, edge_band_status: 'required', edge_band_thickness_mm: 1, supplier: 'CenturyPly', availability: 'in_stock', metadata: { colorHex: '#9B744A' } },
+const SAMPLE_MATERIAL_PALETTE: Material[] = [
+  { id: 'sample-white-gloss', name: 'Porcelain white · gloss', code: 'SAMPLE-FINISH-01', category: 'laminate', finish: 'Illustrative finish', metadata: { colorHex: '#F7F6F2' } },
+  { id: 'sample-warm-ivory', name: 'Warm ivory · matte', code: 'SAMPLE-FINISH-02', category: 'laminate', finish: 'Illustrative finish', metadata: { colorHex: '#E8DFD1' } },
+  { id: 'sample-stone-grey', name: 'Soft stone grey · textured', code: 'SAMPLE-FINISH-03', category: 'laminate', finish: 'Illustrative finish', metadata: { colorHex: '#9A9891' } },
+  { id: 'sample-sage', name: 'Muted sage · matte', code: 'SAMPLE-FINISH-04', category: 'laminate', finish: 'Illustrative finish', metadata: { colorHex: '#849283' } },
+  { id: 'sample-oak', name: 'Natural oak · grain direction to confirm', code: 'SAMPLE-FINISH-05', category: 'laminate', finish: 'Illustrative finish', metadata: { colorHex: '#B58A60' } },
+  { id: 'sample-walnut', name: 'Smoked walnut · grain direction to confirm', code: 'SAMPLE-FINISH-06', category: 'laminate', finish: 'Illustrative finish', metadata: { colorHex: '#5B4133' } },
+  { id: 'sample-charcoal', name: 'Deep charcoal · soft matte', code: 'SAMPLE-FINISH-07', category: 'laminate', finish: 'Illustrative finish', metadata: { colorHex: '#343536' } },
+  { id: 'sample-stone', name: 'Warm travertine · visual reference', code: 'SAMPLE-FINISH-08', category: 'countertop', finish: 'Illustrative finish', metadata: { colorHex: '#C9B99F' } },
 ];
 
 function stableImageForModule(module: CatalogModule) {
@@ -347,15 +357,20 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   // Templates come from the canonical catalogue API. Do not briefly show the
   // legacy in-memory list: it may contain retired IDs that cannot be placed.
   const [modules, setModules] = useState<CatalogModule[]>([]);
-  const [materials, setMaterials] = useState<Material[]>(DEFAULT_PROJECT_MATERIALS);
-  const [moodboardItems, setMoodboardItems] = useState<MoodboardItem[]>(MOODBOARD_PRESETS.living);
-  const [moodboardBg, setMoodboardBg] = useState<'linen' | 'clay' | 'dark' | 'white'>('linen');
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [initialMoodboard] = useState(() => readMoodboardDraft(activeProjectId));
+  const [moodboardItems, setMoodboardItems] = useState<MoodboardItem[]>(initialMoodboard.items);
+  const [moodboardBg, setMoodboardBg] = useState<MoodboardDraft['background']>(initialMoodboard.background);
+  const [moodboardOwner, setMoodboardOwner] = useState(activeProjectId);
   const [selectedMbItem, setSelectedMbItem] = useState<string | null>(null);
+  const moodboardDragRef = useRef<{ id: string; pointerId: number; x: number; y: number; itemX: number; itemY: number } | null>(null);
   const [query, setQuery] = useState('');
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referenceTags, setReferenceTags] = useState('');
   const [uploadingReference, setUploadingReference] = useState(false);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [catalogUnavailable, setCatalogUnavailable] = useState(false);
+  const [catalogRetry, setCatalogRetry] = useState(0);
   const [status, setStatus] = useState('Modular catalog loaded.');
   const [vault, setVault] = useState<VaultEntry[]>([]);
   const [vaultRoom, setVaultRoom] = useState('all');
@@ -365,6 +380,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const [vaultState, setVaultState] = useState('all');
   const [moduleFamily, setModuleFamily] = useState('all');
   const [moduleRoom, setModuleRoom] = useState('all');
+  const [moduleCapability, setModuleCapability] = useState<'all' | 'cutlist' | 'visual'>('all');
   const [materialCategory, setMaterialCategory] = useState('all');
   const [archiveTarget, setArchiveTarget] = useState<VaultEntry | null>(null);
   const [addingStarterMaterials, setAddingStarterMaterials] = useState(false);
@@ -376,7 +392,34 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     description?: string;
     sku?: string;
     module?: CatalogModule;
+    imageUnavailable?: boolean;
   } | null>(null);
+
+  useEffect(() => {
+    const draft = readMoodboardDraft(activeProjectId);
+    setMoodboardItems(draft.items);
+    setMoodboardBg(draft.background);
+    setSelectedMbItem(null);
+    setMoodboardOwner(activeProjectId);
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    if (moodboardOwner !== activeProjectId || typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(moodboardStorageKey(activeProjectId), JSON.stringify({ items: moodboardItems, background: moodboardBg }));
+    } catch {
+      setStatus('The moodboard could not be saved on this device. Free some browser storage and try again.');
+    }
+  }, [moodboardItems, moodboardBg, moodboardOwner, activeProjectId]);
+
+  useEffect(() => {
+    if (!previewModalItem) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPreviewModalItem(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [previewModalItem]);
 
   function arrangeMoodboard() {
     setMoodboardItems((current) => current.map((item, index) => ({
@@ -409,6 +452,10 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   useEffect(() => {
     let live = true;
     async function load() {
+      setLibraryLoading(true);
+      setCatalogUnavailable(false);
+      setStatus('Loading the catalog and project library…');
+      if (activeProjectId) setMaterials([]);
       const session = supabase ? (await supabase.auth.getSession()).data.session : null;
       const authorization = session?.access_token ? { authorization: `Bearer ${session.access_token}` } : undefined;
       const tasks: Promise<void>[] = [];
@@ -470,6 +517,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       setLibraryLoading(false);
       const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
       const catalogFailed = outcomes[0]?.status === 'rejected';
+      setCatalogUnavailable(catalogFailed);
       setStatus(catalogFailed
         ? 'The modular catalog could not be loaded. Check the API health and catalog route before placing modules.'
         : failures.length
@@ -478,16 +526,23 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     }
     void load();
     return () => { live = false; };
-  }, [organizationId, activeProjectId]);
+  }, [organizationId, activeProjectId, catalogRetry]);
 
   const search = query.trim().toLowerCase();
   const visibleTemplates = useMemo(() => items.filter((item) => {
     const matches = !search || `${item.title} ${item.kind} ${item.tags.join(' ')} ${item.notes}`.toLowerCase().includes(search);
     return matches && item.kind !== 'material' && item.kind !== 'module';
   }), [items, search]);
-  const visibleModules = useMemo(() => modules.filter((item) => (moduleFamily === 'all' || item.family === moduleFamily) && (moduleRoom === 'all' || moduleSupportsRoom(item, moduleRoom)) && (!search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search))), [modules, search, moduleFamily, moduleRoom]);
+  const visibleModules = useMemo(() => modules.filter((item) =>
+    (moduleFamily === 'all' || item.family === moduleFamily) &&
+    (moduleRoom === 'all' || moduleSupportsRoom(item, moduleRoom)) &&
+    (moduleCapability === 'all' || (moduleCapability === 'cutlist' ? item.production.cutlistSupported : !item.production.cutlistSupported)) &&
+    (!search || `${item.name} ${item.family} ${item.tags.join(' ')} ${item.sku}`.toLowerCase().includes(search))),
+  [modules, search, moduleFamily, moduleRoom, moduleCapability]);
   const visibleMaterials = useMemo(() => {
-    const allMaterials = materials.length ? materials : DEFAULT_PROJECT_MATERIALS;
+    // Project-scoped material records are authoritative, including an empty list.
+    // The bundled samples are display-only and must never appear as project data.
+    const allMaterials = activeProjectId ? materials : (materials.length ? materials : SAMPLE_MATERIAL_PALETTE);
     return allMaterials.filter((item) => {
       const matchesSearch = !search || `${item.name} ${item.code} ${item.category} ${item.finish ?? ''} ${item.supplier ?? ''}`.toLowerCase().includes(search);
       if (!matchesSearch) return false;
@@ -509,7 +564,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       }
       return item.category === materialCategory;
     });
-  }, [materials, search, materialCategory]);
+  }, [materials, activeProjectId, search, materialCategory]);
   const visibleVault = useMemo(() => vault.filter((entry) => (vaultRoom === 'all' || entry.room === vaultRoom) && (vaultFamily === 'all' || entry.module_family === vaultFamily) && (vaultState === 'all' || entry.review_state === vaultState) && (!search || `${entry.title} ${entry.source_path} ${entry.room} ${entry.module_family} ${entry.style} ${(entry.material_tags ?? []).join(' ')} ${JSON.stringify(entry.metadata ?? {})}`.toLowerCase().includes(search))), [vault, vaultRoom, vaultFamily, vaultState, search]);
   const vaultValues = (field: 'room' | 'module_family' | 'review_state') => [...new Set(vault.map((entry) => entry[field]).filter(Boolean))].sort();
   async function updateVault(id: string, patch: Partial<VaultEntry>) { if (!supabase) return; const { error } = await supabase.from('reference_vault_entries').update(patch).eq('id', id); if (!error) setVault((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry)); }
@@ -582,7 +637,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   }
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 1440, margin: '0 auto' }}>
+    <div className="reference-library-workspace" style={{ padding: '24px 32px', maxWidth: 1440, margin: '0 auto' }}>
       {/* Lightbox Modal for High-Resolution Visual Inspection */}
       {previewModalItem && (
         <div
@@ -601,7 +656,10 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
             if (e.target === e.currentTarget) setPreviewModalItem(null);
           }}
         >
-          <div
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="library-preview-title"
             style={{
               width: 'min(900px, 95vw)',
               background: '#18181b',
@@ -610,17 +668,24 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
               overflow: 'hidden',
               boxShadow: '0 25px 70px rgba(0, 0, 0, 0.8)',
               color: '#f4f4f5',
-              display: 'grid',
-              gridTemplateColumns: '1fr 340px',
+              maxHeight: '90vh',
             }}
+            className="library-preview-dialog"
           >
             {/* Image Preview Container */}
-            <div style={{ position: 'relative', height: 480, background: '#09090b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <img
-                src={previewModalItem.image}
-                alt={previewModalItem.title}
-                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-              />
+            <div style={{ position: 'relative', minHeight: 280, height: 'min(62vh, 560px)', background: '#09090b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {previewModalItem.imageUnavailable ? (
+                previewModalItem.module
+                  ? <ModulePreview module={previewModalItem.module} interactive={false} />
+                  : <span role="status" style={{ color: '#d6d3d1', padding: 24, textAlign: 'center' }}>This reference image is unavailable. The saved library entry is still here.</span>
+              ) : (
+                <img
+                  src={previewModalItem.image}
+                  alt={`Visual inspiration: ${previewModalItem.title}`}
+                  onError={() => setPreviewModalItem((current) => current ? { ...current, imageUnavailable: true } : current)}
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                />
+              )}
               <span style={{ position: 'absolute', top: 16, left: 16, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
                 {previewModalItem.family?.replace('-', ' ') ?? 'Studio Reference'}
               </span>
@@ -630,11 +695,12 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
             <div style={{ padding: 24, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderLeft: '1px solid #27272a' }}>
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <h3 style={{ fontSize: 18, fontWeight: 800, color: '#fff', margin: '0 0 6px' }}>
+                  <h3 id="library-preview-title" style={{ fontSize: 18, fontWeight: 800, color: '#fff', margin: '0 0 6px' }}>
                     {previewModalItem.title}
                   </h3>
                   <button
                     type="button"
+                    aria-label="Close image preview"
                     onClick={() => setPreviewModalItem(null)}
                     style={{ border: 0, background: 'transparent', color: '#a1a1aa', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}
                   >
@@ -749,7 +815,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                 </button>
               </div>
             </div>
-          </div>
+          </section>
         </div>
       )}
 
@@ -769,8 +835,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       {/* Header & Live Search Bar */}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'end', flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1c1917', margin: '0 0 6px' }}>Design Library & Moodboard Studio</h1>
-          <p style={{ color: '#78716c', fontSize: 14, margin: 0 }}>Verified System 32 modular furniture, curated reference renders, and live project finish boards.</p>
+          <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1c1917', margin: '0 0 6px' }}>Design Library</h1>
+          <p style={{ color: '#78716c', fontSize: 14, margin: 0 }}>Choose a parametric module, build a client-facing finish board, or browse visual references. Measured project data stays separate.</p>
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, width: 320, border: '1.5px solid #d6d3d1', borderRadius: 10, background: '#fff', padding: '10px 12px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <Search size={16} color="#78716c" />
@@ -781,6 +847,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       <p role="status" style={{ margin: '0 0 16px', color: status.includes('could not') ? '#b45309' : '#78716c', fontSize: 12, display: 'flex', alignItems: 'center', gap: 7 }}>
         {libraryLoading && <Loader2 className="ultida-spinner" size={14} aria-hidden="true" />}
         {status}
+        {catalogUnavailable && <button type="button" onClick={() => setCatalogRetry((current) => current + 1)} disabled={libraryLoading} style={{ border: '1px solid #d6c7b4', borderRadius: 6, background: '#fff', color: '#5b4633', padding: '4px 8px', fontSize: 11, fontWeight: 700 }}>Retry catalog</button>}
       </p>
 
       {/* Add Reference Card */}
@@ -805,7 +872,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       </Card>
 
       {/* Main Tab Navigation */}
-      <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e7e5e4', marginBottom: 20, overflowX: 'auto' }}>
+      <div role="tablist" aria-label="Design library sections" style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e7e5e4', marginBottom: 20, overflowX: 'auto' }}>
         {([
           ['modules', 'Modular Templates', LibraryIcon, visibleModules.length],
           ['moodboard', 'Moodboard Studio', Sparkles, moodboardItems.length],
@@ -813,7 +880,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           ['materials', 'Project Materials', Palette, visibleMaterials.length],
           ['research', 'Research & Sourcing', Search, 4],
         ] as const).map(([id, label, Icon, count]) => (
-          <button key={id} onClick={() => setActiveTab(id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', fontSize: 14, fontWeight: 700, color: activeTab === id ? '#8a6244' : '#78716c', borderBottom: activeTab === id ? '2.5px solid #c59c2d' : '2.5px solid transparent', background: activeTab === id ? 'rgba(197,156,45,0.06)' : 'none', borderRadius: '8px 8px 0 0', borderTop: 0, borderLeft: 0, borderRight: 0, cursor: 'pointer', transition: 'all 0.15s ease' }}>
+          <button key={id} type="button" role="tab" aria-selected={activeTab === id} onClick={() => setActiveTab(id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', fontSize: 14, fontWeight: 700, color: activeTab === id ? '#8a6244' : '#78716c', borderBottom: activeTab === id ? '2.5px solid #c59c2d' : '2.5px solid transparent', background: activeTab === id ? 'rgba(197,156,45,0.06)' : 'none', borderRadius: '8px 8px 0 0', borderTop: 0, borderLeft: 0, borderRight: 0, cursor: 'pointer', transition: 'all 0.15s ease' }}>
             <Icon size={16} color={activeTab === id ? '#c59c2d' : '#78716c'} /> {label} <span style={{ color: activeTab === id ? '#c59c2d' : '#a8a29e', background: activeTab === id ? 'rgba(197,156,45,0.14)' : '#f3efe7', padding: '2px 7px', borderRadius: 999, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>{count}</span>
           </button>
         ))}
@@ -873,12 +940,26 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
             })}
           </div>
 
+          <div aria-label="Module production filter" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 16px', borderBottom: '1px solid #ebdccb' }}>
+            <span style={{ color: '#78716c', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.05em', marginRight: 4 }}>Catalog status</span>
+            {([
+              ['all', 'All templates'],
+              ['cutlist', 'Cutlist-supported'],
+              ['visual', 'Visual-only'],
+            ] as const).map(([key, label]) => (
+              <button key={key} type="button" aria-pressed={moduleCapability === key} onClick={() => setModuleCapability(key)} style={{ border: moduleCapability === key ? '1px solid #8a6244' : '1px solid #d6d3d1', borderRadius: 999, padding: '6px 11px', background: moduleCapability === key ? '#f2e8d8' : '#fff', color: moduleCapability === key ? '#593d29' : '#57534e', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                {label}
+              </button>
+            ))}
+            <span style={{ marginLeft: 'auto', color: '#78716c', fontSize: 12 }}>{visibleModules.length} matching</span>
+          </div>
+
           <CardHeader className="section-title">
             <div>
-              <small>PARAMETRIC MODULES + PRODUCTION GEOMETRY</small>
-              <h2>Professional furniture catalog backed by System 32 standards</h2>
+              <small>PARAMETRIC FURNITURE CATALOG</small>
+              <h2>Choose a module that fits the design</h2>
               <p style={{ margin: '5px 0 0', fontSize: 12, color: '#78716c' }}>
-                Click any render reference for high-resolution inspection. Switch between photorealistic renders and transparent isolated schematics.
+                The technical preview comes from module data. Photos are style inspiration and do not define the built geometry.
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -935,7 +1016,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                   Isolated 3D Modules (No BG)
                 </button>
               </div>
-              <Badge tone="success">{visibleModules.filter((module) => module.production.cutlistSupported).length} cutlist-ready</Badge>
+              <Badge tone="neutral">{visibleModules.filter((module) => module.production.cutlistSupported).length} cutlist-supported templates</Badge>
             </div>
           </CardHeader>
 
@@ -944,27 +1025,36 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
               <div className="library-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}>
                 {visibleModules.map((module) => {
                   const referenceImage = stableImageForModule(module);
+                  const openModulePreview = () => {
+                    if (!referenceImage) return;
+                    setPreviewModalItem({
+                      title: module.name,
+                      image: referenceImage,
+                      family: module.family,
+                      dimensions: `${module.widthMm}W × ${module.depthMm}D × ${module.heightMm}H mm`,
+                      description: module.description,
+                      sku: module.sku,
+                      module,
+                    });
+                  };
                   return (
                     <article key={module.id} className="library-item module-catalog-card">
                       <div
                         className="module-reference-frame"
+                        role={referenceImage ? 'button' : undefined}
+                        tabIndex={referenceImage ? 0 : undefined}
+                        aria-label={referenceImage ? `Inspect visual reference for ${module.name}` : undefined}
+                        onKeyDown={(event) => {
+                          if (referenceImage && (event.key === 'Enter' || event.key === ' ')) {
+                            event.preventDefault();
+                            openModulePreview();
+                          }
+                        }}
                         style={{
                           cursor: referenceImage ? 'pointer' : 'default',
                           background: moduleImageMode === 'nobg' ? 'radial-gradient(circle at center, #ffffff 0%, #f4f2ee 100%)' : undefined,
                         }}
-                        onClick={() => {
-                          if (referenceImage) {
-                            setPreviewModalItem({
-                              title: module.name,
-                              image: referenceImage,
-                              family: module.family,
-                              dimensions: `${module.widthMm}W × ${module.depthMm}D × ${module.heightMm}H mm`,
-                              description: module.description,
-                              sku: module.sku,
-                              module,
-                            });
-                          }
-                        }}
+                        onClick={openModulePreview}
                       >
                         {moduleImageMode === 'nobg' || !referenceImage ? (
                           <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
@@ -992,7 +1082,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                         <div>
                           <strong>Parametric build</strong>
                           <small>{module.widthMm}W × {module.depthMm}D × {module.heightMm}H mm</small>
-                          <small>{module.production.cutlistSupported ? 'Scene + cutlist ready' : 'Concept configuration'}</small>
+                          <small>{module.production.cutlistSupported ? 'Cutlist-supported template · placement still needs fit review' : 'Visual template · not supported for cutlist output'}</small>
                         </div>
                       </div>
                       <div className="module-card-copy">
@@ -1088,7 +1178,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                 })}
               </div>
             ) : (
-              emptyState('No furniture modules match your search.')
+              emptyState(catalogUnavailable ? 'The furniture catalog is temporarily unavailable. Retry when the studio service is connected.' : 'No furniture modules match your search.')
             )}
           </CardContent>
         </Card>
@@ -1209,8 +1299,11 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           <div className="moodboard-board" style={{ background: moodboardBg === 'linen' ? '#f5f0e8' : moodboardBg === 'clay' ? '#ebe1d3' : moodboardBg === 'dark' ? '#1c1815' : '#ffffff', border: '1.5px solid #dfd5c7', borderRadius: 16, minHeight: 620, position: 'relative', padding: 24, boxShadow: '0 12px 36px rgba(0,0,0,0.08)' }}>
             <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 100, display: 'flex', gap: 8 }}>
               <span style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)', fontSize: 11, fontWeight: 700, color: '#635243', border: '1px solid rgba(0,0,0,0.08)' }}>
-                {moodboardItems.length} Cutout Assets Layered
+                {moodboardItems.length} items · saved on this device
               </span>
+            </div>
+            <div role="note" style={{ position: 'absolute', left: 16, top: 16, maxWidth: 'min(420px, 72%)', padding: '7px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.88)', color: '#635243', fontSize: 11 }}>
+              Visual presentation only. These cards do not define measured room or construction geometry.
             </div>
 
             <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 560 }}>
@@ -1218,6 +1311,37 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                 <div
                   key={item.id}
                   onClick={() => setSelectedMbItem(item.id)}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
+                    moodboardDragRef.current = { id: item.id, pointerId: event.pointerId, x: event.clientX, y: event.clientY, itemX: item.x, itemY: item.y };
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    setSelectedMbItem(item.id);
+                  }}
+                  onPointerMove={(event) => {
+                    const drag = moodboardDragRef.current;
+                    if (!drag || drag.id !== item.id || drag.pointerId !== event.pointerId) return;
+                    const bounds = event.currentTarget.parentElement?.getBoundingClientRect();
+                    const maxX = bounds ? Math.max(0, bounds.width - item.width) : Number.POSITIVE_INFINITY;
+                    const x = Math.max(0, Math.min(maxX, drag.itemX + event.clientX - drag.x));
+                    const y = Math.max(0, drag.itemY + event.clientY - drag.y);
+                    setMoodboardItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, x, y } : entry));
+                  }}
+                  onPointerUp={(event) => {
+                    if (moodboardDragRef.current?.id !== item.id) return;
+                    moodboardDragRef.current = null;
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+                  }}
+                  onPointerCancel={() => { moodboardDragRef.current = null; }}
+                  onKeyDown={(event) => {
+                    const delta = event.shiftKey ? 25 : 10;
+                    const movement = event.key === 'ArrowLeft' ? [-delta, 0] : event.key === 'ArrowRight' ? [delta, 0] : event.key === 'ArrowUp' ? [0, -delta] : event.key === 'ArrowDown' ? [0, delta] : null;
+                    if (!movement) return;
+                    event.preventDefault();
+                    setSelectedMbItem(item.id);
+                    setMoodboardItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, x: Math.max(0, entry.x + movement[0]), y: Math.max(0, entry.y + movement[1]) } : entry));
+                  }}
+                  tabIndex={0}
+                  aria-label={`${item.title}. Drag to move, or use arrow keys. Hold Shift for larger moves.`}
                   style={{
                     position: 'absolute',
                     left: item.x,
@@ -1231,6 +1355,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                     padding: item.type === 'reference' ? 0 : item.type === 'swatch' ? 12 : 10,
                     boxShadow: selectedMbItem === item.id ? '0 12px 28px rgba(197,156,45,0.25)' : '0 8px 24px rgba(0,0,0,0.12)',
                     cursor: 'grab',
+                    touchAction: 'none',
                     transition: 'box-shadow 0.15s ease',
                   }}
                 >
@@ -1408,14 +1533,14 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                           {referenceDisplayTitle(ref as RecentGalleryReference)}
                         </strong>
                         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 7 }}>
-                          {[REFERENCE_SPACE_LABELS[referenceSpace(ref)] ?? 'Interior reference', referenceFocusLabel(ref)].map((label) => <span key={label} style={{ borderRadius: 999, padding: '3px 7px', background: '#f5efe3', color: '#71542c', fontSize: 10, fontWeight: 700 }}>{label}</span>)}
+                          {[REFERENCE_SPACE_LABELS[referenceSpace(ref)] ?? 'Interior reference', referenceFocusLabel(ref)].map((label, index) => <span key={`${ref.id}-label-${index}`} style={{ borderRadius: 999, padding: '3px 7px', background: '#f5efe3', color: '#71542c', fontSize: 10, fontWeight: 700 }}>{label}</span>)}
                         </div>
                         <small style={{ display: 'block', color: '#78716c', fontSize: 10, marginBottom: 8 }}>
                           Source: {ref.sourceBatch ?? 'Existing studio gallery'} · visual only
                         </small>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
-                          {ref.tags.map((tag) => (
-                            <span key={tag} style={{ background: '#f5f5f4', color: '#78716c', padding: '2px 6px', borderRadius: 4, fontSize: 10 }}>
+                          {ref.tags.map((tag, index) => (
+                            <span key={`${ref.id}-${tag}-${index}`} style={{ background: '#f5f5f4', color: '#78716c', padding: '2px 6px', borderRadius: 4, fontSize: 10 }}>
                               #{tag}
                             </span>
                           ))}
@@ -1530,16 +1655,25 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           <CardHeader className="section-title">
             <div>
               <small>PALETTE, FINISHES &amp; SUBSTRATE SPECIFICATIONS</small>
-              <h3 style={{ margin: '4px 0 0', fontSize: 16 }}>Curated Materials Library &amp; Board Specifications</h3>
+              <h3 style={{ margin: '4px 0 0', fontSize: 16 }}>{activeProjectId ? 'This project’s material palette' : 'Sample finish palette'}</h3>
               <p style={{ margin: '4px 0 0', fontSize: 12, color: '#78716c' }}>
-                Governed laminate finishes, high-density green core substrates, and certified architectural hardware.
+                {activeProjectId ? 'Saved project materials for client boards and component assignments. Verify supplier details before production.' : 'Visual examples only. These swatches have no supplier, stock, price, or production specification.'}
               </p>
             </div>
-            <Badge tone="success">{visibleMaterials.length} materials curated</Badge>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Badge tone="neutral">{visibleMaterials.length} {activeProjectId ? 'saved materials' : 'visual samples'}</Badge>
+              {activeProjectId && <button type="button" onClick={() => void addStarterMaterials()} disabled={addingStarterMaterials || libraryLoading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: 0, borderRadius: 7, padding: '8px 11px', background: addingStarterMaterials ? '#d6d3d1' : '#3d2a1a', color: '#fff', fontSize: 12, fontWeight: 700, cursor: addingStarterMaterials ? 'wait' : 'pointer' }}>
+                {addingStarterMaterials ? <Loader2 size={14} className="ultida-spinner" /> : <Plus size={14} />} Add starter palette
+              </button>}
+            </div>
           </CardHeader>
           <CardContent style={{ padding: 16 }}>
             {(() => {
               if (!visibleMaterials.length) {
+                if (libraryLoading) return emptyState('Loading saved project materials…');
+                if (activeProjectId && !search && materialCategory === 'all') {
+                  return <div style={{ padding: '24px 0', color: '#78716c', fontSize: 14 }}>No materials are saved to this project yet. Add the starter palette above, or save materials from the project material workflow.</div>;
+                }
                 return emptyState('No materials match your search or selected filter.');
               }
 
@@ -1692,23 +1826,21 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
         </Card>
       )}
 
-      {/* Sleek Fixed Bottom Stage Progression Bar */}
+      {/* Contextual actions stay in document flow so they never cover library cards. */}
       <div
         style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          zIndex: 90,
-          height: 54,
-          padding: '0 24px',
-          background: 'rgba(20, 18, 16, 0.94)',
-          backdropFilter: 'blur(16px)',
-          borderTop: '1px solid rgba(197, 156, 45, 0.3)',
-          boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.28)',
+          marginTop: 28,
+          marginBottom: 12,
+          minHeight: 54,
+          padding: '12px 16px',
+          background: '#201b17',
+          border: '1px solid rgba(197, 156, 45, 0.3)',
+          borderRadius: 12,
+          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          flexWrap: 'wrap',
           gap: 16,
         }}
       >
@@ -1719,7 +1851,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
               Design Library &amp; Materials Vault
             </strong>
             <span style={{ color: '#a8a29e', fontSize: 11.5 }}>
-              • {visibleModules.length} Parametric Modules • {visibleMaterials.length} Curated Laminates &amp; Base Plies.
+              • {visibleModules.length} matching modules • {visibleMaterials.length} finishes shown
             </span>
           </div>
         </div>

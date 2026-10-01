@@ -29,6 +29,15 @@ test('placement rejects uncalibrated plans, another room wall, and door overlap'
     if (!result.ok) assert.equal(result.code, code);
   }
 });
+
+test('placement uses canonical room association when explicit wall refs are missing and rejects temporary edges', () => {
+  const associated = { ...plan, spaces: [{ ...plan.spaces[0], wallRefs: [] }], walls: [{ ...plan.walls[0], adjacentSpaces: ['room-a'] }] } as CanonicalPlanModel;
+  assert.equal(prepareModulePlacement(module, associated, 'room-a', []).ok, true);
+  const synthetic = { ...module, position_json: { wallId: 'room-a:edge:1', offsetMm: 1000 } };
+  const rejected = prepareModulePlacement(synthetic, associated, 'room-a', []);
+  assert.equal(rejected.ok, false);
+  if (!rejected.ok) assert.equal(rejected.code, 'MODULE_WALL_ROOM_MISMATCH');
+});
 test('module output invalidation covers scenes, artifacts and quotes and fails closed', async () => {
   for (const failure of [null, 'artifacts']) {
     const visited: string[] = [];

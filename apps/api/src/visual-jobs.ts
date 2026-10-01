@@ -1,3 +1,4 @@
+import { moduleStyleGuidance } from './module-style-guidance.js';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
@@ -565,11 +566,12 @@ export async function createVisualJob(environment: Record<string, string | undef
     const materialSwapInstruction = request.operation === 'material-swap'
       ? `\nMATERIAL REVISION: use the selected module-region guide to localize the ${request.targetSemanticSlot ?? 'selected finish'} of module ${request.targetModuleId}. Apply only the selected persisted material. Preserve the room shell, openings, sill and head heights, skirting, ceiling, camera, module footprint, shutter count, hardware, lighting, and every unaffected finish. This is a visual revision for QA review; the persisted scene material assignment remains the construction authority.`
       : '';
+    const unitStyles = moduleStyleGuidance(context.scene, brief.roomId);
     const effectiveDesignIntent = request.designIntent ?? (context.scene as any).designIntent;
     const intentGuidance = effectiveDesignIntent
       ? `\nDESIGN INTENT (appearance only; never change geometry): style ${effectiveDesignIntent.style}; palette [${effectiveDesignIntent.palette.join(', ')}]; lighting ${effectiveDesignIntent.lightingMood ?? 'neutral'}; hardware ${effectiveDesignIntent.hardwareStyle ?? 'unspecified'}; surface direction ${effectiveDesignIntent.surfaceDirection ?? 'none'}.`
       : '';
-    const structuredPrompt = `${brief.positivePrompt}${intentGuidance}${geometryContract.prompt}${referenceGuidance.prompt}${materialSwapInstruction}`;
+    const structuredPrompt = `${brief.positivePrompt}${intentGuidance}${geometryContract.prompt}${referenceGuidance.prompt}${unitStyles.prompt}${materialSwapInstruction}`;
     const negativePrompt = request.operation === 'material-swap'
       ? `${brief.negativePrompt}, ${geometryContract.negativePrompt}, changed architecture, moved door, moved window, changed room proportions, changed ceiling, changed camera, changed module layout, changed shutters, changed hardware, changed lighting, change outside selected mask`
       : `${brief.negativePrompt}, ${geometryContract.negativePrompt}`;
@@ -627,6 +629,7 @@ export async function createVisualJob(environment: Record<string, string | undef
     }
     const providerRequest: VisualProposalRequest = {
       ...normalizedRequest,
+      referenceAssets: request.operation === 'material-swap' ? [] : unitStyles.referenceAssets,
       sourceAssets: request.operation === 'material-swap'
         ? [baseArtifacts.rgb.url, materialReference!.sourceAsset]
         : [baseArtifacts.rgb.url],

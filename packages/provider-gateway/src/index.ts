@@ -267,6 +267,7 @@ export function createProviderGateway(environment: Environment) {
             ]
           : [
               { asset: request.sourceAssets[0], filename: 'ultida-base-render.png', description: 'deterministic base image' },
+              ...request.referenceAssets.slice(0, 2).map((asset, index) => ({ asset, filename: 'ultida-style-reference-' + index + '.png', description: 'unit style reference' })),
               { asset: request.conditioningMaps?.depthMapUrl, filename: 'ultida-depth-map.png', description: 'depth map' },
               { asset: request.conditioningMaps?.cannyEdgeMapUrl, filename: 'ultida-edge-map.png', description: 'edge map' },
               { asset: request.conditioningMaps?.materialKeyMapUrl, filename: 'ultida-material-map.png', description: 'material-region map' },
