@@ -68,6 +68,16 @@ test('placement checks the complete rotated module footprint against an explicit
   if (!crossingNotch.ok) assert.equal(crossingNotch.code, 'MODULE_OUTSIDE_ROOM');
 });
 
+test('closed room polygons reject a footprint entirely outside without crossing an edge', () => {
+  const measuredRoom = { ...plan, spaces: [{ ...plan.spaces[0], worldPolygon: [
+    { xMm: 0, yMm: 1000 }, { xMm: 4000, yMm: 1000 }, { xMm: 4000, yMm: 3000 },
+    { xMm: 0, yMm: 3000 }, { xMm: 0, yMm: 1000 },
+  ] }] } as CanonicalPlanModel;
+  const result = prepareModulePlacement(module, measuredRoom, 'room-a', []);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, 'MODULE_OUTSIDE_ROOM');
+});
+
 test('placement checks oriented footprints of modules anchored to different walls', () => {
   const crossWallUnit = {
     id: 'corner-unit', space_id: module.space_id, category: 'kitchen-base',

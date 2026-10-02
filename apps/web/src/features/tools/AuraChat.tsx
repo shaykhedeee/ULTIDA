@@ -8,7 +8,7 @@ const apiBase = getApiBase();
 type Project = { id: string; name: string };
 type Tool = { id: string; label: string; mode: string; requires: string[] };
 type NextAction = { method: string; path: string; body: Record<string, unknown> };
-type Message = { role: 'aura' | 'designer'; text: string; tools?: Tool[]; next?: NextAction | null; recovery?: string; safety?: { geometryAuthority?: string; requiresApproval?: boolean; rollback?: boolean } };
+type Message = { role: 'aura' | 'designer'; text: string; tools?: Tool[]; next?: NextAction | null; recovery?: string; proposal?: unknown; safety?: { geometryAuthority?: string; requiresApproval?: boolean; rollback?: boolean } };
 
 const prompts = [
   { label: 'Check workflow', text: 'Explain the current blockers and the next safe action for this project.' },
@@ -32,6 +32,10 @@ export function AuraChat() {
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projects, projectId]);
 
   useEffect(() => {
+    setMessages([{ role: 'aura', text: 'Ask about this project. Suggestions require review and do not change saved design data.' }]);
+  }, [projectId]);
+
+  useEffect(() => {
     void (async () => {
       const result = await supabase?.from('projects').select('id,name').neq('project_status', 'archived').order('updated_at', { ascending: false });
       const next = (result?.data ?? []) as Project[];
@@ -47,7 +51,7 @@ export function AuraChat() {
     setMessages((current) => [...current, { role: 'designer', text }]);
     setBusy(true);
     try {
-      const response = await fetch(`${apiBase}/projects/${projectId}/aura/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ message: text }) });
+      const response = await fetch(`${apiBase}/projects/${projectId}/aura/chat`, { method: 'POST', signal: AbortSignal.timeout(30000), headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ message: text }) });
       const payload = await response.json().catch(() => ({}));
       setMessages((current) => [...current, {
         role: 'aura',
@@ -65,12 +69,12 @@ export function AuraChat() {
   }
 
   async function preview(message: Message, tool: Tool) {
-    if (!message.next || busy) return;
+    if (!message.next || !message.next.path.endsWith(`/tools/${tool.id}/preview`) || busy) return;
     setBusy(true);
     try {
-      const response = await fetch(`${apiBase}${message.next.path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ ...message.next.body, projectId, toolId: tool.id }) });
+      const response = await fetch(`${apiBase}${message.next.path}`, { method: 'POST', signal: AbortSignal.timeout(30000), headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ ...message.next.body, projectId, toolId: tool.id }) });
       const payload = await response.json().catch(() => ({}));
-      setMessages((current) => [...current, { role: 'aura', text: payload.success ? `${tool.label} proposal is ready for designer review. No project data was changed.` : (payload.message ?? 'AURA could not prepare that proposal.'), recovery: payload.recovery }]);
+      setMessages((current) => [...current, { role: 'aura', text: response.ok && payload.success ? `${tool.label} proposal is ready for designer review. No project design data was changed.` : (payload.message ?? 'AURA could not prepare that proposal.'), proposal: payload.proposal, recovery: payload.recovery }]);
     } catch {
       setMessages((current) => [...current, { role: 'aura', text: 'The proposal request failed safely. No project data was changed.' }]);
     } finally {
@@ -111,7 +115,8 @@ export function AuraChat() {
           {messages.map((message, index) => <article className={`aura-message ${message.role}`} key={`${message.role}-${index}`}>
             <div className="aura-message-label">{message.role === 'aura' ? <><Bot size={14} /> AURA</> : 'YOU'}</div>
             <p>{message.text}</p>
-            {message.tools?.length ? <div className="aura-tool-actions">{message.tools.map((tool) => <div className="aura-tool-action" key={tool.id}><div><strong>{tool.label}</strong><small>{tool.mode} · {tool.requires.join(', ') || 'project context'}</small></div>{message.next ? <button type="button" onClick={() => void preview(message, tool)} disabled={busy}>Prepare preview <ArrowRight size={13} /></button> : null}</div>)}</div> : null}
+            {message.tools?.length ? <div className="aura-tool-actions">{message.tools.map((tool) => <div className="aura-tool-action" key={tool.id}><div><strong>{tool.label}</strong><small>{tool.mode} · {tool.requires.join(', ') || 'project context'}</small></div>{message.next?.path.endsWith(`/tools/${tool.id}/preview`) ? <button type="button" onClick={() => void preview(message, tool)} disabled={busy}>Prepare preview <ArrowRight size={13} /></button> : null}</div>)}</div> : null}
+            {message.proposal != null ? <details><summary>Review proposal details</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(message.proposal, null, 2)}</pre></details> : null}
             {message.recovery ? <small className="aura-recovery">Next: {message.recovery}</small> : null}
             {message.safety ? <small className="aura-safety-line">{message.safety.requiresApproval ? 'Approval required' : 'Read-only'} · {message.safety.geometryAuthority ?? 'Project context'}{message.safety.rollback ? ' · rollback available' : ''}</small> : null}
           </article>)}

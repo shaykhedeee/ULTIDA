@@ -9,6 +9,7 @@ type PlanPoint = { xMm: number; yMm: number };
 function pointOnSegment(point: PlanPoint, start: PlanPoint, end: PlanPoint, epsilon = 0.5) {
   const dx = end.xMm - start.xMm;
   const dy = end.yMm - start.yMm;
+  if (dx === 0 && dy === 0) return Math.hypot(point.xMm - start.xMm, point.yMm - start.yMm) <= epsilon;
   const cross = (point.xMm - start.xMm) * dy - (point.yMm - start.yMm) * dx;
   if (Math.abs(cross) > epsilon * Math.max(1, Math.hypot(dx, dy))) return false;
   const dot = (point.xMm - start.xMm) * dx + (point.yMm - start.yMm) * dy;
