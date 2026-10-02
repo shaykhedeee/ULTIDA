@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createCompiledModuleMeshes } from './compiled-module-meshes';
+import { DEFAULT_SCENE_GEOMETRY_CONVENTION, scenePlanYawRadians, type SceneGeometryConvention } from '@ultida/scene-core';
 import { supabase } from '../../lib/supabase';
 import { IndianModularCatalog } from '@ultida/catalog-core';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
@@ -57,6 +58,7 @@ type Scene = {
   lighting: Array<{ id: string; spaceId: string; kind: 'ambient' | 'task' | 'accent' | 'natural'; position: { xMm: number; yMm: number }; fixture?: 'ceiling-spot' | 'floor-lamp' | 'table-lamp' | 'pendant' | 'cove'; heightMm?: number; shadeDiameterMm?: number; colorTemperatureK?: number; lumens?: number; materialId?: string }>;
   cameras: Array<{ id: string; name: string; position: { xMm: number; yMm: number; zMm: number }; target: { xMm: number; yMm: number; zMm: number }; lensMm: number }>;
   designIntent?: RenderIntentV1;
+  metadata?: { geometryConvention?: SceneGeometryConvention };
 };
 
 type Props = {
@@ -926,14 +928,17 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       if (savedParts.length > 0) {
         // These already contain world placement and mounting elevation. Never
         // replace them with family guesses or stretch a reference GLB over them.
-        modulesGroup.add(createCompiledModuleMeshes(mod.id, savedParts, materialForScene));
+        modulesGroup.add(createCompiledModuleMeshes(mod.id, savedParts, materialForScene, scene.metadata?.geometryConvention ?? DEFAULT_SCENE_GEOMETRY_CONVENTION));
         continue;
       }
       const modContainer = new THREE.Group();
       const posX = Number(mod.position?.xMm ?? (mod as any)?.position?.x ?? 1500);
       const posY = Number(mod.position?.yMm ?? (mod as any)?.position?.y ?? 1500);
-      modContainer.position.set(posX, 0, posY);
-      modContainer.rotation.y = (((mod.rotationDeg ?? 0) * Math.PI) / 180);
+      const yaw = scenePlanYawRadians(mod.rotationDeg ?? 0, scene.metadata?.geometryConvention ?? DEFAULT_SCENE_GEOMETRY_CONVENTION);
+      const centerX = posX + (mod.widthMm / 2) * Math.cos(yaw) - (mod.depthMm / 2) * Math.sin(yaw);
+      const centerY = posY + (mod.widthMm / 2) * Math.sin(yaw) + (mod.depthMm / 2) * Math.cos(yaw);
+      modContainer.position.set(centerX, 0, centerY);
+      modContainer.rotation.y = -yaw;
       modContainer.name = `module:${mod.id}`;
       modContainer.userData = { kind: 'module', id: mod.id, family: mod.family };
 

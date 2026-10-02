@@ -220,6 +220,18 @@ test('perspective scene renderer derives decodable stable base and masks from wa
   }
 });
 
+test('tagged positive-yaw and equivalent legacy negative-yaw scenes render the same measured footprint', () => {
+  const v2 = structuredClone(PERSPECTIVE_SCENE);
+  v2.modules[0].rotationDeg = 37;
+  v2.metadata.geometryConvention = 'plan-positive-yaw-v2';
+  const legacyEquivalent = structuredClone(PERSPECTIVE_SCENE);
+  legacyEquivalent.modules[0].rotationDeg = -37;
+  assert.equal(
+    renderScenePerspectiveArtifacts(v2, { width: 240, height: 180, cameraId: 'camera-1' }).baseHash,
+    renderScenePerspectiveArtifacts(legacyEquivalent, { width: 240, height: 180, cameraId: 'camera-1' }).baseHash,
+  );
+});
+
 test('render jobs choose the perspective scene renderer when an approved scene is supplied', async () => {
   const res = await executeRenderJob(makeInput({ scene: PERSPECTIVE_SCENE, sceneBoxes: undefined, cameraId: 'camera-1' }));
   assert.equal(res.proof.status, 'succeeded');

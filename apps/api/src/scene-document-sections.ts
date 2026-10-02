@@ -1,4 +1,4 @@
-import type { SceneV1 } from '@ultida/scene-core';
+import { scenePlanYawRadians, type SceneV1 } from '@ultida/scene-core';
 import type { ProductionDossierSpecV1 } from '@ultida/drawing-core';
 /** Document facts are sourced from the exact approved scene, never sample cabinetry. */
 export function sceneDocumentSections(scene: SceneV1): Pick<ProductionDossierSpecV1, 'floorPlan' | 'elevations' | 'finishes'> {
@@ -9,7 +9,7 @@ export function sceneDocumentSections(scene: SceneV1): Pick<ProductionDossierSpe
     floorPlan: { extentsMm: { widthMm: xs.length ? Math.max(...xs) - Math.min(...xs) : 0, heightMm: ys.length ? Math.max(...ys) - Math.min(...ys) : 0 }, walls: scene.walls.map(wall => ({ id: wall.id, start: { x: wall.start.xMm, y: wall.start.yMm }, end: { x: wall.end.xMm, y: wall.end.yMm }, lengthMm: Math.hypot(wall.end.xMm - wall.start.xMm, wall.end.yMm - wall.start.yMm), tag: wall.id })), openings: scene.openings.map(opening => ({ ...opening })), modules: scene.modules.map(module => ({ id: module.id, family: module.family, xMm: module.position.xMm, yMm: module.position.yMm, widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm, rotationDeg: module.rotationDeg })) },
     elevations: scene.modules.map(module => {
       const parts = scene.moduleParts.filter(part => part.moduleId === module.id);
-      const local = (part: typeof parts[number]) => { const angle = -module.rotationDeg * Math.PI / 180; const dx = part.position.xMm - module.position.xMm, dy = part.position.yMm - module.position.yMm; return { xMm: dx * Math.cos(angle) + dy * Math.sin(angle), yMm: part.position.zMm - module.position.zMm, widthMm: part.widthMm, heightMm: part.heightMm }; };
+      const local = (part: typeof parts[number]) => { const angle = -scenePlanYawRadians(module.rotationDeg, scene.metadata.geometryConvention); const dx = part.position.xMm - module.position.xMm, dy = part.position.yMm - module.position.yMm; return { xMm: dx * Math.cos(angle) - dy * Math.sin(angle), yMm: part.position.zMm - module.position.zMm, widthMm: part.widthMm, heightMm: part.heightMm }; };
       const external: Record<string, 'shutter' | 'loft' | 'profile-glass' | 'countertop'> = { shutter: 'shutter', loft: 'loft', drawer_front: 'shutter', profile_glass: 'profile-glass', countertop: 'countertop' };
       const internal: Record<string, 'carcass' | 'shelf' | 'drawer-box'> = { carcass: 'carcass', shelf: 'shelf', drawer: 'drawer-box' };
       const slots = Object.entries(module.materialSlots ?? {});

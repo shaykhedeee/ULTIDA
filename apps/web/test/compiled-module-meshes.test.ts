@@ -33,6 +33,19 @@ test('rotated parts match deterministic negative-plan-yaw geometry without doubl
   }
 });
 
+test('tagged v2 compiled parts use positive plan yaw in the Three.js scene', () => {
+  for (const angle of [0, 37, 90, 180, 270]) {
+    const group = createCompiledModuleMeshes('wardrobe', [{ ...part, rotationDeg: angle }], material, 'plan-positive-yaw-v2');
+    group.updateMatrixWorld(true);
+    const mesh = group.children[0].children[0] as THREE.Mesh;
+    const corner = mesh.localToWorld(new THREE.Vector3(part.widthMm / 2, -part.heightMm / 2, part.depthMm / 2));
+    const theta = angle * Math.PI / 180;
+    assert.ok(Math.abs(corner.x - (1200 + 18 * Math.cos(theta) - 600 * Math.sin(theta))) < 1e-8);
+    assert.ok(Math.abs(corner.z - (300 + 18 * Math.sin(theta) + 600 * Math.cos(theta))) < 1e-8);
+    assert.equal(corner.y, 450);
+  }
+});
+
 test('independent components retain material bindings; unrelated modules and light anchors are not duplicated', () => {
   const assigned: Array<string | undefined> = [];
   const parts = [part, { ...part, id: 'shutter', semanticType: 'shutter', materialId: 'ivory' },

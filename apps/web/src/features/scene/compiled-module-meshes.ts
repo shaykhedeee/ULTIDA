@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DEFAULT_SCENE_GEOMETRY_CONVENTION, scenePlanYawRadians, type SceneGeometryConvention } from '@ultida/scene-core';
 
 export type DisplayPart = {
   id: string; moduleId: string; roomId: string;
@@ -13,6 +14,7 @@ export function createCompiledModuleMeshes(
   moduleId: string,
   parts: DisplayPart[],
   materialFor: (materialId?: string) => THREE.Material,
+  convention: SceneGeometryConvention = DEFAULT_SCENE_GEOMETRY_CONVENTION,
 ) {
   const group = new THREE.Group();
   group.name = `module:${moduleId}`;
@@ -28,8 +30,8 @@ export function createCompiledModuleMeshes(
     }
     const anchor = new THREE.Group();
     anchor.position.set(part.position.xMm, part.position.zMm, part.position.yMm);
-    // Three's positive Y rotation matches canonical negative XY yaw.
-    anchor.rotation.y = part.rotationDeg * Math.PI / 180;
+    // Three Y is opposite plan yaw after mapping the plan's Y axis onto world Z.
+    anchor.rotation.y = -scenePlanYawRadians(part.rotationDeg, convention);
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(part.widthMm, part.heightMm, part.depthMm), materialFor(part.materialId),
     );

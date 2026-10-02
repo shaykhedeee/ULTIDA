@@ -13,7 +13,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { wallSolids, type SceneV1 } from '@ultida/scene-core';
+import { scenePlanYawRadians, wallSolids, type SceneV1 } from '@ultida/scene-core';
 
 export interface SceneBox {
   id: string;
@@ -273,7 +273,7 @@ function scenePrimitives(scene: SceneV1): ScenePrimitive[] {
   const modulesWithParts = new Set(exactParts.map((part) => part.moduleId));
   const renderableModules = scene.modules.filter((module) => !modulesWithParts.has(module.id));
   const renderBox = (entity: { id: string; widthMm: number; depthMm: number; heightMm: number; position: { xMm: number; yMm: number; zMm?: number }; rotationDeg: number; materialId?: string; family: string }) => {
-    const theta = -entity.rotationDeg * Math.PI / 180;
+    const theta = scenePlanYawRadians(entity.rotationDeg, scene.metadata.geometryConvention);
     const local = (x: number, z: number, y: number): Vec3 => ({
       x: entity.position.xMm + x * Math.cos(theta) - z * Math.sin(theta),
       y: (entity.position.zMm ?? 0) + y,

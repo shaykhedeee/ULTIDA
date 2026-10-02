@@ -2,6 +2,7 @@ import { RenderIntentV1Schema } from '@ultida/contracts';
 import { COMPILER_REGISTRY, type CategoryType, type Part } from '@ultida/module-framework';
 import type { CompiledModulePart } from '@ultida/scene-compiler';
 import { IndianModularCatalog } from '@ultida/catalog-core';
+import { DEFAULT_SCENE_GEOMETRY_CONVENTION, rotateScenePlanPoint, type SceneGeometryConvention } from '@ultida/scene-core';
 
 type StoredModule = {
   id: string;
@@ -41,14 +42,12 @@ function wallLengthMm(wall: CanonicalWall) {
 function scenePosition(
   modulePosition: { xMm: number; yMm: number; zMm: number; rotationDeg: number },
   local: { xMm: number; yMm: number; zMm: number },
+  convention: SceneGeometryConvention,
 ) {
-  // Keep the part transform convention aligned with the existing scene.v1
-  // adapter and deterministic renderer, both of which rotate plan geometry by
-  // negative yaw when mapping the plan's second axis into world Z.
-  const radians = (-modulePosition.rotationDeg * Math.PI) / 180;
+  const rotated = rotateScenePlanPoint(local.xMm, local.yMm, modulePosition.rotationDeg, convention);
   return {
-    xMm: modulePosition.xMm + local.xMm * Math.cos(radians) - local.yMm * Math.sin(radians),
-    yMm: modulePosition.yMm + local.xMm * Math.sin(radians) + local.yMm * Math.cos(radians),
+    xMm: modulePosition.xMm + rotated.xMm,
+    yMm: modulePosition.yMm + rotated.yMm,
     zMm: modulePosition.zMm + local.zMm,
   };
 }
@@ -56,6 +55,7 @@ function scenePosition(
 export function compileStoredModuleForScene(
   module: StoredModule,
   walls: CanonicalWall[],
+  convention: SceneGeometryConvention = DEFAULT_SCENE_GEOMETRY_CONVENTION,
 ): { ok: true; module: CompiledModulePart; parts: CompiledModulePart[] } | { ok: false; code: string; message: string } {
   const config = module.config_json ?? {};
   const position = module.position_json ?? {};
@@ -150,7 +150,7 @@ export function compileStoredModuleForScene(
       widthMm: part.size.widthMm,
       depthMm: part.size.depthMm,
       heightMm: part.size.heightMm,
-      ...scenePosition(modulePosition, part.transform),
+      ...scenePosition(modulePosition, part.transform, convention),
       rotationDeg,
       materialId: part.meta.materialSlot.id,
       kind: part.kind ?? (part.meta.semanticType === 'lighting_anchor' ? 'lighting_anchor' : undefined),

@@ -87,3 +87,32 @@ test('loft remains inside measured ceiling and uses the saved height and mountin
   const unknown = compileStoredModuleForScene(unit, [{ ...walls[0], heightMm: 0 }]);
   assert.equal(unknown.ok, false); if (!unknown.ok) assert.equal(unknown.code, 'ROOM_CEILING_UNCONFIRMED');
 });
+
+test('new scene geometry uses positive plan yaw while untagged scenes retain the legacy transform', () => {
+  const unit = {
+    id: 'rotated-wardrobe', space_id: 'bedroom', category: 'wardrobe', template_id: 'wardrobe-1800',
+    config_json: { family: 'wardrobe', widthMm: 1800, depthMm: 600, heightMm: 2400 },
+    position_json: { wallId: 'wall-a', xMm: 1000, yMm: 200, rotationDeg: 0 },
+  };
+  const baseline = compileStoredModuleForScene(unit, walls);
+  assert.ok(baseline.ok);
+  if (!baseline.ok) return;
+  for (const angle of [0, 90, 180, 270]) {
+    for (const convention of ['legacy-negative-plan-yaw', 'plan-positive-yaw-v2'] as const) {
+      const rotated = compileStoredModuleForScene({ ...unit, position_json: { ...unit.position_json, rotationDeg: angle } }, walls, convention);
+      assert.ok(rotated.ok);
+      if (!rotated.ok) continue;
+      for (const part of baseline.parts) {
+        const transformed = rotated.parts.find((candidate) => candidate.id === part.id);
+        assert.ok(transformed, `missing ${part.id}`);
+        if (!transformed) continue;
+        const localX = part.xMm - 1000; const localY = part.yMm - 200;
+        const signedAngle = (convention === 'plan-positive-yaw-v2' ? angle : -angle) * Math.PI / 180;
+        const expectedX = 1000 + localX * Math.cos(signedAngle) - localY * Math.sin(signedAngle);
+        const expectedY = 200 + localX * Math.sin(signedAngle) + localY * Math.cos(signedAngle);
+        assert.ok(Math.abs(transformed.xMm - expectedX) < 1e-6, `${convention} ${angle}° X transform for ${part.id}`);
+        assert.ok(Math.abs(transformed.yMm - expectedY) < 1e-6, `${convention} ${angle}° Y transform for ${part.id}`);
+      }
+    }
+  }
+});

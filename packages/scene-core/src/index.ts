@@ -1,6 +1,23 @@
 import { z } from 'zod';
 export { wallSolids, type WallOpeningRange, type WallSolid } from './wall-solids.js';
 
+/** scene.v1 without a tag keeps its historical negative-plan-yaw meaning. */
+export const SCENE_GEOMETRY_CONVENTIONS = ['legacy-negative-plan-yaw', 'plan-positive-yaw-v2'] as const;
+export type SceneGeometryConvention = typeof SCENE_GEOMETRY_CONVENTIONS[number];
+export const DEFAULT_SCENE_GEOMETRY_CONVENTION: SceneGeometryConvention = 'legacy-negative-plan-yaw';
+export const CURRENT_SCENE_GEOMETRY_CONVENTION: SceneGeometryConvention = 'plan-positive-yaw-v2';
+
+export function scenePlanYawRadians(rotationDeg: number, convention: SceneGeometryConvention = DEFAULT_SCENE_GEOMETRY_CONVENTION) {
+  const radians = rotationDeg * Math.PI / 180;
+  return convention === 'plan-positive-yaw-v2' ? radians : -radians;
+}
+
+export function rotateScenePlanPoint(xMm: number, yMm: number, rotationDeg: number, convention: SceneGeometryConvention = DEFAULT_SCENE_GEOMETRY_CONVENTION) {
+  const angle = scenePlanYawRadians(rotationDeg, convention);
+  const cos = Math.cos(angle); const sin = Math.sin(angle);
+  return { xMm: xMm * cos - yMm * sin, yMm: xMm * sin + yMm * cos };
+}
+
 export const RenderIntentV1Schema = z.object({
   version: z.literal(1),
   style: z.string().min(1).max(120),
@@ -93,7 +110,7 @@ export const SceneV1Schema = z.object({
   constraints: z.array(z.object({ id: Id, kind: z.string(), severity: z.enum(['advisory','warning','critical']), description: z.string(), entityIds: z.array(Id) })),
   unresolvedDetections: z.array(z.object({ id: Id, kind: z.string(), description: z.string(), confidence: Confidence, source: z.string() })),
   designIntent: RenderIntentV1Schema.optional(),
-  metadata: z.object({ branch: z.string(), status: z.enum(['draft','review','approved','locked','superseded']), changeReason: z.string(), schemaVersion: z.literal('scene.v1'), designVersion: z.string() })
+  metadata: z.object({ branch: z.string(), status: z.enum(['draft','review','approved','locked','superseded']), changeReason: z.string(), schemaVersion: z.literal('scene.v1'), designVersion: z.string(), geometryConvention: z.enum(SCENE_GEOMETRY_CONVENTIONS).optional() })
 }).superRefine((scene, ctx) => {
   // A room deliberately references its corresponding space by the same ID.
   // IDs must therefore be unique within each entity collection, not globally.

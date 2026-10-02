@@ -2413,7 +2413,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
     return !module.space_id || !module.layout_id || !approvedLayoutIds.has(module.layout_id) || position.anchor !== 'wall' || typeof position.wallId !== 'string' || !Number.isFinite(Number(config.widthMm)) || !Number.isFinite(Number(config.depthMm)) || !Number.isFinite(Number(config.heightMm)) || !Number.isFinite(Number(position.xMm)) || !Number.isFinite(Number(position.yMm));
   });
   if (invalidModule) return response.status(422).json({ success: false, code: 'MODULE_INSTANCE_NOT_SCENE_READY', message: `Module ${invalidModule.id} has no valid approved layout, persisted wall anchor, room lineage, or dimensions.` });
-  const compiledModules = (storedModules.data ?? []).map((module: any) => compileStoredModuleForScene({ ...module, space_id: sceneRoomId }, parsedPlan.data.walls));
+  const compiledModules = (storedModules.data ?? []).map((module: any) => compileStoredModuleForScene({ ...module, space_id: sceneRoomId }, parsedPlan.data.walls, 'plan-positive-yaw-v2'));
   const compilationFailure = compiledModules.find((result) => !result.ok);
   if (compilationFailure && !compilationFailure.ok) return response.status(422).json({ success: false, code: compilationFailure.code, message: compilationFailure.message });
   const sceneModules = compiledModules.filter((result): result is Extract<typeof result, { ok: true }> => result.ok).map((result) => result.module);
