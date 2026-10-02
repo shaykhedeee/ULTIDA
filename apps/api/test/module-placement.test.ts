@@ -38,6 +38,50 @@ test('placement uses canonical room association when explicit wall refs are miss
   assert.equal(rejected.ok, false);
   if (!rejected.ok) assert.equal(rejected.code, 'MODULE_WALL_ROOM_MISMATCH');
 });
+
+test('placement checks the complete rotated module footprint against an explicit room polygon', () => {
+  const roomPolygon = [
+    { xMm: 0, yMm: 0 }, { xMm: 4000, yMm: 0 }, { xMm: 4000, yMm: 3000 },
+    { xMm: 0, yMm: 3000 }, { xMm: 0, yMm: 0 },
+  ];
+  const measuredRoom = { ...plan, spaces: [{ ...plan.spaces[0], worldPolygon: roomPolygon }] } as CanonicalPlanModel;
+  const inside = prepareModulePlacement(module, measuredRoom, 'room-a', []);
+  assert.equal(inside.ok, true);
+
+  const shallowRoom = { ...plan, spaces: [{ ...plan.spaces[0], worldPolygon: [
+    { xMm: 0, yMm: 0 }, { xMm: 4000, yMm: 0 }, { xMm: 4000, yMm: 500 },
+    { xMm: 0, yMm: 500 }, { xMm: 0, yMm: 0 },
+  ] }] } as CanonicalPlanModel;
+  const outside = prepareModulePlacement(module, shallowRoom, 'room-a', []);
+  assert.equal(outside.ok, false);
+  if (!outside.ok) assert.equal(outside.code, 'MODULE_OUTSIDE_ROOM');
+
+  // All four module corners are inside this concave room, but one side crosses
+  // the notch. Edge reconciliation must catch that case too.
+  const notchedRoom = { ...plan, spaces: [{ ...plan.spaces[0], worldPolygon: [
+    { xMm: 0, yMm: 0 }, { xMm: 4000, yMm: 0 }, { xMm: 4000, yMm: 3000 },
+    { xMm: 2500, yMm: 3000 }, { xMm: 2500, yMm: 800 }, { xMm: 1500, yMm: 800 },
+    { xMm: 1500, yMm: 3000 }, { xMm: 0, yMm: 3000 }, { xMm: 0, yMm: 0 },
+  ] }] } as CanonicalPlanModel;
+  const crossingNotch = prepareModulePlacement(module, notchedRoom, 'room-a', []);
+  assert.equal(crossingNotch.ok, false);
+  if (!crossingNotch.ok) assert.equal(crossingNotch.code, 'MODULE_OUTSIDE_ROOM');
+});
+
+test('placement checks oriented footprints of modules anchored to different walls', () => {
+  const crossWallUnit = {
+    id: 'corner-unit', space_id: module.space_id, category: 'kitchen-base',
+    config_json: { widthMm: 1000, depthMm: 600, heightMm: 900 },
+    position_json: { wallId: 'wall-b', offsetMm: 0, xMm: 2500, yMm: 0, zMm: 0, rotationDeg: 90, anchor: 'wall' },
+  };
+  const colliding = prepareModulePlacement(module, plan, 'room-a', [crossWallUnit]);
+  assert.equal(colliding.ok, false);
+  if (!colliding.ok) assert.equal(colliding.code, 'MODULE_OVERLAP');
+
+  const clearUnit = { ...crossWallUnit, position_json: { ...crossWallUnit.position_json, xMm: 3500 } };
+  const clear = prepareModulePlacement(module, plan, 'room-a', [clearUnit]);
+  assert.equal(clear.ok, true);
+});
 test('module output invalidation covers scenes, artifacts and quotes and fails closed', async () => {
   for (const failure of [null, 'artifacts']) {
     const visited: string[] = [];

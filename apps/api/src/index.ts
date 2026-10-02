@@ -2114,7 +2114,7 @@ app.patch('/api/projects/:projectId/module-instances/:moduleId', requireProjectU
   if (!room || !resolveRoomWalls(plan.data, planRoomId).some(wall => wall.id === targetWall)) return response.status(422).json({ success: false, code: 'MODULE_WALL_ROOM_MISMATCH', message: 'Select a measured wall belonging to this room.' });
   const neighbours = await client.from('module_instances').select('*').eq('project_id', projectId).eq('space_id', current.data.space_id).in('status', ['validated', 'approved']);
   if (neighbours.error) return response.status(500).json({ success: false, code: 'MODULE_COLLISION_LOOKUP_FAILED', message: 'Unable to check neighbouring modules.' });
-  const edit = prepareModuleEdit(current.data, parsed.data, plan.data, neighbours.data ?? []);
+  const edit = prepareModuleEdit(current.data, parsed.data, plan.data, neighbours.data ?? [], planRoomId);
   if (!edit.ok) return response.status(422).json({ success: false, code: edit.code, message: edit.message });
   const actorId = (request as import('./api-auth.js').AuthenticatedRequest).ultidaUser!.id;
   const updatedAt = new Date(Math.max(Date.now(), Date.parse(current.data.updated_at) + 1)).toISOString();
