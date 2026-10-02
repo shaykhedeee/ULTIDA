@@ -27,6 +27,7 @@ import { getRequestSupabaseClient, getServerSupabaseClient } from './supabase.js
 import { authenticateProjectUser, requireProjectUser, requireStudioUser } from './api-auth.js';
 import { CompositionScheduleV1Schema, MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, RenderIntentV1Schema, VisualProposalRequestSchema, buildFlooringQuantities, validateProjectBrief } from '@ultida/contracts';
 import { parseRoomDesignInputs } from './room-design-inputs.js';
+import { projectSpaceOpening } from './space-opening.js';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { getIkeaResearchStock, parseIkeaStockQuery } from './research-sourcing.js';
 import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
@@ -2722,16 +2723,7 @@ app.get('/api/projects/:projectId/floor-plan/active', requireProjectUser, async 
     heightMm: w.heightMm,
     isExterior: w.isExterior,
   }));
-  const openings = (plan.openings ?? []).map((o: any) => ({
-    id: o.id,
-    wallId: o.wallId,
-    kind: o.kind,
-    offsetAlongWallMm: o.offsetMm ?? o.offsetAlongWallMm,
-    widthMm: o.widthMm,
-    heightMm: o.heightMm,
-    sillMm: o.sillMm,
-    headMm: o.headMm,
-  }));
+  const openings = (plan.openings ?? []).map(projectSpaceOpening);
   const columns = (plan.columns ?? []).map((c: any) => ({ id: c.id, position: c.position ?? c.worldGeometry?.center, sizeMm: c.sizeMm }));
   const beams = (plan.beams ?? []).map((b: any) => ({ id: b.id, start: b.start ?? b.worldGeometry?.start, end: b.end ?? b.worldGeometry?.end }));
   const services = (plan.servicePoints ?? plan.services ?? []).map((s: any) => ({ id: s.id, kind: s.kind, position: s.position ?? s.positionMm }));

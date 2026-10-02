@@ -3171,6 +3171,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
               <span>{walls.length} measured walls</span>
               <span>{openings.filter((opening) => opening.kind === 'door').length} doors</span>
               <span>{openings.filter((opening) => opening.kind === 'window').length} windows</span>
+              {openings.some(opening => opening.kind !== 'door' && opening.kind !== 'window') && <span role="status">{openings.filter(opening => opening.kind !== 'door' && opening.kind !== 'window').length} openings need door/window classification in Plan Review</span>}
               {!scaleVerified && <span className="trust-hint">Calibrate the plan before dimension chains or production exports.</span>}
             </div>
 
@@ -3464,6 +3465,14 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                 const angle = Math.atan2(b.y - a.y, b.x - a.x);
                 const perpX = -Math.sin(angle);
                 const perpY = Math.cos(angle);
+
+                if (o.kind !== 'door' && o.kind !== 'window') {
+                  return <g key={o.id}>
+                    <title>{`Unclassified opening · ${widthMm} mm · offset ${startOffset} mm. Confirm door or window in Plan Review.`}</title>
+                    <line x1={px.x} y1={px.y} x2={px.x + Math.cos(angle) * openingWidthPx} y2={px.y + Math.sin(angle) * openingWidthPx} stroke="#fffaf2" strokeWidth={8} />
+                    <line x1={px.x} y1={px.y} x2={px.x + Math.cos(angle) * openingWidthPx} y2={px.y + Math.sin(angle) * openingWidthPx} stroke="#a65b13" strokeWidth={3} strokeDasharray="5 3" />
+                  </g>;
+                }
 
                 if (isDoor) {
                   const leafLength = openingWidthPx;
