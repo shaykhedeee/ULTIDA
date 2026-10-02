@@ -27,7 +27,7 @@ import { getRequestSupabaseClient, getServerSupabaseClient } from './supabase.js
 import { authenticateProjectUser, requireProjectUser, requireStudioUser } from './api-auth.js';
 import { CompositionScheduleV1Schema, MaterialAssignmentV1Schema, MaterialLibraryItemV1Schema, RenderIntentV1Schema, VisualProposalRequestSchema, buildFlooringQuantities, validateProjectBrief } from '@ultida/contracts';
 import { parseRoomDesignInputs } from './room-design-inputs.js';
-import { projectSpaceOpening } from './space-opening.js';
+import { projectSpaceOpening, persistSpaceOpening } from './space-opening.js';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { getIkeaResearchStock, parseIkeaStockQuery } from './research-sourcing.js';
 import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
@@ -1914,14 +1914,10 @@ app.post('/api/projects/:projectId/spaces/commit-geometry', requireProjectUser, 
   if (nextWalls.some((wall: any) => !wall)) return response.status(422).json({ success: false, code: 'INVALID_WALL_GEOMETRY', message: 'Walls must have unique IDs, two endpoints, and be at least 100 mm long.' });
   const wallIds = new Set(nextWalls.map((wall: any) => wall.id));
   const nextOpenings = geometry.openings.map((opening: any) => {
-    const widthMm = Number(opening?.widthMm ?? 900);
-    if (!uuid.test(String(opening?.id)) || !wallIds.has(String(opening?.wallId)) || !Number.isFinite(widthMm) || widthMm <= 0) return null;
-    const shared = { id: String(opening.id), wallId: String(opening.wallId), offsetMm: Math.max(0, Number(opening.offsetAlongWallMm ?? opening.offsetMm ?? 0)), widthMm, verification: 'unverified' as const };
-    return opening.kind === 'window'
-      ? { ...shared, sillMm: Math.max(0, Number(opening.sillMm ?? 900)), headMm: Math.max(1, Number(opening.headMm ?? 2100)), type: 'sliding' }
-      : { ...shared, heightMm: Math.max(1, Number(opening.heightMm ?? 2100)), type: 'hinged' };
+    if (!uuid.test(String(opening?.id)) || !wallIds.has(String(opening?.wallId))) return null;
+    try { return persistSpaceOpening(opening); } catch { return null; }
   });
-  if (nextOpenings.some((opening: any) => !opening)) return response.status(422).json({ success: false, code: 'INVALID_OPENING_GEOMETRY', message: 'Every door or window must be attached to a saved wall and have a positive width.' });
+  if (nextOpenings.some((opening: any) => !opening)) return response.status(422).json({ success: false, code: 'INVALID_OPENING_GEOMETRY', message: 'Each opening needs a saved wall, door/window classification, measured offset and width, and measured door height or window sill/head heights. Missing dimensions cannot be guessed.' });
   const nextModel = CanonicalPlanModelSchema.safeParse({
     ...base.data,
     state: 'approved',
@@ -2493,7 +2489,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
       const openings = parsedPlan.data.openings.filter((opening) => opening.wallId === wall.id).map((opening) => ({
         id: opening.id,
         wallId: opening.wallId,
-        kind: ('sillMm' in opening ? 'window' : 'door') as 'window' | 'door',
+        kind: projectSpaceOpening(opening).kind === 'window' ? 'window' as const : 'door' as const,
         offsetMm: opening.offsetMm,
         widthMm: opening.widthMm,
       }));
