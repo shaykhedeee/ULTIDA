@@ -1664,9 +1664,9 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
             {!scene && (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(250, 248, 244, 0.96)', padding: 24, textAlign: 'center', gap: 14 }}>
                 <Box size={44} style={{ color: 'var(--gold)' }} />
-                <h3 style={{ margin: 0, fontSize: 17, color: 'var(--text-primary)' }}>3D Scene Ready to Compile</h3>
+                <h3 style={{ margin: 0, fontSize: 17, color: 'var(--text-primary)' }}>Prepare your saved room</h3>
                 <p style={{ margin: 0, maxWidth: 440, fontSize: 12.5, color: 'var(--text-muted)' }}>
-                  Your approved floor plan and configured modular units are ready. Click below to compile the 3D scene.
+                  Save furniture in Rooms & Spaces first. Preparing 3D checks the saved measurements, placement and finishes before creating a scene.
                 </p>
                 <Button
                   variant="default"
@@ -1674,7 +1674,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                   onClick={() => void compileOrRefreshScene()}
                   style={{ background: 'linear-gradient(135deg, #c59c2d, #a88220)', color: '#1c1917', fontWeight: 800, padding: '10px 20px', fontSize: 13 }}
                 >
-                  <Sparkles size={15} /> {compiling ? 'Compiling 3D Scene...' : '✨ Generate & Compile 3D Scene'}
+                  <Sparkles size={15} /> {compiling ? 'Preparing 3D…' : 'Prepare 3D room'}
                 </Button>
               </div>
             )}

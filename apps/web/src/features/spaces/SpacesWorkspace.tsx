@@ -4044,7 +4044,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                             </div>
                             <div className="cand-meta">
                               <span>Focus: <strong>Open walkways &amp; light</strong></span>
-                              <span>Clearance: <strong>&gt;1000 mm</strong></span>
+                              <span>Target clearance: <strong>&gt;1000 mm</strong></span>
                             </div>
                             <button
                               type="button"
@@ -4054,7 +4054,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                                 void applyLayoutCandidateToScene(sel.room, 'circulation');
                               }}
                             >
-                              <CheckCircle2 size={13} /> {isApplied ? 'Applied & Verified' : 'Select & Apply Layout'}
+                              <CheckCircle2 size={13} /> {isApplied ? 'Selected idea' : 'Use this idea'}
                             </button>
                           </div>
                         );
@@ -4073,14 +4073,14 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                           >
                             <div className="cand-head">
                               <span className="cand-title">Balanced Layout</span>
-                              <span className="cand-score">{isApplied ? 'Active Applied' : '93% Valid'}</span>
+                              <span className="cand-score">{isApplied ? 'Selected idea' : 'Design idea'}</span>
                             </div>
                             <div className="cand-preview-box">
                               <CandidateVectorPreview room={sel.room} walls={walls} openings={openings} candidateType="balanced" />
                             </div>
                             <div className="cand-meta">
                               <span>Focus: <strong>Ergonomic &amp; storage balance</strong></span>
-                              <span>Clearance: <strong>900 mm</strong></span>
+                              <span>Target clearance: <strong>900 mm</strong></span>
                             </div>
                             <button
                               type="button"
@@ -4090,7 +4090,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                                 void applyLayoutCandidateToScene(sel.room, 'balanced');
                               }}
                             >
-                              <CheckCircle2 size={13} /> {isApplied ? 'Applied & Verified' : 'Select & Apply Layout'}
+                              <CheckCircle2 size={13} /> {isApplied ? 'Selected idea' : 'Use this idea'}
                             </button>
                           </div>
                         );
@@ -4109,14 +4109,14 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                           >
                             <div className="cand-head">
                               <span className="cand-title">Maximum Storage</span>
-                              <span className="cand-score">{isApplied ? 'Active Applied' : '91% Valid'}</span>
+                              <span className="cand-score">{isApplied ? 'Selected idea' : 'Design idea'}</span>
                             </div>
                             <div className="cand-preview-box">
                               <CandidateVectorPreview room={sel.room} walls={walls} openings={openings} candidateType="storage" />
                             </div>
                             <div className="cand-meta">
                               <span>Focus: <strong>Full wall runs &amp; lofts</strong></span>
-                              <span>Clearance: <strong>750 mm</strong></span>
+                              <span>Target clearance: <strong>750 mm</strong></span>
                             </div>
                             <button
                               type="button"
@@ -4126,7 +4126,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                                 void applyLayoutCandidateToScene(sel.room, 'storage');
                               }}
                             >
-                              <CheckCircle2 size={13} /> {isApplied ? 'Applied & Verified' : 'Select & Apply Layout'}
+                              <CheckCircle2 size={13} /> {isApplied ? 'Selected idea' : 'Use this idea'}
                             </button>
                           </div>
                         );
@@ -4145,14 +4145,14 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                           >
                             <div className="cand-head">
                               <span className="cand-title">Luxury Feature Suite</span>
-                              <span className="cand-score">{isApplied ? 'Active Applied' : '96% Valid'}</span>
+                              <span className="cand-score">{isApplied ? 'Selected idea' : 'Design idea'}</span>
                             </div>
                             <div className="cand-preview-box">
                               <CandidateVectorPreview room={sel.room} walls={walls} openings={openings} candidateType="luxury" />
                             </div>
                             <div className="cand-meta">
                               <span>Focus: <strong>Island counter &amp; feature panels</strong></span>
-                              <span>Clearance: <strong>950 mm</strong></span>
+                              <span>Target clearance: <strong>950 mm</strong></span>
                             </div>
                             <button
                               type="button"
@@ -4162,7 +4162,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                                 void applyLayoutCandidateToScene(sel.room, 'luxury');
                               }}
                             >
-                              <CheckCircle2 size={13} /> {isApplied ? 'Applied & Verified' : 'Select & Apply Layout'}
+                              <CheckCircle2 size={13} /> {isApplied ? 'Selected idea' : 'Use this idea'}
                             </button>
                           </div>
                         );

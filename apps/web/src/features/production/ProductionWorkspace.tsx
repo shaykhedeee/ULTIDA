@@ -2071,13 +2071,13 @@ export function ProductionWorkspace({
                 <h4>Production Release</h4>
                 {!sceneApproved && <div role="status">
                   <p>{sceneVersionId ? 'Review and approve your saved 3D design before releasing documents.' : 'Save your room and prepare its 3D design before generating documents.'}</p>
-                  <button type="button" onClick={() => navigate(`/projects/${projectId}/${sceneVersionId ? '3d' : 'spaces'}`)}>{sceneVersionId ? 'Review saved 3D design' : 'Finish room design'}</button>
+                  <button type="button" className="btn-secondary" onClick={() => navigate(`/projects/${projectId}/${sceneVersionId ? '3d' : 'spaces'}`)}>{sceneVersionId ? 'Review saved 3D design' : 'Finish room design'}</button>
                 </div>}
                 <div className="release-checklist">
-                  <div className={`release-item ${sceneApproved ? 'pass' : 'fail'}`}><CheckCircle2 size={15} /> Scene approved</div>
-                  <div className={`release-item ${parts.length > 0 ? 'pass' : 'fail'}`}><CheckCircle2 size={15} /> Panel cutlist loaded ({parts.length} parts)</div>
+                  <div className={`release-item ${sceneApproved ? 'pass' : 'fail'}`}>{sceneApproved ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />} {sceneApproved ? 'Scene approved' : 'Scene approval needed'}</div>
+                  <div className={`release-item ${parts.length > 0 ? 'pass' : 'fail'}`}>{parts.length > 0 ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />} {parts.length > 0 ? `Panel cutlist loaded (${parts.length} parts)` : 'No production panels loaded'}</div>
                   <div className={`release-item ${parts.every((p) => p.status === 'approved') && parts.length > 0 ? 'pass' : 'fail'}`}>
-                    <CheckCircle2 size={15} /> All parts reviewed ({parts.filter((p) => p.status === 'approved').length}/{parts.length})
+                    {parts.length > 0 && parts.every(p => p.status === 'approved') ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />} {parts.length > 0 && parts.every(p => p.status === 'approved') ? 'All panels reviewed' : 'Panel review needed'} ({parts.filter((p) => p.status === 'approved').length}/{parts.length})
                   </div>
                 </div>
 
