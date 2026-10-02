@@ -43,3 +43,11 @@ test('enforces supervised proposal lifecycle', () => {
   });
   validateAuraAuditTransition([proposal, approved], correction);
 });
+
+test('review decisions cannot change the proposal tool or source scene', () => {
+  const proposal = created();
+  for (const changed of [{ toolId: 'place_modular_kitchen' }, { sourceVersionId: 'scene-2' }]) {
+    const review = createAuraAuditEvent({ ...proposal, ...changed, eventType: 'proposal_approved' });
+    assert.throws(() => validateAuraAuditTransition([proposal], review), /AURA_PROPOSAL_CONTEXT_MISMATCH/);
+  }
+});

@@ -40,6 +40,10 @@ export function validateAuraAuditTransition(history: readonly AuraAuditEvent[], 
   if (proposalEvents.length === 0 || !proposalEvents.some((event) => event.eventType === 'proposal_created')) {
     throw new Error('AURA_PROPOSAL_NOT_FOUND');
   }
+  const original = proposalEvents.find((event) => event.eventType === 'proposal_created')!;
+  if (next.toolId !== original.toolId || next.sourceVersionId !== original.sourceVersionId) {
+    throw new Error('AURA_PROPOSAL_CONTEXT_MISMATCH');
+  }
   const terminal = proposalEvents.some((event) => event.eventType === 'proposal_approved' || event.eventType === 'proposal_rejected');
   if (terminal && next.eventType !== 'correction_recorded') throw new Error('AURA_PROPOSAL_ALREADY_DECIDED');
   if (next.eventType === 'correction_recorded' && typeof next.payload.correction !== 'string' && typeof next.payload.correctionCode !== 'string') {

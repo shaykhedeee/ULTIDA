@@ -56,7 +56,9 @@ export function planAuraMessage(message: string): AuraChatPlan {
     intent = 'configure_module';
     tool = hasAny(normalized, ['kitchen'])
       ? AURA_TOOLS.find((candidate) => candidate.id === 'place_modular_kitchen') ?? null
-      : AURA_TOOLS.find((candidate) => candidate.id === 'generate_tv_unit') ?? null;
+      : hasAny(normalized, ['tv unit'])
+        ? AURA_TOOLS.find((candidate) => candidate.id === 'generate_tv_unit') ?? null
+        : null;
   } else if (hasAny(normalized, ['inspect', 'status', 'show', 'what is', 'review'])) {
     intent = 'inspect_project';
   }

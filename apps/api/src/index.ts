@@ -34,7 +34,7 @@ import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, l
 import { CanonicalPlanModelSchema, parsePlanIntake } from '@ultida/plan-core';
 import { validateGeometry } from '@ultida/geometry-core';
 import { analyzePlanWithProvider, isPlanVisionProviderConfigured } from './plan-analyzer.js';
-import { AURA_TOOLS, listAuraTools, planAuraMessage, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
+import { AURA_TOOLS, listAuraTools, planAuraMessage, selectModulesWithinRun, createAuraAuditEvent, validateAuraAuditEvent, validateAuraAuditTransition, type AuraAuditEvent } from '@ultida/aura-tools';
 import { createVisualJob, getVisualJob, listProjectRenders, reviewVisualJob } from './visual-jobs.js';
 import { createPlanAnalysisJob, dispatchPlanAnalysisJob, getPlanAnalysisJob, processPlanAnalysisJob, processPlanAnalysisJobs } from './plan-jobs.js';
 import { buildDrawingProjection, buildProductionSnapshot, calculateEdgeBandingSummary, exportSceneToDxf, exportPlanDraftToDxf, generateDrawingPackageSvg, generateProductionLabelsSvg, generateProductionNestingSvg, generateProductionWorkbookXlsx, generateDrawingCutlistWorkbookXlsx, generateProjectBOQ, generateWallElevationSvg, generateProjectionPdf, generateProductionDossierPdf, generateSketchUpRubyScript, analyze2DDrawingsToCutlist, DrawingCutlistInputSchema, nestPanels2D, optimizeMultiSheetNesting, generateCncPanelDxf, PdfWriter, type ProductionDossierSpecV1, type DrawingCutlistInput } from '@ultida/drawing-core';
@@ -347,15 +347,13 @@ app.post('/api/aura/tools/:toolId/preview', async (request, response) => {
     const clearance = typeof request.body?.clearanceMm === 'number' ? request.body.clearanceMm : 900;
     const candidates = listCatalog('kitchen').filter((item) => ['kitchen-base', 'kitchen-wall', 'kitchen-tall', 'kitchen-corner'].includes(item.family));
     const ordered = ['kit-corner-900', 'kit-sink-900', 'kit-base-600', 'kit-base-600', 'kit-wall-600', 'kit-tall-600'];
-    let remaining = runWidth;
-    const modules = ordered.map((id) => candidates.find((item) => item.id === id)).filter(Boolean).map((item: any) => {
-      if (remaining <= 0) return null;
-      remaining -= item.widthMm;
+    const selection = selectModulesWithinRun(ordered.map((id) => candidates.find((item) => item.id === id)).filter((item): item is NonNullable<typeof item> => Boolean(item)), runWidth);
+    const modules = selection.modules.map((item) => {
       const validation = validatePlacement(item, 'kitchen', clearance);
       return { moduleId: item.id, family: item.family, widthMm: item.widthMm, depthMm: item.depthMm, heightMm: item.heightMm, validation };
     }).filter(Boolean);
     const proposalId = `aura-kitchen-${Date.now()}`;
-    const proposal = { family: 'modular-kitchen', roomId: roomId ?? 'kitchen', runWidthMm: runWidth, clearanceMm: clearance, modules, unfilledWidthMm: Math.max(0, remaining), provisional: true, requiresConfirmation: true };
+    const proposal = { family: 'modular-kitchen', roomId: roomId ?? 'kitchen', runWidthMm: runWidth, clearanceMm: clearance, modules, unfilledWidthMm: selection.unfilledWidthMm, provisional: true, requiresConfirmation: true };
     const auditEvent = createAuraAuditEvent({ projectId, actorId, toolId, eventType: 'proposal_created', sourceVersionId: sceneVersionId, proposalId, payload: { proposal }, provenance: { compilerVersion: 'aura-preview-v1', provider: 'deterministic-catalog' } });
     await appendAuraAuditEvent(actor.client, actor.organizationId, auditEvent);
     return response.status(200).json({ success: true, mode: 'preview', toolId, projectId, sceneVersionId, proposalId, proposal, audit: { event: auditEvent, persisted: true, persistence: 'supabase', next: 'POST /api/aura/audit-events with proposal_approved, proposal_rejected, or correction_recorded.' } });
@@ -1449,10 +1447,11 @@ app.post('/api/projects/:projectId/aura/chat', requireProjectUser, async (reques
   const suggested = matches.length ? matches : tools.filter((tool) => tool.group === (lowered.includes('kitchen') || lowered.includes('wardrobe') || lowered.includes('tv') ? 'scene' : lowered.includes('laminate') || lowered.includes('render') ? 'visual' : 'scene'));
   const memory = await getRequestSupabaseClient(request).from('studio_design_decisions').select('decision_type,decision,subject,created_at').eq('organization_id', authReq.ultidaUser!.organizationId).eq('project_id', String(request.params.projectId)).order('created_at', { ascending: false }).limit(20);
   const scene = await getRequestSupabaseClient(request).from('scene_versions').select('id,status').eq('project_id', String(request.params.projectId)).in('status', ['approved', 'locked']).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (scene.error) return response.status(503).json({ success: false, code: 'AURA_SCENE_READ_FAILED', message: 'AURA could not read the saved scene. Retry when the project connection is restored.' });
   // Never hand the client a next action that the current deployment marks as
   // unavailable. The intent parser may identify a future capability, but the
   // chat response must offer only an enabled recovery path.
-  const selected = (plan.tool?.capability === 'preview' ? plan.tool : null) ?? suggested[0] ?? null;
+  const selected = plan.tool?.capability === 'preview' ? plan.tool : null;
   const sceneVersionId = scene.data?.id ?? null;
   return response.json({ success: true, message: plan.intent === 'unknown' ? plan.clarification : `I understand this as: ${plan.summary} Nothing will change until you review and approve a proposal.`, plan, tools: suggested.map((tool) => ({ id: tool.id, label: tool.label, mode: tool.mode, requires: tool.requires })), memory: { decisions: memory.error ? [] : (memory.data ?? []), usedForRanking: !memory.error }, next: selected && sceneVersionId ? { method: 'POST', path: `/api/aura/tools/${selected.id}/preview`, body: { projectId: request.params.projectId, sceneVersionId, roomId: 'living', widthMm: selected.id === 'place_modular_kitchen' ? 3000 : 1800, laminate: 'Cubex Neutral Sand' } } : null, safety: { geometryAuthority: 'scene.v1', requiresApproval: true, rollback: true }, recovery: sceneVersionId ? undefined : 'Approve a scene version before asking AURA to prepare a proposal.' });
 });
@@ -2133,7 +2132,7 @@ app.patch('/api/projects/:projectId/module-instances/:moduleId', requireProjectU
 app.get('/api/projects/:projectId/design-context', requireProjectUser, async (request, response) => {
   const projectId = String(request.params.projectId);
   const client = getRequestSupabaseClient(request);
-  const project = await client.from('projects').select('id,organization_id,floor_plan_version_id').eq('id', projectId).single();
+  const project = await client.from('projects').select('id,organization_id,active_floor_plan_version_id').eq('id', projectId).single();
   if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project context was not found.' });
   const [brief, plan, spaces, modules, assignments, materials, scenes, renders] = await Promise.all([
     client.from('project_briefs').select('*').eq('project_id', projectId).maybeSingle(),

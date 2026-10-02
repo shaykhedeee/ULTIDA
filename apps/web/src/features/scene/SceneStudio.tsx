@@ -664,7 +664,10 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       }
       setStatus('Compiling this room from its saved modules and finishes…');
       const compiledVersionId = await onCompileScene(selectedRoomId);
-      if (!compiledVersionId) return;
+      if (!compiledVersionId) {
+        setStatus('The room could not be compiled. Return to Rooms & Spaces, resolve the saved room or module errors, and try again. No new scene was created.');
+        return;
+      }
       setReloadKey((value) => value + 1);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Scene compilation could not complete. Check the selected room module and finish assignments.');
