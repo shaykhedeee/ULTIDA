@@ -7,6 +7,31 @@ import { toCvTraceResult } from '../src/wall-tracer.js';
 
 const PROOF_IMG = new URL('../../../floorplan analyser/ultida-flow-kit/proof/test_floorplan_input.png', import.meta.url);
 
+test('grayscale scans retain the same wall evidence as neutral RGB scans', async () => {
+  const source = await readFile(PROOF_IMG);
+  const gray = await sharp(source).greyscale().png().toBuffer();
+  const rgb = await sharp(gray).toColourspace('srgb').png().toBuffer();
+  const [grayTrace, rgbTrace] = await Promise.all([tracePlanBuffer(gray), tracePlanBuffer(rgb)]);
+  assert.deepEqual(grayTrace.walls, rgbTrace.walls);
+  assert.deepEqual(grayTrace.openings, rgbTrace.openings);
+});
+
+test('EXIF-rotated photos use the upright dimensions and match physically rotated evidence', async () => {
+  const source = await readFile(PROOF_IMG);
+  const photo = await sharp(source).jpeg({ quality: 100 }).withMetadata({ orientation: 6 }).toBuffer();
+  const upright = await sharp(photo).rotate().png().toBuffer();
+  const [photoTrace, uprightTrace] = await Promise.all([tracePlanBuffer(photo), tracePlanBuffer(upright)]);
+  assert.equal(photoTrace.widthPx, uprightTrace.widthPx);
+  assert.equal(photoTrace.heightPx, uprightTrace.heightPx);
+  assert.equal(photoTrace.wallCount, uprightTrace.wallCount);
+  // Sharp may rotate before/after resampling depending on input encoding;
+  // permit one source pixel of raster rounding, never an axis/scale change.
+  photoTrace.walls.forEach((wall, index) => {
+    const other = uprightTrace.walls[index];
+    for (const key of ['x1', 'y1', 'x2', 'y2'] as const) assert.ok(Math.abs(wall[key] - other[key]) <= 1, `${key} differs beyond raster rounding`);
+  });
+});
+
 test('fast-wall-tracer extracts walls, openings and rooms within a bounded time without Python', async () => {
   const buffer = await readFile(PROOF_IMG);
   const t0 = Date.now();

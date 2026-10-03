@@ -58,8 +58,12 @@ export async function tracePlanBuffer(
   const workingLimit = options.workingLimit ?? 1200;
   const image = sharp(input, { failOn: 'none' }).rotate();
   const meta = await image.metadata();
-  const sourceW = meta.width ?? 1000;
-  const sourceH = meta.height ?? 1000;
+  if (!meta.width || !meta.height) throw new Error('Plan image dimensions could not be decoded. Upload a valid image or PDF page.');
+  // rotate() applies EXIF orientation, but metadata() still reports the stored
+  // dimensions. Keep detection, preview coordinates and calibration upright.
+  const swapsAxes = meta.orientation !== undefined && meta.orientation >= 5 && meta.orientation <= 8;
+  const sourceW = swapsAxes ? meta.height : meta.width;
+  const sourceH = swapsAxes ? meta.width : meta.height;
   const longest = Math.max(sourceW, sourceH);
 
   // Always detect at one reference size. Previously only large images were
