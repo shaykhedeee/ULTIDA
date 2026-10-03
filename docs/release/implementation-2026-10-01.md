@@ -94,6 +94,8 @@ The app is ready for launch only when that hosted journey succeeds without hidde
 
 ### Analyzer photo orientation
 
+- Unknown CV wall gaps are now exposed as review items in the live analysis service and reconciliation flags, with location/width and no invented door/window classification. Analyzer/reconciliation tests: **32/32 passed**, API type check **exit 0**. These remain detection evidence, not confirmed architectural geometry.
+
 - Reproduced an EXIF-rotated photo failure: native tracing rotated pixels upright but returned stored dimensions (900x600 instead of 600x900). Fixed upright source dimensions before normalized detection and coordinate restoration. Invalid undecodable dimensions now fail explicitly rather than guessing a 1000px source.
 - Grayscale/RGB evidence equivalence passed without implementation changes. Added regressions for rotated photographs and physically rotated source equivalence, allowing at most one source pixel of raster resampling difference. Existing 4x-resolution convergence checks remain.
 - `node --import tsx --test apps/api/test/fast-wall-tracer.test.ts apps/api/test/plan-reconciliation.test.ts apps/api/test/plan-job-coordinate-reconciliation.test.ts`: **exit 0, 22 passed, 0 failed/skipped**. API TypeScript check: **exit 0**.

@@ -475,7 +475,10 @@ export function reconcileToElements(
   }
 
   for (const opening of cvOpenings) {
-    if (opening.kindHint === 'unknown') continue;
+    if (opening.kindHint === 'unknown') {
+      issues.push({ id: `cv-gap-${issues.length}`, question: `Unclassified wall gap at normalized plan (${opening.x.toFixed(1)}, ${opening.y.toFixed(1)}), width ${opening.width.toFixed(1)}. Confirm whether this is a door, window or tracing break.`, optionA: 'Review opening on plan', optionB: 'Mark as tracing break' });
+      continue;
+    }
     const alreadyRepresented = elements.some((element) => element.kind === opening.kindHint
       && Math.hypot(Number(element.geometry.x) - opening.x, Number(element.geometry.y) - opening.y) <= Math.max(28, Math.abs(opening.width) * 0.6));
     if (alreadyRepresented) continue;

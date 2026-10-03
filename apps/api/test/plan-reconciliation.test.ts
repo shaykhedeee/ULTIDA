@@ -66,6 +66,7 @@ test('preserves a classified CV-only opening for review without promoting an unk
   }, vision([]));
   assert.deepEqual(result.openings, [{ kind: 'door', approxCenterPx: { x: 900, y: 300 }, approxWidthPx: 120, confidence: 0.65 }]);
   assert.match(result.reviewFlags.join(' '), /CV found a door gap/i);
+  assert.match(result.reviewFlags.join(' '), /Unclassified wall gap at source \(1300, 300\), width 120px/);
 });
 
 test('uses deterministic CV opening location and width when semantic vision corroborates its kind', () => {

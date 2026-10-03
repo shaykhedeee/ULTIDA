@@ -240,7 +240,10 @@ export function reconcilePlan(
   // an editable, review-required semantic proposal. An unknown gap remains a
   // gap, rather than being silently promoted to a door.
   for (const opening of cv.openings ?? []) {
-    if (opening.kindHint === 'unknown') continue;
+    if (opening.kindHint === 'unknown') {
+      reviewFlags.push(`Unclassified wall gap at source (${opening.approxCenterPx.x}, ${opening.approxCenterPx.y}), width ${opening.approxWidthPx}px — inspect whether this is a door, window or tracing break. No architectural opening was invented.`);
+      continue;
+    }
     const matchingIndex = openings.findIndex((candidate) => candidate.kind === opening.kindHint
       && Math.hypot(candidate.approxCenterPx.x - opening.approxCenterPx.x, candidate.approxCenterPx.y - opening.approxCenterPx.y) <= tolerancePx * 2);
     if (matchingIndex >= 0) {
