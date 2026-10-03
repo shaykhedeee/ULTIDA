@@ -69,63 +69,6 @@ type Props = {
 type Preset = 'perspective' | 'front' | 'top' | 'walkthrough' | 'isometric';
 type LightingPreset = 'warm' | 'daylight' | 'evening';
 
-export type StoreyConfig = {
-  id: string;
-  name: string;
-  levelIndex: number;
-  elevationMm: number;
-  ceilingHeightMm: number;
-  slabThicknessMm: number;
-};
-
-export type InterFloorVoidConfig = {
-  id: string;
-  name: string;
-  type: 'double_height_void' | 'stairwell_cutout' | 'lift_shaft';
-  upperLevelId: string;
-  lowerLevelId: string;
-  polygon: Array<{ xMm: number; yMm: number }>;
-  balustradeType: 'tempered_glass' | 'brass_spindle' | 'fluted_drywall';
-};
-
-export const DEFAULT_VILLA_STOREYS: StoreyConfig[] = [
-  { id: 'level-ground', name: 'Ground Floor (Datum 0.0m)', levelIndex: 0, elevationMm: 0, ceilingHeightMm: 3000, slabThicknessMm: 150 },
-  { id: 'level-first', name: 'First Floor (+3.3m)', levelIndex: 1, elevationMm: 3300, ceilingHeightMm: 3000, slabThicknessMm: 150 },
-  { id: 'level-terrace', name: 'Terrace Deck (+6.6m)', levelIndex: 2, elevationMm: 6600, ceilingHeightMm: 2800, slabThicknessMm: 150 },
-];
-
-export const DEFAULT_VILLA_VOIDS: InterFloorVoidConfig[] = [
-  {
-    id: 'void-living-mezzanine',
-    name: 'Double-Height Living Atrium',
-    type: 'double_height_void',
-    upperLevelId: 'level-first',
-    lowerLevelId: 'level-ground',
-    polygon: [
-      { xMm: 800, yMm: 800 },
-      { xMm: 3200, yMm: 800 },
-      { xMm: 3200, yMm: 2400 },
-      { xMm: 800, yMm: 2400 },
-    ],
-    balustradeType: 'tempered_glass',
-  },
-  {
-    id: 'void-grand-stairwell',
-    name: 'Main Villa Staircase Void',
-    type: 'stairwell_cutout',
-    upperLevelId: 'level-first',
-    lowerLevelId: 'level-ground',
-    polygon: [
-      { xMm: 3250, yMm: 800 },
-      { xMm: 4200, yMm: 800 },
-      { xMm: 4200, yMm: 2400 },
-      { xMm: 3250, yMm: 2400 },
-    ],
-    balustradeType: 'brass_spindle',
-  },
-];
-
-
 /** A deterministic fallback used by file-export tools before a persisted scene is selected. */
 export function createDefaultDemoScene(): Scene {
   return {
@@ -554,10 +497,6 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   const kineticTargetsRef = useRef({ drawerOffset: 0, doorAngleDeg: 0, ledReveal: false });
 
   // Multi-Storey Villa stacking state
-  const [activeStoreyId, setActiveStoreyId] = useState<string>('all');
-  const [explodedAxonometric, setExplodedAxonometric] = useState(false);
-  const [storeys] = useState<StoreyConfig[]>(DEFAULT_VILLA_STOREYS);
-  const [interFloorVoids] = useState<InterFloorVoidConfig[]>(DEFAULT_VILLA_VOIDS);
 
   useEffect(() => {
     kineticTargetsRef.current = {
@@ -784,141 +723,6 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       mesh.name = `room:${room.id}`;
       mesh.userData = { kind: 'room', id: room.id, name: room.name };
       floors.add(mesh);
-    }
-
-    // ─── Multi-Storey Villa Stacking Geometry (Mezzanines, Voids & Stairs) ───
-    if (activeStoreyId === 'all' || activeStoreyId === 'level-first') {
-      const multiStoreyGroup = new THREE.Group();
-      multiStoreyGroup.name = 'villa:multi-storey-stack';
-      geometryGroup.add(multiStoreyGroup);
-
-      const firstFloorElev = explodedAxonometric ? 4800 : 3300;
-
-      // First Floor Slab with Mezzanine Living Room Void and Stairwell Cutout
-      for (const room of scene.rooms) {
-        const points = room.boundary.slice(0, -1).map((point) => new THREE.Vector2(point.xMm, point.yMm));
-        if (points.length < 3) continue;
-        const slabShape = new THREE.Shape(points);
-
-        // Cut out the double-height living mezzanine void if inside this room
-        const rName = (room.name || '').toLowerCase();
-        const isLivingOrHall = rName.includes('living') || rName.includes('hall') || rName.includes('lounge');
-
-        if (isLivingOrHall) {
-          // Add void hole in the first floor slab
-          const voidHole = new THREE.Path([
-            new THREE.Vector2(1200, 1000),
-            new THREE.Vector2(3200, 1000),
-            new THREE.Vector2(3200, 2400),
-            new THREE.Vector2(1200, 2400),
-          ]);
-          slabShape.holes.push(voidHole);
-
-          // Render 12mm Tempered Glass Balustrade with Brushed Brass Top Rail
-          const balustradeMat = new THREE.MeshPhysicalMaterial({
-            color: '#f0f9ff',
-            transmission: 0.9,
-            opacity: 0.7,
-            transparent: true,
-            roughness: 0.05,
-            metalness: 0.1,
-            side: THREE.DoubleSide,
-          });
-          const brassHandrailMat = new THREE.MeshStandardMaterial({ color: '#c59c2d', metalness: 0.9, roughness: 0.2 });
-
-          // 4 Sides of Glass Balustrade around the living room void
-          const voidPerimeter = [
-            [[1200, 1000], [3200, 1000]],
-            [[3200, 1000], [3200, 2400]],
-            [[3200, 2400], [1200, 2400]],
-            [[1200, 2400], [1200, 1000]],
-          ];
-
-          voidPerimeter.forEach(([[x1, y1], [x2, y2]]) => {
-            const segLen = Math.hypot(x2 - x1, y2 - y1);
-            const segAngle = Math.atan2(y2 - y1, x2 - x1);
-            const midX = (x1 + x2) / 2;
-            const midZ = (y1 + y2) / 2;
-
-            // Glass panel (1050mm standard architectural handrail height)
-            const glassGeo = new THREE.BoxGeometry(segLen, 1000, 12);
-            const glassMesh = new THREE.Mesh(glassGeo, balustradeMat);
-            glassMesh.position.set(midX, firstFloorElev + 500, midZ);
-            glassMesh.rotation.y = -segAngle;
-            multiStoreyGroup.add(glassMesh);
-
-            // Brass handrail cap
-            const railGeo = new THREE.BoxGeometry(segLen, 40, 28);
-            const railMesh = new THREE.Mesh(railGeo, brassHandrailMat);
-            railMesh.position.set(midX, firstFloorElev + 1020, midZ);
-            railMesh.rotation.y = -segAngle;
-            multiStoreyGroup.add(railMesh);
-          });
-
-          // Grand Double-Height Living Room Suspended Chandelier
-          const chandelierGroup = new THREE.Group();
-          chandelierGroup.position.set(2200, firstFloorElev + 2600, 1700);
-
-          // Hanging brass rod down into void
-          const rodGeo = new THREE.CylinderGeometry(8, 8, 3200, 12);
-          const rodMesh = new THREE.Mesh(rodGeo, brassHandrailMat);
-          rodMesh.position.y = -1600;
-          chandelierGroup.add(rodMesh);
-
-          // Multi-Tier Tiered Brass Rings with Crystals & 3000K Warm Glow
-          [400, 650, 900].forEach((rad, ringIdx) => {
-            const ringGeo = new THREE.TorusGeometry(rad, 14, 16, 48);
-            const ringMesh = new THREE.Mesh(ringGeo, brassHandrailMat);
-            ringMesh.rotation.x = Math.PI / 2;
-            ringMesh.position.y = -2200 - ringIdx * 280;
-            chandelierGroup.add(ringMesh);
-          });
-
-          const chandelierLight = new THREE.PointLight('#ffd199', 3.5, 7500, 1.6);
-          chandelierLight.position.set(0, -2600, 0);
-          chandelierLight.castShadow = true;
-          chandelierGroup.add(chandelierLight);
-
-          multiStoreyGroup.add(chandelierGroup);
-        }
-
-        // Slab Mesh
-        const slabGeo = new THREE.ShapeGeometry(slabShape);
-        const slabMesh = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({
-          color: '#dcd6cd',
-          roughness: 0.45,
-          metalness: 0.05,
-          side: THREE.DoubleSide,
-        }));
-        slabMesh.rotation.x = Math.PI / 2;
-        slabMesh.position.y = firstFloorElev;
-        slabMesh.receiveShadow = true;
-        slabMesh.castShadow = true;
-        multiStoreyGroup.add(slabMesh);
-      }
-
-      // Sculptural Villa Cantilever Floating Staircase
-      const stairGroup = new THREE.Group();
-      stairGroup.position.set(3400, 0, 1000);
-      const stepCount = 18;
-      const totalH = firstFloorElev;
-      const stepH = totalH / stepCount;
-      const stepRun = 280;
-
-      for (let s = 0; s < stepCount; s++) {
-        const treadGeo = new THREE.BoxGeometry(1100, 48, stepRun);
-        const treadMesh = new THREE.Mesh(treadGeo, new THREE.MeshStandardMaterial({ color: '#3d2a1a', roughness: 0.35 }));
-        treadMesh.position.set(0, s * stepH + 24, s * (stepRun * 0.75));
-        treadMesh.castShadow = true;
-        treadMesh.receiveShadow = true;
-        stairGroup.add(treadMesh);
-
-        // LED tread underglow
-        const underglow = new THREE.PointLight('#ffeedd', 0.8, 800, 2.0);
-        underglow.position.set(0, s * stepH + 10, s * (stepRun * 0.75));
-        stairGroup.add(underglow);
-      }
-      multiStoreyGroup.add(stairGroup);
     }
 
     const wallsGroup = new THREE.Group(); geometryGroup.add(wallsGroup);
@@ -1208,7 +1012,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       rendererInstanceRef.current = null;
       host.replaceChildren();
     };
-  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId, assetFilter, activeStoreyId, explodedAxonometric, viewResetKey]);
+  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId, assetFilter, viewResetKey]);
 
   const activeSelectedRoom = useMemo(() => {
     if (!scene) return null;
@@ -1402,52 +1206,6 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           ))}
         </div>
 
-        {/* Multi-Storey Level Switcher */}
-        <div style={{ display: 'inline-flex', background: '#f5f3ee', borderRadius: 8, padding: 2, border: '1px solid #e7e5e4', marginLeft: 4 }}>
-          {[
-            { id: 'all', label: '🏰 Stacked (All)' },
-            { id: 'level-ground', label: '🏛️ Ground (0m)' },
-            { id: 'level-first', label: '🏢 First (+3.3m)' },
-            { id: 'level-terrace', label: '🌿 Terrace (+6.6m)' },
-          ].map((lvl) => (
-            <button
-              key={lvl.id}
-              type="button"
-              onClick={() => setActiveStoreyId(lvl.id)}
-              style={{
-                padding: '4px 9px',
-                borderRadius: 6,
-                border: 0,
-                background: activeStoreyId === lvl.id ? '#fff' : 'transparent',
-                color: activeStoreyId === lvl.id ? 'var(--gold-dim)' : '#78716c',
-                fontSize: 11,
-                fontWeight: 700,
-                boxShadow: activeStoreyId === lvl.id ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-                cursor: 'pointer',
-              }}
-            >
-              {lvl.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => setExplodedAxonometric((prev) => !prev)}
-            style={{
-              padding: '4px 9px',
-              borderRadius: 6,
-              border: 0,
-              background: explodedAxonometric ? 'rgba(197,156,45,0.2)' : 'transparent',
-              color: explodedAxonometric ? 'var(--gold-dim)' : '#78716c',
-              fontSize: 11,
-              fontWeight: 800,
-              cursor: 'pointer',
-            }}
-            title="Toggle exploded vertical axonometric spacing between storeys"
-          >
-            {explodedAxonometric ? '💥 Exploded (On)' : '📐 Exploded'}
-          </button>
-        </div>
-
         {/* 1-Click High-Res PNG Snapshot */}
         <Button
           variant="outline"
@@ -1455,7 +1213,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
             if (!rendererInstanceRef.current) return;
             const dataUrl = rendererInstanceRef.current.domElement.toDataURL('image/png');
             const link = document.createElement('a');
-            link.download = `Sharma-Residence-3D-${lightingMode}-${preset}.png`;
+            link.download = `ULTIDA-${projectId ?? 'scene'}-3D-${lightingMode}-${preset}.png`;
             link.href = dataUrl;
             link.click();
           }}
