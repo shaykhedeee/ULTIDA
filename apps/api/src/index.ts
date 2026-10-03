@@ -1,3 +1,4 @@
+import { approveUnchangedDraft } from './scene-approval-write.js';
 import { existsSync } from 'node:fs';
 import { moduleRevisionsMatch } from './scene-module-revisions.js';
 import { resolve, dirname } from 'node:path';
@@ -2512,10 +2513,7 @@ app.post('/api/projects/:projectId/scenes/:sceneVersionId/approve', requireProje
   if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
   if (sceneVersion.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: sceneVersion.error.message });
   if (!sceneVersion.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND', message: 'That scene version does not belong to this project.' });
-  if (sceneVersion.data.status !== 'draft') {
-    if (sceneVersion.data.status === 'approved') {
-      return response.json({ success: true, sceneVersion: sceneVersion.data, alreadyApproved: true });
-    }
+  if (sceneVersion.data.status !== 'draft' && sceneVersion.data.status !== 'approved') {
     return response.status(409).json({ success: false, code: 'SCENE_NOT_DRAFT', message: 'Only the current draft scene revision can be approved.', issues: [{ message: 'Only the current draft scene revision can be approved.' }] });
   }
   if (sceneVersion.data.floor_plan_version_id !== project.data.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'SCENE_PLAN_VERSION_STALE', message: 'The plan changed after this scene was compiled. Recompile before approval.', issues: [{ message: 'The plan changed after this scene was compiled. Recompile before approval.' }] });
@@ -2533,11 +2531,14 @@ app.post('/api/projects/:projectId/scenes/:sceneVersionId/approve', requireProje
   if (!moduleRevisionsMatch(sourceModuleIds, sourceModules.data ?? [], scene.sourceModuleRevisions, sceneVersion.data.created_at)) {
     return response.status(409).json({ success: false, code: 'SCENE_MODULE_VERSION_STALE', message: 'Modules changed after this scene was compiled. Compile a new scene before approval.', issues: [{ message: 'Modules changed after this scene was compiled. Compile a new scene before approval.' }] });
   }
-  const approved = await client.from('scene_versions').update({
-    status: 'approved',
-    scene: { ...scene, metadata: { ...(scene.metadata ?? {}), status: 'approved' } },
-  }).eq('id', sceneVersionId).select('id,status,version_number,scene,created_at').single();
+  // Idempotency must not bypass source validation after a plan or module edit.
+  if (sceneVersion.data.status === 'approved') {
+    return response.json({ success: true, sceneVersion: sceneVersion.data, alreadyApproved: true });
+  }
+  const approved = await approveUnchangedDraft(client, projectId, sceneVersionId, scene);
+
   if (approved.error) return response.status(500).json({ success: false, code: 'SCENE_APPROVAL_FAILED', message: approved.error.message });
+  if (!approved.data) return response.status(409).json({ success: false, code: 'SCENE_APPROVAL_CHANGED', message: 'This scene changed during approval. Reload the current revision and try again.', issues: [{ message: 'The scene is no longer the draft that was checked.' }] });
   return response.json({ success: true, sceneVersion: approved.data });
 });
 
