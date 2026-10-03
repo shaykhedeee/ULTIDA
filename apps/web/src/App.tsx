@@ -876,8 +876,6 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     const isServerDone = Boolean(serverStageMap[stageKey]);
     if (stageKey === 'brief' && briefSaved && planApproved) {
       status = 'done';
-    } else if (stageKey === activeStageId) {
-      status = 'in_progress';
     } else if (stageKey === 'brief' && (isServerDone || briefSaved)) {
       status = 'needs_review';
     } else if (stageKey === 'plan' && (isServerDone || planApproved)) {
@@ -889,7 +887,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
     } else if (isServerDone) {
       status = 'done';
     } else {
-      status = 'not_started';
+      status = stageKey === activeStageId ? 'in_progress' : 'not_started';
     }
 
     return { ...s, status, lockReason: undefined };

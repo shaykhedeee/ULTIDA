@@ -1368,7 +1368,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
         </div>
       )}
 
-      <div className="scene-toolbar" aria-label="Scene controls" style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+      {scene && <div className="scene-toolbar" aria-label="Scene controls" style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
         <Button variant={preset === 'perspective' ? 'default' : 'outline'} onClick={() => setPreset('perspective')}><Camera size={15} /> 3D Orbit</Button>
         <Button variant={preset === 'walkthrough' ? 'default' : 'outline'} onClick={() => setPreset('walkthrough')}><Eye size={15} /> Walkthrough</Button>
         <Button variant={preset === 'top' ? 'default' : 'outline'} onClick={() => setPreset('top')}><Layers3 size={15} /> Plan</Button>
@@ -1474,7 +1474,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
             {compiling ? 'Compiling room…' : 'Compile saved room'}
           </Button>
         )}
-      </div>
+      </div>}
 
       {scene && (
         <div className="scene-ingredient-rail" aria-label="Scene ingredients">

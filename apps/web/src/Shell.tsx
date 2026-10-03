@@ -354,7 +354,7 @@ export function Shell({
                 return (
                   <div key={stage.id} className="stage-step-unit">
                     {idx > 0 && (
-                      <div className={`stage-step-line ${idx <= activeStageIdx ? 'completed' : ''}`} />
+                      <div className={`stage-step-line ${workflowStages[idx - 1]?.status === 'done' ? 'completed' : ''}`} />
                     )}
                     <button
                       type="button"
@@ -388,9 +388,9 @@ export function Shell({
                   <ArrowRight size={13} />
                 </button>
               ) : (
-                <div className="stage-completed-badge" title="All design & commercial stages complete">
-                  <CheckCircle2 size={13} />
-                  <span>Handover Ready</span>
+                <div className="stage-completed-badge" title={doneStagesCount === workflowStages.length ? 'All design & commercial stages complete' : 'Complete the remaining saved design and delivery checks'}>
+                  {doneStagesCount === workflowStages.length && <CheckCircle2 size={13} />}
+                  <span>{doneStagesCount === workflowStages.length ? 'Handover Ready' : 'Delivery in progress'}</span>
                 </div>
               )}
             </div>
