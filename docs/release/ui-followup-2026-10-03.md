@@ -22,3 +22,10 @@
 ## Still required before launch
 
 Use the outstanding gates in `implementation-2026-10-01.md`: authenticated save/reopen/revise/render/export acceptance, transactional invalidation, free-position island integration, held-out analyzer evaluation, final-document/workbook inspection, secondary-tool review, and release/rollback checks. Shared-production Preview remains write-protected. No main merge or production release is claimed here.
+
+## Approval follow-up
+
+- Reproduced stale approved scenes incorrectly returning HTTP 200 after plan or module edits. Repeat approval now validates live source revisions before returning idempotent success; the frontend no longer treats its local approval badge as authority.
+- Focused approval and module-revision tests: exit 0, 9 passed, 0 failed, 0 skipped. Full API test command and API TypeScript check both exited 0. Frontend build exited 0; the existing large-chunk warning remains.
+- These checks exercise the real approval route with fixture-backed persistence responses. Hosted authentication, saves, AI generation and private exports remain separate launch gates.
+

@@ -1401,10 +1401,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
       setPlanStatus('Compile a saved scene before approval.');
       return false;
     }
-    // Short-circuit if already approved for this version and not in-flight
-    if (sceneApproved && sceneToApprove === sceneVersionId) {
-      return true;
-    }
+    // Revalidate even a previously approved scene; a local badge is not authority.
     if (approvingSceneRef.current) return approvingSceneRef.current;
 
     const approvalPromise = (async () => {
@@ -1426,10 +1423,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           setPlanStatus(`Scene approved and ready for 3D walkthrough.`);
           return true;
         }
-        if (payload?.code === 'SCENE_NOT_DRAFT' && sceneApproved) {
-          setSceneVersionId(sceneToApprove);
-          return true;
-        }
+        setSceneApproved(false);
         setSceneApprovalError({ code: payload?.code ?? 'SCENE_APPROVAL_FAILED', message: payload?.message ?? 'Approval failed. Check the saved design and retry.', issues: Array.isArray(payload?.issues) ? payload.issues.map((issue: any) => typeof issue === 'string' ? issue : issue.message ?? 'Review this design issue.') : [] });
         setPlanStatus(payload?.message ?? 'The scene could not be approved. Resolve the listed blockers and retry.');
         return false;
