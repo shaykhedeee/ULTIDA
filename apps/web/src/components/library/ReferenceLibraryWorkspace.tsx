@@ -850,8 +850,24 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
         {catalogUnavailable && <button type="button" onClick={() => setCatalogRetry((current) => current + 1)} disabled={libraryLoading} style={{ border: '1px solid #d6c7b4', borderRadius: 6, background: '#fff', color: '#5b4633', padding: '4px 8px', fontSize: 11, fontWeight: 700 }}>Retry catalog</button>}
       </p>
 
-      {/* Add Reference Card */}
-      <Card className="workflow" style={{ marginBottom: 20 }}>
+      {/* Main Tab Navigation */}
+      <div role="tablist" aria-label="Design library sections" style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e7e5e4', marginBottom: 20, overflowX: 'auto' }}>
+        {([
+          ['modules', 'Modular Templates', LibraryIcon, visibleModules.length],
+          ['moodboard', 'Moodboard Studio', Sparkles, moodboardItems.length],
+          ['templates', activeProjectId ? 'Visual References' : 'Studio References', BookOpen, visibleTemplates.length + CURATED_VAULT_REFERENCES.length],
+          ['materials', 'Project Materials', Palette, visibleMaterials.length],
+          ['research', 'Research & Sourcing', Search, 4],
+        ] as const).map(([id, label, Icon, count]) => (
+          <button key={id} type="button" role="tab" aria-selected={activeTab === id} onClick={() => setActiveTab(id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', fontSize: 14, fontWeight: 700, color: activeTab === id ? '#8a6244' : '#78716c', borderBottom: activeTab === id ? '2.5px solid #c59c2d' : '2.5px solid transparent', background: activeTab === id ? 'rgba(197,156,45,0.06)' : 'none', borderRadius: '8px 8px 0 0', borderTop: 0, borderLeft: 0, borderRight: 0, cursor: 'pointer', transition: 'all 0.15s ease' }}>
+            <Icon size={16} color={activeTab === id ? '#c59c2d' : '#78716c'} /> {label} <span style={{ color: activeTab === id ? '#c59c2d' : '#a8a29e', background: activeTab === id ? 'rgba(197,156,45,0.14)' : '#f3efe7', padding: '2px 7px', borderRadius: 999, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>{count}</span>
+          </button>
+        ))}
+      </div>
+
+      <details style={{ marginBottom: 16, border: '1px solid #e7e5e4', borderRadius: 10 }}>
+        <summary style={{ padding: '12px 16px', cursor: 'pointer', color: '#57534e', fontWeight: 700 }}>Add a visual reference (optional)</summary>
+        <Card className="workflow">
         <CardContent style={{ display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap', padding: 16 }}>
           <div style={{ flex: '1 1 260px' }}>
             <strong style={{ display: 'block', fontSize: 14, color: '#1c1917', marginBottom: 4 }}>Add a visual reference</strong>
@@ -869,22 +885,8 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
             <Upload size={15} /> {uploadingReference ? 'Adding...' : 'Add to library'}
           </button>
         </CardContent>
-      </Card>
-
-      {/* Main Tab Navigation */}
-      <div role="tablist" aria-label="Design library sections" style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e7e5e4', marginBottom: 20, overflowX: 'auto' }}>
-        {([
-          ['modules', 'Modular Templates', LibraryIcon, visibleModules.length],
-          ['moodboard', 'Moodboard Studio', Sparkles, moodboardItems.length],
-          ['templates', activeProjectId ? 'Visual References' : 'Studio References', BookOpen, visibleTemplates.length + CURATED_VAULT_REFERENCES.length],
-          ['materials', 'Project Materials', Palette, visibleMaterials.length],
-          ['research', 'Research & Sourcing', Search, 4],
-        ] as const).map(([id, label, Icon, count]) => (
-          <button key={id} type="button" role="tab" aria-selected={activeTab === id} onClick={() => setActiveTab(id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', fontSize: 14, fontWeight: 700, color: activeTab === id ? '#8a6244' : '#78716c', borderBottom: activeTab === id ? '2.5px solid #c59c2d' : '2.5px solid transparent', background: activeTab === id ? 'rgba(197,156,45,0.06)' : 'none', borderRadius: '8px 8px 0 0', borderTop: 0, borderLeft: 0, borderRight: 0, cursor: 'pointer', transition: 'all 0.15s ease' }}>
-            <Icon size={16} color={activeTab === id ? '#c59c2d' : '#78716c'} /> {label} <span style={{ color: activeTab === id ? '#c59c2d' : '#a8a29e', background: activeTab === id ? 'rgba(197,156,45,0.14)' : '#f3efe7', padding: '2px 7px', borderRadius: 999, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>{count}</span>
-          </button>
-        ))}
-      </div>
+        </Card>
+      </details>
 
       {/* TAB 1: MODULAR TEMPLATES */}
       {activeTab === 'research' && <ResearchSourcingPanel />}
@@ -1429,7 +1431,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                 {item.metadata?.previewUrl ? <img src={item.metadata.previewUrl} alt={`Visual reference: ${item.title}`} loading="lazy" style={{ width: '100%', height: 112, objectFit: 'cover', display: 'block' }} /> : <div style={{ height: 112, display: 'grid', placeItems: 'center', background: '#f5f1e8', color: '#8a6244', fontSize: 12 }}>Preview unavailable</div>}
                 <div style={{ padding: 9 }}><strong style={{ display: 'block', fontSize: 12, color: '#29231e' }}>{item.title}</strong><small style={{ color: '#78716c' }}>{(item.tags ?? []).slice(0, 3).join(' · ') || 'Project reference'}</small></div>
               </article>)}
-            </div> : <p style={{ margin: 0, padding: 14, borderRadius: 8, background: '#faf8f5', color: '#78716c', fontSize: 13 }}>No images added yet. Use “Add a visual reference” above to import a client or style image.</p>}
+            </div> : <p style={{ margin: 0, padding: 14, borderRadius: 8, background: '#faf8f5', color: '#78716c', fontSize: 13 }}>No images added yet. Open “Add a visual reference (optional)” above to import a client or style image.</p>}
           </section>}
           {/* Browse by reference type, room, and design focus independently. */}
           <div style={{ display: 'grid', gap: 9, padding: '14px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>

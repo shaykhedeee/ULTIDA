@@ -1,3 +1,4 @@
+import { fitCanvas, projectPoint, unprojectPoint } from './canvas-projection';
 import { prepareRoomReview } from './prepare-room-review';
 /* ═══════════════════════════════════════════════
    PHASE 4 — SPACES WORKSPACE
@@ -1095,25 +1096,26 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
   // ── Canvas projection ──
   const view = useMemo(() => {
     const focusRoom = canvasFocus === 'room' ? rooms.find(room => room.id === selectedRoom) : null;
-    const focusBounds = focusRoom ? bbox(focusRoom.polygon) : null;
-    const inFocus = (point: Pt) => !focusBounds || (point.xMm >= focusBounds.minX - 500 && point.xMm <= focusBounds.maxX + 500 && point.yMm >= focusBounds.minY - 500 && point.yMm <= focusBounds.maxY + 500);
     const all: Pt[] = focusRoom
-      ? [...focusRoom.polygon, ...walls.flatMap(w => [w.start, w.end]).filter(inFocus), ...columns.map(c => c.position).filter(inFocus), ...services.map(s => s.position).filter(inFocus)]
+      ? focusRoom.polygon
       : [
           ...rooms.flatMap(r => r.polygon),
           ...walls.flatMap(w => [w.start, w.end]),
           ...columns.map(c => c.position),
           ...services.map(s => s.position),
-          ...(planPreviewUrl ? [{ xMm: sourceDimensionsMm.minX, yMm: sourceDimensionsMm.minY }, { xMm: sourceDimensionsMm.widthMm, yMm: sourceDimensionsMm.heightMm }] : []),
+          ...(planPreviewUrl ? [{ xMm: sourceDimensionsMm.minX, yMm: sourceDimensionsMm.minY }, { xMm: sourceDimensionsMm.minX + sourceDimensionsMm.widthMm, yMm: sourceDimensionsMm.minY + sourceDimensionsMm.heightMm }] : []),
         ];
-    if (!all.length) return { minX: 0, minY: 0, scale: 0.1, w: 760, h: 480, maxX: 1000, maxY: 1000 };
-    const b = bbox(all); const pad = 40; const W = 760, H = 480;
-    const s = Math.min((W - 2 * pad) / (b.maxX - b.minX || 1), (H - 2 * pad) / (b.maxY - b.minY || 1));
-    return { minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY, scale: s, w: W, h: H };
+    return fitCanvas(all);
   }, [rooms, walls, columns, services, selectedRoom, canvasFocus, planPreviewUrl, sourceDimensionsMm]);
 
-  const toPx = (p: Pt) => ({ x: (p.xMm - view.minX) * view.scale + 30, y: (p.yMm - view.minY) * view.scale + 30 });
-  const pxToMm = (x: number, y: number): Pt => ({ xMm: (x - 30) / view.scale + view.minX, yMm: (y - 30) / view.scale + view.minY });
+  const toPx = (p: Pt) => projectPoint(p, view);
+  const pxToMm = (x: number, y: number): Pt => unprojectPoint(x, y, view);
+
+  function fitView(focus: 'room' | 'plan') {
+    setCanvasFocus(focus);
+    setZoomLevel(1);
+    setPanOffset({ x: 0, y: 0 });
+  }
 
   function svgPoint(e: { clientX: number; clientY: number }) {
     const svg = svgRef.current!;
@@ -3076,14 +3078,14 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                   type="button"
                   className={`canvas-fit-btn${canvasFocus === 'room' ? ' active' : ''}`}
                   disabled={!selectedRoom}
-                  onClick={() => setCanvasFocus('room')}
+                  onClick={() => fitView('room')}
                   aria-label="Fit selected room to view"
                   title="Zoom canvas to selected room"
                 >Fit room</button>
                 <button
                   type="button"
                   className={`canvas-fit-btn${canvasFocus === 'plan' ? ' active' : ''}`}
-                  onClick={() => setCanvasFocus('plan')}
+                  onClick={() => fitView('plan')}
                   aria-label="Fit full floor plan to view"
                   title="Zoom canvas to show full floor plan"
                 >Fit full plan</button>
@@ -3708,7 +3710,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                 type="button"
                 className={`zoom-hud-btn zoom-hud-text-btn ${canvasFocus === 'plan' ? 'active' : ''}`}
                 title="Fit full floor plan"
-                onClick={() => { setZoomLevel(1); setPanOffset({ x: 0, y: 0 }); setCanvasFocus('plan'); }}
+                onClick={() => fitView('plan')}
               >
                 Fit Plan
               </button>
@@ -3717,7 +3719,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                   type="button"
                   className={`zoom-hud-btn zoom-hud-text-btn ${canvasFocus === 'room' ? 'active' : ''}`}
                   title="Fit selected room"
-                  onClick={() => { setZoomLevel(1.5); setPanOffset({ x: 0, y: 0 }); setCanvasFocus('room'); }}
+                  onClick={() => fitView('room')}
                 >
                   Fit Room
                 </button>
