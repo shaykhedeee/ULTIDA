@@ -9,6 +9,7 @@ import {
   JAALI_PATTERNS,
   type JaaliPattern,
 } from './jaali-motifs';
+import { generateWoodWopMpr, generateBiesseCix } from '@ultida/drawing-core';
 
 // ─── Jaali Pattern Types & DXF Helpers ─────────────────────────────────────
 type Pattern = 'diamond' | 'arch' | 'circle' | 'om' | 'floral';
@@ -503,6 +504,58 @@ export function CncPatternStudio() {
     URL.revokeObjectURL(url);
   }
 
+  // ── Download Homag / Weeke WoodWOP (.mpr) ──
+  function downloadWoodWopMpr() {
+    const mprContent = generateWoodWopMpr({
+      id: `panel-${panelPreset}`,
+      name: `ULTIDA-${panelPreset.toUpperCase()}`,
+      widthMm: pWidth,
+      lengthMm: pLength,
+      thicknessMm: pThickness,
+      panelType: panelPreset,
+      operations: {
+        lineBoring: enableLineBoring,
+        hingeBoring: enableHingeBoring,
+        minifix: enableMinifix,
+        backGroove: enableBackGroove,
+      },
+    });
+
+    const blob = new Blob([mprContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `ultida-woodwop-${panelPreset}-${pWidth}x${pLength}mm.mpr`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Download BiesseWorks (.cix) ──
+  function downloadBiesseCix() {
+    const cixContent = generateBiesseCix({
+      id: `panel-${panelPreset}`,
+      name: `ULTIDA-${panelPreset.toUpperCase()}`,
+      widthMm: pWidth,
+      lengthMm: pLength,
+      thicknessMm: pThickness,
+      panelType: panelPreset,
+      operations: {
+        lineBoring: enableLineBoring,
+        hingeBoring: enableHingeBoring,
+        minifix: enableMinifix,
+        backGroove: enableBackGroove,
+      },
+    });
+
+    const blob = new Blob([cixContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `ultida-biesse-${panelPreset}-${pWidth}x${pLength}mm.cix`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   // ── Jaali Download ──
   const validJaali = jWidth >= 100 && jHeight >= 100 && jSpacing >= 30 && jSpacing <= Math.min(jWidth, jHeight);
   function downloadJaali() {
@@ -533,9 +586,8 @@ export function CncPatternStudio() {
         </div>
 
         {/* Studio Mode Selector */}
-        <div style={{ display: 'flex', gap: 6, background: '#f5f5f4', padding: 4, borderRadius: 8, border: '1px solid #d8cabb' }}>
-          <button
-            onClick={() => setStudioMode('system32')}
+        <div role="tablist" aria-label="Studio mode selector" style={{ display: "flex", gap: 6, background: "#f5f5f4", padding: 4, borderRadius: 8, border: "1px solid #d8cabb" }}>
+          <button type="button" role="tab" aria-selected={studioMode === "system32"} onClick={() => setStudioMode("system32")}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -553,8 +605,7 @@ export function CncPatternStudio() {
           >
             <Wrench size={14} /> System 32 Cabinet Boring
           </button>
-          <button
-            onClick={() => setStudioMode('jaali')}
+          <button type="button" role="tab" aria-selected={studioMode === "jaali"} onClick={() => setStudioMode("jaali")}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -889,11 +940,10 @@ export function CncPatternStudio() {
               ))}
             </div>
 
-            <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <button
                 onClick={downloadSystem32Dxf}
                 style={{
-                  flex: 1,
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -903,18 +953,17 @@ export function CncPatternStudio() {
                   border: '1px solid #c59c2d',
                   background: '#fff',
                   color: '#92400e',
-                  fontSize: 13,
+                  fontSize: 12.5,
                   fontWeight: 800,
                   cursor: 'pointer',
                 }}
               >
-                <Download size={14} /> Export DXF Layers
+                <Download size={14} /> Export DXF
               </button>
 
               <button
                 onClick={downloadGCode}
                 style={{
-                  flex: 1,
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -924,13 +973,53 @@ export function CncPatternStudio() {
                   border: 0,
                   background: 'linear-gradient(135deg, #c59c2d, #a88220)',
                   color: '#1c1917',
-                  fontSize: 13,
+                  fontSize: 12.5,
                   fontWeight: 800,
                   cursor: 'pointer',
                   boxShadow: '0 2px 8px rgba(197,156,45,0.3)',
                 }}
               >
-                <FileCode size={14} /> Generate G-Code
+                <FileCode size={14} /> ISO G-Code (.nc)
+              </button>
+
+              <button
+                onClick={downloadWoodWopMpr}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #10b981',
+                  background: '#f0fdf4',
+                  color: '#065f46',
+                  fontSize: 12.5,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                <FileCode size={14} /> Homag WoodWOP (.mpr)
+              </button>
+
+              <button
+                onClick={downloadBiesseCix}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #3b82f6',
+                  background: '#eff6ff',
+                  color: '#1e40af',
+                  fontSize: 12.5,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                <FileCode size={14} /> BiesseWorks (.cix)
               </button>
             </div>
           </section>

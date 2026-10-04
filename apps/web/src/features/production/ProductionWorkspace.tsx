@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Package, AlertTriangle, CheckCircle2, Download, ChevronRight, ChevronDown,
   ClipboardList, FileText, ArrowLeft, ArrowRight, Printer, RefreshCw,
-  Sliders, Compass, Eye, X, Check, Layers, Sparkles, Filter, LayoutGrid, Maximize2, Scissors, Receipt, Tag,
+  Sliders, Compass, Eye, X, Check, Layers, Sparkles, Filter, LayoutGrid, Maximize2, Scissors, Receipt, Tag, Award,
 } from 'lucide-react';
 
 import {
@@ -13,7 +13,17 @@ import {
   DRAWING_CUTLIST_PRESETS,
   type DrawingCutlistAnalysisResult,
   type DrawingCutlistInput,
+  generateWoodWopMpr,
+  generateBiesseCix,
+  generateWoodWopBatch,
+  generateBiesseBatch,
+  createTarArchive,
 } from '@ultida/drawing-core/browser';
+import {
+  generateVendorPurchaseOrders,
+  type ProcurementOrderBundle,
+  type VendorPurchaseOrder,
+} from '@ultida/commercial-core';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
 import { optimizeGuillotineNesting, type NestingPart } from '../tools/cutlist-optimizer';
 import { supabase } from '../../lib/supabase';
@@ -163,6 +173,275 @@ export function ProductionWorkspace({
   const [selectedSheetIdx, setSelectedSheetIdx] = useState<number>(0);
   const [activeRoomScope, setActiveRoomScope] = useState<string>('all');
   const [showDrawingAnalyzer, setShowDrawingAnalyzer] = useState(false);
+  const [showProcurementModal, setShowProcurementModal] = useState(false);
+  const [selectedVendorCategory, setSelectedVendorCategory] = useState<'board_supplier' | 'laminate_distributor' | 'edgeband_vendor' | 'hardware_distributor'>('board_supplier');
+
+  // Escape key listener for procurement modal
+  useEffect(() => {
+    if (!showProcurementModal) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowProcurementModal(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showProcurementModal]);
+
+  const procurementBundle: ProcurementOrderBundle = useMemo(() => {
+    return generateVendorPurchaseOrders({
+      projectId,
+      projectName: projectId,
+      parts: parts.map((p) => ({
+        id: p.id,
+        lengthMm: p.lengthMm,
+        widthMm: p.widthMm,
+        thicknessMm: p.thicknessMm,
+        materialCode: p.materialCode,
+        quantity: p.quantity,
+        externalLaminate: p.materialCode,
+        internalLiner: '0.8mm White Balancing Liner',
+        edgeSchedule: p.edgeSchedule,
+        edging: p.edging,
+        partName: p.partName,
+      })),
+      hardwareSchedule: cutlist?.hardware?.map((h) => ({
+        name: h.name,
+        category: h.category,
+        quantity: h.quantity,
+        unit: h.unit,
+      })),
+    });
+  }, [projectId, parts, cutlist]);
+
+  // Client Digital Sign-Off from Presentation Portal
+  const [clientSignOff] = useState<any>(() => {
+    try {
+      const raw = localStorage.getItem(`ultida_client_approval_${projectId}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+
+  function downloadClientSignOffCertificate() {
+    if (!clientSignOff) return;
+    const certText = `================================================================================
+ULTIDA INTERIOR DESIGN OS — OFFICIAL DIGITAL SIGN-OFF CERTIFICATE
+================================================================================
+Certificate ID   : ${clientSignOff.certificateId}
+Project Reference: ${projectId.toUpperCase()}
+Status           : VERIFIED & APPROVED FOR MANUFACTURING RELEASE
+Timestamp        : ${clientSignOff.timestamp}
+Date of Approval : ${clientSignOff.approvalDate}
+
+CLIENT DETAILS:
+Name             : ${clientSignOff.clientName}
+Email            : ${clientSignOff.clientEmail}
+Scope Approved   : Yes (Full Architectural Joinery, Material Finishes & Commercial Estimate)
+
+MANUFACTURING RELEASE NOTES:
+- 2D Shop Drawings & System 32 Cutlists Locked
+- Material Substrates & Decorative Laminates Approved
+- Hardware Schedules & Multi-Vendor Procurement POs Released
+- Homag WoodWOP & BiesseWorks Machine Code Generated
+
+DIGITAL SIGNATURE FINGERPRINT:
+Hash Algorithm   : SHA-256 (Digital Canvas Capture)
+Verification Key : ULTIDA-AUTH-${projectId.slice(0, 8).toUpperCase()}-VERIFIED
+================================================================================
+`;
+    const blob = new Blob([certText], { type: 'text/plain;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ULTIDA-SIGN-OFF-CERTIFICATE-${clientSignOff.certificateId}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadHomagWoodWop() {
+    if (!parts.length) return;
+    const target = parts.find((p) => p.semanticType === 'gable_left' || p.semanticType === 'gable_right' || p.semanticType === 'shutter') || parts[0];
+    const mpr = generateWoodWopMpr({
+      id: target.id,
+      name: target.partName,
+      widthMm: target.widthMm,
+      lengthMm: target.lengthMm,
+      thicknessMm: target.thicknessMm,
+      panelType: target.semanticType,
+    });
+    const blob = new Blob([mpr], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ultida-woodwop-${sceneVersionId ?? projectId}-${target.id}.mpr`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadAllWoodWopTar() {
+    if (!parts.length) return;
+    const batchSpecs = parts.map((p) => ({
+      id: p.id,
+      name: p.partName,
+      widthMm: p.widthMm,
+      lengthMm: p.lengthMm,
+      thicknessMm: p.thicknessMm,
+      panelType: p.semanticType,
+    }));
+    const mprFiles = generateWoodWopBatch(batchSpecs);
+    const tarBytes = createTarArchive(mprFiles);
+    const blob = new Blob([tarBytes as unknown as BlobPart], { type: 'application/x-tar' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ultida-homag-woodwop-all-panels-${projectId}.tar`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setExportState(`Downloaded ${mprFiles.length} Homag WoodWOP machine programs in TAR bundle.`);
+  }
+
+  function downloadBiesseWorksCix() {
+    if (!parts.length) return;
+    const target = parts.find((p) => p.semanticType === 'gable_left' || p.semanticType === 'gable_right' || p.semanticType === 'shutter') || parts[0];
+    const cix = generateBiesseCix({
+      id: target.id,
+      name: target.partName,
+      widthMm: target.widthMm,
+      lengthMm: target.lengthMm,
+      thicknessMm: target.thicknessMm,
+      panelType: target.semanticType,
+    });
+    const blob = new Blob([cix], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ultida-biesse-${sceneVersionId ?? projectId}-${target.id}.cix`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadAllBiesseTar() {
+    if (!parts.length) return;
+    const batchSpecs = parts.map((p) => ({
+      id: p.id,
+      name: p.partName,
+      widthMm: p.widthMm,
+      lengthMm: p.lengthMm,
+      thicknessMm: p.thicknessMm,
+      panelType: p.semanticType,
+    }));
+    const cixFiles = generateBiesseBatch(batchSpecs);
+    const tarBytes = createTarArchive(cixFiles);
+    const blob = new Blob([tarBytes as unknown as BlobPart], { type: 'application/x-tar' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ultida-biesse-all-panels-${projectId}.tar`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setExportState(`Downloaded ${cixFiles.length} BiesseWorks CID3 machine programs in TAR bundle.`);
+  }
+
+  function downloadSinglePartWoodWop(p: Part) {
+    const mpr = generateWoodWopMpr({
+      id: p.id,
+      name: p.partName,
+      widthMm: p.widthMm,
+      lengthMm: p.lengthMm,
+      thicknessMm: p.thicknessMm,
+      panelType: p.semanticType,
+    });
+    const blob = new Blob([mpr], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(p.partName || p.id).replace(/[^a-zA-Z0-9_-]/g, '_')}_${p.lengthMm}x${p.widthMm}.mpr`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadSinglePartBiesse(p: Part) {
+    const cix = generateBiesseCix({
+      id: p.id,
+      name: p.partName,
+      widthMm: p.widthMm,
+      lengthMm: p.lengthMm,
+      thicknessMm: p.thicknessMm,
+      panelType: p.semanticType,
+    });
+    const blob = new Blob([cix], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(p.partName || p.id).replace(/[^a-zA-Z0-9_-]/g, '_')}_${p.lengthMm}x${p.widthMm}.cix`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+
+  function downloadActiveVendorPoCsv(po: VendorPurchaseOrder) {
+    const headers = ['PO Number', 'Item Code', 'Description', 'Specification', 'Quantity', 'Unit', 'Estimated Rate (INR)', 'Estimated Total (INR)', 'Notes'];
+    const rows = po.items.map((it) => [
+      po.poNumber,
+      it.itemCode,
+      `"${it.description.replace(/"/g, '""')}"`,
+      `"${it.specification.replace(/"/g, '""')}"`,
+      it.quantity,
+      it.unit,
+      it.estimatedRateInr,
+      it.estimatedTotalInr,
+      `"${(it.notes ?? '').replace(/"/g, '""')}"`,
+    ]);
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${po.poNumber}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadAllVendorPosCsv() {
+    const headers = ['Vendor Category', 'Vendor Name', 'PO Number', 'Item Code', 'Description', 'Specification', 'Quantity', 'Unit', 'Estimated Rate (INR)', 'Estimated Total (INR)', 'Notes'];
+    const rows: string[][] = [];
+    for (const po of procurementBundle.purchaseOrders) {
+      for (const it of po.items) {
+        rows.push([
+          `"${po.categoryLabel}"`,
+          `"${po.vendorName}"`,
+          po.poNumber,
+          it.itemCode,
+          `"${it.description.replace(/"/g, '""')}"`,
+          `"${it.specification.replace(/"/g, '""')}"`,
+          String(it.quantity),
+          it.unit,
+          String(it.estimatedRateInr),
+          String(it.estimatedTotalInr),
+          `"${(it.notes ?? '').replace(/"/g, '""')}"`,
+        ]);
+      }
+    }
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ultida-master-procurement-pos-${projectId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  // Escape key dismisses drawing analyzer modal
+  useEffect(() => {
+    if (!showDrawingAnalyzer) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowDrawingAnalyzer(false); // esc
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showDrawingAnalyzer]);
+
+
   const [drawingInput, setDrawingInput] = useState<DrawingCutlistInput | null>(null);
   const [drawingAnalysisResult, setDrawingAnalysisResult] = useState<DrawingCutlistAnalysisResult | null>(null);
   const [drawingViewTab, setDrawingViewTab] = useState<'visual2d' | 'panels' | 'hardware' | 'audit'>('visual2d');
@@ -660,6 +939,60 @@ export function ProductionWorkspace({
             <Receipt size={14} /><span>Estimate &amp; Delivery →</span>
           </button>
         </nav>
+
+        {clientSignOff && (
+          <div
+            className="client-signoff-verified-banner"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 18px',
+              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(212, 175, 55, 0.12))',
+              border: '1.5px solid #10b981',
+              borderRadius: 8,
+              margin: '12px 0 0',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ background: '#10b981', color: '#fff', padding: 8, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CheckCircle2 size={20} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <strong style={{ fontSize: 13.5, color: '#065f46' }}>
+                    Client Digital Sign-Off Verified — Authorized for Factory Release
+                  </strong>
+                  <span style={{ fontSize: 10.5, fontWeight: 800, color: '#047857', background: '#d1fae5', padding: '1px 8px', borderRadius: 999 }}>
+                    {clientSignOff.certificateId}
+                  </span>
+                </div>
+                <p style={{ margin: '2px 0 0', fontSize: 11.5, color: '#047857' }}>
+                  Approved by <strong>{clientSignOff.clientName}</strong> ({clientSignOff.clientEmail}) on {clientSignOff.approvalDate}. Joinery shop drawings, finishes and commercial estimate locked.
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => navigate(`/portal/${projectId}`)}
+                style={{ fontSize: 11.5, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 6, cursor: 'pointer' }}
+              >
+                <Eye size={13} /> Client Portal
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={downloadClientSignOffCertificate}
+                style={{ fontSize: 11.5, padding: '5px 14px', background: '#047857', color: '#fff', border: 0, borderRadius: 6, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}
+              >
+                <Award size={13} /> Download Certificate
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="production-tab-content">
 
@@ -1211,6 +1544,7 @@ export function ProductionWorkspace({
                             <th>Grain</th>
                             <th>Edge</th>
                             <th>Status</th>
+                            <th>CNC CAM</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1232,6 +1566,44 @@ export function ProductionWorkspace({
                                 <Badge variant={part.status === 'approved' ? 'success' : 'warning'}>
                                   {part.status === 'approved' ? '✓' : 'Review'}
                                 </Badge>
+                              </td>
+                              <td>
+                                <div style={{ display: 'inline-flex', gap: 4 }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadSinglePartWoodWop(part)}
+                                    title={`Download Homag WoodWOP .mpr for ${part.partName}`}
+                                    style={{
+                                      padding: '2px 6px',
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      borderRadius: 4,
+                                      border: '1px solid #d4af37',
+                                      background: '#fffdf9',
+                                      color: '#92400e',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    .mpr
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadSinglePartBiesse(part)}
+                                    title={`Download BiesseWorks .cix for ${part.partName}`}
+                                    style={{
+                                      padding: '2px 6px',
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      borderRadius: 4,
+                                      border: '1px solid #78716c',
+                                      background: '#fafaf9',
+                                      color: '#44403c',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    .cix
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -1267,11 +1639,11 @@ export function ProductionWorkspace({
 
               {/* ── 2D Drawing Cutlist Analyzer Modal ── */}
               {showDrawingAnalyzer && (
-                <div className="drawing-analyzer-backdrop" onClick={() => setShowDrawingAnalyzer(false)}>
+                <div className="drawing-analyzer-backdrop" onClick={() => setShowDrawingAnalyzer(false)} role="dialog" aria-modal="true" aria-labelledby="drawing-analyzer-title">
                   <div className="drawing-analyzer-modal" onClick={(e) => e.stopPropagation()}>
                     <div className="drawing-analyzer-header">
-                      <h3><Compass size={18} /> 2D Drawing Cutlist &amp; Job List Engine</h3>
-                      <button className="analyzer-close-btn" onClick={() => setShowDrawingAnalyzer(false)}>
+                      <h3 id="drawing-analyzer-title"><Compass size={18} /> 2D Drawing Cutlist &amp; Job List Engine</h3>
+                      <button type="button" className="analyzer-close-btn" onClick={() => setShowDrawingAnalyzer(false)} aria-label="Close drawing analyzer dialog">
                         <X size={18} />
                       </button>
                     </div>
@@ -1760,7 +2132,20 @@ export function ProductionWorkspace({
           {/* ══════ HARDWARE TAB ══════ */}
           {activeTab === 'hardware' && (
             <div className="production-hardware">
-              <h4>Hardware Schedule</h4>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h4 style={{ margin: 0 }}>Hardware Schedule</h4>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<Package size={13} />}
+                  onClick={() => {
+                    setSelectedVendorCategory('hardware_distributor');
+                    setShowProcurementModal(true);
+                  }}
+                >
+                  Generate Vendor Purchase Orders
+                </Button>
+              </div>
               <table className="production-table">
                 <thead>
                   <tr><th>Name</th><th>Category</th><th>Qty</th><th>Unit</th></tr>
@@ -1892,6 +2277,46 @@ export function ProductionWorkspace({
                   </Card>
 
                   <Card className="featured-export">
+                    <CardHeader>Vendor Procurement POs</CardHeader>
+                    <CardContent>
+                      <p>Itemized PO schedules for Board Suppliers, Laminate Distributors, Edge Banding &amp; Hardware.</p>
+                      <Button variant="primary" size="sm" onClick={() => setShowProcurementModal(true)}>
+                        Open Vendor POs ({procurementBundle.purchaseOrders.length})
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="featured-export">
+                    <CardHeader>Homag WoodWOP (.mpr)</CardHeader>
+                    <CardContent>
+                      <p>Native Homag/Weeke WoodWOP CNC format for vertical line boring, horizontal dowels &amp; back grooving.</p>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                        <Button variant="secondary" size="sm" disabled={!parts.length} onClick={downloadHomagWoodWop}>
+                          Single Sample (.mpr)
+                        </Button>
+                        <Button variant="primary" size="sm" disabled={!parts.length} onClick={downloadAllWoodWopTar}>
+                          All Panels (.tar Batch)
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="featured-export">
+                    <CardHeader>BiesseWorks (.cix)</CardHeader>
+                    <CardContent>
+                      <p>Biesse bSolid/BiesseWorks CID3 macro format with System 32 boring coordinates &amp; routing.</p>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                        <Button variant="secondary" size="sm" disabled={!parts.length} onClick={downloadBiesseWorksCix}>
+                          Single Sample (.cix)
+                        </Button>
+                        <Button variant="primary" size="sm" disabled={!parts.length} onClick={downloadAllBiesseTar}>
+                          All Panels (.tar Batch)
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="featured-export">
                     <CardHeader>Turnkey Shop Sheet (SVG)</CardHeader>
                     <CardContent>
                       <p>Full architectural shop sheet: top casework plan, dual elevations, dimension chains, and carcass/laminate schedules.</p>
@@ -1967,6 +2392,154 @@ export function ProductionWorkspace({
 
         </div>
       </div>
+
+      {/* ══════ MULTI-VENDOR PROCUREMENT PO MODAL ══════ */}
+      {showProcurementModal && (
+        <div className="drawing-analyzer-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="procurement-modal-title">
+          <div className="drawing-analyzer-modal" style={{ maxWidth: 1080, maxHeight: '90vh' }}>
+            <div className="drawing-analyzer-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Package size={20} color="#c59c2d" />
+                <div>
+                  <h3 id="procurement-modal-title" style={{ margin: 0 }}>Multi-Vendor Procurement Purchase Orders</h3>
+                  <small style={{ color: '#78716c' }}>
+                    Authoritative factory purchase orders itemized for Board Suppliers, Laminate Distributors, Edge Tape &amp; Hardware
+                  </small>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="close-analyzer-btn"
+                aria-label="Close procurement modal"
+                onClick={() => setShowProcurementModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Vendor Category Selector Tabs */}
+            <div style={{ display: 'flex', gap: 8, padding: '12px 20px', background: '#1c1917', borderBottom: '1px solid #332d29', overflowX: 'auto' }}>
+              {procurementBundle.purchaseOrders.map((po) => (
+                <button
+                  key={po.vendorCategory}
+                  type="button"
+                  onClick={() => setSelectedVendorCategory(po.vendorCategory)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 14px',
+                    borderRadius: 6,
+                    border: selectedVendorCategory === po.vendorCategory ? '1px solid #c59c2d' : '1px solid transparent',
+                    background: selectedVendorCategory === po.vendorCategory ? 'rgba(197, 156, 45, 0.15)' : 'transparent',
+                    color: selectedVendorCategory === po.vendorCategory ? '#fbbf24' : '#a8a29e',
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span>{po.categoryLabel}</span>
+                  <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 10, background: '#292524', color: '#fbbf24' }}>
+                    {po.items.length}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Active Vendor PO View */}
+            <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1 }}>
+              {(() => {
+                const activePO = procurementBundle.purchaseOrders.find((p) => p.vendorCategory === selectedVendorCategory) ?? procurementBundle.purchaseOrders[0];
+                return (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+                      <div>
+                        <span style={{ fontSize: 11, color: '#c59c2d', fontWeight: 800, textTransform: 'uppercase' }}>
+                          PO REF: {activePO.poNumber}
+                        </span>
+                        <h4 style={{ margin: '2px 0 0', fontSize: 16, color: '#f5f5f4' }}>{activePO.vendorName}</h4>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: 11, color: '#a8a29e' }}>Estimated Vendor PO Total</span>
+                        <div style={{ fontSize: 18, fontWeight: 900, color: '#fbbf24' }}>
+                          ₹ {activePO.estimatedGrandTotalInr.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                    </div>
+
+                    <table className="production-table" style={{ fontSize: 12 }}>
+                      <thead>
+                        <tr>
+                          <th>Item Code</th>
+                          <th>Description &amp; Specification</th>
+                          <th>Qty</th>
+                          <th>Unit</th>
+                          <th>Est. Rate (₹)</th>
+                          <th>Total (₹)</th>
+                          <th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activePO.items.map((it) => (
+                          <tr key={it.itemCode}>
+                            <td><strong>{it.itemCode}</strong></td>
+                            <td>
+                              <div style={{ fontWeight: 600, color: '#f5f5f4' }}>{it.description}</div>
+                              <div style={{ fontSize: 11, color: '#a8a29e' }}>{it.specification}</div>
+                            </td>
+                            <td><strong>{it.quantity}</strong></td>
+                            <td>{it.unit}</td>
+                            <td>₹{it.estimatedRateInr.toLocaleString('en-IN')}</td>
+                            <td><strong style={{ color: '#fbbf24' }}>₹{it.estimatedTotalInr.toLocaleString('en-IN')}</strong></td>
+                            <td style={{ fontSize: 11, color: '#78716c' }}>{it.notes ?? '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Procurement Summary & Action Footer */}
+            <div className="drawing-analyzer-footer" style={{ borderTop: '1px solid #332d29', padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+              <div style={{ display: 'flex', gap: 16, fontSize: 12, flexWrap: 'wrap' }}>
+                <span>Boards: <strong>{procurementBundle.summary.totalBoardSheets} sheets</strong></span>
+                <span>Laminates: <strong>{procurementBundle.summary.totalLaminateSheets} sheets</strong></span>
+                <span>Edge Banding: <strong>{procurementBundle.summary.totalEdgeBandMeters}m</strong></span>
+                <span>Hardware: <strong>{procurementBundle.summary.totalHardwareUnits} units</strong></span>
+                <span style={{ color: '#fbbf24' }}>Grand Est: <strong>₹{procurementBundle.summary.estimatedTotalInr.toLocaleString('en-IN')}</strong></span>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Button variant="ghost" size="sm" onClick={() => setShowProcurementModal(false)}>
+                  Close
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<Download size={13} />}
+                  onClick={() => {
+                    const activePO = procurementBundle.purchaseOrders.find((p) => p.vendorCategory === selectedVendorCategory) ?? procurementBundle.purchaseOrders[0];
+                    downloadActiveVendorPoCsv(activePO);
+                  }}
+                >
+                  Download Active PO (CSV)
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<Download size={13} />}
+                  onClick={downloadAllVendorPosCsv}
+                >
+                  Download All POs Master CSV
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

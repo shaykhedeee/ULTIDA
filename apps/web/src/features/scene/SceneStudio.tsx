@@ -542,7 +542,16 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   const kineticTargetsRef = useRef({ drawerOffset: 0, doorAngleDeg: 0, ledReveal: false });
 
   // Multi-Storey Villa stacking state
-  const [activeStoreyId, setActiveStoreyId] = useState<string>('all');
+  const [activeStoreyId, setActiveStoreyId] = useState<string>(() => {
+    return searchParams.get('floor') || 'all';
+  });
+
+  useEffect(() => {
+    const f = searchParams.get('floor');
+    if (f && f !== activeStoreyId) {
+      setActiveStoreyId(f);
+    }
+  }, [searchParams]);
   const [explodedAxonometric, setExplodedAxonometric] = useState(false);
   const [storeys] = useState<StoreyConfig[]>(DEFAULT_VILLA_STOREYS);
   const [interFloorVoids] = useState<InterFloorVoidConfig[]>(DEFAULT_VILLA_VOIDS);
@@ -628,6 +637,15 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
             const parsed = JSON.parse(rawLocalMods);
             if (Array.isArray(parsed) && parsed.length > 0) {
               localClientModules = parsed;
+            }
+          }
+          if (localClientModules.length === 0) {
+            const rawProposals = window.localStorage.getItem(`ultida.room-proposals.${projectId}`);
+            if (rawProposals) {
+              const parsed = JSON.parse(rawProposals);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                localClientModules = parsed;
+              }
             }
           }
         } catch {}

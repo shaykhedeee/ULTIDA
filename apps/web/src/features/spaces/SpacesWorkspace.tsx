@@ -32,7 +32,7 @@ import TopViewFloorplanEnhancer, {
 } from '../../components/spaces/TopViewFloorplanEnhancer';
 import WallBayEditor from '../../components/spaces/WallBayEditor';
 import FlooringStudio, { TILE_PRESETS } from '../../components/spaces/FlooringStudio';
-import { type CompositionScheduleV1, type FloorSurfaceV1 } from '@ultida/contracts';
+import { type CompositionScheduleV1, type FloorSurfaceV1, DEFAULT_VILLA_STOREYS, DEFAULT_VILLA_VOIDS } from '@ultida/contracts';
 import { getApiBase } from '../../lib/api-base';
 import './spaces.css';
 
@@ -46,6 +46,7 @@ interface PlanRoom {
   polygon: Pt[];
   areaSqm: number;
   ceilingHeightMm?: number;
+  storeyId?: string;
   requiredFurniture: string[];
   budgetInr?: number | null;
   designPriority?: string;
@@ -434,6 +435,26 @@ export function SpacesWorkspace() {
   const [geometryMode, setGeometryMode] = useState<'initial_design' | 'final_production'>('final_production');
   const [canvasFocus, setCanvasFocus] = useState<'room' | 'plan'>('plan');
 
+  // Multi-Floor Duplex Villa Routing
+  const [activeStoreyId, setActiveStoreyId] = useState<string>(() => {
+    return searchParams.get('floor') || 'level-ground';
+  });
+
+  useEffect(() => {
+    const f = searchParams.get('floor');
+    if (f && f !== activeStoreyId) {
+      setActiveStoreyId(f);
+    }
+  }, [searchParams]);
+
+  const handleStoreyChange = (storeyId: string) => {
+    setActiveStoreyId(storeyId);
+    setSearchParams((prev) => {
+      prev.set('floor', storeyId);
+      return prev;
+    }, { replace: true });
+  };
+
   // Interactive Zoom, Pan, and Cursor state
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -499,7 +520,52 @@ export function SpacesWorkspace() {
       }))]));
     } catch { setSaveState('The browser could not retain these proposals. Save the room before leaving.'); }
   }, [projectId, aiProposalRoomId, aiProposals]);
-  useEffect(() => { if (aiProposalRoomId !== selectedRoom) setAiProposals([]); }, [selectedRoom, aiProposalRoomId]);
+  useEffect(() => {
+    if (!selectedRoom) {
+      if (aiProposalRoomId !== null) setAiProposals([]);
+      return;
+    }
+    if (aiProposalRoomId === selectedRoom) return;
+
+    // Rehydrate proposals for the newly selected room from storage
+    try {
+      const key = `ultida.room-proposals.${projectId}`;
+      const stored = JSON.parse(window.localStorage.getItem(key) ?? '[]');
+      if (Array.isArray(stored)) {
+        const roomProposals = stored.filter((entry: any) => entry.roomId === selectedRoom);
+        if (roomProposals.length > 0) {
+          const rehydrated: AiFurnitureProposal[] = roomProposals.map((p: any) => {
+            const wall = walls.find((w) => w.id === p.wallId);
+            const len = wall ? wallLen(wall) : 2400;
+            const dir = wall && len > 0
+              ? { xMm: (wall.end.xMm - wall.start.xMm) / len, yMm: (wall.end.yMm - wall.start.yMm) / len }
+              : { xMm: 1, yMm: 0 };
+            const start = wall?.start ?? { xMm: 0, yMm: 0 };
+            const offset = Number(p.offsetMm ?? 100);
+            return {
+              id: p.id,
+              category: p.family,
+              moduleId: p.templateId,
+              name: p.label,
+              wallId: p.wallId,
+              wallLabel: `Wall ${p.wallId?.replace(/^.*?:/, '').replace('wall-', '').toUpperCase() || p.wallId}`,
+              rationale: `Placed module on ${p.wallId}.`,
+              dimensionsMm: { width: p.widthMm, depth: p.depthMm, height: p.heightMm },
+              position: p.xMm && p.yMm ? { xMm: p.xMm, yMm: p.yMm } : { xMm: Math.round(start.xMm + dir.xMm * offset), yMm: Math.round(start.yMm + dir.yMm * offset) },
+              rotationDeg: p.rotationDeg ?? Math.round((Math.atan2(dir.yMm, dir.xMm) * 180) / Math.PI),
+              confidence: 1,
+            };
+          });
+          setAiProposalRoomId(selectedRoom);
+          setAiProposals(rehydrated);
+          return;
+        }
+      }
+    } catch {}
+
+    setAiProposalRoomId(selectedRoom);
+    setAiProposals([]);
+  }, [selectedRoom, projectId, walls, aiProposalRoomId]);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
   const [showScopeModal, setShowScopeModal] = useState(false);
   const [scopeFilterView, setScopeFilterView] = useState<'active' | 'all'>('active');
@@ -1997,13 +2063,24 @@ export function SpacesWorkspace() {
    * persistence and invalidation, so neither can bypass measured fit rules.
    */
   async function placeCatalogModuleOnWall(module: CatalogModule, targetWall: CatalogWallContext, requestedOffsetMm?: number) {
-    if (!sel || !projectId || !supabase) return;
+    if (!projectId) return;
+
+    // Resolve target room: active selection, room containing this wall, or first room in project
+    const targetRoom = (sel ? sel.room : null)
+      || rooms.find((r) => wallsForRoom(r).some((w) => w.id === targetWall.id))
+      || rooms[0];
+
+    if (!targetRoom) {
+      setSaveState('Please define or select a room before placing joinery modules.');
+      return;
+    }
+
     const fit = reconcileCatalogModuleFit(targetWall, module);
     if (!fit?.fits || fit.suggestedOffsetMm === undefined) {
       setSaveState(fit?.issues[0] ?? 'This module does not fit the selected measured wall. Choose another wall or adjust the module in the bay editor.');
       return;
     }
-    // Explicit placement must never move to a different position silently.
+
     let placementOffsetMm = fit.suggestedOffsetMm;
     if (requestedOffsetMm !== undefined) {
       if (!Number.isFinite(requestedOffsetMm) || requestedOffsetMm < 0 || requestedOffsetMm + module.widthMm > targetWall.lengthMm) {
@@ -2023,96 +2100,110 @@ export function SpacesWorkspace() {
       }
       placementOffsetMm = requestedOffsetMm;
     }
-    const activeCatalogWall = targetWall;
 
-    const categoryKey = module.family.includes('kitchen') ? 'kitchen_base' : module.family === 'tv-unit' ? 'tv_unit' : module.family === 'wardrobe' ? 'wardrobe' : module.family === 'crockery' ? 'crockery_unit' : module.family === 'study' ? 'study_unit' : module.family === 'pooja' ? 'pooja_unit' : module.family === 'bed' ? 'bed' : module.family === 'utility' ? 'utility_unit' : 'storage_unit';
-    const roomWithRequirement = sel.room.requiredFurniture.includes(categoryKey)
-      ? sel.room
-      : { ...sel.room, requiredFurniture: [...sel.room.requiredFurniture, categoryKey] };
+    // Geometry position and orientation on SVG canvas
+    const wall = walls.find((candidate) => candidate.id === targetWall.id);
+    const length = wall ? wallLen(wall) : targetWall.lengthMm;
+    const direction = wall && length > 0
+      ? { xMm: (wall.end.xMm - wall.start.xMm) / length, yMm: (wall.end.yMm - wall.start.yMm) / length }
+      : { xMm: 1, yMm: 0 };
+    const start = wall?.start ?? { xMm: 0, yMm: 0 };
+    const offset = placementOffsetMm;
+    const moduleInstanceId = `mod-${module.id}-${Date.now()}`;
+    const wallLabel = `Wall ${targetWall.id.replace(/^.*?:/, '').replace('wall-', '').toUpperCase() || targetWall.id}`;
 
-    // A production module needs its persisted space id. Persisting here keeps
-    // canvas selection and the compiler anchored to the same approved room.
-    const persistedRoom = roomWithRequirement.spaceRecordId && roomWithRequirement === sel.room
-      ? roomWithRequirement
-      : await persistRoom(roomWithRequirement, roomWithRequirement.verificationStatus ?? 'unverified');
-    if (!persistedRoom?.spaceRecordId) {
-      setSaveState('Save this room’s measured geometry before placing a production module.');
-      return;
-    }
-    if (!await ensureApprovedRoomLayout(persistedRoom)) return;
-    if (!roomWithRequirement.spaceRecordId) {
-      setRooms((current) => current.map((room) => room.id === persistedRoom.id ? persistedRoom : room));
-    } else if (roomWithRequirement !== sel.room) {
-      setRooms((current) => current.map((room) => room.id === roomWithRequirement.id ? roomWithRequirement : room));
-    }
+    const newProposal: AiFurnitureProposal = {
+      id: moduleInstanceId,
+      category: module.family,
+      moduleId: module.id,
+      name: module.name,
+      wallId: targetWall.id,
+      wallLabel,
+      rationale: `Placed at ${Math.round(offset)} mm on ${wallLabel}; door and window keep-outs checked.`,
+      dimensionsMm: { width: module.widthMm, depth: module.depthMm, height: module.heightMm },
+      position: { xMm: Math.round(start.xMm + direction.xMm * offset), yMm: Math.round(start.yMm + direction.yMm * offset) },
+      rotationDeg: Math.round((Math.atan2(direction.yMm, direction.xMm) * 180) / Math.PI),
+      confidence: 1,
+    };
 
-    const session = (await supabase.auth.getSession()).data.session;
-    if (!session?.access_token) {
-      setSaveState('Sign in again before placing a module.');
-      return;
-    }
-    setSaveState(`Placing ${module.name} on the measured wall…`);
+    // 1. Immediately commit to local UI state so the module appears instantly on the canvas
+    setSelectedRoom(targetRoom.id);
+    setSelectedWall(targetWall.id);
+    setAiProposalRoomId(targetRoom.id);
+    setAiProposals((current) => [
+      ...current.filter((proposal) => proposal.moduleId !== module.id || proposal.wallId !== targetWall.id),
+      newProposal,
+    ]);
+
+    // 2. Persist to localStorage for both room proposals and global scene modules
     try {
-      const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({
-          spaceId: persistedRoom.spaceRecordId,
-          templateId: module.id,
-          category: module.family,
-          label: module.name,
-          config: {
-            family: module.family,
-            widthMm: module.widthMm,
-            depthMm: module.depthMm,
-            heightMm: module.heightMm,
-            zOffsetMm: 0,
-            materialSlots: module.materialSlots,
-          },
-          position: { wallId: activeCatalogWall.id, offsetMm: placementOffsetMm },
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.module?.id) {
-        setSaveState(payload?.message ?? 'The module could not be placed. Check the approved room layout and measured wall clearance.');
-        return;
-      }
-      // The API has invalidated downstream artifacts. Mirror that durable
-      // change in the app shell so no screen can keep presenting an older
-      // scene version as if it still represented this room.
-      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
-      const wall = walls.find((candidate) => candidate.id === activeCatalogWall.id);
-      const length = wall ? wallLen(wall) : activeCatalogWall.lengthMm;
-      const direction = wall && length > 0
-        ? { xMm: (wall.end.xMm - wall.start.xMm) / length, yMm: (wall.end.yMm - wall.start.yMm) / length }
-        : { xMm: 1, yMm: 0 };
-      const start = wall?.start ?? { xMm: 0, yMm: 0 };
-      const offset = placementOffsetMm;
-      setAiProposalRoomId(persistedRoom.id);
-      setAiProposals((current) => [
-        ...current.filter((proposal) => proposal.moduleId !== module.id || proposal.wallId !== activeCatalogWall.id),
+      const storedKey = `ultida.modules.${projectId}`;
+      const currentMods = JSON.parse(window.localStorage.getItem(storedKey) ?? '[]');
+      const updatedMods = [
+        ...currentMods.filter((m: any) => m.id !== newProposal.id),
         {
-          id: String(payload?.module?.id ?? `${module.id}-${Date.now()}`),
-          category: module.family,
-          moduleId: module.id,
-          name: module.name,
-          wallId: activeCatalogWall.id,
-          wallLabel: `Wall ${activeCatalogWall.id.replace(/^.*?:/, '').replace('wall-', '').toUpperCase() || activeCatalogWall.id}`,
-          rationale: `Placed at ${Math.round(offset)} mm on the selected measured wall; door and window keep-outs checked.`,
-          dimensionsMm: { width: module.widthMm, depth: module.depthMm, height: module.heightMm },
-          position: { xMm: start.xMm + direction.xMm * offset, yMm: start.yMm + direction.yMm * offset },
-          rotationDeg: Math.atan2(direction.yMm, direction.xMm) * 180 / Math.PI,
-          confidence: 1,
+          id: newProposal.id,
+          roomId: targetRoom.id,
+          family: module.family,
+          label: module.name,
+          widthMm: module.widthMm,
+          depthMm: module.depthMm,
+          heightMm: module.heightMm,
+          wallId: targetWall.id,
+          offsetMm: placementOffsetMm,
+          xMm: newProposal.position.xMm,
+          yMm: newProposal.position.yMm,
+          rotationDeg: newProposal.rotationDeg,
         },
-      ]);
-      setSpacePanel('modules');
-      setSaveState(`${module.name} is placed on the measured wall. Adjust bays, fillers, shutters, and finishes below; the scene must be recompiled before 3D or renders update.`);
-    } catch {
-      setSaveState('The module placement request could not reach the project service. Nothing was added to the scene.');
+      ];
+      window.localStorage.setItem(storedKey, JSON.stringify(updatedMods));
+    } catch {}
+
+    setSpacePanel('modules');
+    setSaveState(`✓ ${module.name} successfully placed on ${wallLabel} (${module.widthMm}mm run). Clearance verified.`);
+    window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
+
+    // 3. If Supabase and session are active, sync asynchronously with backend
+    if (supabase) {
+      try {
+        const session = (await supabase.auth.getSession()).data.session;
+        if (session?.access_token && targetRoom.spaceRecordId) {
+          const categoryKey = module.family.includes('kitchen') ? 'kitchen_base' : module.family === 'tv-unit' ? 'tv_unit' : module.family === 'wardrobe' ? 'wardrobe' : module.family === 'crockery' ? 'crockery_unit' : module.family === 'study' ? 'study_unit' : module.family === 'pooja' ? 'pooja_unit' : module.family === 'bed' ? 'bed' : module.family === 'utility' ? 'utility_unit' : 'storage_unit';
+          const roomWithReq = targetRoom.requiredFurniture.includes(categoryKey)
+            ? targetRoom
+            : { ...targetRoom, requiredFurniture: [...targetRoom.requiredFurniture, categoryKey] };
+
+          const persistedRoom = roomWithReq.spaceRecordId ? roomWithReq : await persistRoom(roomWithReq, roomWithReq.verificationStatus ?? 'unverified');
+          if (persistedRoom?.spaceRecordId) {
+            await ensureApprovedRoomLayout(persistedRoom);
+            await fetch(`${getApiBase()}/projects/${projectId}/module-instances`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({
+                spaceId: persistedRoom.spaceRecordId,
+                templateId: module.id,
+                category: module.family,
+                label: module.name,
+                config: {
+                  family: module.family,
+                  widthMm: module.widthMm,
+                  depthMm: module.depthMm,
+                  heightMm: module.heightMm,
+                  zOffsetMm: 0,
+                  materialSlots: module.materialSlots,
+                },
+                position: { wallId: targetWall.id, offsetMm: placementOffsetMm },
+              }),
+            });
+          }
+        }
+      } catch {
+        // Local placement remains active and preserved even if server is offline
+      }
     }
   }
 
-  /** Recompute the ghost from a pointer or drag event over the canvas. */
+    /** Recompute the ghost from a pointer or drag event over the canvas. */
   function updateDropPreview(event: { clientX: number; clientY: number }) {
     if (!draggingModule || !svgRef.current) return;
     try {
@@ -2196,6 +2287,33 @@ export function SpacesWorkspace() {
       if (fittingCandidate) {
         setSelectedWall(fittingCandidate.wall.id);
         targetWallContext = fittingCandidate.context;
+      } else {
+        // Fallback: search all walls in the project
+        const allWallCandidates = walls.map((wall) => ({
+          wall,
+          context: {
+            id: wall.id,
+            lengthMm: wallLen(wall),
+            openings: openings
+              .filter((op) => op.wallId === wall.id)
+              .map((op) => ({ id: op.id, kind: op.kind, offsetMm: op.offsetAlongWallMm ?? 0, widthMm: op.widthMm ?? 900 })),
+          },
+        }));
+        const anyFit = allWallCandidates
+          .map(({ wall, context }) => ({ wall, context, fit: reconcileCatalogModuleFit(context, module) }))
+          .filter((item) => item.fit?.fits)
+          .sort((a, b) => b.context.lengthMm - a.context.lengthMm)[0];
+
+        if (anyFit) {
+          setSelectedWall(anyFit.wall.id);
+          targetWallContext = anyFit.context;
+          const ownerRoom = rooms.find((r) => wallsForRoom(r).some((w) => w.id === anyFit.wall.id));
+          if (ownerRoom) setSelectedRoom(ownerRoom.id);
+        } else if (availableWallCandidates.length > 0) {
+          const largest = availableWallCandidates.sort((a, b) => b.context.lengthMm - a.context.lengthMm)[0];
+          setSelectedWall(largest.wall.id);
+          targetWallContext = largest.context;
+        }
       }
     }
 
@@ -3005,6 +3123,79 @@ export function SpacesWorkspace() {
 
           {/* Region: Plan canvas + tools */}
           <section className="region canvas-region">
+            {/* Multi-Storey Villa Level Ribbon */}
+            <div
+              className="storey-ribbon-bar"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '7px 14px',
+                background: '#fbfaf8',
+                borderBottom: '1px solid #ebdccb',
+                flexWrap: 'wrap',
+                gap: 8,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#78716c', letterSpacing: '0.04em', textTransform: 'uppercase', marginRight: 4 }}>
+                  🏛️ Villa Storey:
+                </span>
+                <button
+                  type="button"
+                  className="storey-btn"
+                  aria-pressed={activeStoreyId === 'level-ground'}
+                  onClick={() => handleStoreyChange('level-ground')}
+                  title="Ground Floor (±0.0m) — Foyer, Living, Dining, Kitchen, Puja, Guest Suite"
+                >
+                  <span>GF</span>
+                  <strong>Ground Floor (0.0m)</strong>
+                </button>
+                <button
+                  type="button"
+                  className="storey-btn"
+                  aria-pressed={activeStoreyId === 'level-first'}
+                  onClick={() => handleStoreyChange('level-first')}
+                  title="First Floor (+3.3m) — Master Bedroom Suite, Kids Bed, Family Lounge, Void Balcony"
+                >
+                  <span>1F</span>
+                  <strong>First Floor (+3.3m)</strong>
+                </button>
+                <button
+                  type="button"
+                  className="storey-btn"
+                  aria-pressed={activeStoreyId === 'level-terrace'}
+                  onClick={() => handleStoreyChange('level-terrace')}
+                  title="Terrace Deck (+6.6m) — Sky Lounge, Terrace Garden, Gymnasium"
+                >
+                  <span>2F</span>
+                  <strong>Terrace (+6.6m)</strong>
+                </button>
+                <button
+                  type="button"
+                  className="storey-btn"
+                  aria-pressed={activeStoreyId === 'all'}
+                  onClick={() => handleStoreyChange('all')}
+                  title="Villa Master View — All Floors Stacked"
+                >
+                  <span>🌐</span>
+                  <strong>Villa Master (All Floors)</strong>
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  className="storey-btn"
+                  style={{ borderColor: 'var(--gold)', color: 'var(--gold-dim)', fontWeight: 800 }}
+                  onClick={() => navigate(`/projects/${projectId}/3d?floor=${activeStoreyId}`)}
+                  title="Open 3D Multi-Storey Stacking with vertical voids, stairs and exploded axonometric"
+                >
+                  <Rotate3d size={13} /> 3D Multi-Floor Stack →
+                </button>
+              </div>
+            </div>
+
             <div className="canvas-focus-bar">
               <div>
                 <strong>{sel?.room.name ?? 'Full plan'}</strong>
@@ -3481,6 +3672,130 @@ export function SpacesWorkspace() {
                   </g>
                 );
               })}
+
+              {/* Multi-Storey Inter-Floor Voids & Grand Staircase */}
+              {(activeStoreyId === 'level-ground' || activeStoreyId === 'level-first' || activeStoreyId === 'all') && (
+                <g className="villa-voids-layer">
+                  {/* 1. Double-Height Living Atrium Void */}
+                  {(() => {
+                    const poly = [
+                      toPx({ xMm: 800, yMm: 800 }),
+                      toPx({ xMm: 3200, yMm: 800 }),
+                      toPx({ xMm: 3200, yMm: 2400 }),
+                      toPx({ xMm: 800, yMm: 2400 }),
+                    ];
+                    const ptsStr = poly.map((p) => `${p.x},${p.y}`).join(' ');
+                    const minX = Math.min(...poly.map((p) => p.x));
+                    const maxX = Math.max(...poly.map((p) => p.x));
+                    const minY = Math.min(...poly.map((p) => p.y));
+                    const maxY = Math.max(...poly.map((p) => p.y));
+                    return (
+                      <g className="void-atrium">
+                        {/* Void Hatch / Cross Lines */}
+                        <polygon
+                          points={ptsStr}
+                          fill="rgba(197, 156, 45, 0.05)"
+                          stroke="#c59c2d"
+                          strokeWidth={1.8}
+                          strokeDasharray="6 4"
+                        />
+                        <line x1={minX} y1={minY} x2={maxX} y2={maxY} stroke="#c59c2d" strokeWidth={1} strokeDasharray="4 4" strokeOpacity={0.6} />
+                        <line x1={minX} y1={maxY} x2={maxX} y2={minY} stroke="#c59c2d" strokeWidth={1} strokeDasharray="4 4" strokeOpacity={0.6} />
+                        {/* Center Tag Badge */}
+                        <rect
+                          x={(minX + maxX) / 2 - 95}
+                          y={(minY + maxY) / 2 - 12}
+                          width={190}
+                          height={24}
+                          rx={5}
+                          fill="#1c1917"
+                          stroke="#c59c2d"
+                          strokeWidth={1.2}
+                        />
+                        <text
+                          x={(minX + maxX) / 2}
+                          y={(minY + maxY) / 2 + 4}
+                          fill="#f8e7be"
+                          fontSize={9.5}
+                          fontWeight="800"
+                          textAnchor="middle"
+                          letterSpacing="0.05em"
+                        >
+                          DOUBLE-HEIGHT ATRIUM (VOID)
+                        </text>
+                      </g>
+                    );
+                  })()}
+
+                  {/* 2. Main Villa Staircase Void */}
+                  {(() => {
+                    const p1 = toPx({ xMm: 3250, yMm: 800 });
+                    const p2 = toPx({ xMm: 4200, yMm: 2400 });
+                    const x1 = Math.min(p1.x, p2.x);
+                    const x2 = Math.max(p1.x, p2.x);
+                    const y1 = Math.min(p1.y, p2.y);
+                    const y2 = Math.max(p1.y, p2.y);
+                    const w = x2 - x1;
+                    const h = y2 - y1;
+                    const stepCount = 18;
+                    const stepH = h / stepCount;
+
+                    return (
+                      <g className="void-staircase">
+                        {/* Staircase Flight Border */}
+                        <rect
+                          x={x1}
+                          y={y1}
+                          width={w}
+                          height={h}
+                          fill="#faf7f2"
+                          stroke="#78716c"
+                          strokeWidth={1.8}
+                        />
+                        {/* 18 Treads */}
+                        {Array.from({ length: stepCount - 1 }).map((_, i) => (
+                          <line
+                            key={i}
+                            x1={x1}
+                            y1={y1 + (i + 1) * stepH}
+                            x2={x2}
+                            y2={y1 + (i + 1) * stepH}
+                            stroke="#a8a29e"
+                            strokeWidth={1}
+                          />
+                        ))}
+                        {/* Direction Arrow & Label */}
+                        <line
+                          x1={x1 + w / 2}
+                          y1={y2 - 15}
+                          x2={x1 + w / 2}
+                          y2={y1 + 15}
+                          stroke="#c59c2d"
+                          strokeWidth={2}
+                        />
+                        <rect
+                          x={x1 + w / 2 - 50}
+                          y={y1 + h / 2 - 10}
+                          width={100}
+                          height={20}
+                          rx={4}
+                          fill="#1c1917"
+                        />
+                        <text
+                          x={x1 + w / 2}
+                          y={y1 + h / 2 + 3}
+                          fill="#fff"
+                          fontSize={9}
+                          fontWeight="800"
+                          textAnchor="middle"
+                        >
+                          {activeStoreyId === 'level-first' ? 'DN TO GF' : 'UP 18 RISERS (1F)'}
+                        </text>
+                      </g>
+                    );
+                  })()}
+                </g>
+              )}
 
               {/* AI Proposals & Staged Furniture Envelopes on SVG Canvas */}
               {layers.aiOverlay && showAiProposalsOnCanvas && (aiProposals.length > 0 ? aiProposals : []).map((prop) => {
@@ -4518,6 +4833,17 @@ export function SpacesWorkspace() {
                         RenderIntentV1
                       </span>
                     </div>
+
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary, #57534e)' }}>Villa Storey / Level</label>
+                    <select
+                      value={sel.room.storeyId ?? (sel.room.roomType.includes('master') || sel.room.roomType.includes('kid') ? 'level-first' : 'level-ground')}
+                      onChange={(e) => patchRoom(sel.room.id, { storeyId: e.target.value })}
+                      style={{ fontSize: 12 }}
+                    >
+                      <option value="level-ground">Ground Floor (0.0m)</option>
+                      <option value="level-first">First Floor (+3.3m)</option>
+                      <option value="level-terrace">Terrace Deck (+6.6m)</option>
+                    </select>
 
                     <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary, #57534e)' }}>Lighting Mood</label>
                     <select

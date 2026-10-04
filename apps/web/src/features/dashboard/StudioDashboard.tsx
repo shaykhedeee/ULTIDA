@@ -440,13 +440,9 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
               Site-measured millimeter accuracy, zero-hallucination arithmetic reconciliation, 30mm dummy fillers, and direct CNC-ready DXF exports.
             </p>
           </div>
-          <div className="elevation-hub-tab-bar">
+          <div className="elevation-hub-tab-bar" role="tablist" aria-label="Elevation showcase tabs">
             {ELEVATION_SHOWCASE.map((item) => (
-              <button
-                key={item.id}
-                className={`elevation-tab-btn ${activeElevationId === item.id ? 'active' : ''}`}
-                onClick={() => setActiveElevationId(item.id)}
-              >
+              <button key={item.id} role="tab" aria-selected={activeElevationId === item.id} className={`elevation-tab-btn ${activeElevationId === item.id ? "active" : ""}`} onClick={() => setActiveElevationId(item.id)}>
                 {item.title.split(' ')[0]} {item.title.split(' ')[1]}
               </button>
             ))}
@@ -560,12 +556,12 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
 
       {/* Fullscreen Preview Modal */}
       {previewModalOpen && (
-        <div className="elevation-modal-overlay" onClick={() => setPreviewModalOpen(false)}>
+        <div className="elevation-modal-overlay" onClick={() => setPreviewModalOpen(false)} role="dialog" aria-modal="true" aria-labelledby="elevation-modal-title">
           <div className="elevation-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="elevation-modal-header">
               <div>
                 <span className="studio-kicker">{activeElevation.tag}</span>
-                <h3>{activeElevation.title}</h3>
+                <h3 id="elevation-modal-title">{activeElevation.title}</h3>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <a
@@ -575,9 +571,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
                 >
                   <Download size={13} /> Download AutoCAD DXF
                 </a>
-                <button className="preview-ctrl-btn" onClick={() => setPreviewModalOpen(false)}>
-                  Close ✕
-                </button>
+                <button type="button" className="preview-ctrl-btn" onClick={() => setPreviewModalOpen(false)} aria-label="Close elevation preview dialog">Close ✕</button>
               </div>
             </div>
             <div className="elevation-modal-body">
@@ -605,13 +599,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           </div>
         </div>
         <div className="studio-pipeline-rail">
-          <div
-            className="pipeline-step-card"
-            onClick={() => {
-              const activeProjId = projects[0]?.id;
-              openTool(activeProjId ? `/projects/${activeProjId}/plan` : '/projects');
-            }}
-          >
+          <button type="button" className="pipeline-step-card" onClick={() => { const activeProjId = projects[0]?.id; openTool(activeProjId ? `/projects/${activeProjId}/plan` : "/projects"); }} aria-label="Step 1 Analysis: Floorplan Analyser">
             <div className="step-card-body">
               <div className="step-badge-row">
                 <span className="step-num">STEP 1</span>
@@ -624,15 +612,9 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
               <span>Launch Analyser</span>
               <ArrowRight size={13} />
             </div>
-          </div>
+          </button>
 
-          <div
-            className="pipeline-step-card"
-            onClick={() => {
-              const activeProjId = projects[0]?.id;
-              openTool(activeProjId ? `/projects/${activeProjId}/spaces?tab=spaces` : '/projects');
-            }}
-          >
+          <button type="button" className="pipeline-step-card" onClick={() => { const activeProjId = projects[0]?.id; openTool(activeProjId ? `/projects/${activeProjId}/spaces?tab=spaces` : "/projects"); }} aria-label="Step 2 Staging: Stager">
             <div className="step-card-body">
               <div className="step-badge-row">
                 <span className="step-num">STEP 2</span>
@@ -645,15 +627,9 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
               <span>Launch Stager</span>
               <ArrowRight size={13} />
             </div>
-          </div>
+          </button>
 
-          <div
-            className="pipeline-step-card"
-            onClick={() => {
-              const activeProjId = projects[0]?.id;
-              openTool(activeProjId ? `/projects/${activeProjId}/spaces?pendingModule=1` : '/projects');
-            }}
-          >
+          <button type="button" className="pipeline-step-card" onClick={() => { const activeProjId = projects[0]?.id; openTool(activeProjId ? `/projects/${activeProjId}/spaces?pendingModule=1` : "/projects"); }} aria-label="Step 3 Modular: System 32 Walls">
             <div className="step-card-body">
               <div className="step-badge-row">
                 <span className="step-num">STEP 3</span>
@@ -666,15 +642,9 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
               <span>Configure Walls</span>
               <ArrowRight size={13} />
             </div>
-          </div>
+          </button>
 
-          <div
-            className="pipeline-step-card"
-            onClick={() => {
-              const activeProjId = projects[0]?.id;
-              openTool(activeProjId ? `/projects/${activeProjId}/3d` : '/projects');
-            }}
-          >
+          <button type="button" className="pipeline-step-card" onClick={() => { const activeProjId = projects[0]?.id; openTool(activeProjId ? `/projects/${activeProjId}/3d` : "/projects"); }} aria-label="Step 4 Visuals: 3D Photoreal Renders">
             <div className="step-card-body">
               <div className="step-badge-row">
                 <span className="step-num">STEP 4</span>
@@ -687,15 +657,9 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
               <span>Generate Renders</span>
               <ArrowRight size={13} />
             </div>
-          </div>
+          </button>
 
-          <div
-            className="pipeline-step-card"
-            onClick={() => {
-              const activeProjId = projects[0]?.id;
-              openTool(activeProjId ? `/projects/${activeProjId}/production` : '/projects');
-            }}
-          >
+          <button type="button" className="pipeline-step-card" onClick={() => { const activeProjId = projects[0]?.id; openTool(activeProjId ? `/projects/${activeProjId}/production` : "/projects"); }} aria-label="Step 5 Output: Production and Cutlists">
             <div className="step-card-body">
               <div className="step-badge-row">
                 <span className="step-num">STEP 5</span>
@@ -708,7 +672,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
               <span>Export Package</span>
               <ArrowRight size={13} />
             </div>
-          </div>
+          </button>
         </div>
       </section>
 
@@ -765,11 +729,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
             { img: '/reference-vault/020-ea872c640df6.png', tag: 'SACRED · MANDIR', title: 'Traditional Backlit CNC Jaali Mandir' },
             { img: '/reference-vault/028-a8f62ab3d392.png', tag: 'BATHROOM · VANITY', title: '1200mm Concealed Cistern Vanity Suite' },
           ].map((item) => (
-            <div
-              key={item.img}
-              className="vault-render-card"
-              onClick={() => openTool('/library')}
-            >
+            <button type="button" key={item.img} className="vault-render-card" onClick={() => openTool("/library")} aria-label={`Explore ${item.title} in reference library`}>
               <div className="vault-render-thumb">
                 <img
                   src={item.img}
@@ -782,7 +742,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
               <div className="vault-render-info">
                 <strong>{item.title}</strong>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </section>

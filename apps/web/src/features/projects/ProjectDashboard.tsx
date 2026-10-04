@@ -2,10 +2,10 @@ import {
   FolderKanban, MapPin, Home, Calendar, User,
   Plus, X, ChevronRight, RefreshCw,
   Building2, Clock, AlertCircle, Sparkles, CheckCircle2, ArrowUpRight,
-  Archive, ArchiveRestore, LayoutGrid, Table, Crown
+  Archive, ArchiveRestore, LayoutGrid, Table, Crown, Award
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import { bindPreparedModule } from '../../lib/prepared-module-plan';
@@ -165,17 +165,25 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
     }
   }
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   const update = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()} role="dialog" aria-modal="true" aria-labelledby="new-project-modal-title">
       <div className="modal-card">
         <div className="modal-header">
           <div>
             <small>New Project</small>
-            <h2>Start a New Design Project</h2>
+            <h2 id="new-project-modal-title">Start a New Design Project</h2>
           </div>
-          <button className="modal-close" onClick={onClose}><X size={18} /></button>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close dialog"><X size={18} /></button>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -352,6 +360,33 @@ function ProjectCard({ project, index, onClick, onArchive }: { project: Project;
           <span>{timeAgo(project.updated_at)}</span>
         </div>
         <div className="card-footer-actions">
+          {(() => {
+            const hasApproval = typeof window !== 'undefined' && Boolean(localStorage.getItem(`ultida_client_approval_${project.id}`));
+            return (
+              <Link
+                to={`/portal/${project.id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="card-action-btn"
+                title="Open Client Presentation & Digital Approval Portal"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '3px 8px',
+                  borderRadius: 6,
+                  border: hasApproval ? '1px solid #10b981' : '1px solid #c59c2d',
+                  background: hasApproval ? 'rgba(16, 185, 129, 0.1)' : 'rgba(197, 156, 45, 0.1)',
+                  color: hasApproval ? '#065f46' : '#92400e',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  textDecoration: 'none',
+                }}
+              >
+                <Award size={12} />
+                {hasApproval ? 'Signed' : 'Portal'}
+              </Link>
+            );
+          })()}
           <button className={`card-action-btn archive${project.project_status === 'archived' ? ' restore' : ''}`} onClick={(e) => { e.stopPropagation(); onArchive(); }}>
             {project.project_status === 'archived' ? <ArchiveRestore size={12} /> : <Archive size={12} />}
             {project.project_status === 'archived' ? 'Restore' : 'Trash'}
@@ -397,7 +432,7 @@ function ProjectScheduleTable({
             const roomEstimate = isVilla ? '5BHK Suites' : p.property_type?.toLowerCase() === 'penthouse' ? '4BHK Penthouse' : '3BHK Flat';
 
             return (
-              <tr key={p.id} className="schedule-row" onClick={() => onOpen(p)}>
+              <tr key={p.id} className="schedule-row" tabIndex={0} onClick={() => onOpen(p)} onKeyDown={(e) => { if (e.key === "Enter") onOpen(p); }} aria-label={`Open ${p.name}`}>
                 <td className="schedule-td">
                   <div className="schedule-proj-cell">
                     <div className="schedule-avatar" style={{ background: getThumbBg(idx) }}>
@@ -442,19 +477,32 @@ function ProjectScheduleTable({
                 </td>
                 <td className="schedule-td text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="schedule-actions">
+                    <Link
+                      to={`/portal/${p.id}`}
+                      className="card-action-btn"
+                      title="Client Presentation Portal"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        textDecoration: 'none',
+                        color: '#92400e',
+                        border: '1px solid #c59c2d',
+                        background: 'rgba(197, 156, 45, 0.08)',
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}
+                    >
+                      <Award size={12} /> Portal
+                    </Link>
                     <button
-                      className={`card-action-btn archive${p.project_status === 'archived' ? ' restore' : ''}`}
-                      onClick={() => onArchive(p)}
-                      title={p.project_status === 'archived' ? 'Restore Project' : 'Archive Project'}
+                      className={`card-action-btn archive${p.project_status === "archived" ? " restore" : ""}`} onClick={() => onArchive(p)} title={p.project_status === "archived" ? "Restore Project" : "Archive Project"} aria-label={p.project_status === "archived" ? "Restore Project" : "Archive Project"}
                     >
                       {p.project_status === 'archived' ? <ArchiveRestore size={12} /> : <Archive size={12} />}
                     </button>
-                    <button
-                      className="card-action-btn primary"
-                      onClick={() => onOpen(p)}
-                    >
-                      Open <ChevronRight size={12} />
-                    </button>
+                    <button type="button" className="card-action-btn primary" onClick={() => onOpen(p)} aria-label={`Open ${p.name}`}>Open <ChevronRight size={12} /></button>
                   </div>
                 </td>
               </tr>
@@ -986,7 +1034,7 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
 
       {archiveTarget && <div className="modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget && !updatingProjectId) setArchiveTarget(null); }}>
         <section className="modal-card project-archive-dialog" role="dialog" aria-modal="true" aria-labelledby="project-archive-title">
-          <div className="modal-header"><div><small>{archiveTarget.project_status === 'archived' ? 'Restore project' : 'Move project to trash'}</small><h2 id="project-archive-title">{archiveTarget.project_status === 'archived' ? 'Restore this project?' : 'Archive this project?'}</h2></div><button className="modal-close" onClick={() => setArchiveTarget(null)} disabled={!!updatingProjectId}><X size={18} /></button></div>
+          <div className="modal-header"><div><small>{archiveTarget.project_status === 'archived' ? 'Restore project' : 'Move project to trash'}</small><h2 id="project-archive-title">{archiveTarget.project_status === 'archived' ? 'Restore this project?' : 'Archive this project?'}</h2></div><button type="button" className="modal-close" onClick={() => setArchiveTarget(null)} disabled={!!updatingProjectId} aria-label="Close dialog"><X size={18} /></button></div>
           <p className="project-archive-copy">{archiveTarget.project_status === 'archived' ? `${archiveTarget.name} will return to your active portfolio as a draft. Its history, files, scene versions and approvals remain intact.` : `${archiveTarget.name} will leave your active dashboard but remain recoverable from the Archived filter. No project files, plans, scene versions, renders, or production records will be deleted.`}</p>
           <div className="project-archive-actions"><button type="button" className="btn-secondary" onClick={() => setArchiveTarget(null)} disabled={!!updatingProjectId}>Cancel</button><button type="button" className={archiveTarget.project_status === 'archived' ? 'btn-primary' : 'btn-danger'} onClick={() => void updateProjectArchive(archiveTarget)} disabled={!!updatingProjectId}>{updatingProjectId ? 'Saving…' : archiveTarget.project_status === 'archived' ? 'Restore project' : 'Move to trash'}</button></div>
         </section>

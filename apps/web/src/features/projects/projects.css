@@ -687,3 +687,17 @@
   align-items: center;
 }
 
+
+.filter-pill:focus-visible,
+.view-mode-btn:focus-visible,
+.card-action-btn:focus-visible,
+.projects-villa-btn:focus-visible,
+.projects-sample-btn:focus-visible,
+.modal-close:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.schedule-row:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}

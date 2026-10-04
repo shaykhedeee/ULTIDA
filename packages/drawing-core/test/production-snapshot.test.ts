@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildProductionSnapshot, generateFullProductionCutlist, generateProductionLabelsSvg, generateProductionNestingSvg, nestPanels2D } from '../src/index.ts';
+import { buildProductionSnapshot, generateFullProductionCutlist, generateProductionLabelsSvg, generateProductionNestingSvg, nestPanels2D, generateWoodWopMpr, generateBiesseCix, generateCncPanelDxf, createTarArchive, generateWoodWopBatch, generateBiesseBatch } from '../src/index.ts';
 
 test('production snapshot separates panel thickness from its visible height', () => {
   const snapshot = buildProductionSnapshot({
@@ -225,4 +225,82 @@ test('certification gating checks external catalog lookup and filters modules wh
   assert.equal(snapshot.parts.some((p) => p.moduleId === 'mod-proxy'), false);
   assert.ok(snapshot.excludedModules?.some((m) => m.moduleId === 'mod-proxy' && /cutlistSupported: false/.test(m.reason)));
 });
+
+test('generateWoodWopMpr produces compliant Homag/Weeke WoodWOP 4.0/5.0 programs', () => {
+  const mpr = generateWoodWopMpr({
+    id: 'test-gable-1',
+    name: 'Master Wardrobe Left Gable',
+    widthMm: 580,
+    lengthMm: 2400,
+    thicknessMm: 18,
+    panelType: 'gable_left',
+  });
+
+  assert.ok(mpr.includes('[H'));
+  assert.ok(mpr.includes('VERSION="4.0"'));
+  assert.ok(mpr.includes('L="2400.0"'));
+  assert.ok(mpr.includes('B="580.0"'));
+  assert.ok(mpr.includes('D="18.0"'));
+  assert.ok(mpr.includes('\\BO_V\\')); // vertical boring
+  assert.ok(mpr.includes('\\SAW\\')); // back groove saw operation
+  assert.ok(mpr.includes('[!]')); // standard WoodWOP EOF
+});
+
+test('generateBiesseCix produces valid BiesseWorks CID3 macro scripts', () => {
+  const cix = generateBiesseCix({
+    id: 'test-shutter-1',
+    name: 'Master Shutter Door',
+    widthMm: 450,
+    lengthMm: 2100,
+    thicknessMm: 18,
+    panelType: 'shutter',
+  });
+
+  assert.ok(cix.includes('BEGIN ID CID3'));
+  assert.ok(cix.includes('NAME=PAN'));
+  assert.ok(cix.includes('PARAM,LNX=450.0'));
+  assert.ok(cix.includes('PARAM,LNY=2100.0'));
+  assert.ok(cix.includes('PARAM,LNZ=18.0'));
+  assert.ok(cix.includes('NAME=BORE')); // 35mm hinge cup bore
+  assert.ok(cix.includes('END ID CID3'));
+});
+
+test('generateWoodWopBatch, generateBiesseBatch and createTarArchive package all panels for machine center', () => {
+  const panels = [
+    {
+      id: 'gable-l',
+      name: 'Left Gable',
+      widthMm: 560,
+      lengthMm: 2100,
+      thicknessMm: 18,
+      panelType: 'gable_left',
+    },
+    {
+      id: 'shutter-1',
+      name: 'Wardrobe Shutter',
+      widthMm: 450,
+      lengthMm: 2100,
+      thicknessMm: 18,
+      panelType: 'shutter',
+    },
+  ];
+
+  const mprBatch = generateWoodWopBatch(panels);
+  assert.equal(mprBatch.length, 2);
+  assert.ok(mprBatch[0].name.endsWith('.mpr'));
+  assert.ok(typeof mprBatch[0].content === 'string' && mprBatch[0].content.includes('VERSION="4.0"'));
+
+  const cixBatch = generateBiesseBatch(panels);
+  assert.equal(cixBatch.length, 2);
+  assert.ok(cixBatch[0].name.endsWith('.cix'));
+  assert.ok(typeof cixBatch[0].content === 'string' && cixBatch[0].content.includes('BEGIN ID CID3'));
+
+  const tarArchive = createTarArchive(mprBatch);
+  assert.ok(tarArchive instanceof Uint8Array);
+  assert.ok(tarArchive.byteLength > 1024);
+  // Check USTAR header magic at offset 257
+  const magic = new TextDecoder().decode(tarArchive.subarray(257, 262));
+  assert.equal(magic, 'ustar');
+});
+
 

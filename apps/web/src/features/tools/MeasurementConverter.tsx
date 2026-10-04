@@ -582,26 +582,30 @@ export function MeasurementConverter() {
               { label: 'Standard Lintel & Door Height', metric: '2100 mm', imperial: `6' 10.7\"` },
               { label: 'Standard Residential Ceiling Height', metric: '2700 mm', imperial: `8' 10.3\"` },
             ].map((card, i) => (
-              <div
+              <button
+                type="button"
                 key={i}
                 onClick={() => {
                   setValue(card.metric.replace(/[^0-9]/g, ''));
                   setFrom('mm');
                   setTo('ft-in');
                 }}
+                aria-label={`Load standard benchmark: ${card.label} (${card.metric} = ${card.imperial})`}
                 style={{
                   background: '#fff',
                   border: '1px solid var(--line)',
                   borderRadius: 10,
                   padding: 14,
                   cursor: 'pointer',
+                  textAlign: 'left',
+                  fontFamily: 'inherit',
                   transition: 'all 0.15s ease',
                 }}
               >
                 <span style={{ fontSize: 11, color: '#78716c', fontWeight: 700 }}>{card.label}</span>
                 <strong style={{ display: 'block', fontSize: 16, color: '#1c1917', margin: '4px 0 2px' }}>{card.metric}</strong>
-                <small style={{ color: '#a88220', fontSize: 11, fontWeight: 700 }}>= {card.imperial}</small>
-              </div>
+                <small style={{ color: "#a88220", fontSize: 11, fontWeight: 700 }}>= {card.imperial}</small>
+              </button>
             ))}
           </div>
 

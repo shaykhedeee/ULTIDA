@@ -1390,20 +1390,8 @@ export function optimizeMultiSheetNesting(
   };
 }
 
-export type CncPanelSpec = {
-  id?: string;
-  name?: string;
-  widthMm: number;
-  lengthMm: number;
-  thicknessMm: number;
-  panelType: 'gable_left' | 'gable_right' | 'shutter' | 'top_bottom_deck' | 'shelf' | 'back' | string;
-  operations?: {
-    lineBoring?: boolean;
-    hingeBoring?: boolean;
-    minifix?: boolean;
-    backGroove?: boolean;
-  };
-};
+import type { CncPanelSpec } from './cnc-exporters.js';
+export * from './cnc-exporters.js';
 
 export function generateCncPanelDxf(panel: CncPanelSpec): string {
   const entities: string[] = [];
@@ -2103,3 +2091,5 @@ export function generateWallElevationSvg(scene: SceneV1, wallId: string, options
 export { generateSketchUpRubyScript } from './sketchup-exporter.js';
 export { generateArchitecturalShopSheetSvg, type ShopDrawingOptions } from './shop-drawing-renderer.js';
 export * from './drawing-cutlist-analyzer.js';
+export * from './cnc-exporters.js';
+

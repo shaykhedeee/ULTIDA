@@ -18,6 +18,7 @@ import {
   Cpu,
   Eye,
   Check,
+  Compass,
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -25,9 +26,10 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import InteractiveRenderViewer, { type MatchedObject } from '../../components/visual/InteractiveRenderViewer';
+import { PanoramaViewer360 } from '../../components/visual/PanoramaViewer360';
 import './visualize-studio.css';
 
-type VisualizeTab = 'review' | 'render' | 'laminate' | 'interactive' | 'compare';
+type VisualizeTab = 'review' | 'render' | 'laminate' | 'interactive' | 'compare' | 'panorama';
 
 type Props = {
   review: ReactNode;
@@ -205,6 +207,7 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
 
   const tabs = [
     { id: 'review' as const, label: '3D review', icon: Box, help: 'Check the saved scene and measurements' },
+    { id: 'panorama' as const, label: '360° VR', icon: Compass, help: 'Interactive 360° spherical walkthrough' },
     { id: 'render' as const, label: 'AI render', icon: Image, help: 'Generate a presentation image from the approved scene' },
     { id: 'laminate' as const, label: 'Finish revision', icon: Palette, help: 'Revise a named component finish' },
   ];
@@ -762,6 +765,19 @@ export function VisualizeStudio({ review, render, laminate, sceneReady, sceneApp
             <CheckCircle2 size={14} /> Synchronize Active Scheme
           </button>
         </div>
+      </div>
+    ),
+    panorama: (
+      <div style={{ background: '#1c1917', borderRadius: 14, padding: '20px 24px', border: '1px solid #332d29', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div>
+          <h3 style={{ margin: '0 0 6px 0', fontSize: 20, fontWeight: 800, color: '#f5f5f4' }}>
+            Interactive 360° Spherical VR Walkthrough
+          </h3>
+          <p style={{ margin: 0, fontSize: 13, color: '#a8a29e' }}>
+            Immerse yourself inside the space. Click and drag to orbit, zoom with mouse wheel, or toggle auto-rotation for a presentation walkthrough.
+          </p>
+        </div>
+        <PanoramaViewer360 />
       </div>
     ),
   };

@@ -110,6 +110,20 @@ export function Shell({
     window.localStorage.setItem('ultida-sidebar-collapsed', String(collapsed));
   }, [collapsed]);
 
+  // Close mobile drawer on Escape key
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMobileOpen(false); // esc
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileOpen]);
+
+
+
   return (
     <div className={`ultida-shell${collapsed ? ' sidebar-collapsed' : ''}`}>
       {/* Mobile Drawer Backdrop Overlay */}
@@ -262,6 +276,7 @@ export function Shell({
             className="mobile-nav-trigger"
             onClick={() => setMobileOpen((m) => !m)}
             aria-label="Open menu"
+            aria-expanded={mobileOpen}
           >
             <Menu size={18} />
           </button>
@@ -308,20 +323,9 @@ export function Shell({
                 <button
                   type="button"
                   onClick={() => navigate(`/projects/${projectId}/renders`)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    padding: '5px 11px',
-                    background: '#fff',
-                    color: '#92400e',
-                    border: '1px solid #c59c2d',
-                    borderRadius: 7,
-                    fontSize: '12px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
+                  className="command-bar-btn outline"
                   title="Client Render Showcase & Attached References"
+                  aria-label="Client Renders"
                 >
                   <Eye size={13} />
                   <span>Client Renders</span>
@@ -329,21 +333,9 @@ export function Shell({
                 <button
                   type="button"
                   onClick={() => navigate(`/projects/${projectId}/3d?tab=render`)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '5px 12px',
-                    background: 'linear-gradient(135deg, #c59c2d, #a88220)',
-                    color: '#1c1917',
-                    border: 0,
-                    borderRadius: 7,
-                    fontSize: '12px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 8px rgba(197, 156, 45, 0.3)',
-                  }}
+                  className="command-bar-btn gold"
                   title="Jump directly to 3D Scene & AI Render"
+                  aria-label="3D and AI Render"
                 >
                   <Sparkles size={13} />
                   <span>3D &amp; AI Render</span>

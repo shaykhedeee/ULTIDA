@@ -141,6 +141,9 @@
   gap: 12px;
 }
 .pipeline-step-card {
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
   background: rgba(255, 255, 255, 0.04);
   padding: 16px;
   border-radius: 12px;
@@ -257,6 +260,12 @@
   gap: 12px;
 }
 .vault-render-card {
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
   background: #231e19;
   border-radius: 10px;
   overflow: hidden;

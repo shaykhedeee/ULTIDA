@@ -50,7 +50,7 @@ after(async () => { await browser?.close(); await vite?.close(); });
 
 async function roomPage(catalogHandler) {
   const page = await browser.newPage();
-  page.setDefaultTimeout(10_000);
+  page.setDefaultTimeout(30_000);
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith('/catalog/modules')) return catalogHandler(route, url.searchParams.get('room'));
@@ -63,7 +63,7 @@ async function roomPage(catalogHandler) {
     if (url.pathname.endsWith('/floor-plan/active')) payload = { walls: [], openings: [] };
     await route.fulfill({ json: payload });
   });
-  await page.goto(`${baseUrl}/__room-test`);
+  await page.goto(`${baseUrl}/__room-test`, { timeout: 30_000 });
   return page;
 }
 

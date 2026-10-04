@@ -518,3 +518,48 @@ export const InterFloorVoidSchema = z.object({
 });
 export type InterFloorVoid = z.infer<typeof InterFloorVoidSchema>;
 
+export const DEFAULT_VILLA_STOREYS: StoreyLevel[] = [
+  { id: 'level-ground', name: 'Ground Floor (Datum 0.0m)', levelIndex: 0, elevationMm: 0, ceilingHeightMm: 3000, slabThicknessMm: 150, isDefault: true },
+  { id: 'level-first', name: 'First Floor (+3.3m)', levelIndex: 1, elevationMm: 3300, ceilingHeightMm: 3000, slabThicknessMm: 150 },
+  { id: 'level-terrace', name: 'Terrace Deck (+6.6m)', levelIndex: 2, elevationMm: 6600, ceilingHeightMm: 2800, slabThicknessMm: 150 },
+];
+
+export const DEFAULT_VILLA_VOIDS: InterFloorVoid[] = [
+  {
+    id: 'void-living-mezzanine',
+    name: 'Double-Height Living Atrium',
+    type: 'double_height_void',
+    upperLevelId: 'level-first',
+    lowerLevelId: 'level-ground',
+    polygon: [
+      { xMm: 800, yMm: 800 },
+      { xMm: 3200, yMm: 800 },
+      { xMm: 3200, yMm: 2400 },
+      { xMm: 800, yMm: 2400 },
+    ],
+    balustradeType: 'tempered_glass',
+  },
+  {
+    id: 'void-grand-stairwell',
+    name: 'Main Villa Staircase Void',
+    type: 'stairwell_cutout',
+    upperLevelId: 'level-first',
+    lowerLevelId: 'level-ground',
+    polygon: [
+      { xMm: 3250, yMm: 800 },
+      { xMm: 4200, yMm: 800 },
+      { xMm: 4200, yMm: 2400 },
+      { xMm: 3250, yMm: 2400 },
+    ],
+    balustradeType: 'brass_spindle',
+    stairFlightDetails: {
+      treadRunMm: 280,
+      riserHeightMm: 165,
+      stepCount: 18,
+      flightWidthMm: 1100,
+      handrailType: 'brass_cap_glass',
+    },
+  },
+];
+
+

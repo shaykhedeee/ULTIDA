@@ -483,6 +483,53 @@ small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform
   box-shadow: var(--shadow-sm);
 }
 
+.command-bar-primary-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.command-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  font-family: inherit;
+}
+.command-bar-btn.outline {
+  background: #ffffff;
+  color: #92400e;
+  border: 1px solid #c59c2d;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.command-bar-btn.outline:hover {
+  background: rgba(197, 156, 45, 0.08);
+  border-color: #a88220;
+  color: #78350f;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(197, 156, 45, 0.18);
+}
+.command-bar-btn.gold {
+  background: linear-gradient(135deg, #c59c2d, #a88220);
+  color: #1c1917;
+  border: 0;
+  box-shadow: 0 2px 8px rgba(197, 156, 45, 0.3);
+}
+.command-bar-btn.gold:hover {
+  background: linear-gradient(135deg, #d4ab37, #b89128);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(197, 156, 45, 0.45);
+}
+.command-bar-btn:focus-visible {
+  outline: 2px solid var(--gold-light);
+  outline-offset: 2px;
+}
+
+
 /* Content area */
 .shell-content {
   flex: 1;

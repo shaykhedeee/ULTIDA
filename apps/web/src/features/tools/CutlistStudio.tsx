@@ -42,6 +42,7 @@ export function CutlistStudio() {
   const [statusMessage, setStatusMessage] = useState('Cutlist & Nesting Studio ready. Plywood and laminate wastage optimized under 5%.');
   const [zoomLevel, setZoomLevel] = useState<number>(1);
 
+
   // Sliding Door Deduction State
   const [slidingModalOpen, setSlidingModalOpen] = useState(false);
   const [slidingOpeningW, setSlidingOpeningW] = useState(1800);
@@ -690,8 +691,7 @@ export function CutlistStudio() {
               <button
                 type="button"
                 className="cs-btn"
-                onClick={() => setZoomLevel((z) => Math.max(0.6, z - 0.15))}
-                title="Zoom out"
+                onClick={() => setZoomLevel((z) => Math.max(0.6, z - 0.15))} title="Zoom out" aria-label="Zoom out"
                 style={{ padding: '4px 8px' }}
               >
                 <ZoomOut size={13} />
@@ -699,8 +699,7 @@ export function CutlistStudio() {
               <button
                 type="button"
                 className="cs-btn"
-                onClick={() => setZoomLevel(1)}
-                title="Reset zoom"
+                onClick={() => setZoomLevel(1)} title="Reset zoom" aria-label="Reset zoom"
                 style={{ padding: '4px 8px' }}
               >
                 <RotateCcw size={13} />
@@ -708,8 +707,7 @@ export function CutlistStudio() {
               <button
                 type="button"
                 className="cs-btn"
-                onClick={() => setZoomLevel((z) => Math.min(2.0, z + 0.15))}
-                title="Zoom in"
+                onClick={() => setZoomLevel((z) => Math.min(2.0, z + 0.15))} title="Zoom in" aria-label="Zoom in"
                 style={{ padding: '4px 8px' }}
               >
                 <ZoomIn size={13} />
@@ -966,6 +964,9 @@ export function CutlistStudio() {
             backdropFilter: 'blur(4px)',
           }}
           onClick={(e) => e.target === e.currentTarget && setUploadModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="paste-spec-modal-title"
         >
           <div
             style={{
@@ -977,9 +978,7 @@ export function CutlistStudio() {
               boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
             }}
           >
-            <h3 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 800 }}>
-              Paste 2D Elevation &amp; Section Drawing Spec
-            </h3>
+            <h3 id="paste-spec-modal-title" style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 800 }}>Paste 2D Elevation &amp; Section Drawing Spec</h3>
             <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 16px' }}>
               Paste JSON or CSV panel schedules describing the internal carcass partitions and external shutters of your modules. The engine will automatically match laminates and optimize nesting with &lt; 5% scrap.
             </p>
@@ -1019,6 +1018,381 @@ export function CutlistStudio() {
           </div>
         </div>
       )}
+    
+      {/* ─── Sliding Door Panel Deduction Modal ─── */}
+      {slidingModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.65)',
+            zIndex: 1000,
+            display: 'grid',
+            placeItems: 'center',
+            padding: 20,
+            backdropFilter: 'blur(4px)',
+            overflowY: 'auto',
+          }}
+          onClick={(e) => e.target === e.currentTarget && setSlidingModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sliding-modal-title"
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              padding: 24,
+              maxWidth: 720,
+              width: '100%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#9333ea' }}>
+                  Hardware Track &amp; Profile Deduction Engine
+                </span>
+                <h3 id="sliding-modal-title" style={{ margin: '4px 0 0', fontSize: 20, fontWeight: 900, color: '#1c1917' }}>
+                  Sliding Wardrobe Shutter Calculator
+                </h3>
+              </div>
+              <button
+                type="button"
+                className="cs-btn"
+                onClick={() => setSlidingModalOpen(false)}
+                aria-label="Close sliding door dialog"
+                style={{ padding: '4px 10px' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Presets */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 700, color: '#57534e', display: 'block', marginBottom: 6 }}>
+                Select Hardware System Preset:
+              </label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {SLIDING_HARDWARE_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setSlidingPresetId(p.id);
+                      setSlidingCustomDh(p.defaultHeightDeductionMm);
+                      setSlidingCustomOverlap(p.defaultOverlapMm);
+                      setSlidingIsProfile(p.hasSurroundingFrame);
+                      setSlidingSideAllowance(p.sideProfileAllowanceMm);
+                      setSlidingTopAllowance(p.topProfileAllowanceMm);
+                      setSlidingBottomAllowance(p.bottomProfileAllowanceMm);
+                    }}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: 6,
+                      fontSize: 11.5,
+                      fontWeight: slidingPresetId === p.id ? 800 : 600,
+                      border: slidingPresetId === p.id ? '1px solid #9333ea' : '1px solid #e7e5e4',
+                      background: slidingPresetId === p.id ? '#f3e8ff' : '#fafaf9',
+                      color: slidingPresetId === p.id ? '#6b21a8' : '#44403c',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {p.name.split(' ')[0]} {p.name.split(' ')[1]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Inputs Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#57534e', display: 'block', marginBottom: 4 }}>
+                  Clear Opening Width (mm)
+                </label>
+                <input
+                  type="number"
+                  value={slidingOpeningW}
+                  onChange={(e) => setSlidingOpeningW(Math.max(600, Number(e.target.value)))}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #d6d3d1', fontSize: 13, fontWeight: 700 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#57534e', display: 'block', marginBottom: 4 }}>
+                  Clear Opening Height (mm)
+                </label>
+                <input
+                  type="number"
+                  value={slidingOpeningH}
+                  onChange={(e) => setSlidingOpeningH(Math.max(800, Number(e.target.value)))}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #d6d3d1', fontSize: 13, fontWeight: 700 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#57534e', display: 'block', marginBottom: 4 }}>
+                  Number of Shutters
+                </label>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {[2, 3, 4].map((cnt) => (
+                    <button
+                      key={cnt}
+                      type="button"
+                      onClick={() => setSlidingDoorCount(cnt)}
+                      style={{
+                        flex: 1,
+                        padding: '7px 0',
+                        borderRadius: 6,
+                        border: slidingDoorCount === cnt ? '1px solid #9333ea' : '1px solid #d6d3d1',
+                        background: slidingDoorCount === cnt ? '#9333ea' : '#fff',
+                        color: slidingDoorCount === cnt ? '#fff' : '#1c1917',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {cnt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Calculations Result Box */}
+            <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                <div>
+                  <span style={{ fontSize: 11, color: '#6b21a8', fontWeight: 700 }}>Door Overlap</span>
+                  <strong style={{ display: 'block', fontSize: 16, color: '#1c1917', marginTop: 2 }}>{activeSlidingResult.overlapMm} mm</strong>
+                  <span style={{ fontSize: 10, color: '#7e22ce' }}>({slidingDoorCount - 1} overlap{slidingDoorCount > 2 ? 's' : ''})</span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 11, color: '#6b21a8', fontWeight: 700 }}>Height Deduction</span>
+                  <strong style={{ display: 'block', fontSize: 16, color: '#1c1917', marginTop: 2 }}>-{activeSlidingResult.heightDeductionMm} mm</strong>
+                  <span style={{ fontSize: 10, color: '#7e22ce' }}>Top &amp; bottom tracks</span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 11, color: '#6b21a8', fontWeight: 700 }}>Finished Shutter Size</span>
+                  <strong style={{ display: 'block', fontSize: 16, color: '#9333ea', marginTop: 2 }}>
+                    {activeSlidingResult.finishedShutterWidthMm} × {activeSlidingResult.finishedShutterHeightMm}
+                  </strong>
+                  <span style={{ fontSize: 10, color: '#7e22ce' }}>mm (× {slidingDoorCount} shutters)</span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 11, color: '#6b21a8', fontWeight: 700 }}>Weight / Door</span>
+                  <strong style={{ display: 'block', fontSize: 16, color: '#1c1917', marginTop: 2 }}>
+                    {activeSlidingResult.weightPerDoorKg} kg
+                  </strong>
+                  <span style={{ fontSize: 10, color: activeSlidingResult.weightCapacityStatus === 'safe' ? '#15803d' : '#b45309', fontWeight: 700 }}>
+                    {activeSlidingResult.weightCapacityStatus === 'safe' ? '✓ Within safe limits' : '⚠ Heavy load'}
+                  </span>
+                </div>
+              </div>
+
+              {activeSlidingResult.isProfileFrame && (
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #d8b4fe', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                  <span style={{ color: '#581c87', fontWeight: 700 }}>
+                    4-Sided Aluminium Profile Infill Panel Size:
+                  </span>
+                  <strong style={{ color: '#6b21a8', fontSize: 14 }}>
+                    {activeSlidingResult.infillWidthMm} mm (W) × {activeSlidingResult.infillHeightMm} mm (H)
+                  </strong>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                className="cs-btn"
+                onClick={() => setSlidingModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="cs-btn primary"
+                onClick={() => {
+                  setParts((prev) => [...prev, ...activeSlidingResult.cutlistParts]);
+                  setStatusMessage(`Added ${activeSlidingResult.doorCount} calculated sliding shutter panels to project cutlist.`);
+                  setSlidingModalOpen(false);
+                }}
+                style={{ background: 'linear-gradient(135deg, #9333ea, #7e22ce)', borderColor: '#7e22ce' }}
+              >
+                Add {activeSlidingResult.doorCount} Shutters to Cutlist →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Workshop Part Sticker & Label Printer Modal ─── */}
+      {stickerModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.65)',
+            zIndex: 1000,
+            display: 'grid',
+            placeItems: 'center',
+            padding: 20,
+            backdropFilter: 'blur(4px)',
+            overflowY: 'auto',
+          }}
+          onClick={(e) => e.target === e.currentTarget && setStickerModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sticker-modal-title"
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              padding: 24,
+              maxWidth: 960,
+              width: '100%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, borderBottom: '1px solid var(--line)', paddingBottom: 14 }}>
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#059669' }}>
+                  Factory CAM &amp; Part Identification
+                </span>
+                <h3 id="sticker-modal-title" style={{ margin: '4px 0 0', fontSize: 20, fontWeight: 900, color: '#1c1917' }}>
+                  Workshop Part Sticker &amp; Barcode Labels ({parts.length} Parts)
+                </h3>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ display: 'flex', background: '#f5f5f4', padding: 3, borderRadius: 8, border: '1px solid #e7e5e4' }}>
+                  <button
+                    type="button"
+                    onClick={() => setStickerLayoutMode('a4_grid')}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: 11.5,
+                      fontWeight: stickerLayoutMode === 'a4_grid' ? 800 : 600,
+                      borderRadius: 6,
+                      border: 0,
+                      background: stickerLayoutMode === 'a4_grid' ? '#fff' : 'transparent',
+                      color: stickerLayoutMode === 'a4_grid' ? '#059669' : '#57534e',
+                      cursor: 'pointer',
+                      boxShadow: stickerLayoutMode === 'a4_grid' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    }}
+                  >
+                    A4 Grid (3×8)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStickerLayoutMode('thermal')}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: 11.5,
+                      fontWeight: stickerLayoutMode === 'thermal' ? 800 : 600,
+                      borderRadius: 6,
+                      border: 0,
+                      background: stickerLayoutMode === 'thermal' ? '#fff' : 'transparent',
+                      color: stickerLayoutMode === 'thermal' ? '#059669' : '#57534e',
+                      cursor: 'pointer',
+                      boxShadow: stickerLayoutMode === 'thermal' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    }}
+                  >
+                    Thermal (100×50mm)
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="cs-btn primary"
+                  onClick={() => window.print()}
+                  style={{ background: 'linear-gradient(135deg, #059669, #047857)', borderColor: '#047857' }}
+                >
+                  <Printer size={13} /> Print Stickers
+                </button>
+                <button
+                  type="button"
+                  className="cs-btn"
+                  onClick={() => setStickerModalOpen(false)}
+                  aria-label="Close sticker dialog"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Printable Stickers Container */}
+            <div
+              className="cs-printable-stickers"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: stickerLayoutMode === 'a4_grid' ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
+                gap: 12,
+              }}
+            >
+              {parts.map((p, idx) => (
+                <div
+                  key={p.id || idx}
+                  style={{
+                    border: '1.5px solid #d6d3d1',
+                    borderRadius: 8,
+                    padding: 10,
+                    background: '#fff',
+                    fontFamily: 'Inter, sans-serif',
+                    position: 'relative',
+                    pageBreakInside: 'avoid',
+                  }}
+                >
+                  {/* Top Bar: Part ID & Module */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e7e5e4', paddingBottom: 4, marginBottom: 6 }}>
+                    <strong style={{ fontSize: 13, color: '#047857', letterSpacing: '0.04em' }}>
+                      {p.partInstanceId || `P-${idx + 1}`}
+                    </strong>
+                    <span style={{ fontSize: 9.5, color: '#78716c', fontWeight: 600, textTransform: 'uppercase' }}>
+                      {spaceTitle || 'ULTIDA Unit'}
+                    </span>
+                  </div>
+
+                  {/* Part Title & Finished Dimensions */}
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: '#1c1917', lineHeight: 1.2 }}>
+                      {p.name}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 900, color: '#0f172a', marginTop: 2 }}>
+                      {p.lengthMm} × {p.widthMm} <span style={{ fontSize: 11, color: '#64748b' }}>({p.thicknessMm}mm)</span>
+                    </div>
+                  </div>
+
+                  {/* Material & Laminate */}
+                  <div style={{ fontSize: 10.5, color: '#475569', marginBottom: 6, lineHeight: 1.3 }}>
+                    <div><strong>Mat:</strong> {p.materialName || p.materialCode}</div>
+                    <div><strong>Face:</strong> {p.isExternal ? p.externalLaminateCode : p.internalLinerCode}</div>
+                  </div>
+
+                  {/* Edge Banding Schedule Table */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, background: '#f8fafc', padding: 4, borderRadius: 4, border: '1px solid #e2e8f0', fontSize: 9.5, textAlign: 'center' }}>
+                    <div><span style={{ color: '#94a3b8' }}>L1:</span> <strong>{p.edgeBanding?.l1 ?? 'None'}</strong></div>
+                    <div><span style={{ color: '#94a3b8' }}>L2:</span> <strong>{p.edgeBanding?.l2 ?? 'None'}</strong></div>
+                    <div><span style={{ color: '#94a3b8' }}>W1:</span> <strong>{p.edgeBanding?.w1 ?? 'None'}</strong></div>
+                    <div><span style={{ color: '#94a3b8' }}>W2:</span> <strong>{p.edgeBanding?.w2 ?? 'None'}</strong></div>
+                  </div>
+
+                  {/* Grain Direction & Barcode representation */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingTop: 4, borderTop: '1px dashed #e2e8f0', fontSize: 9.5, color: '#64748b' }}>
+                    <span>Grain: <strong>{p.grainDirection || 'Length'}</strong></span>
+                    <span style={{ fontFamily: 'monospace', letterSpacing: 1.5, fontWeight: 700, color: '#0f172a' }}>
+                      *ULT-${p.partInstanceId || idx + 1}*
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
