@@ -835,6 +835,9 @@ export function ProjectDashboard({ sessionEmail, orgName }: { sessionEmail?: str
   });
 
   function openProject(project: Project) {
+    try {
+      window.localStorage.setItem('ultida.active-project-id', project.id);
+    } catch {}
     if (placingPreparedModule) {
       if (!bindPreparedModule(window.localStorage, project.id)) { setError('The prepared unit is missing or invalid. Return to the module planner and prepare it again.'); return; }
       navigate(`/projects/${project.id}/spaces?pendingModule=1`);

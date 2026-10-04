@@ -179,6 +179,17 @@ const CURATED_VAULT_REFERENCES = [
 ];
 
 const DEFAULT_PROJECT_MATERIALS: Material[] = [
+  // ─── 1.0MM DECORATIVE LAMINATES (IS:2046 GRADE HGS STANDARDS) ───
+  { id: 'mat-wdl-1mm-teak', name: 'Woodline 1.0mm Quartered Burma Teak Textured', code: 'WDL-1MM-TEAK', category: 'laminate', finish: 'Textured Natural Woodgrain (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Woodline', availability: 'in_stock', metadata: { colorHex: '#8B5A2B', laminateFace: '1.0mm Face' } },
+  { id: 'mat-wdl-1mm-walnut', name: 'Woodline 1.0mm Fluted American Walnut Suede', code: 'WDL-1MM-WLN', category: 'laminate', finish: 'Fluted Architectural Suede (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Woodline', availability: 'in_stock', metadata: { colorHex: '#523A28', laminateFace: '1.0mm Face' } },
+  { id: 'mat-mer-1mm-white', name: 'Merino 1.0mm Glacier White Suede Matt (IS:2046 HGS)', code: 'MER-1MM-WHT', category: 'laminate', finish: 'Suede Finish Pure Matt (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Merino', availability: 'in_stock', metadata: { colorHex: '#F8F9FA', laminateFace: '1.0mm Face' } },
+  { id: 'mat-mer-1mm-oak', name: 'Merino 1.0mm Smoked Highland Oak Synchronized', code: 'MER-1MM-OAK', category: 'laminate', finish: 'Synchronized Natural Grain (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Merino', availability: 'in_stock', metadata: { colorHex: '#6D533D', laminateFace: '1.0mm Face' } },
+  { id: 'mat-cen-1mm-charcoal', name: 'CenturyLaminates 1.0mm Velvet Charcoal Super-Matte', code: 'CEN-1MM-CHRC', category: 'laminate', finish: 'Anti-Fingerprint Velvet Matte (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'CenturyLaminates', availability: 'in_stock', metadata: { colorHex: '#25262B', laminateFace: '1.0mm Face' } },
+  { id: 'mat-cen-1mm-silk', name: 'CenturyLaminates 1.0mm Raw Silk Warm Beige', code: 'CEN-1MM-SLK', category: 'laminate', finish: 'Silk Textured Matte (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'CenturyLaminates', availability: 'in_stock', metadata: { colorHex: '#DDD5C7', laminateFace: '1.0mm Face' } },
+  { id: 'mat-grn-1mm-brass', name: 'Greenlam 1.0mm Brushed Imperial Brass Metallic', code: 'GRN-1MM-BRS', category: 'laminate', finish: 'Brushed Metallic Luster (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Greenlam', availability: 'in_stock', metadata: { colorHex: '#C5A059', laminateFace: '1.0mm Face' } },
+  { id: 'mat-roy-1mm-ash', name: 'Royale Touche 1.0mm Synchronized Nordic Pale Ash', code: 'ROY-1MM-ASH', category: 'laminate', finish: 'Synchronized Pale Woodgrain (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#C4B5A5', laminateFace: '1.0mm Face' } },
+  { id: 'mat-mer-08-liner', name: 'Merino 0.8mm Internal Off-White Balancing Liner Sheet', code: 'MER-08-LINER', category: 'laminate', finish: 'Internal Balancing Liner (0.8mm)', thickness_mm: 0.8, edge_band_status: 'required', edge_band_thickness_mm: 0.8, supplier: 'Merino', availability: 'in_stock', metadata: { colorHex: '#F0EFEA', laminateFace: '0.8mm Liner' } },
+
   // ─── HIGH-GLOSS & ACRYLIC ───
   { id: 'mat-gloss-1', name: 'Mirror High-Gloss Pure White Acrylic', code: 'ROY-HG-WHT', category: 'laminate', finish: 'High-Gloss Acrylic Sheen (1.2mm)', thickness_mm: 1.2, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#FFFFFF' } },
   { id: 'mat-gloss-2', name: 'Ultra High-Gloss Cashmere Acrylic', code: 'ROY-HG-CSH', category: 'laminate', finish: 'Ultra-Gloss Acrylic (1.0mm)', thickness_mm: 1.0, edge_band_status: 'required', edge_band_thickness_mm: 2, supplier: 'Royale Touche', availability: 'in_stock', metadata: { colorHex: '#E3DAC9' } },
@@ -325,22 +336,24 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     setStatus('Moodboard arranged into a clean grid. Select any item to refine its position.');
   }
 
-  function placeModuleInProjectWallPicker(mod: CatalogModule) {
+  function placeModuleInProjectWallPicker(mod: CatalogModule, targetRoomId?: string) {
+    const targetProjId = activeProjectId || window.localStorage.getItem('ultida.active-project-id') || 'proj-villa-3bhk';
+    try {
+      window.localStorage.setItem('ultida.active-project-id', targetProjId);
+    } catch {}
     const prepared = {
       schema: 'ultida.module-plan.v1',
+      projectId: targetProjId,
       templateId: mod.id,
       family: mod.family,
       name: mod.name,
       dimensionsMm: { width: mod.widthMm, depth: mod.depthMm, height: mod.heightMm },
       wallWidthMm: 3000,
       clearanceMm: 900,
+      roomId: targetRoomId,
     };
     window.localStorage.setItem('ultida.pendingModulePlan.v1', JSON.stringify(prepared));
-    if (activeProjectId) {
-      navigate(`/projects/${activeProjectId}/spaces?pendingModule=1`);
-    } else {
-      navigate('/projects?placeModule=1');
-    }
+    navigate(`/projects/${targetProjId}/spaces?pendingModule=1`);
   }
 
   useEffect(() => {
@@ -422,6 +435,9 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       const matchesSearch = !search || `${item.name} ${item.code} ${item.category} ${item.finish ?? ''} ${item.supplier ?? ''}`.toLowerCase().includes(search);
       if (!matchesSearch) return false;
       if (materialCategory === 'all') return true;
+      if (materialCategory === '1mm_laminate') {
+        return (item.thickness_mm === 1.0 || /1\.0\s*mm|1mm/i.test(`${item.name} ${item.finish}`)) && (item.category === 'laminate' || !item.category);
+      }
       if (materialCategory === 'glossy') {
         return /gloss|acrylic|polygloss|mirror/i.test(`${item.name} ${item.finish} ${item.code}`);
       }
@@ -971,26 +987,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                             </button>
                             {!module.tags.includes('scene-asset') && <button
                               type="button"
-                              onClick={() => {
-                                try {
-                                  window.localStorage.setItem('ultida.pendingModulePlan.v1', JSON.stringify({
-                                    schema: 'ultida.module-plan.v1',
-                                    templateId: module.id,
-                                    family: module.family,
-                                    name: module.name,
-                                    dimensionsMm: { width: module.widthMm, depth: module.depthMm, height: module.heightMm },
-                                    wallWidthMm: module.widthMm,
-                                    clearanceMm: 50,
-                                  }));
-                                } catch {
-                                  // ignore
-                                }
-                                if (projectId) {
-                                  navigate(`/projects/${projectId}/spaces?pendingModule=1`);
-                                } else {
-                                  navigate('/projects');
-                                }
-                              }}
+                              onClick={() => placeModuleInProjectWallPicker(module)}
                               style={{
                                 border: '1.5px solid #15803d',
                                 background: 'linear-gradient(135deg, #16a34a, #15803d)',
@@ -1403,6 +1400,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>
             {[
               ['all', '✨ All', 'all'],
+              ['1mm_laminate', '🏆 1.0mm Premium Laminates', '1mm_laminate'],
               ['glossy', '💎 High-Gloss & Acrylic', 'glossy'],
               ['matte', '🛡️ Super-Matte', 'matte'],
               ['woodgrain', '🪵 Woodgrain & Fluted', 'woodgrain'],

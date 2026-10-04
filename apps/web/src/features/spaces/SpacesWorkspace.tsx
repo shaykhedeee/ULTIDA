@@ -33,6 +33,7 @@ import TopViewFloorplanEnhancer, {
 import WallBayEditor from '../../components/spaces/WallBayEditor';
 import FlooringStudio, { TILE_PRESETS } from '../../components/spaces/FlooringStudio';
 import { type CompositionScheduleV1, type FloorSurfaceV1, DEFAULT_VILLA_STOREYS, DEFAULT_VILLA_VOIDS } from '@ultida/contracts';
+import { readPreparedModule, completePreparedModule } from '../../lib/prepared-module-plan';
 import { getApiBase } from '../../lib/api-base';
 import './spaces.css';
 
@@ -2323,6 +2324,81 @@ export function SpacesWorkspace() {
     }
     await placeCatalogModuleOnWall(module, targetWallContext);
   }
+
+  // Automatic pending module ingestion from Design Library or Module Planner
+  useEffect(() => {
+    if (!rooms.length || !walls.length || !projectId) return;
+    try {
+      const prepared = readPreparedModule(window.localStorage, projectId);
+      if (!prepared) return;
+
+      const foundModule = IndianModularCatalog.find((m) => m.id === prepared.templateId) || {
+        id: prepared.templateId,
+        family: (prepared.family || 'storage') as any,
+        name: prepared.name,
+        roomTypes: [prepared.family?.includes('kitchen') ? 'kitchen' : prepared.family?.includes('wardrobe') || prepared.family?.includes('bed') ? 'bedroom' : prepared.family?.includes('tv') ? 'living' : 'living'],
+        widthMm: prepared.dimensionsMm.width,
+        depthMm: prepared.dimensionsMm.depth,
+        heightMm: prepared.dimensionsMm.height,
+        minClearanceMm: 900,
+        sku: `ULT-${prepared.templateId.toUpperCase()}`,
+        materialSlots: ['carcass', 'shutter'],
+        tags: [prepared.family],
+        production: { panelBased: true, hardwareSchedule: true, cutlistSupported: true },
+      };
+
+      // 1. Check if prepared.roomId was explicitly passed
+      let targetRoom = (prepared as any).roomId ? rooms.find((r) => r.id === (prepared as any).roomId) : null;
+
+      // 2. Otherwise match module family to room
+      if (!targetRoom) {
+        targetRoom = (selectedRoom ? rooms.find((r) => r.id === selectedRoom) : null)
+          || rooms.find((r) => {
+            const f = foundModule.family.toLowerCase();
+            const rt = (r.roomType || (r as any).type || '').toLowerCase();
+            const rn = (r.name || '').toLowerCase();
+            if (f.includes('kitchen')) return rt.includes('kitchen') || rn.includes('kitchen');
+            if (f.includes('wardrobe') || f.includes('bed')) return rt.includes('bed') || rn.includes('bed');
+            if (f.includes('tv') || f.includes('sofa')) return rt.includes('living') || rn.includes('living');
+            if (f.includes('pooja')) return rt.includes('pooja') || rn.includes('pooja') || rt.includes('living');
+            if (f.includes('crockery') || f.includes('dining')) return rt.includes('dining') || rn.includes('dining') || rt.includes('living');
+            if (f.includes('study')) return rt.includes('study') || rn.includes('study') || rt.includes('bed');
+            if (f.includes('utility') || f.includes('vanity')) return rt.includes('utility') || rn.includes('bath') || rn.includes('utility');
+            return false;
+          })
+          || rooms[0];
+      }
+
+      if (!targetRoom) return;
+
+      const roomWalls = wallsForRoom(targetRoom);
+      const candidates = (roomWalls.length ? roomWalls : walls).map((wall) => ({
+        wall,
+        context: {
+          id: wall.id,
+          lengthMm: wallLen(wall),
+          openings: openings
+            .filter((op) => op.wallId === wall.id)
+            .map((op) => ({ id: op.id, kind: op.kind, offsetMm: op.offsetAlongWallMm ?? 0, widthMm: op.widthMm ?? 900 })),
+        },
+      }));
+
+      const fittingCandidate = candidates
+        .map((c) => ({ ...c, fit: reconcileCatalogModuleFit(c.context, foundModule) }))
+        .filter((c) => c.fit?.fits)
+        .sort((a, b) => b.context.lengthMm - a.context.lengthMm)[0]
+        || candidates.sort((a, b) => b.context.lengthMm - a.context.lengthMm)[0];
+
+      if (fittingCandidate) {
+        setSelectedRoom(targetRoom.id);
+        setSelectedWall(fittingCandidate.wall.id);
+        void placeCatalogModuleOnWall(foundModule, fittingCandidate.context);
+        completePreparedModule(window.localStorage, projectId, prepared.templateId);
+        setSaveState(`✨ Successfully placed "${foundModule.name}" into ${targetRoom.name}.`);
+        setSpacePanel('modules');
+      }
+    } catch {}
+  }, [rooms, walls, openings, projectId, pendingModuleRequested]);
 
   /**
    * Resolve the wall nearest a plan-canvas point and the offset along it.
@@ -5336,7 +5412,7 @@ export function SpacesWorkspace() {
                 return <div
                   key={mod.id}
                   className={`dld-card${armed ? ' dld-card--armed' : ''}${blocked ? ' dld-card--blocked' : ''}`}
-                  draggable={Boolean(sel)}
+                  draggable={true}
                   onDragStart={(event) => {
                     setDraggingModule(mod);
                     event.dataTransfer.effectAllowed = 'copy';
@@ -5373,26 +5449,24 @@ export function SpacesWorkspace() {
                       <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Finish Slots:</span>
                       {mod.materialSlots.map((slot) => <Badge key={slot} tone="accent">{slot}</Badge>)}
                     </div>
-                    {sel && (
-                      <div className="dld-card-actions">
-                        <button
-                          type="button"
-                          className={`btn-sm btn-full dld-btn-arm ${armed ? 'dld-btn-arm--active' : 'btn-ghost'}`}
-                          title={armed ? 'Cancel placement (Escape).' : 'Arm this module, then click a measured wall on the plan.'}
-                          onClick={() => (armed ? cancelPlacementDrag() : setDraggingModule(mod))}
-                        >
-                          <MousePointer2 size={13} /> {armed ? 'Placement armed' : 'Click to place'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-primary btn-sm btn-full dld-btn-place"
-                          title={blocked ? 'Click to auto-find best fitting wall in room' : productionCertified ? 'Place this certified module on the selected wall.' : 'Place this module on wall.'}
-                          onClick={() => void placeCatalogModuleOnSelectedWall(mod)}
-                        >
-                          <Plus size={13} /> {activeCatalogWall ? 'Place on selected wall' : '⚡ Smart Place & Fit'}
-                        </button>
-                      </div>
-                    )}
+                    <div className="dld-card-actions">
+                      <button
+                        type="button"
+                        className={`btn-sm btn-full dld-btn-arm ${armed ? 'dld-btn-arm--active' : 'btn-ghost'}`}
+                        title={armed ? 'Cancel placement (Escape).' : 'Arm this module, then click a measured wall on the plan.'}
+                        onClick={() => (armed ? cancelPlacementDrag() : setDraggingModule(mod))}
+                      >
+                        <MousePointer2 size={13} /> {armed ? 'Placement armed' : 'Click to place'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-primary btn-sm btn-full dld-btn-place"
+                        title={blocked ? 'Click to auto-find best fitting wall in room' : productionCertified ? 'Place this certified module on the selected wall.' : 'Place this module on wall.'}
+                        onClick={() => void placeCatalogModuleOnSelectedWall(mod)}
+                      >
+                        <Plus size={13} /> {activeCatalogWall ? 'Place on selected wall' : '⚡ Smart Place & Fit'}
+                      </button>
+                    </div>
                   </div>
                 </div>;
               })}
