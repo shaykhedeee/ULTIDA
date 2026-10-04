@@ -2064,24 +2064,14 @@ export function SpacesWorkspace() {
    * persistence and invalidation, so neither can bypass measured fit rules.
    */
   async function placeCatalogModuleOnWall(module: CatalogModule, targetWall: CatalogWallContext, requestedOffsetMm?: number) {
-    if (!projectId) return;
-
-    // Resolve target room: active selection, room containing this wall, or first room in project
-    const targetRoom = (sel ? sel.room : null)
-      || rooms.find((r) => wallsForRoom(r).some((w) => w.id === targetWall.id))
-      || rooms[0];
-
-    if (!targetRoom) {
-      setSaveState('Please define or select a room before placing joinery modules.');
-      return;
-    }
-
+    if (!sel || !projectId || !supabase) return;
+    try {
     const fit = reconcileCatalogModuleFit(targetWall, module);
     if (!fit?.fits || fit.suggestedOffsetMm === undefined) {
       setSaveState(fit?.issues[0] ?? 'This module does not fit the selected measured wall. Choose another wall or adjust the module in the bay editor.');
       return;
     }
-
+    // Explicit placement must never move to a different position silently.
     let placementOffsetMm = fit.suggestedOffsetMm;
     if (requestedOffsetMm !== undefined) {
       if (!Number.isFinite(requestedOffsetMm) || requestedOffsetMm < 0 || requestedOffsetMm + module.widthMm > targetWall.lengthMm) {
@@ -2102,109 +2092,96 @@ export function SpacesWorkspace() {
       placementOffsetMm = requestedOffsetMm;
     }
 
-    // Geometry position and orientation on SVG canvas
-    const wall = walls.find((candidate) => candidate.id === targetWall.id);
-    const length = wall ? wallLen(wall) : targetWall.lengthMm;
-    const direction = wall && length > 0
-      ? { xMm: (wall.end.xMm - wall.start.xMm) / length, yMm: (wall.end.yMm - wall.start.yMm) / length }
-      : { xMm: 1, yMm: 0 };
-    const start = wall?.start ?? { xMm: 0, yMm: 0 };
-    const offset = placementOffsetMm;
-    const moduleInstanceId = `mod-${module.id}-${Date.now()}`;
-    const wallLabel = `Wall ${targetWall.id.replace(/^.*?:/, '').replace('wall-', '').toUpperCase() || targetWall.id}`;
 
-    const newProposal: AiFurnitureProposal = {
-      id: moduleInstanceId,
-      category: module.family,
-      moduleId: module.id,
-      name: module.name,
-      wallId: targetWall.id,
-      wallLabel,
-      rationale: `Placed at ${Math.round(offset)} mm on ${wallLabel}; door and window keep-outs checked.`,
-      dimensionsMm: { width: module.widthMm, depth: module.depthMm, height: module.heightMm },
-      position: { xMm: Math.round(start.xMm + direction.xMm * offset), yMm: Math.round(start.yMm + direction.yMm * offset) },
-      rotationDeg: Math.round((Math.atan2(direction.yMm, direction.xMm) * 180) / Math.PI),
-      confidence: 1,
-    };
+    const categoryKey = module.family.includes('kitchen') ? 'kitchen_base' : module.family === 'tv-unit' ? 'tv_unit' : module.family === 'wardrobe' ? 'wardrobe' : module.family === 'crockery' ? 'crockery_unit' : module.family === 'study' ? 'study_unit' : module.family === 'pooja' ? 'pooja_unit' : module.family === 'bed' ? 'bed' : module.family === 'utility' ? 'utility_unit' : 'storage_unit';
+    const roomWithRequirement = sel.room.requiredFurniture.includes(categoryKey)
+      ? sel.room
+      : { ...sel.room, styleDirection: sel.room.styleDirection, requiredFurniture: [...sel.room.requiredFurniture, categoryKey] };
 
-    // 1. Immediately commit to local UI state so the module appears instantly on the canvas
-    setSelectedRoom(targetRoom.id);
-    setSelectedWall(targetWall.id);
-    setAiProposalRoomId(targetRoom.id);
-    setAiProposals((current) => [
-      ...current.filter((proposal) => proposal.moduleId !== module.id || proposal.wallId !== targetWall.id),
-      newProposal,
-    ]);
+    // A production module needs its persisted space id. Persisting here keeps
+    // canvas selection and the compiler anchored to the same approved room.
+    const persistedRoom = roomWithRequirement.spaceRecordId && roomWithRequirement === sel.room
+      ? roomWithRequirement
+      : await persistRoom(roomWithRequirement, roomWithRequirement.verificationStatus ?? 'unverified');
+    if (!persistedRoom?.spaceRecordId) {
+      setSaveState('Save this room’s measured geometry before placing a production module.');
+      return;
+    }
+    if (!await ensureApprovedRoomLayout(persistedRoom)) return;
+    if (!roomWithRequirement.spaceRecordId) {
+      setRooms((current) => current.map((room) => room.id === persistedRoom.id ? persistedRoom : room));
+    } else if (roomWithRequirement !== sel.room) {
+      setRooms((current) => current.map((room) => room.id === roomWithRequirement.id ? roomWithRequirement : room));
+    }
 
-    // 2. Persist to localStorage for both room proposals and global scene modules
-    try {
-      const storedKey = `ultida.modules.${projectId}`;
-      const currentMods = JSON.parse(window.localStorage.getItem(storedKey) ?? '[]');
-      const updatedMods = [
-        ...currentMods.filter((m: any) => m.id !== newProposal.id),
-        {
-          id: newProposal.id,
-          roomId: targetRoom.id,
-          family: module.family,
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) {
+      setSaveState('Sign in again before placing a module.');
+      return;
+    }
+    setSaveState(`Placing ${module.name} on the measured wall…`);
+      const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          spaceId: persistedRoom.spaceRecordId,
+          templateId: module.id,
+          category: module.family,
           label: module.name,
-          widthMm: module.widthMm,
-          depthMm: module.depthMm,
-          heightMm: module.heightMm,
-          wallId: targetWall.id,
-          offsetMm: placementOffsetMm,
-          xMm: newProposal.position.xMm,
-          yMm: newProposal.position.yMm,
-          rotationDeg: newProposal.rotationDeg,
-        },
-      ];
-      window.localStorage.setItem(storedKey, JSON.stringify(updatedMods));
-    } catch {}
-
-    setSpacePanel('modules');
-    setSaveState(`✓ ${module.name} successfully placed on ${wallLabel} (${module.widthMm}mm run). Clearance verified.`);
-    window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
-
-    // 3. If Supabase and session are active, sync asynchronously with backend
-    if (supabase) {
-      try {
-        const session = (await supabase.auth.getSession()).data.session;
-        if (session?.access_token && targetRoom.spaceRecordId) {
-          const categoryKey = module.family.includes('kitchen') ? 'kitchen_base' : module.family === 'tv-unit' ? 'tv_unit' : module.family === 'wardrobe' ? 'wardrobe' : module.family === 'crockery' ? 'crockery_unit' : module.family === 'study' ? 'study_unit' : module.family === 'pooja' ? 'pooja_unit' : module.family === 'bed' ? 'bed' : module.family === 'utility' ? 'utility_unit' : 'storage_unit';
-          const roomWithReq = targetRoom.requiredFurniture.includes(categoryKey)
-            ? targetRoom
-            : { ...targetRoom, requiredFurniture: [...targetRoom.requiredFurniture, categoryKey] };
-
-          const persistedRoom = roomWithReq.spaceRecordId ? roomWithReq : await persistRoom(roomWithReq, roomWithReq.verificationStatus ?? 'unverified');
-          if (persistedRoom?.spaceRecordId) {
-            await ensureApprovedRoomLayout(persistedRoom);
-            await fetch(`${getApiBase()}/projects/${projectId}/module-instances`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-              body: JSON.stringify({
-                spaceId: persistedRoom.spaceRecordId,
-                templateId: module.id,
-                category: module.family,
-                label: module.name,
-                config: {
-                  family: module.family,
-                  widthMm: module.widthMm,
-                  depthMm: module.depthMm,
-                  heightMm: module.heightMm,
-                  zOffsetMm: 0,
-                  materialSlots: module.materialSlots,
-                },
-                position: { wallId: targetWall.id, offsetMm: placementOffsetMm },
-              }),
-            });
-          }
-        }
-      } catch {
-        // Local placement remains active and preserved even if server is offline
+          config: {
+            family: module.family,
+            widthMm: module.widthMm,
+            depthMm: module.depthMm,
+            heightMm: module.heightMm,
+            zOffsetMm: 0,
+            materialSlots: module.materialSlots,
+          },
+          position: { wallId: targetWall.id, offsetMm: placementOffsetMm },
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.module?.id) {
+        setSaveState(payload?.message ?? 'The module could not be placed. Check the approved room layout and measured wall clearance.');
+        return;
       }
+      // The API has invalidated downstream artifacts. Mirror that durable
+      // change in the app shell so no screen can keep presenting an older
+      // scene version as if it still represented this room.
+      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
+      const wall = walls.find((candidate) => candidate.id === targetWall.id);
+      const length = wall ? wallLen(wall) : targetWall.lengthMm;
+      const direction = wall && length > 0
+        ? { xMm: (wall.end.xMm - wall.start.xMm) / length, yMm: (wall.end.yMm - wall.start.yMm) / length }
+        : { xMm: 1, yMm: 0 };
+      const start = wall?.start ?? { xMm: 0, yMm: 0 };
+      const offset = placementOffsetMm;
+      setAiProposalRoomId(persistedRoom.id);
+      setAiProposals((current) => [
+        ...current,
+        {
+          id: String(payload?.module?.id ?? `${module.id}-${Date.now()}`),
+          category: module.family,
+          moduleId: module.id,
+          name: module.name,
+          wallId: targetWall.id,
+          wallLabel: `Wall ${targetWall.id.replace(/^.*?:/, '').replace('wall-', '').toUpperCase() || targetWall.id}`,
+          rationale: `Placed at ${Math.round(offset)} mm on the selected measured wall; door and window keep-outs checked.`,
+          dimensionsMm: { width: module.widthMm, depth: module.depthMm, height: module.heightMm },
+          position: { xMm: start.xMm + direction.xMm * offset, yMm: start.yMm + direction.yMm * offset },
+          rotationDeg: Math.atan2(direction.yMm, direction.xMm) * 180 / Math.PI,
+          confidence: 1,
+        },
+      ]);
+      setSpacePanel('modules');
+      setSaveState(`${module.name} is placed on the measured wall. Adjust bays, fillers, shutters, and finishes below; the scene must be recompiled before 3D or renders update.`);
+      completePreparedModule(window.localStorage, projectId, module.id);
+      return true;
+    } catch {
+      setSaveState('The module placement request could not reach the project service. Nothing was added to the scene.');
     }
   }
 
-    /** Recompute the ghost from a pointer or drag event over the canvas. */
+  /** Recompute the ghost from a pointer or drag event over the canvas. */
   function updateDropPreview(event: { clientX: number; clientY: number }) {
     if (!draggingModule || !svgRef.current) return;
     try {
@@ -2392,9 +2369,9 @@ export function SpacesWorkspace() {
       if (fittingCandidate) {
         setSelectedRoom(targetRoom.id);
         setSelectedWall(fittingCandidate.wall.id);
-        void placeCatalogModuleOnWall(foundModule, fittingCandidate.context);
-        completePreparedModule(window.localStorage, projectId, prepared.templateId);
-        setSaveState(`✨ Successfully placed "${foundModule.name}" into ${targetRoom.name}.`);
+        setDraggingModule(foundModule);
+        // Keep the queued choice until the user confirms a server-saved placement.
+        setSaveState(`Preview ${foundModule.name} on the plan, then click a valid position to save it.`);
         setSpacePanel('modules');
       }
     } catch {}

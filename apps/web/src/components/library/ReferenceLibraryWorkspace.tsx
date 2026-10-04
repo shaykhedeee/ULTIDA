@@ -337,7 +337,11 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   }
 
   function placeModuleInProjectWallPicker(mod: CatalogModule, targetRoomId?: string) {
-    const targetProjId = activeProjectId || window.localStorage.getItem('ultida.active-project-id') || 'proj-villa-3bhk';
+    const targetProjId = activeProjectId;
+    if (!targetProjId) {
+      setStatus('Choose a project before placing this module.');
+      return;
+    }
     try {
       window.localStorage.setItem('ultida.active-project-id', targetProjId);
     } catch {}
