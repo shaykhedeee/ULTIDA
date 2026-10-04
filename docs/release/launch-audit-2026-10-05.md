@@ -33,3 +33,11 @@ Verification results are recorded after execution; no all-features or launch-rea
 - Build identifies a Node-only zlib import from the workbook writer entering a browser bundle. Audit browser workbook calls and route downloads through the authoritative API; successful bundling does not prove Excel downloads work.
 - Fixed the invalid grid-templateColumns CSS declaration in the client portal. The existing large Three.js chunk remains a performance warning.
 
+
+## Follow-up: approval and browser boundary
+
+- Restored source revision checks for idempotent approval and the compare-and-set draft write. A stale or concurrently invalidated scene cannot become approved from the old client badge.
+- Approval regressions: 6 passed, 0 failed, 0 skipped. API TypeScript check exited 0.
+- CNC now imports the browser-safe drawing entry point. Frontend build exited 0 and no longer reports externalized node:zlib. The Three.js chunk-size warning remains.
+- Confirmed live presentation routes point to ClientPresentationPortal with default fictional project/client values, example rooms and browser-local sign-off. This must be replaced with saved project presentation and server-owned approval before client release.
+

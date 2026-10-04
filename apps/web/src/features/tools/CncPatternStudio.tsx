@@ -9,7 +9,7 @@ import {
   JAALI_PATTERNS,
   type JaaliPattern,
 } from './jaali-motifs';
-import { generateWoodWopMpr, generateBiesseCix } from '@ultida/drawing-core';
+import { generateWoodWopMpr, generateBiesseCix } from '@ultida/drawing-core/browser';
 
 // ─── Jaali Pattern Types & DXF Helpers ─────────────────────────────────────
 type Pattern = 'diamond' | 'arch' | 'circle' | 'om' | 'floral';
