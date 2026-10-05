@@ -41,3 +41,11 @@ Verification results are recorded after execution; no all-features or launch-rea
 - CNC now imports the browser-safe drawing entry point. Frontend build exited 0 and no longer reports externalized node:zlib. The Three.js chunk-size warning remains.
 - Confirmed live presentation routes point to ClientPresentationPortal with default fictional project/client values, example rooms and browser-local sign-off. This must be replaced with saved project presentation and server-owned approval before client release.
 
+
+## Saved presentation follow-up
+
+- Replaced live sample portal with authenticated project name, latest saved scene, actual configured modules and private images from that exact revision. Removed default fictional client/project, unrelated panoramas, static verified unit schedules and local signature certificates.
+- Current render artifacts use ready status; stale and mismatched revisions are excluded. Signed URLs come from the project render API.
+- Production PDF download uses the authenticated, revision-revalidated export endpoint. Loading, missing access, missing design, retry and export failures are visible. Client legal sign-off is not claimed or implemented by browser storage.
+- Frontend production build exited 0. Production dossier endpoint suite: 4 passed, 0 failed, 0 skipped. Hosted screenshots and private project render/download acceptance remain outstanding.
+
