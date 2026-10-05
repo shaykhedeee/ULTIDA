@@ -34,7 +34,7 @@
     "express": "^5.1.0",
     "ikea-availability-checker": "2.0.4",
     "pdfkit": "^0.19.1",
-    "sharp": "^0.34.0",
+    "sharp": "^0.35.5",
     "zod": "^3.25.0"
   },
   "devDependencies": {

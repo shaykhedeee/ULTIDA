@@ -106,6 +106,7 @@ export const PlanWallSchema = z.object({
 });
 
 export const DoorOpeningSchema = z.object({
+  kind: z.literal('door').optional(),
   id: z.string().uuid(),
   wallId: z.string().uuid(),
   offsetMm: z.number().nonnegative(),
@@ -121,6 +122,7 @@ export const DoorOpeningSchema = z.object({
 });
 
 export const WindowOpeningSchema = z.object({
+  kind: z.literal('window').optional(),
   id: z.string().uuid(),
   wallId: z.string().uuid(),
   offsetMm: z.number().nonnegative(),

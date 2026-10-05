@@ -242,3 +242,15 @@ test('compileSceneV1 registers module lighting anchors into scene.lighting', () 
   assert.equal(pendant.heightMm, 1800);
 });
 
+test('door thresholds do not turn doors into windows and window head/sill define height', () => {
+  const openingPlan = { ...plan, openings: [
+    { id: 'e8c4f9c1-390d-4cf3-bf95-3ce6e2d64b22', wallId: plan.walls[0].id, kind: 'door', offsetMm: 100, widthMm: 900, heightMm: 2100, sillMm: 0, verification: 'verified' },
+    { id: 'f8c4f9c1-390d-4cf3-bf95-3ce6e2d64b22', wallId: plan.walls[0].id, kind: 'window', offsetMm: 1500, widthMm: 900, sillMm: 750, headMm: 2100, verification: 'verified' },
+  ] };
+  const scene = compileSceneV1({ projectId: 'project-1', floorPlanVersionId: 'plan-1', designVersion: 'design-1', plan: openingPlan });
+  assert.equal(scene.openings[0].kind, 'door');
+  assert.equal(scene.openings[0].heightMm, 2100);
+  assert.equal(scene.openings[1].kind, 'window');
+  assert.equal(scene.openings[1].heightMm, 1350);
+  assert.equal(scene.openings[1].sillHeightMm, 750);
+});

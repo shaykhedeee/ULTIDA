@@ -457,7 +457,7 @@ export function compileSceneV1(input: SceneCompilerInput): SceneV1 {
     confidence: wall.confidence ?? 1,
   }));
   const openings = input.plan.openings.map((opening) => {
-    const isWindow = 'sillMm' in opening;
+    const isWindow = opening.kind === 'window' || (opening.kind !== 'door' && !('heightMm' in opening) && 'sillMm' in opening);
     return {
       id: opening.id,
       wallId: opening.wallId,

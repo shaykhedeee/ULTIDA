@@ -11,11 +11,14 @@
       "import": "./dist/index.js"
     }
   },
-  "scripts": { "check": "tsc -p tsconfig.json --noEmit", "build": "tsc -p tsconfig.json" },
+  "scripts": {
+    "check": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json"
+  },
   "dependencies": {
+    "@supabase/supabase-js": "^2.55.0",
     "@ultida/agent-core": "0.1.0",
     "@ultida/contracts": "0.1.0",
-    "@supabase/supabase-js": "^2.55.0",
-    "sharp": "^0.34.5"
+    "sharp": "^0.35.5"
   }
 }

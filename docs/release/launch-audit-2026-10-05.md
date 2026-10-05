@@ -49,3 +49,11 @@ Verification results are recorded after execution; no all-features or launch-rea
 - Production PDF download uses the authenticated, revision-revalidated export endpoint. Loading, missing access, missing design, retry and export failures are visible. Client legal sign-off is not claimed or implemented by browser storage.
 - Frontend production build exited 0. Production dossier endpoint suite: 4 passed, 0 failed, 0 skipped. Hosted screenshots and private project render/download acceptance remain outstanding.
 
+
+## Dependency and opening correctness follow-up
+
+- Updated API/provider sharp to ^0.35.5 and web router to ^7.18.2; refreshed resolved dependencies. Production-only npm audit reports zero known vulnerabilities. Full audit still reports five development-tool advisories (miniflare/wrangler, their sharp/undici dependencies, and postcss); compatible audit fix did not resolve these. Do not claim the whole dependency tree is clean.
+- Restored optional explicit door/window kind in canonical plan schemas and corrected compiler classification so a door sill cannot turn it into a window. Window height remains measured head minus sill.
+- Plan-core and scene-compiler builds passed. Compiler suite: 16 passed, 0 failed, 0 skipped. Provider conditioning suite: 5 passed, 0 failed. API and provider TypeScript checks passed; full API tests passed; frontend build passed. Logs remain local under .tmp-security-*.
+- Existing main/integration deployments are not updated by these audit-branch commits. Hosted acceptance and remaining source-history reconciliation are still required before main release.
+
