@@ -32,6 +32,7 @@ export interface BaseRenderInput {
 }
 
 export interface BaseRenderArtifacts {
+  camera?: { id: string; positionMm: [number, number, number]; targetMm: [number, number, number]; fovDeg: number };
   rgb: { url: string; bytes: number };
   edgeMap: { url: string; bytes: number };
   objectMasks: Array<{ id: string; url: string; bytes: number }>;
@@ -64,6 +65,7 @@ export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width
   const width = options.width ?? 1024;
   const height = options.height ?? 768;
   const camera = scene.cameras.find((item) => item.id === options.cameraId) ?? scene.cameras[0];
+  if (options.cameraId && !scene.cameras.some((item) => item.id === options.cameraId)) throw new Error(`Saved render camera ${options.cameraId} was not found.`);
   if (!camera) throw new Error('A scene camera is required for a perspective technical preview.');
 
   const primitives = scenePrimitives(scene);
@@ -108,6 +110,7 @@ export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width
   const materialRegions = Array.from(materialGroups.entries()).map(([materialId, faces]) => ({ materialId, ...renderMask(width, height, faces) })).filter((mask) => mask.visiblePixels > 0);
 
   return {
+    camera: { id: camera.id, positionMm: [camera.position.xMm, camera.position.yMm, camera.position.zMm], targetMm: [camera.target.xMm, camera.target.yMm, camera.target.zMm], fovDeg: 2 * Math.atan(height / (2 * Math.max(width, height) * Math.max(0.7, camera.lensMm / 35))) * 180 / Math.PI },
     rgb: { url: dataUri(rgbPng), bytes: rgbPng.length },
     edgeMap: { url: dataUri(edgePng), bytes: edgePng.length },
     depth: { url: dataUri(depthPng), bytes: depthPng.length },

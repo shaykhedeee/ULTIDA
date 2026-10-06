@@ -1,5 +1,6 @@
 // Browser-safe previews: do not re-export PDF, streams or Excel compression.
 export * from './scene-types.js';
+export * from './component-elevation.js';
 export { formatDualMm } from './dimension-format.js';
 export { generateArchitecturalShopSheetSvg, generateArchitecturalShopSheetSvg as generateWallElevationSvg } from './shop-drawing-renderer.js';
 export * from './drawing-cutlist-analyzer.js';

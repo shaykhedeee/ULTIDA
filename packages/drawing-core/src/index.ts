@@ -1,4 +1,6 @@
 import { PdfWriter } from './pdf-writer.js';
+import { generateComponentElevationSvg, exportComponentElevationDxf, projectComponentElevation } from './component-elevation.js';
+export * from './component-elevation.js';
 import type { Writable } from 'node:stream';
 import type { SceneV1, SceneWallV1, SceneOpeningV1, SceneModuleV1, SceneModulePartV1, SceneRoomV1 } from './scene-types.js';
 export * from './scene-types.js';
@@ -68,8 +70,9 @@ export function validateElevationSheet(spec: ElevationSheetSpecV1) {
 export type DrawingLine = { id: string; layer: 'walls' | 'modules' | 'openings'; x1: number; y1: number; x2: number; y2: number };
 export type ProjectedOpening = { id: string; kind: string; wallId: string; offsetMm: number; widthMm: number; heightMm: number; sillHeightMm: number };
 export type ProjectedModule = { id: string; family: string; roomId: string; xMm: number; yMm: number; zMm: number; widthMm: number; depthMm: number; heightMm: number; rotationDeg: number; wallId?: string; offsetAlongWallMm?: number; materialId?: string };
-export type WallElevationProjection = { wallId: string; lengthMm: number; heightMm: number; openings: ProjectedOpening[]; modules: ProjectedModule[] };
+export type WallElevationProjection = { wallId: string; lengthMm: number; heightMm: number; openings: ProjectedOpening[]; modules: ProjectedModule[]; components?: ReturnType<typeof projectComponentElevation> };
 export type DrawingPackageProjection = {
+  sourceDesignVersion?: string;
   schema: 'drawing.projection.v1';
   units: 'mm';
   projectId: string;
@@ -174,10 +177,11 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
     wallId: wall.id,
     lengthMm: wallLength(wall),
     heightMm: wall.heightMm ?? 2700,
+    components: scene.moduleParts?.length ? projectComponentElevation(scene, wall.id) : undefined,
     openings: openings.filter((opening: ProjectedOpening) => opening.wallId === wall.id),
     modules: modules.filter((module: ProjectedModule) => module.wallId === wall.id).sort((a: ProjectedModule, b: ProjectedModule) => (a.offsetAlongWallMm ?? 0) - (b.offsetAlongWallMm ?? 0))
   }));
-  return { schema: 'drawing.projection.v1', units: 'mm', projectId: scene.projectId, floorPlanVersionId: scene.floorPlanVersionId, sceneStatus: scene.metadata?.status ?? 'draft', lines, openings, modules, elevations, warnings };
+  return { schema: 'drawing.projection.v1', units: 'mm', projectId: scene.projectId, floorPlanVersionId: scene.floorPlanVersionId, sourceDesignVersion: scene.metadata?.designVersion, sceneStatus: scene.metadata?.status ?? 'draft', lines, openings, modules, elevations, warnings };
 }
 
 function dxfLine(x1: number, y1: number, x2: number, y2: number, layer: string) {
@@ -392,6 +396,7 @@ export type DrawingTemplateSettings = {
 };
 
 export function generateWallElevationsSvg(scene: SceneV1, wallId: string, options?: DrawingTemplateSettings): string {
+  if (scene.moduleParts?.length) return generateComponentElevationSvg(scene, wallId, false, { title: options?.titleBlock?.drawingTitle, studioName: options?.titleBlock?.companyName });
   const projection = buildDrawingProjection(scene);
   const wall = projection.elevations.find((candidate) => candidate.wallId === wallId);
   if (!wall) {
@@ -435,6 +440,7 @@ export function generateWallElevationsSvg(scene: SceneV1, wallId: string, option
 }
 
 export function exportWallElevationToDxf(scene: SceneV1, wallId: string, options?: DrawingTemplateSettings): string {
+  if (scene.moduleParts?.length) return exportComponentElevationDxf(scene, wallId);
   const projection = buildDrawingProjection(scene);
   const wall = projection.elevations.find((candidate) => candidate.wallId === wallId);
   const entities: string[] = [];
@@ -649,13 +655,18 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
     doc.font('Helvetica-Bold').fontSize(9).text(sheetTitle, 92, pageHeight - 62);
     doc.font('Helvetica').fontSize(6.5).fillColor('#53463d').text(subtitle, 92, pageHeight - 47, { width: 420 });
     doc.fontSize(6.5).text(`PROJECT: ${projection.projectId}`, 560, pageHeight - 62, { width: 245, align: 'right' });
-    doc.text(`PLAN: ${projection.floorPlanVersionId} | UNITS: MM | STATUS: ${projection.sceneStatus.toUpperCase()}`, 560, pageHeight - 47, { width: 245, align: 'right' });
+    doc.text(`PLAN: ${projection.floorPlanVersionId} | REV: ${projection.sourceDesignVersion ?? 'unassigned'} | MM | ${projection.sceneStatus.toUpperCase()}`, 560, pageHeight - 47, { width: 245, align: 'right' });
     doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#38291f').text(`SHEET ${sheetNumber} / ${totalSheets}`, 560, pageHeight - 34, { width: 245, align: 'right' });
   };
   // Only walls carrying furniture/modules receive an elevation sheet.
   const furnitureWalls = projection.elevations.filter((wall) => wall.modules.length > 0);
   const productionSheetCount = production ? 1 + Math.max(1, Math.ceil(production.parts.length / 25)) : 0;
-  const totalSheets = Math.max(1, furnitureWalls.length + 1 + productionSheetCount);
+  const componentSchedule = furnitureWalls.flatMap((wall) => [
+    ...(wall.components?.parts ?? []).map((part) => `${wall.wallId} | ${part.id} | ${part.name} | ${part.widthMm} x ${part.depthMm} x ${part.heightMm} mm | mount ${part.zMm} mm | material ${part.materialId ?? 'UNASSIGNED'}`),
+    ...(wall.components?.materials ?? []).map((material) => `${wall.wallId} | MATERIAL ${material.id} | ${material.label}`),
+  ]).flatMap((row) => row.match(/.{1,100}/g) ?? []);
+  const componentSchedulePageCount = Math.ceil(componentSchedule.length / 25);
+  const totalSheets = Math.max(1, furnitureWalls.length + 1 + productionSheetCount + componentSchedulePageCount);
   drawFrame('DRAWING INDEX AND FLOOR PLAN', 1, totalSheets, 'Generated from immutable drawing.projection.v1. Verify all review warnings before release.');
   doc.font('Helvetica-Bold').fontSize(24).fillColor('#38291f').text('Production Drawing Package', 48, 50);
   doc.font('Helvetica').fontSize(10).fillColor('#53463d').text('Floor plan overview and wall elevation register', 48, 82);
@@ -696,7 +707,8 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
     // Outer Wall Outline (A-WALL-INTR / A-WALL-EXTR)
     doc.rect(originX, originY, wall.lengthMm * scale, wall.heightMm * scale).lineWidth(1.75).stroke('#2d211b');
 
-    // Horizontal Datum Reference Lines (Plinth 100mm, Counter 850mm, Wall Unit 1450mm, Loft Top 2170mm)
+    if (!wall.components?.parts.length) {
+    // Legacy envelope-only reference datums. Component sheets use actual saved levels.
     const plinthY = originY + (wall.heightMm - 100) * scale;
     const counterY = originY + (wall.heightMm - 850) * scale;
     const wallUnitY = originY + (wall.heightMm - 1450) * scale;
@@ -716,6 +728,7 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
     doc.text('DADO CLEAR (1450mm)', originX + wall.lengthMm * scale - 98, wallUnitY - 7);
     doc.text('WALL UNIT (2170mm)', originX + wall.lengthMm * scale - 90, loftY - 7);
 
+    }
     // Openings (A-DOOR / A-GLAZ)
     for (const opening of wall.openings) {
       doc.rect(originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.sillHeightMm - opening.heightMm) * scale, opening.widthMm * scale, opening.heightMm * scale).lineWidth(1.2).stroke('#9b2c2c');
@@ -739,6 +752,9 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
       doc.font('Helvetica').fontSize(5.5).fillColor('#574b41').text(`${Math.round(module.widthMm)}×${Math.round(module.depthMm ?? 600)}×${Math.round(module.heightMm)}mm\n[${layerTag}]`, originX + (module.offsetAlongWallMm ?? 0) * scale + 3, originY + (wall.heightMm - module.zMm - module.heightMm) * scale + 13, { width: Math.max(35, module.widthMm * scale - 6) });
     }
 
+    for (const part of wall.components?.parts ?? []) {
+      doc.rect(originX + part.xMm * scale, originY + (wall.heightMm - part.zMm - part.heightMm) * scale, part.projectedWidthMm * scale, part.heightMm * scale).lineWidth(0.5).stroke('#38291f');
+    }
     // Linear Bottom Dimension Line (A-DIMS)
     const dimY = originY + wall.heightMm * scale + 16;
     doc.save().strokeColor('#4a3b32').lineWidth(0.75).moveTo(originX, dimY).lineTo(originX + wall.lengthMm * scale, dimY).stroke();
@@ -748,8 +764,15 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
     doc.restore();
     doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#2d211b').text(`${Math.round(wall.lengthMm)} mm [A-DIMS]`, originX, dimY + 6, { width: wall.lengthMm * scale, align: 'center' });
   });
+  for (let page = 0; page < componentSchedulePageCount; page += 1) {
+    doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
+    drawFrame('COMPONENTS AND MATERIAL LEGEND', furnitureWalls.length + 2 + page, totalSheets, 'Saved component dimensions and mounting levels. Unassigned or unresolved materials require review.');
+    componentSchedule.slice(page * 25, (page + 1) * 25).forEach((row, index) => {
+      doc.font('Helvetica').fontSize(7).fillColor('#38291f').text(row, 40, 50 + index * 17, { width: 750, height: 16 });
+    });
+  }
   if (production) {
-    const firstProductionSheet = furnitureWalls.length + 2;
+    const firstProductionSheet = furnitureWalls.length + 2 + componentSchedulePageCount;
     doc.addPage({ size: 'A4', layout: 'landscape', margin: 24 });
     drawFrame('PRODUCTION SUMMARY', firstProductionSheet, totalSheets, `Source scene ${production.sceneVersion}. Fabrication rules ${production.fabricationRules.version}.`);
     doc.font('Helvetica-Bold').fontSize(20).fillColor('#38291f').text('Manufacturing Package Summary', 48, 52);

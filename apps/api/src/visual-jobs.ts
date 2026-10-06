@@ -87,7 +87,7 @@ export function buildSceneExpectation(scene: import('@ultida/scene-core').SceneV
     moduleCount: scene.modules.length,
     cabinetDivisions: (scene.moduleParts ?? []).filter((part) => part.semanticType === 'shutter' || part.semanticType === 'drawer').length,
     skirtingCount: artifacts.skirtingMasks.length,
-    camera: {
+    camera: artifacts.camera ?? {
       positionMm: camera ? [camera.position.xMm, camera.position.yMm, camera.position.zMm] : [0, 0, 0],
       targetMm: camera ? [camera.target.xMm, camera.target.yMm, camera.target.zMm] : [0, 0, 0],
       fovDeg: 50,
@@ -587,7 +587,7 @@ export async function createVisualJob(environment: Record<string, string | undef
     }
     persistedJobId = job.data.id;
 
-    const baseArtifacts = renderScenePerspectiveArtifacts(context.scene, { cameraId: request.camera?.view === 'elevation' ? undefined : renderCamera?.id });
+    const baseArtifacts = renderScenePerspectiveArtifacts(context.scene, { cameraId: renderCamera?.id });
     const technicalArtifacts = await persistTechnicalArtifacts(client, {
       organizationId: context.project.organization_id,
       projectId: request.projectId,
@@ -730,7 +730,7 @@ export async function getVisualJob(environment: Record<string, string | undefine
         if (sceneRow.error || !sceneRow.data) throw new Error('The approved scene for this render could not be reloaded for image QA.');
         if (!['draft', 'approved', 'locked'].includes(String(sceneRow.data.status))) throw new Error('This scene changed while the render was running. The render was not saved; compile the latest design and try again.');
         const scene = SceneV1Schema.parse(sceneRow.data.scene);
-        const baseArtifacts = renderScenePerspectiveArtifacts(scene, { cameraId: job.data.input?.camera?.view === 'elevation' ? undefined : scene.cameras[0]?.id });
+        const baseArtifacts = renderScenePerspectiveArtifacts(scene, { cameraId: job.data.input?.cameraId ?? scene.cameras[0]?.id });
         const image = await providerImageBytes({ ...job.data.output, ...polled });
         const renderQa = await evaluateRenderImageQA(scene, baseArtifacts, image.bytes, 'moderate');
         const blockingQa = renderQa.issues.filter((issue) => issue.severity === 'blocking');

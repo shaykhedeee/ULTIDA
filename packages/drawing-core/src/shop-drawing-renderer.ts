@@ -1,4 +1,5 @@
 import type { SceneV1, SceneModuleV1, SceneOpeningV1 } from './scene-types.js';
+import { generateComponentElevationSvg, projectComponentElevation } from './component-elevation.js';
 
 export interface ShopDrawingOptions {
   viewMode?: 'external' | 'internal' | 'both' | 'shop-sheet';
@@ -105,6 +106,18 @@ export function generateArchitecturalShopSheetSvg(
 ): string {
   const wall = (scene.walls ?? []).find((w) => w.id === targetWallIdOrModuleId) || scene.walls?.[0];
   const targetModule = (scene.modules ?? []).find((m) => m.id === targetWallIdOrModuleId);
+  if (scene.moduleParts?.length) {
+    const moduleId = targetModule?.id ?? options.selectedModuleId;
+    const componentWall = targetModule
+      ? scene.walls.find((candidate) => projectComponentElevation(scene, candidate.id).parts.some((part) => part.moduleId === targetModule.id))
+      : wall;
+    if (componentWall) {
+      const selectedScene = moduleId ? { ...scene, modules: scene.modules.filter((module) => module.id === moduleId), moduleParts: scene.moduleParts.filter((part) => part.moduleId === moduleId) } : scene;
+      const reviewedScene = options.measurementStatus === 'unverified' || options.measurementStatus === 'reference'
+        ? { ...selectedScene, metadata: { ...selectedScene.metadata, status: 'review' } } : selectedScene;
+      return generateComponentElevationSvg(reviewedScene, componentWall.id, options.viewMode === 'internal', { title: options.unitTitle, studioName: options.studioName });
+    }
+  }
 
   // Overall wall geometry
   const wallLengthMm = wall

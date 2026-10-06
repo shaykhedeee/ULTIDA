@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { renderScenePerspectiveArtifacts } from '@ultida/render-pipeline';
-import { evaluateRenderImageQA } from '../src/visual-jobs';
+import { evaluateRenderImageQA, buildSceneExpectation } from '../src/visual-jobs';
 
 const SCENE: any = {
   schema: 'scene.v1', units: 'mm', coordinateSystem: 'right-handed-z-up', projectId: 'project-1', floorPlanVersionId: 'plan-1',
@@ -15,6 +15,17 @@ const SCENE: any = {
   cameras: [{ id: 'camera-1', name: 'Corner', position: { xMm: 2000, yMm: 1700, zMm: -3500 }, target: { xMm: 2000, yMm: 1100, zMm: 1200 }, lensMm: 35 }],
   constraints: [], unresolvedDetections: [], metadata: { branch: 'main', status: 'approved', changeReason: 'fixture', schemaVersion: 'scene.v1', designVersion: 'design-1' },
 };
+
+test('QA uses the selected artifact camera rather than the first scene camera', () => {
+  const camera = { ...SCENE.cameras[0], id: 'camera-2', position: { xMm: 1000, yMm: 1400, zMm: -3000 }, lensMm: 50 };
+  const scene = { ...SCENE, cameras: [...SCENE.cameras, camera] };
+  const artifacts = renderScenePerspectiveArtifacts(scene, { cameraId: 'camera-2', width: 160, height: 120 });
+  const expectation = buildSceneExpectation(scene, artifacts);
+  assert.deepEqual(expectation.camera.positionMm, [1000, 1400, -3000]);
+  assert.equal(artifacts.camera?.id, 'camera-2');
+  assert.equal(expectation.camera.fovDeg, artifacts.camera?.fovDeg);
+  assert.throws(() => renderScenePerspectiveArtifacts(scene, { cameraId: 'missing' }), /was not found/);
+});
 
 test('live render QA blocks an image whose measured door count differs from the approved scene', async () => {
   const artifacts = renderScenePerspectiveArtifacts(SCENE, { width: 160, height: 120 });
