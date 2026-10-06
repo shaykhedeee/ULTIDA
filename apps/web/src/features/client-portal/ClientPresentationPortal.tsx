@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
@@ -15,6 +15,27 @@ export function ClientPresentationPortal() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [preparingPdf, setPreparingPdf] = useState(false);
+  const pdfRequest = useRef<AbortController | null>(null);
+  useEffect(() => { setPdfUrl(null); setPreparingPdf(false); return () => { pdfRequest.current?.abort(); }; }, [projectId, scene?.id]);
+  useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
+
+  async function previewPresentation() {
+    if (!projectId || !scene || !supabase || preparingPdf) return;
+    setPreparingPdf(true);
+    const controller = new AbortController(); pdfRequest.current = controller;
+    try {
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session) throw new Error('Sign in to view this private document.');
+      const response = await fetch(`${getApiBase()}/projects/${encodeURIComponent(projectId)}/scenes/${encodeURIComponent(scene.id)}/presentation.pdf`, { signal: controller.signal, headers: { Authorization: `Bearer ${session.access_token}` } });
+      if (!response.ok) { const payload = await response.json().catch(() => null); throw new Error(payload?.message ?? 'Presentation could not be prepared.'); }
+      const blob = await response.blob();
+      if (!blob.size || !blob.type.includes('application/pdf')) throw new Error('The service did not return a PDF.');
+      if (!controller.signal.aborted) { setPdfUrl(URL.createObjectURL(blob)); setStatus('Your saved-revision presentation is ready to view and download.'); }
+    } catch (error) { if (!controller.signal.aborted) setStatus(error instanceof Error ? error.message : 'Presentation failed. Retry.'); }
+    finally { if (!controller.signal.aborted) setPreparingPdf(false); }
+  }
 
   useEffect(() => {
     let active = true;
@@ -81,6 +102,14 @@ export function ClientPresentationPortal() {
       </nav>}
       {scene ? <>
         <h2>Design revision {scene.version_number}</h2>
+        <h2>Final design presentation</h2>
+        <p>Landscape 3D and 2D sheets with saved finishes and revision details. Manufacturing outputs remain a separate release.</p>
+        <button disabled={!['approved', 'locked'].includes(scene.status) || preparingPdf} onClick={() => void previewPresentation()}>{preparingPdf ? 'Preparing document…' : 'View final PDF'}</button>
+        {pdfUrl && <section aria-label="Final PDF preview">
+          <a href={pdfUrl} download={`ULTIDA-design-revision-${scene.version_number}.pdf`}>Download final PDF</a>{' · '}
+          <a href={pdfUrl} target="_blank" rel="noopener noreferrer">Open PDF in new tab</a>
+          <iframe title="Final design presentation PDF" src={pdfUrl} style={{ display: 'block', width: '100%', height: 'min(75vh, 900px)', border: '1px solid #a5b18c', marginTop: 16 }} />
+        </section>}
         <p>{scene.status === 'approved' ? 'Saved design approved' : `Design status: ${scene.status}. Review the saved design before releasing production.`}</p>
         <button disabled={scene.status !== 'approved' || downloading} onClick={() => void downloadPackage()}>{downloading ? 'Downloading…' : 'Download production PDF'}</button>
         <h2>Configured furniture</h2>
