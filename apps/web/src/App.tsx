@@ -15,6 +15,7 @@ import { Routes, Route, Navigate, useNavigate, useParams, useLocation, Link } fr
 import { X, Plus, ChevronRight, Mail, Lock, Sparkles, Layers, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { supabase, supabaseConfigured } from './lib/supabase';
 import { getApiBase } from './lib/api-base';
+import { selectRoomSceneModules } from './lib/room-scene-selection';
 import { Shell, DEFAULT_WORKFLOW_STAGES, type WorkflowStageConfig } from './Shell';
 import { SCALE_NOT_CONFIRMED_MESSAGE } from './components/plan/plan-calibration';
 import { DEFAULT_DEMO_PLAN_ELEMENTS } from './components/plan/PlanReviewWorkspace';
@@ -1316,33 +1317,48 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   async function saveScene(id: string, modules: typeof sceneModules, materials: any[] = []) {
     const accessToken = await getValidToken();
     const apiBase = getApiBase();
-    const roomId = modules[0]?.roomId;
-    if (!projectId || !accessToken || !roomId) {
-      setPlanStatus('Save a room and at least one placed module before compiling the scene.');
+    if (!projectId || !accessToken) {
+      setPlanStatus('Sign in and open a saved project before preparing 3D.');
       return undefined;
     }
-    const normalizedModules = modules.map((m) => ({ ...m, roomId }));
 
     try {
+      const savedResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const savedPayload = await savedResponse.json().catch(() => null);
+      if (!savedResponse.ok || !Array.isArray(savedPayload?.modules)) {
+        throw new Error(savedPayload?.message ?? 'Saved furniture could not be loaded. Retry before preparing 3D.');
+      }
+      const selection = selectRoomSceneModules(savedPayload.modules, modules.map((module) => module.id));
       const response = await fetch(`${apiBase}/projects/${projectId}/scenes/compile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ roomId, moduleInstanceIds: normalizedModules.map((module) => module.id), designVersion: 'room-design.v1', changeReason: 'Compiled from persisted room modules, component finishes, and active approved plan.v1' }),
+        body: JSON.stringify({ ...selection, designVersion: 'room-design.v1', changeReason: 'Compiled from persisted room modules, component finishes, and active approved plan.v1' }),
       });
       const payload = await response.json().catch(() => null);
       if (response.ok && payload?.success && payload?.sceneVersion) {
         setSceneApprovalError(null);
         setSceneVersionId(payload.sceneVersion.id);
         setSceneVersionNumber(payload.sceneVersion.version_number);
-        setSceneModules(normalizedModules);
+        setSceneModules(savedPayload.modules
+          .filter((module: any) => selection.moduleInstanceIds.includes(module.id))
+          .map((module: any) => ({
+            ...module.config_json,
+            ...module.position_json,
+            id: module.id,
+            roomId: module.space_id,
+            family: module.config_json?.family ?? module.category,
+            label: module.label,
+          })));
         setSceneMaterials(Array.isArray(payload.materials) ? payload.materials : materials);
         setSceneApproved(false);
         setPlanStatus('Measured scene compiled from the active approved plan. Review and approve it before rendering.');
         return payload.sceneVersion.id as string;
       }
       setPlanStatus(payload?.message ?? 'The scene could not be saved. Check the room, plan, and module readiness, then retry.');
-    } catch {
-      setPlanStatus('The scene service could not be reached. Nothing was compiled or approved; retry when the connection is restored.');
+    } catch (error) {
+      setPlanStatus(error instanceof Error ? error.message : 'The scene service could not be reached. Nothing was compiled or approved; retry when the connection is restored.');
     }
     return undefined;
   }
@@ -1477,7 +1493,9 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
                 sceneVersionId={sceneVersionId}
                 projectId={projectId ?? null}
                 onCompileScene={async () => {
-                  await saveScene('spaces.v1', sceneModules, sceneMaterials);
+                  const preparedId = await saveScene('', sceneModules, sceneMaterials);
+                  if (!preparedId) throw new Error('3D preparation is blocked. Check the room and saved furniture readiness message before retrying.');
+                  return preparedId;
                 }}
               />
             }

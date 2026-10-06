@@ -751,109 +751,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               });
             }
 
-            if (finalModules.length === 0 && sceneRooms.length > 0) {
-              const synthesized: any[] = [];
-              sceneRooms.forEach((r: any, rIdx: number) => {
-                const b = r.boundary ?? [];
-                if (b.length < 3) return;
-                const minX = Math.min(...b.map((p: any) => p.xMm));
-                const maxX = Math.max(...b.map((p: any) => p.xMm));
-                const minY = Math.min(...b.map((p: any) => p.yMm));
-                const maxY = Math.max(...b.map((p: any) => p.yMm));
-                const width = Math.max(1200, maxX - minX);
-                const depth = Math.max(1200, maxY - minY);
-                const cx = minX + width / 2;
-                const cy = minY + depth / 2;
-                const rType = (r.name || '').toLowerCase();
-
-                if (rType.includes('living') || rType.includes('hall') || rType.includes('lounge')) {
-                  synthesized.push({
-                    id: `mod-tv-${rIdx}`,
-                    roomId: r.id,
-                    family: 'tv-unit',
-                    widthMm: Math.min(2400, Math.max(1600, width - 400)),
-                    depthMm: 400,
-                    heightMm: 2200,
-                    position: { xMm: cx, yMm: minY + 260 },
-                    rotationDeg: 0,
-                    materialId: 'mat-1',
-                  });
-                  synthesized.push({
-                    id: `mod-sofa-${rIdx}`,
-                    roomId: r.id,
-                    family: 'sofa',
-                    widthMm: Math.min(2400, Math.max(1600, width - 400)),
-                    depthMm: 1200,
-                    heightMm: 850,
-                    position: { xMm: cx, yMm: maxY - 750 },
-                    rotationDeg: 0,
-                    materialId: 'mat-3',
-                  });
-                } else if (rType.includes('bed')) {
-                  synthesized.push({
-                    id: `mod-bed-${rIdx}`,
-                    roomId: r.id,
-                    family: 'bed',
-                    widthMm: 1800,
-                    depthMm: 2100,
-                    heightMm: 1100,
-                    position: { xMm: cx, yMm: minY + 1150 },
-                    rotationDeg: 0,
-                    materialId: 'mat-1',
-                  });
-                  synthesized.push({
-                    id: `mod-wardrobe-${rIdx}`,
-                    roomId: r.id,
-                    family: 'wardrobe',
-                    widthMm: Math.min(2400, Math.max(1600, width - 400)),
-                    depthMm: 600,
-                    heightMm: 2400,
-                    position: { xMm: minX + 350, yMm: cy },
-                    rotationDeg: 90,
-                    materialId: 'mat-3',
-                  });
-                } else if (rType.includes('kitchen')) {
-                  synthesized.push({
-                    id: `mod-kit-base-${rIdx}`,
-                    roomId: r.id,
-                    family: 'kitchen-base',
-                    widthMm: Math.min(2800, Math.max(1800, width - 300)),
-                    depthMm: 600,
-                    heightMm: 860,
-                    position: { xMm: cx, yMm: minY + 350 },
-                    rotationDeg: 0,
-                    materialId: 'mat-2',
-                  });
-                } else if (rType.includes('dining')) {
-                  synthesized.push({
-                    id: `mod-dining-${rIdx}`,
-                    roomId: r.id,
-                    family: 'dining-table',
-                    widthMm: 1800,
-                    depthMm: 900,
-                    heightMm: 760,
-                    position: { xMm: cx, yMm: cy },
-                    rotationDeg: 0,
-                    materialId: 'mat-1',
-                  });
-                } else {
-                  synthesized.push({
-                    id: `mod-storage-${rIdx}`,
-                    roomId: r.id,
-                    family: 'wardrobe',
-                    widthMm: Math.min(1800, Math.max(1200, width - 600)),
-                    depthMm: 500,
-                    heightMm: 2100,
-                    position: { xMm: cx, yMm: minY + 300 },
-                    rotationDeg: 0,
-                    materialId: 'mat-1',
-                  });
-                }
-              });
-              if (synthesized.length > 0) {
-                finalModules = synthesized;
-              }
-            }
+            // Empty saved rooms remain empty; furnishing requires an explicit saved placement.
 
             loadedScene = {
               schema: 'scene.v1',
@@ -937,7 +835,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   async function compileOrRefreshScene() {
     setCompiling(true);
     try {
-      if (scene) {
+      if (scene && requestedSceneVersionId) {
         setStatus('Refreshing the persisted scene version…');
         setReloadKey((value) => value + 1);
         return;
