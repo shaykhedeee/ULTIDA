@@ -66,8 +66,8 @@ export function validateElevationSheet(spec: ElevationSheetSpecV1) {
 }
 
 export type DrawingLine = { id: string; layer: 'walls' | 'modules' | 'openings'; x1: number; y1: number; x2: number; y2: number };
-export type ProjectedOpening = { id: string; kind: string; wallId: string; offsetMm: number; widthMm: number; heightMm: number };
-export type ProjectedModule = { id: string; family: string; roomId: string; xMm: number; yMm: number; widthMm: number; depthMm: number; heightMm: number; rotationDeg: number; wallId?: string; offsetAlongWallMm?: number; materialId?: string };
+export type ProjectedOpening = { id: string; kind: string; wallId: string; offsetMm: number; widthMm: number; heightMm: number; sillHeightMm: number };
+export type ProjectedModule = { id: string; family: string; roomId: string; xMm: number; yMm: number; zMm: number; widthMm: number; depthMm: number; heightMm: number; rotationDeg: number; wallId?: string; offsetAlongWallMm?: number; materialId?: string };
 export type WallElevationProjection = { wallId: string; lengthMm: number; heightMm: number; openings: ProjectedOpening[]; modules: ProjectedModule[] };
 export type DrawingPackageProjection = {
   schema: 'drawing.projection.v1';
@@ -156,7 +156,7 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
     const nearest = explicitWall
       ? { wall: explicitWall, ...moduleWallPosition(module, explicitWall) }
       : (scene.walls ?? []).map((wall: SceneWallV1) => ({ wall, ...moduleWallPosition(module, wall) })).sort((a: { distance: number }, b: { distance: number }) => a.distance - b.distance)[0];
-    const projected: ProjectedModule = { id: module.id, family: module.family, roomId: module.roomId ?? '', xMm: module.position.xMm, yMm: module.position.yMm, widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm, rotationDeg: module.rotationDeg ?? 0, wallId: nearest?.wall.id, offsetAlongWallMm: nearest?.offset, materialId: module.materialId };
+    const projected: ProjectedModule = { id: module.id, family: module.family, roomId: module.roomId ?? '', xMm: module.position.xMm, yMm: module.position.yMm, zMm: module.position.zMm ?? 0, widthMm: module.widthMm, depthMm: module.depthMm, heightMm: module.heightMm, rotationDeg: module.rotationDeg ?? 0, wallId: nearest?.wall.id, offsetAlongWallMm: nearest?.offset, materialId: module.materialId };
     modules.push(projected);
     const corners = rotatedRectangle(projected.xMm, projected.yMm, projected.widthMm, projected.depthMm, projected.rotationDeg);
     corners.forEach((corner, index) => {
@@ -164,7 +164,7 @@ export function buildDrawingProjection(scene: SceneV1): DrawingPackageProjection
       lines.push({ id: `${module.id}-${index + 1}`, layer: 'modules', x1: corner.x, y1: corner.y, x2: next.x, y2: next.y });
     });
   }
-  const openings: ProjectedOpening[] = (scene.openings ?? []).map((opening: SceneOpeningV1) => ({ id: opening.id, kind: opening.kind, wallId: opening.wallId, offsetMm: opening.offsetMm, widthMm: opening.widthMm, heightMm: opening.heightMm }));
+  const openings: ProjectedOpening[] = (scene.openings ?? []).map((opening: SceneOpeningV1) => ({ id: opening.id, kind: opening.kind, wallId: opening.wallId, offsetMm: opening.offsetMm, widthMm: opening.widthMm, heightMm: opening.heightMm, sillHeightMm: opening.sillHeightMm ?? opening.sillMm ?? 0 }));
   for (const opening of openings) {
     const line = openingLine(opening, scene.walls ?? []);
     if (line) lines.push(line);
@@ -406,7 +406,7 @@ export function generateWallElevationsSvg(scene: SceneV1, wallId: string, option
 
   const moduleRects = wall.modules.map((module) => {
     const x = module.offsetAlongWallMm ?? 0;
-    const y = wall.heightMm - module.heightMm;
+    const y = wall.heightMm - module.zMm - module.heightMm;
     const label = options?.dimensionStyle?.showModuleLabels !== false
       ? `<text x="${x + 10}" y="${y + 30}" font-family="sans-serif" font-size="24" fill="${wallColor}">${module.family} ${Math.round(module.widthMm)}mm</text>`
       : '';
@@ -415,7 +415,7 @@ export function generateWallElevationsSvg(scene: SceneV1, wallId: string, option
 
   const openingRects = wall.openings.map((opening) => {
     const x = opening.offsetMm;
-    const y = wall.heightMm - opening.heightMm;
+    const y = wall.heightMm - opening.sillHeightMm - opening.heightMm;
     const label = options?.dimensionStyle?.showOpeningLabels !== false
       ? `<text x="${x + 5}" y="${y - 10}" font-family="sans-serif" font-size="20" fill="${openingColor}">${opening.kind} ${Math.round(opening.widthMm)}mm</text>`
       : '';
@@ -481,8 +481,8 @@ export function exportWallElevationToDxf(scene: SceneV1, wallId: string, options
   for (const opening of wall.openings) {
     const x1 = opening.offsetMm;
     const x2 = opening.offsetMm + opening.widthMm;
-    const y1 = 0;
-    const y2 = opening.heightMm;
+    const y1 = opening.sillHeightMm;
+    const y2 = y1 + opening.heightMm;
     entities.push(...dxfLine(x1, y1, x2, y1, 'A-OPENING'));
     entities.push(...dxfLine(x2, y1, x2, y2, 'A-OPENING'));
     entities.push(...dxfLine(x2, y2, x1, y2, 'A-OPENING'));
@@ -503,8 +503,8 @@ export function exportWallElevationToDxf(scene: SceneV1, wallId: string, options
   for (const module of wall.modules) {
     const x1 = module.offsetAlongWallMm ?? 0;
     const x2 = x1 + module.widthMm;
-    const y1 = 0;
-    const y2 = module.heightMm;
+    const y1 = module.zMm;
+    const y2 = y1 + module.heightMm;
     const isTall = module.heightMm > 1800;
     const isBase = module.heightMm <= 900;
 
@@ -624,8 +624,8 @@ export function generateDrawingPackageSvg(scene: SceneV1): string {
   const floorLines = projection.lines.map((line) => `<line data-entity-id="${line.id}" class="${line.layer}" x1="${line.x1}" y1="${line.y1}" x2="${line.x2}" y2="${line.y2}"/>`).join('');
   let cursorY = 0;
   const elevations = projection.elevations.map((wall) => {
-    const modules = wall.modules.map((module) => `<rect data-module-id="${module.id}" x="${module.offsetAlongWallMm ?? 0}" y="${wall.heightMm - module.heightMm}" width="${module.widthMm}" height="${module.heightMm}" class="module"/>`).join('');
-    const openings = wall.openings.map((opening) => `<rect data-opening-id="${opening.id}" x="${opening.offsetMm}" y="${wall.heightMm - opening.heightMm}" width="${opening.widthMm}" height="${opening.heightMm}" class="opening"/>`).join('');
+    const modules = wall.modules.map((module) => `<rect data-module-id="${module.id}" x="${module.offsetAlongWallMm ?? 0}" y="${wall.heightMm - module.zMm - module.heightMm}" width="${module.widthMm}" height="${module.heightMm}" class="module"/>`).join('');
+    const openings = wall.openings.map((opening) => `<rect data-opening-id="${opening.id}" x="${opening.offsetMm}" y="${wall.heightMm - opening.sillHeightMm - opening.heightMm}" width="${opening.widthMm}" height="${opening.heightMm}" class="opening"/>`).join('');
     const group = `<g data-wall-id="${wall.wallId}" transform="translate(0 ${cursorY})"><text x="0" y="-35">Wall ${wall.wallId} / ${Math.round(wall.lengthMm)} x ${wall.heightMm} mm</text><rect x="0" y="0" width="${wall.lengthMm}" height="${wall.heightMm}" class="wall-face"/>${openings}${modules}</g>`;
     cursorY += wall.heightMm + 300;
     return group;
@@ -718,8 +718,8 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
 
     // Openings (A-DOOR / A-GLAZ)
     for (const opening of wall.openings) {
-      doc.rect(originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.heightMm) * scale, opening.widthMm * scale, opening.heightMm * scale).lineWidth(1.2).stroke('#9b2c2c');
-      doc.font('Helvetica-Bold').fontSize(7).fillColor('#9b2c2c').text(`${opening.kind.toUpperCase()} ${Math.round(opening.widthMm)}mm`, originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.heightMm) * scale - 11);
+      doc.rect(originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.sillHeightMm - opening.heightMm) * scale, opening.widthMm * scale, opening.heightMm * scale).lineWidth(1.2).stroke('#9b2c2c');
+      doc.font('Helvetica-Bold').fontSize(7).fillColor('#9b2c2c').text(`${opening.kind.toUpperCase()} ${Math.round(opening.widthMm)}mm`, originX + opening.offsetMm * scale, originY + (wall.heightMm - opening.sillHeightMm - opening.heightMm) * scale - 11);
     }
 
     // Modular Units (A-FURN-BASE / A-FURN-OVER / A-FURN-SHUT)
@@ -730,13 +730,13 @@ export function generateProjectionPdf(projection: DrawingPackageProjection, outS
       const layerTag = isTall ? 'A-FURN-TALL' : isBase ? 'A-FURN-BASE' : isFeature ? 'A-WALL-FEAT' : 'A-FURN-OVER';
       const modFill = isTall ? '#3b2f27' : isBase ? '#c59c2d' : isFeature ? '#4a5568' : '#e6c66e';
 
-      doc.rect(originX + (module.offsetAlongWallMm ?? 0) * scale, originY + (wall.heightMm - module.heightMm) * scale, module.widthMm * scale, module.heightMm * scale)
+      doc.rect(originX + (module.offsetAlongWallMm ?? 0) * scale, originY + (wall.heightMm - module.zMm - module.heightMm) * scale, module.widthMm * scale, module.heightMm * scale)
         .fillOpacity(0.22)
         .fillAndStroke(modFill, '#2d211b')
         .fillOpacity(1);
 
-      doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#2d211b').text(`${module.family}`, originX + (module.offsetAlongWallMm ?? 0) * scale + 3, originY + (wall.heightMm - module.heightMm) * scale + 4, { width: Math.max(35, module.widthMm * scale - 6) });
-      doc.font('Helvetica').fontSize(5.5).fillColor('#574b41').text(`${Math.round(module.widthMm)}×${Math.round(module.depthMm ?? 600)}×${Math.round(module.heightMm)}mm\n[${layerTag}]`, originX + (module.offsetAlongWallMm ?? 0) * scale + 3, originY + (wall.heightMm - module.heightMm) * scale + 13, { width: Math.max(35, module.widthMm * scale - 6) });
+      doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#2d211b').text(`${module.family}`, originX + (module.offsetAlongWallMm ?? 0) * scale + 3, originY + (wall.heightMm - module.zMm - module.heightMm) * scale + 4, { width: Math.max(35, module.widthMm * scale - 6) });
+      doc.font('Helvetica').fontSize(5.5).fillColor('#574b41').text(`${Math.round(module.widthMm)}×${Math.round(module.depthMm ?? 600)}×${Math.round(module.heightMm)}mm\n[${layerTag}]`, originX + (module.offsetAlongWallMm ?? 0) * scale + 3, originY + (wall.heightMm - module.zMm - module.heightMm) * scale + 13, { width: Math.max(35, module.widthMm * scale - 6) });
     }
 
     // Linear Bottom Dimension Line (A-DIMS)
