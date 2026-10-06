@@ -103,7 +103,7 @@ export function ClientPresentationPortal() {
       {scene ? <>
         <h2>Design revision {scene.version_number}</h2>
         <h2>Final design presentation</h2>
-        <p>Landscape 3D and 2D sheets with saved finishes and revision details. Manufacturing outputs remain a separate release.</p>
+        <p>One landscape document: saved renders, room floor plan, finish moodboard, external and internal elevations, component sizes and review sign-off. Manufacturing outputs remain a separate release.</p>
         <button disabled={!['approved', 'locked'].includes(scene.status) || preparingPdf} onClick={() => void previewPresentation()}>{preparingPdf ? 'Preparing document…' : 'View final PDF'}</button>
         {pdfUrl && <section aria-label="Final PDF preview">
           <a href={pdfUrl} download={`ULTIDA-design-revision-${scene.version_number}.pdf`}>Download final PDF</a>{' · '}

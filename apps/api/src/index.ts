@@ -9,6 +9,7 @@ import cors from 'cors';
 import express from 'express';
 import sharp from 'sharp';
 import { buildPresentationPdf, type PresentationSheet } from './presentation-pdf.js';
+import { buildScenePresentationSheets } from './presentation-scene.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const rootEnv = [resolve(currentDir, '../.env'), resolve(currentDir, '../../.env'), resolve(currentDir, '../../../.env')].find((c) => existsSync(c));
@@ -832,15 +833,12 @@ app.get('/api/projects/:projectId/scenes/:sceneVersionId/presentation.pdf', requ
     if (artifacts.error) throw new Error('Saved presentation images could not be loaded.');
     const sheets: PresentationSheet[] = [];
     for (const artifact of artifacts.data ?? []) {
-      if (!artifact.storage_path || artifact.provenance?.stale) continue;
+      if (!artifact.storage_path || artifact.provenance?.stale || artifact.provenance?.synthetic === true || ['rejected', 'cancelled'].includes(artifact.provenance?.reviewStatus)) continue;
       const image = await client.storage.from('project-assets').download(artifact.storage_path);
       if (image.error || !image.data) throw new Error('A saved render could not be retrieved. Retry before downloading the document.');
-      sheets.push({ title: '3D presentation', subtitle: `Image ${artifact.id} · ${artifact.provenance?.reviewStatus ?? 'Review pending'} · Presentation only`, image: await sharp(Buffer.from(await image.data.arrayBuffer())).resize({ width: 1920, height: 1080, fit: 'inside', withoutEnlargement: true }).jpeg().toBuffer() });
+      sheets.push({ title: `${scene.rooms.map(room => room.name || room.id).join(' / ') || 'Room'} · 3D presentation`, subtitle: `Image ${artifact.id} · ${artifact.provenance?.reviewStatus ?? 'Review pending'} · Presentation only`, image: await sharp(Buffer.from(await image.data.arrayBuffer())).resize({ width: 1920, height: 1080, fit: 'inside', withoutEnlargement: true }).jpeg().toBuffer() });
     }
-    for (const wall of scene.walls) {
-      const svg = generateWallElevationSvg(scene, wall.id);
-      sheets.push({ title: `2D elevation · ${wall.id}`, subtitle: 'Saved component geometry and finish legend · Dimensions in millimetres · Do not scale this presentation sheet', image: await sharp(Buffer.from(svg)).resize({ width: 1920, height: 1080, fit: 'inside' }).png().toBuffer() });
-    }
+    sheets.push(...await buildScenePresentationSheets(scene));
     const pdf = await buildPresentationPdf(project.data.name, sceneVersionId, sheets);
     response.setHeader('Content-Type', 'application/pdf'); response.setHeader('Cache-Control', 'private, no-store');
     response.setHeader('Content-Disposition', `inline; filename="ultida-${sceneVersionId}-presentation.pdf"`);

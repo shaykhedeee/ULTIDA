@@ -1,5 +1,6 @@
 import { PdfWriter } from './pdf-writer.js';
 import { generateComponentElevationSvg, exportComponentElevationDxf, projectComponentElevation } from './component-elevation.js';
+export { generateComponentElevationSvg, projectComponentElevation } from './component-elevation.js';
 export * from './component-elevation.js';
 import type { Writable } from 'node:stream';
 import type { SceneV1, SceneWallV1, SceneOpeningV1, SceneModuleV1, SceneModulePartV1, SceneRoomV1 } from './scene-types.js';
