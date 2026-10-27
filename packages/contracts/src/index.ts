@@ -1,5 +1,6 @@
 import { z } from 'zod';
 export * from './flooring.js';
+export * from './moodboard.js';
 
 export const VisualOperationSchema = z.enum(['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance']);
 /** Appearance guidance for presentation renders. This never contains geometry. */
@@ -206,7 +207,7 @@ export const MaterialLibraryItemV1Schema = z.object({
   supplier: z.string().max(160).optional(),
   brand: z.string().max(160).optional(),
   code: z.string().min(1).max(100),
-  category: z.enum(['laminate', 'veneer', 'acrylic', 'stone', 'glass', 'metal', 'hardware', 'paint', 'fabric', 'flooring']),
+  category: z.enum(['laminate', 'board', 'veneer', 'acrylic', 'stone', 'glass', 'metal', 'hardware', 'paint', 'fabric', 'flooring']),
   finish: z.string().max(100).optional(),
   textureAssetId: z.string().uuid().nullable().optional(),
   textureWidthMm: z.number().positive().nullable().optional(),
@@ -220,7 +221,7 @@ export const MaterialLibraryItemV1Schema = z.object({
   // Keep omitted units omitted. Pricing consumers must flag ambiguous costs
   // instead of converting them as an assumed square-foot or sheet price.
   pricingUnit: z.enum(['sqft', 'sheet', 'sqm', 'running_meter', 'piece', 'set']).optional(),
-  availability: z.enum(['available', 'limited', 'discontinued']).default('available'),
+  availability: z.enum(['unknown', 'available', 'limited', 'discontinued']).default('unknown'),
   metadata: z.record(z.unknown()).default({}),
 });
 export type MaterialLibraryItemV1 = z.infer<typeof MaterialLibraryItemV1Schema>;

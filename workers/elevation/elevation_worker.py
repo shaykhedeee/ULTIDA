@@ -1,10 +1,11 @@
-"""Deterministic Altera wall-elevation exporter.
+"""Deterministic ULTIDA wall-elevation exporter.
 
 The worker consumes approved scene JSON and emits all formats from the same
 primitive list. It never reads or measures rendered images.
 """
 from __future__ import annotations
 import json, math
+from html import escape
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
@@ -42,12 +43,14 @@ def project_wall(scene: dict, wall_id: str) -> tuple[dict, list[Primitive]]:
     ux, uy = (ex - sx) / length, (ey - sy) / length
     # Wall-local coordinates: X follows wall start -> end, Z is vertical.
     wall_data = {"id": wall_id, "lengthMm": length, "heightMm": _num(wall["heightMm"]), "thicknessMm": _num(wall["thicknessMm"])}
+    if wall_data['heightMm'] <= 0 or wall_data['thicknessMm'] <= 0: raise ValueError('wall dimensions must be positive')
     primitives: list[Primitive] = [Primitive("line", LAYERS["visible"], wall_id, ((0, 0), (length, 0))), Primitive("line", LAYERS["visible"], f"{wall_id}-top", ((0, wall_data["heightMm"]), (length, wall_data["heightMm"]))) ]
     for opening in scene.get("openings", []):
         if opening["wallId"] != wall_id: continue
         offset, width, height = _num(opening["offsetMm"]), _num(opening["widthMm"]), _num(opening["heightMm"])
         if offset < 0 or offset + width > length + 0.01: raise ValueError(f"opening {opening['id']} outside wall")
         sill = _num(opening.get("sillHeightMm", 0))
+        if width <= 0 or height <= 0 or sill < 0 or sill + height > wall_data['heightMm'] + 0.01: raise ValueError('invalid opening dimensions')
         primitives.append(Primitive("rect", LAYERS["openings"], opening["id"], ((offset,sill),(offset+width,sill),(offset+width,sill+height),(offset,sill+height))))
     for module in scene.get("modules", []):
         if module.get("wallId") not in (None, wall_id): continue
@@ -57,9 +60,10 @@ def project_wall(scene: dict, wall_id: str) -> tuple[dict, list[Primitive]]:
         if module.get("wallId") != wall_id and distance > max(50, _num(wall["thicknessMm"])): continue
         width, height = _num(module["widthMm"]), _num(module["heightMm"])
         if offset < 0 or offset + width > length + 0.01: raise ValueError(f"module {module['id']} outside wall")
-        primitives.append(Primitive("rect", LAYERS["visible"], module["id"], ((offset,0),(offset+width,0),(offset+width,height),(offset,height))))
-        primitives.append(Primitive("line", LAYERS["hardware"], f"{module['id']}-division", ((offset+width/2,0),(offset+width/2,height))))
-        primitives.append(Primitive("text", LAYERS["labels"], f"{module['id']}-label", ((offset+10,height-30),), f"{module['family']} | {width:.0f} x {height:.0f} mm"))
+        base = _num(module['position'].get('zMm', 0))
+        if width <= 0 or height <= 0 or base < 0 or base + height > wall_data['heightMm'] + 0.01: raise ValueError('invalid module dimensions')
+        primitives.append(Primitive("rect", LAYERS["visible"], module["id"], ((offset,base),(offset+width,base),(offset+width,base+height),(offset,base+height))))
+        primitives.append(Primitive("text", LAYERS["labels"], f"{module['id']}-label", ((offset+10,base+height-30),), f"{module['family']} | {width:.0f} x {height:.0f} mm"))
     primitives.extend([Primitive("line", LAYERS["dimensions"], f"{wall_id}-dim-h", ((0,-120),(length,-120)), f"{length:.0f} mm"), Primitive("line", LAYERS["dimensions"], f"{wall_id}-dim-v", ((-120,0),(-120,wall_data["heightMm"])), f"{wall_data['heightMm']:.0f} mm")])
     return wall_data, validate_primitives(primitives)
 
@@ -73,13 +77,13 @@ def validate_primitives(primitives: list[Primitive]) -> list[Primitive]:
 def _write_svg(path: Path, wall: dict, primitives: list[Primitive], scale: float, title: str):
     width, height = wall["lengthMm"] * scale + 240, wall["heightMm"] * scale + 260
     def p(point): return (point[0]*scale+150, height-150-point[1]*scale)
-    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.2f}mm" height="{height:.2f}mm" viewBox="0 0 {width:.2f} {height:.2f}"><title>{title}</title>']
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.2f}mm" height="{height:.2f}mm" viewBox="0 0 {width:.2f} {height:.2f}"><title>{escape(title)}</title>']
     for item in primitives:
-        pts = [p(x) for x in item.points]; style = f'data-layer="{item.layer}" data-id="{item.id}" fill="none" stroke="#38291f" stroke-width="1"'
+        pts = [p(x) for x in item.points]; style = f'data-layer="{escape(item.layer, quote=True)}" data-id="{escape(item.id, quote=True)}" fill="none" stroke="#38291f" stroke-width="1"'
         if item.kind == "line": out.append(f'<line {style} x1="{pts[0][0]}" y1="{pts[0][1]}" x2="{pts[-1][0]}" y2="{pts[-1][1]}"/>')
         elif item.kind == "rect": out.append(f'<polygon {style} points="{" ".join(f"{x},{y}" for x,y in pts)}"/>')
-        elif item.kind == "text": out.append(f'<text {style} x="{pts[0][0]}" y="{pts[0][1]}" font-size="8">{item.text}</text>')
-    path.write_text("".join(out)+"</svg>", encoding="ascii")
+        elif item.kind == "text": out.append(f'<text {style} x="{pts[0][0]}" y="{pts[0][1]}" font-size="8">{escape(item.text)}</text>')
+    path.write_text("".join(out)+"</svg>", encoding="utf-8")
 
 def _write_dxf(path: Path, wall: dict, primitives: list[Primitive], title: str):
     doc = ezdxf.new("R2018", setup=True); doc.header["$INSUNITS"] = 4; doc.header["$MEASUREMENT"] = 1

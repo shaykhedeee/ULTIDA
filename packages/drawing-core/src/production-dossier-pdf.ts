@@ -122,7 +122,7 @@ export interface ProductionBOMSpec {
   boardNesting: {
     sheets18mm: number;
     sheets8mm: number;
-    sheetsLaminate: number;
+    sheetsLaminate: number | null;
     totalAreaSqm: number;
     totalAreaSqFt: number;
     nestingYieldPct: number;
@@ -915,7 +915,7 @@ export function generateProductionDossierPdf(
 
   writer.font('Helvetica-Bold').fontSize(9).fillColor('#0284c7').text('FINAL MANUFACTURING & HANDOVER SIGN-OFF AUTHORIZATION', 55, fSigY + 12);
   writer.font('Helvetica').fontSize(7.5).fillColor('#334155').text(
-    'By signing below, all parties confirm that the design brief, measured floor plan, dual-dimensioned wall elevations, material specifications, production BOM cutlists, and commercial milestones have been meticulously reviewed and approved. Production cutting and CNC fabrication are authorized to proceed immediately.',
+    'By signing below, all parties confirm that the design brief, measured floor plan, dual-dimensioned wall elevations, material specifications, production BOM cutlists, and commercial milestones have been meticulously reviewed and approved. Factory release also requires verified material faces, stock, site checks and a validated machine profile for any CNC output.',
     55,
     fSigY + 26,
     { width: pw - 110, lineGap: 2.5 }

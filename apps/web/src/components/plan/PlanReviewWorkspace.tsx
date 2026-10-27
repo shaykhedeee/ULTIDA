@@ -19,6 +19,8 @@ import {
   type CalibrationCrossCheckDiscrepancy,
 } from '@ultida/plan-core';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
+import PlanReadinessRail from './PlanReadinessRail';
+import PlanCalibrationCrossCheck from './PlanCalibrationCrossCheck';
 import {
   createFreshPlanCalibrationState,
   requireConfirmedScale,
@@ -1655,6 +1657,23 @@ export function PlanReviewWorkspace({
 
   return (
     <div className="plan-review-workspace">
+      <PlanReadinessRail
+        hasSource={Boolean(preview || fileName || sourceAssetId || elements.length)}
+        analysed={analysed}
+        scaleMmPerPixel={scale?.mmPerPixel}
+        elements={elements}
+        unresolvedIssueCount={issues.filter((issue) => !issue.resolvedOption).length}
+        calibrationDriftCount={calibrationDiscrepancies.length}
+        mode={geometryMode}
+        canApproveFromExistingChecks={approvalReady}
+        onCalibrate={beginCalibration}
+        onExtract={() => setPlanWorkspaceMode('extract')}
+        onReview={() => setPlanWorkspaceMode('clean')}
+      />
+      <PlanCalibrationCrossCheck
+        scaleMmPerPixel={scale?.mmPerPixel}
+        walls={elements.filter((element) => element.kind === 'wall')}
+      />
       {/* Page Header */}
       <div className="workspace-heading">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

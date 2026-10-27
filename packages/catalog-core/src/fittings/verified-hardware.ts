@@ -518,3 +518,83 @@ export function recommendVerifiedHardwareForModule(
     validation,
   };
 }
+
+/** Starter fitting records transcribed from official manufacturer pages on 2026-10-13.
+ * These are RESEARCH records, not licensed CAD models or factory-authorized drilling programs.
+ * Source versions, stock and all fit conditions must be rechecked for production.
+ */
+export type FittingBrand = 'Ebco' | 'Hettich';
+export type FittingRecord = {
+  id: string; brand: FittingBrand; code: string; label: string;
+  kind: 'hinge' | 'drawer_runner'; sourceUrl: string; reviewedOn: string;
+  reviewedSpecification: true; cadAssetStatus: 'not_imported';
+  parameters: {
+    minShutterThicknessMm?: number; maxShutterThicknessMm?: number;
+    maxShutterWidthTwoHingesMm?: number; maxShutterHeightTwoHingesMm?: number;
+    maxShutterWeightTwoHingesKg?: number; openingAngleDeg?: number;
+    cupDiameterMm?: number; cupDepthMm?: number;
+    nominalLengthMm?: number; minCabinetDepthMm?: number;
+    maxDrawerSideThicknessMm?: number; loadClassKg?: number;
+    runnerSide?: 'left' | 'right';
+  };
+};
+export const STARTER_FITTINGS: readonly FittingRecord[] = [
+  {id:'ebco-esl1',brand:'Ebco',code:'ESL1',label:'E Soft Linear Hinge 3D — Full Overlay, Nickel',kind:'hinge',
+    sourceUrl:'https://www.ebco.in/ebco/e-soft-linear-hinge-3d',reviewedOn:'2026-10-13',reviewedSpecification:true,cadAssetStatus:'not_imported',
+    parameters:{minShutterThicknessMm:14,maxShutterThicknessMm:22,maxShutterWidthTwoHingesMm:600,maxShutterHeightTwoHingesMm:900,maxShutterWeightTwoHingesKg:6,openingAngleDeg:105,cupDiameterMm:35,cupDepthMm:11.4}},
+  {id:'ebco-esl2',brand:'Ebco',code:'ESL2',label:'E Soft Linear Hinge 3D — Half Overlay, Nickel',kind:'hinge',
+    sourceUrl:'https://www.ebco.in/ebco/e-soft-linear-hinge-3d',reviewedOn:'2026-10-13',reviewedSpecification:true,cadAssetStatus:'not_imported',
+    parameters:{minShutterThicknessMm:14,maxShutterThicknessMm:22,maxShutterWidthTwoHingesMm:600,maxShutterHeightTwoHingesMm:900,maxShutterWeightTwoHingesKg:6,openingAngleDeg:105,cupDiameterMm:35,cupDepthMm:11.4}},
+  {id:'hettich-9099124',brand:'Hettich',code:'9099124',label:'Quadro V6 Silent System — 450 mm, Left',kind:'drawer_runner',
+    sourceUrl:'https://shop.hettich.com/in_EN/Runner-systems/Concealed-drawer-runners/Quadro-drawer-runners/Quadro-V6/Quadro-V6-with-Silent-System%2C-450-mm%2C-left/p/9099124',reviewedOn:'2026-10-13',reviewedSpecification:true,cadAssetStatus:'not_imported',
+    parameters:{nominalLengthMm:450,minCabinetDepthMm:463,maxDrawerSideThicknessMm:16,loadClassKg:30,runnerSide:'left'}},
+  {id:'hettich-9099125',brand:'Hettich',code:'9099125',label:'Quadro V6 Silent System — 450 mm, Right',kind:'drawer_runner',
+    sourceUrl:'https://shop.hettich.com/in_EN/Runner-systems/Concealed-drawer-runners/Quadro-drawer-runners/Quadro-V6/Quadro-V6-with-Silent-System%2C-450-mm%2C-right/p/9099125',reviewedOn:'2026-10-13',reviewedSpecification:true,cadAssetStatus:'not_imported',
+    parameters:{nominalLengthMm:450,minCabinetDepthMm:463,maxDrawerSideThicknessMm:16,loadClassKg:30,runnerSide:'right'}},
+] as const;
+export type FittingFitRequest = {
+  kind: 'hinge'|'drawer_runner'; shutterThicknessMm?:number; shutterWidthMm?:number; shutterHeightMm?:number;
+  shutterMassKg?:number; hingeCount?:number;
+  cabinetInternalDepthMm?:number; drawerSideThicknessMm?:number; drawerLoadKg?:number;
+  nominalRunnerLengthMm?:number;
+};
+export function checkFittingCompatibility(fitting:FittingRecord,request:FittingFitRequest):{compatible:boolean;issues:string[]} {
+  const issues:string[]=[];
+  const p=fitting.parameters;
+  const dimensions = ['shutterThicknessMm', 'shutterWidthMm', 'shutterHeightMm', 'cabinetInternalDepthMm', 'drawerSideThicknessMm', 'nominalRunnerLengthMm'] as const;
+  for (const key of dimensions) {
+    const value = request[key];
+    if (value !== undefined && (!Number.isFinite(value) || value <= 0)) issues.push(`${key} must be a finite positive measurement.`);
+  }
+  for (const key of ['shutterMassKg', 'drawerLoadKg'] as const) {
+    const value = request[key];
+    if (value !== undefined && (!Number.isFinite(value) || value < 0)) issues.push(`${key} must be a finite nonnegative load.`);
+  }
+  if(fitting.kind!==request.kind)issues.push('Fitting family does not match target.');
+  if(fitting.kind==='hinge') {
+    if(request.shutterThicknessMm==null)issues.push('Shutter thickness must be supplied.');
+    else if(request.shutterThicknessMm<(p.minShutterThicknessMm??0)||request.shutterThicknessMm>(p.maxShutterThicknessMm??Infinity)) issues.push('Shutter thickness is outside the published hinge range.');
+    if(request.hingeCount!==2)issues.push('This starter record only verifies the manufacturer two-hinge example; consult manufacturer data for other counts.');
+    if(request.shutterWidthMm==null||request.shutterHeightMm==null||request.shutterMassKg==null) issues.push('Shutter width, height and mass are required for the two-hinge check.');
+    else {
+      if(request.shutterWidthMm>(p.maxShutterWidthTwoHingesMm??Infinity))issues.push('Shutter exceeds published two-hinge width.');
+      if(request.shutterHeightMm>(p.maxShutterHeightTwoHingesMm??Infinity))issues.push('Shutter exceeds published two-hinge height.');
+      if(request.shutterMassKg>(p.maxShutterWeightTwoHingesKg??Infinity))issues.push('Shutter exceeds published two-hinge mass.');
+    }
+  }else{
+    if(request.cabinetInternalDepthMm==null||request.cabinetInternalDepthMm<(p.minCabinetDepthMm??0))issues.push('Cabinet body depth is unverified or below the published minimum.');
+    if(request.drawerSideThicknessMm==null||request.drawerSideThicknessMm>(p.maxDrawerSideThicknessMm??Infinity))issues.push('Drawer side thickness is unverified or above the published limit.');
+    if(request.drawerLoadKg==null||request.drawerLoadKg>(p.loadClassKg??0))issues.push('Drawer load is unverified or exceeds load class.');
+    if(request.nominalRunnerLengthMm!==p.nominalLengthMm)issues.push('Nominal runner length does not match published fitting.');
+  }
+  return {compatible:issues.length===0,issues};
+}
+
+/** A runner pair must include both sides of the same verified manufacturer system. */
+export function checkRunnerPair(left:FittingRecord,right:FittingRecord,request:FittingFitRequest):{compatible:boolean;issues:string[]} {
+  const issues=[...checkFittingCompatibility(left,request).issues,...checkFittingCompatibility(right,request).issues];
+  if(left.kind!=='drawer_runner'||right.kind!=='drawer_runner'||left.brand!==right.brand) issues.push('Runners must be from the same verified manufacturer system.');
+  if(left.parameters.runnerSide!=='left'||right.parameters.runnerSide!=='right') issues.push('A matched left/right pair is required.');
+  if(left.parameters.nominalLengthMm!==right.parameters.nominalLengthMm) issues.push('Nominal runner lengths differ.');
+  return {compatible:issues.length===0,issues};
+}

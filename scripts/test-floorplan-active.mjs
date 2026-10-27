@@ -1,10 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const envPath = join(__dirname, '..', '.env');
-const envText = readFileSync(envPath, 'utf8');
+const envText = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
 for (const line of envText.split('\n')) {
   const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
@@ -14,17 +14,17 @@ const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_PUBLISHABLE_KEY;
 const email = process.env.ULTIDA_TEST_EMAIL;
 const password = process.env.ULTIDA_TEST_PASSWORD;
-if (!url || !key || !email || !password) {
-  console.error('Set SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, ULTIDA_TEST_EMAIL and ULTIDA_TEST_PASSWORD in a local untracked environment file before running this diagnostic.');
+if (!url || !key || !email || !password || !process.env.ULTIDA_TEST_PROJECT_ID) {
+  console.error('Set SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, ULTIDA_TEST_EMAIL, ULTIDA_TEST_PASSWORD and ULTIDA_TEST_PROJECT_ID in a local untracked environment file before running this diagnostic.');
   process.exit(1);
 }
 const sb = createClient(url, key);
-const PROJECT = '11111111-1111-1111-1111-111111111111';
+const PROJECT = process.env.ULTIDA_TEST_PROJECT_ID;
 
 const { data, error } = await sb.auth.signInWithPassword({ email, password });
 if (error) { console.error('AUTH FAIL', error.message); process.exit(1); }
 const token = data.session.access_token;
-const base = 'http://127.0.0.1:8800/api';
+const base = (process.env.ULTIDA_API_BASE ?? 'http://127.0.0.1:8800/api').replace(/\/$/, '');
 const res = await fetch(`${base}/projects/${PROJECT}/floor-plan/active`, { headers: { authorization: `Bearer ${token}` } });
 const payload = await res.json();
 console.log('status', res.status, 'success', payload.success);

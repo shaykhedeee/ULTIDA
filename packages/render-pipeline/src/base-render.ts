@@ -35,6 +35,8 @@ export interface BaseRenderArtifacts {
   rgb: { url: string; bytes: number };
   edgeMap: { url: string; bytes: number };
   objectMasks: Array<{ id: string; url: string; bytes: number }>;
+  /** Visible component unions scoped to a module and persisted semantic slot. */
+  semanticMasks?: Array<{ id: string; moduleId: string; semanticSlot: string; url: string; bytes: number }>;
   /** Projected opening regions used by the image QA measurement pass. */
   openingMasks: Array<{ id: string; kind: 'door' | 'window' | 'passage'; url: string; bytes: number }>;
   /** Projected skirting bands derived from approved flooring contracts. */
@@ -63,7 +65,7 @@ type ScenePrimitive = {
 export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width?: number; height?: number; cameraId?: string } = {}): BaseRenderArtifacts {
   const width = options.width ?? 1024;
   const height = options.height ?? 768;
-  const camera = scene.cameras.find((item) => item.id === options.cameraId) ?? scene.cameras[0];
+  const camera = options.cameraId ? scene.cameras.find((item) => item.id === options.cameraId) : scene.cameras[0];
   if (!camera) throw new Error('A scene camera is required for a perspective technical preview.');
 
   const primitives = scenePrimitives(scene);
@@ -71,47 +73,95 @@ export function renderScenePerspectiveArtifacts(scene: SceneV1, options: { width
   const edge = createBackground(width, height, [255, 255, 255, 255]);
   const depth = createBackground(width, height, [245, 245, 245, 255]);
   const depthBuffer = new Float64Array(width * height).fill(Infinity);
+  const owners = new Int32Array(width * height).fill(-1);
   const projection = createProjector(camera.position, camera.target, camera.lensMm, width, height);
   const rendered = primitives
     .map((primitive) => ({ primitive, projected: primitive.faces.map((face) => projectFace(face, projection)) }))
     .filter((item) => item.projected.some((face) => face.length >= 3))
     .sort((a, b) => averageDepth(b.projected) - averageDepth(a.projected));
 
-  for (const item of rendered) {
+  for (const [owner, item] of rendered.entries()) {
     for (const face of item.projected) {
       if (face.length < 3) continue;
-      fillDepthPolygon(rgb, width, height, face, shadeForFace(item.primitive.color, face), depthBuffer);
-      strokePolygon(edge, width, height, face, [45, 45, 45, 255]);
+      fillDepthPolygon(rgb, width, height, face, shadeForFace(item.primitive.color, face), depthBuffer, owners, owner);
+
       const shade = depthShade(face);
       fillPolygon(depth, width, height, face, [shade, shade, shade, 255]);
     }
   }
 
+  // Visible ownership boundaries exclude all edges hidden behind foreground geometry.
+  for(let y=0;y<height;y++) for(let x=0;x<width;x++) {
+    const pixel=y*width+x,owner=owners[pixel]!;
+    if(owner<0) continue;
+    if((x>0 && owners[pixel-1]!==owner) || (x+1<width && owners[pixel+1]!==owner) || (y>0 && owners[pixel-width]!==owner) || (y+1<height && owners[pixel+width]!==owner)) {
+      edge[pixel*4]=45;edge[pixel*4+1]=45;edge[pixel*4+2]=45;
+    }
+  }
+
+  // Depth and edit masks share RGB visibility rather than painting hidden faces.
+  for (let pixel = 0; pixel < depthBuffer.length; pixel++) {
+    if (!Number.isFinite(depthBuffer[pixel])) continue;
+    const shade = Math.max(20, Math.min(240, Math.round(255 - depthBuffer[pixel]! / 70)));
+    for (let channel = 0; channel < 3; channel++) depth[pixel * 4 + channel] = shade;
+  }
+  const visibleMask = (indices: number[]) => {
+    const mask = Buffer.alloc(width * height * 4);
+    const selected = new Set(indices);
+    let visiblePixels = 0;
+    for (let pixel = 0; pixel < owners.length; pixel++) if (selected.has(owners[pixel]!)) {
+      mask.fill(255, pixel * 4, pixel * 4 + 4); visiblePixels++;
+    }
+    const png = encodePng(width, height, mask);
+    return { url: dataUri(png), bytes: png.length, visiblePixels };
+  };
   const rgbPng = encodePng(width, height, rgb);
   const edgePng = encodePng(width, height, edge);
   const depthPng = encodePng(width, height, depth);
   const modules = rendered.filter((item) => item.primitive.kind === 'module');
-  const objectMasks = modules.map((item) => ({ id: item.primitive.id, ...renderMask(width, height, item.projected) })).filter((mask) => mask.visiblePixels > 0);
+  const maskGroups = new Map<string, number[]>();
+  for (const item of modules) {
+    const index = rendered.indexOf(item);
+    const ids = [item.primitive.id];
+    const part = scene.moduleParts?.find(part => part.id === item.primitive.id);
+    if (part && part.moduleId !== item.primitive.id) ids.push(part.moduleId);
+    for (const id of ids) maskGroups.set(id, [...(maskGroups.get(id) ?? []), index]);
+  }
+  const objectMasks = Array.from(maskGroups, ([id, indices]) => ({ id, ...visibleMask(indices) })).filter(mask => mask.visiblePixels > 0);
+  const slotGroups = new Map<string, { moduleId: string; semanticSlot: string; indices: number[] }>();
+  for (const item of modules) {
+    const part = scene.moduleParts?.find(part => part.id === item.primitive.id);
+    if (!part) continue;
+    const slots = new Set([part.semanticType]);
+    if (['drawer', 'loft', 'drawer_front', 'loft_front'].includes(part.semanticType)) slots.add('shutter');
+    if (['lighting_anchor', 'lighting_channel'].includes(part.semanticType)) slots.add('lighting');
+    if (part.semanticType === 'back_panel') slots.add('back-panel');
+    for (const semanticSlot of slots) {
+      const key = `${part.moduleId}:slot:${semanticSlot}`;
+      const group = slotGroups.get(key) ?? { moduleId:part.moduleId, semanticSlot, indices:[] };
+      group.indices.push(rendered.indexOf(item)); slotGroups.set(key,group);
+    }
+  }
+  const semanticMasks = Array.from(slotGroups, ([id, group]) => ({ id, moduleId: group.moduleId, semanticSlot: group.semanticSlot, ...visibleMask(group.indices) })).filter(mask => mask.visiblePixels > 0);
   const openingMasks = scene.openings.map((opening) => ({
     id: opening.id,
     kind: opening.kind,
-    ...renderMask(width, height, openingProjectedFaces(scene, opening, projection)),
+    ...renderMask(width, height, openingProjectedFaces(scene, opening, projection), depthBuffer),
   })).filter((mask) => mask.visiblePixels > 0);
-  const skirtingMasks = rendered.filter((item) => item.primitive.kind === 'skirting').map((item) => ({ id: item.primitive.id, ...renderMask(width, height, item.projected) })).filter((mask) => mask.visiblePixels > 0);
-  const materialGroups = new Map<string, ProjectedPoint[][]>();
+  const skirtingMasks = rendered.filter((item) => item.primitive.kind === 'skirting').map((item) => ({ id: item.primitive.id, ...visibleMask([rendered.indexOf(item)]) })).filter((mask) => mask.visiblePixels > 0);
+  const materialGroups = new Map<string, number[]>();
   for (const item of modules) {
     if (!item.primitive.materialId) continue;
-    const faces = materialGroups.get(item.primitive.materialId) ?? [];
-    faces.push(...item.projected);
-    materialGroups.set(item.primitive.materialId, faces);
+    materialGroups.set(item.primitive.materialId, [...(materialGroups.get(item.primitive.materialId) ?? []), rendered.indexOf(item)]);
   }
-  const materialRegions = Array.from(materialGroups.entries()).map(([materialId, faces]) => ({ materialId, ...renderMask(width, height, faces) })).filter((mask) => mask.visiblePixels > 0);
+  const materialRegions = Array.from(materialGroups, ([materialId, indices]) => ({ materialId, ...visibleMask(indices) })).filter(mask => mask.visiblePixels > 0);
 
   return {
     rgb: { url: dataUri(rgbPng), bytes: rgbPng.length },
     edgeMap: { url: dataUri(edgePng), bytes: edgePng.length },
     depth: { url: dataUri(depthPng), bytes: depthPng.length },
     objectMasks,
+    semanticMasks,
     openingMasks,
     skirtingMasks,
     materialRegions,
@@ -157,7 +207,7 @@ function openingProjectedFaces(scene: SceneV1, opening: SceneV1['openings'][numb
 
 // A primitive-level painter sort cannot order intersecting walls and cabinetry.
 // Triangulate each convex box face and retain the nearest surface per pixel.
-function fillDepthPolygon(buffer: Buffer, width: number, height: number, face: ProjectedPoint[], color: number[], depths: Float64Array) {
+function fillDepthPolygon(buffer: Buffer, width: number, height: number, face: ProjectedPoint[], color: number[], depths: Float64Array, owners: Int32Array, owner: number) {
   for (let index = 1; index + 1 < face.length; index += 1) {
     const [a, b, c] = [face[0]!, face[index]!, face[index + 1]!];
     const denominator = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
@@ -176,6 +226,7 @@ function fillDepthPolygon(buffer: Buffer, width: number, height: number, face: P
       const pixel = y * width + x;
       if (depth >= depths[pixel]!) continue;
       depths[pixel] = depth;
+      owners[pixel] = owner;
       for (let channel = 0; channel < 4; channel += 1) buffer[pixel * 4 + channel] = color[channel]!;
     }
   }
@@ -315,8 +366,8 @@ function boxFaces(a: Vec3, b: Vec3, c: Vec3, d: Vec3, e: Vec3, f: Vec3, g: Vec3,
 }
 
 function createProjector(position: { xMm: number; yMm: number; zMm: number }, target: { xMm: number; yMm: number; zMm: number }, lensMm: number, width: number, height: number) {
-  const eye: Vec3 = { x: position.xMm, y: position.yMm, z: position.zMm };
-  const forward = normalize({ x: target.xMm - eye.x, y: target.yMm - eye.y, z: target.zMm - eye.z });
+  const eye: Vec3 = { x: position.xMm, y: position.zMm, z: position.yMm };
+  const forward = normalize({ x: target.xMm - eye.x, y: target.zMm - eye.y, z: target.yMm - eye.z });
   let right = normalize(cross(forward, { x: 0, y: 1, z: 0 }));
   if (!isFinite(right.x)) right = { x: 1, y: 0, z: 0 };
   const up = normalize(cross(right, forward));
@@ -339,9 +390,14 @@ function projectFace(face: Vec3[], projector: ReturnType<typeof createProjector>
   return points;
 }
 
-function renderMask(width: number, height: number, faces: ProjectedPoint[][]) {
+function renderMask(width: number, height: number, faces: ProjectedPoint[][], visibleDepth?:Float64Array) {
   const mask = Buffer.alloc(width * height * 4);
   for (const face of faces) if (face.length >= 3) fillPolygon(mask, width, height, face, [255, 255, 255, 255]);
+  if(visibleDepth) {
+    const maskDepth=new Float64Array(width*height).fill(Infinity), maskOwners=new Int32Array(width*height).fill(-1);
+    for(const face of faces) if(face.length>=3) fillDepthPolygon(mask,width,height,face,[255,255,255,255],maskDepth,maskOwners,0);
+    for(let pixel=0;pixel<maskDepth.length;pixel++) if(maskDepth[pixel]!>visibleDepth[pixel]!+2) mask.fill(0,pixel*4,pixel*4+4);
+  }
   const png = encodePng(width, height, mask);
   let visiblePixels = 0;
   for (let offset = 3; offset < mask.length; offset += 4) if (mask[offset]! > 127) visiblePixels += 1;

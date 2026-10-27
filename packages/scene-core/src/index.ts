@@ -46,6 +46,11 @@ export const SceneV1Schema = z.object({
     position: z.object({ xMm: z.number(), yMm: z.number(), zMm: z.number().nonnegative() }),
     rotationDeg: z.number().finite(),
     materialId: Id.optional(),
+    surfaceRecipe: z.object({
+      mode: z.enum(['prelaminated', 'laminate_after_cut']),
+      faceA: z.object({ code: z.string().trim().min(1), thicknessMm: z.number().positive(), grain: z.enum(['none', 'length', 'width']), allowanceMm: z.number().nonnegative(), stockWidthMm: z.number().positive(), stockHeightMm: z.number().positive() }).nullable(),
+      faceB: z.object({ code: z.string().trim().min(1), thicknessMm: z.number().positive(), grain: z.enum(['none', 'length', 'width']), allowanceMm: z.number().nonnegative(), stockWidthMm: z.number().positive(), stockHeightMm: z.number().positive() }).nullable(),
+    }).optional(),
     confidence: Confidence,
     kind: z.string().optional(),
     fixtureType: z.string().optional(),

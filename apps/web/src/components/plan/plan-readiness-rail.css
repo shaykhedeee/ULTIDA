@@ -1,0 +1,16 @@
+.ultida-plan-rail{border:1px solid #d9cebb;background:linear-gradient(120deg,#fffdf9,#f7f2ea);border-radius:14px;padding:17px 20px;color:#29241e;box-shadow:0 4px 18px #594a3010}
+.ultida-plan-rail-top,.ultida-plan-rail-bottom{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.ultida-plan-eyebrow{font-size:10px;letter-spacing:.14em;color:#8a6b33;font-weight:800;margin:0 0 4px}
+.ultida-plan-rail h2{font-size:19px;line-height:1.3;margin:0 0 5px;font-weight:800}
+.ultida-plan-subtitle{font-size:12px;color:#6e665e;margin:0;max-width:670px}
+.ultida-plan-scale-chip{display:flex;align-items:center;gap:7px;border:1px solid #eed6a6;background:#fff6e5;border-radius:999px;padding:7px 11px;font-size:11px;font-weight:750}
+.ultida-plan-scale-chip.is-calibrated{border-color:#b7dfca;background:#eaf8ef;color:#1d6541}
+.ultida-plan-steps{padding:0;list-style:none;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;margin:17px 0}
+.ultida-plan-step{position:relative;display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;padding:8px 6px;border-bottom:3px solid #e4ddd2;color:#847b70;min-width:0}
+.ultida-plan-step-mark{display:inline-grid;place-items:center;flex:none;width:23px;height:23px;border-radius:50%;background:#ece7df;font-size:11px}
+.ultida-plan-step.is-complete{border-color:#67b68c;color:#286645}.ultida-plan-step.is-complete .ultida-plan-step-mark{background:#d6f0e0}
+.ultida-plan-step.is-current{border-color:#b78c41;color:#352916}.ultida-plan-step.is-current .ultida-plan-step-mark{background:#ecd9af}
+.ultida-plan-step.is-blocked{border-color:#d98a64;color:#a14023}.ultida-plan-step.is-blocked .ultida-plan-step-mark{background:#fff0e7}
+.ultida-plan-next{display:grid;gap:3px}.ultida-plan-next>span{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#847b70;font-weight:750}.ultida-plan-next strong{font-size:13px}.ultida-plan-next small{color:#a34427;font-size:11px}
+.ultida-plan-rail-actions{display:flex;gap:7px;flex-wrap:wrap}.ultida-plan-rail-actions button{display:flex;align-items:center;gap:7px;min-height:36px;background:#fff;color:#3c3328;padding:8px 11px;border:1px solid #d8cbb8;border-radius:8px;font-size:12px;font-weight:750;cursor:pointer}.ultida-plan-rail-actions button:last-child{background:#30271b;color:#fff;border-color:#30271b}.ultida-plan-rail-actions button:disabled{opacity:.5;cursor:not-allowed}.ultida-plan-rail-actions button:focus-visible{outline:3px solid #c79c47;outline-offset:2px}
+@media(max-width:780px){.ultida-plan-steps{grid-template-columns:repeat(3,minmax(0,1fr))}.ultida-plan-scale-chip{margin-top:4px}}@media(max-width:420px){.ultida-plan-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.ultida-plan-rail-actions button{flex:1}}

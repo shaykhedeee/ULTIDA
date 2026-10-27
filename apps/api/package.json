@@ -34,6 +34,7 @@
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
     "ikea-availability-checker": "2.0.4",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.3.289",
     "pdfkit": "^0.19.1",
     "sharp": "^0.34.0",

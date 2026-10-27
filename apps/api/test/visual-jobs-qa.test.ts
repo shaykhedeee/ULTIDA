@@ -12,7 +12,7 @@ const SCENE: any = {
   walls: [{ id: 'wall-1', floorId: 'floor-1', start: { xMm: 0, yMm: 0 }, end: { xMm: 4000, yMm: 0 }, thicknessMm: 150, heightMm: 2700, baseElevationMm: 0, spaceIds: ['space-1'], confidence: 1 }],
   openings: [{ id: 'door-1', wallId: 'wall-1', kind: 'door', offsetMm: 1000, widthMm: 900, heightMm: 2100, sillHeightMm: 0, confidence: 1 }],
   fixedFixtures: [], modules: [], materials: [], lighting: [],
-  cameras: [{ id: 'camera-1', name: 'Corner', position: { xMm: 2000, yMm: 1700, zMm: -3500 }, target: { xMm: 2000, yMm: 1100, zMm: 1200 }, lensMm: 35 }],
+  cameras: [{ id: 'camera-1', name: 'Corner', position: { xMm: 2000, yMm: -3500, zMm: 1700 }, target: { xMm: 2000, yMm: 1200, zMm: 1100 }, lensMm: 35 }],
   constraints: [], unresolvedDetections: [], metadata: { branch: 'main', status: 'approved', changeReason: 'fixture', schemaVersion: 'scene.v1', designVersion: 'design-1' },
 };
 

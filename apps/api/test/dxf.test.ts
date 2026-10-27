@@ -6,7 +6,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app } from '../src/index.js';
+import { app, buildCutlist } from '../src/index.js';
+import { productionReviewFingerprint } from '../src/production-release-authority.js';
 import { exportSceneToDxf, generateDrawingPackageSvg } from '@ultida/drawing-core';
 
 const approvedScene = {
@@ -136,6 +137,7 @@ test('legacy PDF, SVG and cutlist routes cannot export forged client-approved sc
 });
 
 test('authenticated export ignores caller scene and renders the exact approved persisted revision', async () => {
+  let savedReview: any = null;
   const originalFetch = globalThis.fetch;
   const originalEnv = {
     url: process.env.SUPABASE_URL,
@@ -152,6 +154,7 @@ test('authenticated export ignores caller scene and renders the exact approved p
     if (url.pathname === '/auth/v1/user') return Response.json({ id: 'user-1', email: 'designer@example.test' });
     if (url.pathname === '/rest/v1/projects') return Response.json([{ id: 'project-1', organization_id: 'org-1' }]);
     if (url.pathname === '/rest/v1/organization_members') return Response.json([{ organization_id: 'org-1' }]);
+    if (url.pathname === '/rest/v1/production_snapshot_reviews') return Response.json(savedReview ? [savedReview] : []);
     if (url.pathname === '/rest/v1/scene_versions') return Response.json([{ id: 'scene-1', status: 'approved', scene: approvedScene }]);
     return Response.json({ message: `Unexpected test request: ${url.pathname}` }, { status: 404 });
   }) as typeof fetch;
@@ -167,6 +170,26 @@ test('authenticated export ignores caller scene and renders the exact approved p
       const svg = await response.text();
       assert.equal(response.status, 200, svg);
       assert.equal(svg, generateDrawingPackageSvg(approvedScene as any));
+
+      const files = ['cutlist.xlsx', 'labels.svg', 'nesting.svg', 'package.pdf'];
+      const compiled = buildCutlist(approvedScene as any);
+      for (const file of files) {
+        savedReview = null;
+        const path = `${baseUrl}/api/projects/project-1/scenes/scene-1/production/${file}`;
+        const headers = { authorization: 'Bearer test-session' };
+        const denied = await fetch(`${path}?intent=released`, { headers });
+        assert.equal(denied.status, 409, file);
+        const draft = await fetch(`${path}?intent=draft`, { headers });
+        assert.equal(draft.status, 200, await draft.text());
+        assert.equal(draft.headers.get('x-ultida-production-status'), 'review_required');
+        savedReview = { status: 'approved', approved_part_ids: compiled.parts.map(p => p.partInstanceId), fabrication_rules_version: compiled.fabricationRules.version, source_fingerprint: productionReviewFingerprint(compiled) };
+        const released = await fetch(`${path}?intent=released`, { headers });
+        assert.equal(released.status, 200, file);
+        assert.equal(released.headers.get('x-ultida-production-status'), 'approved');
+        assert.equal(released.headers.get('x-ultida-scene-version'), 'scene-1');
+        await released.arrayBuffer();
+      }
+      savedReview = null;
 
       const cabinetWorkbook = await fetch(`${baseUrl}/api/projects/project-1/production/cabinet-cutlist.xlsx`, {
         method: 'POST',
@@ -226,6 +249,7 @@ test('production elevation binds its component schedule to the persisted certifi
     if (url.pathname === '/auth/v1/user') return Response.json({ id: 'user-1', email: 'designer@example.test' });
     if (url.pathname === '/rest/v1/projects') return Response.json([{ id: 'project-1', organization_id: 'org-1' }]);
     if (url.pathname === '/rest/v1/organization_members') return Response.json([{ organization_id: 'org-1' }]);
+    if (url.pathname === '/rest/v1/production_snapshot_reviews') return Response.json([]);
     if (url.pathname === '/rest/v1/scene_versions') return Response.json([{ id: 'scene-1', status: 'approved', scene }]);
     if (url.pathname === '/rest/v1/floor_plan_versions') return Response.json([]);
     if (url.pathname === '/rest/v1/production_snapshot_reviews') return Response.json([]);

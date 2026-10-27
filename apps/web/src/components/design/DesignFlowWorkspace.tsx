@@ -1,3 +1,4 @@
+import { requireSavedResponse } from './saved-response';
 import { renderRequestKey } from './render-request';
 import { ArrowRight, Boxes, Check, CheckCircle2, ExternalLink, FileText, Image, Layers3, LayoutTemplate, Loader2, Maximize2, Palette, Plus, RefreshCw, Ruler, Save, Send, ShieldCheck, SlidersHorizontal, Sparkles, Table, ThumbsDown, ThumbsUp, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -9,6 +10,11 @@ import { getApiBase } from '../../lib/api-base';
 import { readPreparedModule, completePreparedModule, type PreparedModulePlan } from '../../lib/prepared-module-plan';
 import { readRoomProposals, type RoomModuleProposal } from '../../lib/room-proposals';
 import './visual-studio.css';
+import RoomMaterialBoard from './RoomMaterialBoard';
+import { RoomMoodboardMakerCard } from './RoomMoodboardMakerCard';
+import { UltimateModularIntelligenceBar } from './UltimateModularIntelligenceBar';
+import KitchenQuoteReview from './KitchenQuoteReview';
+import KitchenAiReview from './KitchenAiReview';
 import { ModulePreview } from '../library/ModulePreview';
 import { listCatalog, MaterialSlotSchema } from '@ultida/catalog-core';
 import { catalogForRoom } from './catalog-room-filter';
@@ -16,8 +22,6 @@ import { inferRoomType } from '../../features/spaces/SpacesWorkspace';
 import WorkingDrawingsDossier from '../drawings/WorkingDrawingsDossier';
 import WallBayEditor from '../spaces/WallBayEditor';
 import FlooringStudio from '../spaces/FlooringStudio';
-import { RoomMoodboardMakerCard } from './RoomMoodboardMakerCard';
-import { UltimateModularIntelligenceBar } from './UltimateModularIntelligenceBar';
 import { type CompositionScheduleV1, type FloorSurfaceV1, type FloorPointV1 } from '@ultida/contracts';
 import {
   generateWallElevationSvg,
@@ -367,13 +371,14 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
   const [structuralImageName, setStructuralImageName] = useState<string | null>(null);
   const [materialLibrary, setMaterialLibrary] = useState<any[]>([]);
   const [materialAssignmentsSaved, setMaterialAssignmentsSaved] = useState(materials.length > 0);
+  const [moodboardRefreshToken, setMoodboardRefreshToken] = useState(0);
   const [scenePreflight, setScenePreflight] = useState<ScenePreflight | null>(null);
   const [preflightLoading, setPreflightLoading] = useState(false);
   const [starterMaterialsState, setStarterMaterialsState] = useState('');
   const [approvingScene, setApprovingScene] = useState(false);
   const [localSceneApproved, setLocalSceneApproved] = useState(sceneApproved);
   useEffect(() => { setLocalSceneApproved(sceneApproved); }, [sceneApproved]);
-  const isSceneApproved = sceneApproved || localSceneApproved;
+  const isSceneApproved = localSceneApproved;
   const [canvasViewMode, setCanvasViewMode] = useState<'elevation' | 'plan' | 'schedule'>('elevation');
   const [activeCanvasWallId, setActiveCanvasWallId] = useState<string | null>(null);
 
@@ -931,10 +936,19 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         if (!preference.ok || !preferencePayload.success) { setPlacementNotice(preferencePayload.message ?? 'Project style preference could not be saved.'); return false; }
       }
       setMaterialAssignmentsSaved(true);
+      setCompiledSceneId(null);
+      setLocalSceneApproved(false);
+      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
+      setMoodboardRefreshToken((revision) => revision + 1);
       setPlacementNotice(`${selectedModule.label} now has ${assignments.length} versioned material assignment${assignments.length === 1 ? '' : 's'}, including separate carcass and shutter finishes.`);
       return true;
     } catch {
-      setPlacementNotice('Material assignment service unavailable. No moodboard changes were applied.');
+      setMaterialAssignmentsSaved(false);
+      setCompiledSceneId(null);
+      setLocalSceneApproved(false);
+      setMoodboardRefreshToken((revision) => revision + 1);
+      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
+      setPlacementNotice('Material assignment save did not complete. Some assignments may have saved; reload materials before retrying.');
       return false;
     }
   }
@@ -962,7 +976,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
             method: 'POST',
             headers,
             body: JSON.stringify({ ...assignment, targetKind: 'module', moduleInstanceId: mod.id, status: 'draft' }),
-          }).catch(() => null)
+          }).then(requireSavedResponse)
         ));
 
         setDraftModules((curr) =>
@@ -983,9 +997,18 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         );
       }
       setMaterialAssignmentsSaved(true);
+      setCompiledSceneId(null);
+      setLocalSceneApproved(false);
+      setMoodboardRefreshToken((revision) => revision + 1);
+      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
       setPlacementNotice(`✨ Applied Carcass (${selectedCarcassLaminate.name}) & Shutter (${selectedShutterLaminate.name}) to all ${wallModules.length} units on this wall!`);
     } catch (err: any) {
-      setPlacementNotice(err?.message ?? 'Failed to apply finish schedule.');
+      setMaterialAssignmentsSaved(false);
+      setCompiledSceneId(null);
+      setLocalSceneApproved(false);
+      setMoodboardRefreshToken((revision) => revision + 1);
+      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
+      setPlacementNotice(`${err?.message ?? 'Failed to apply finish schedule.'} Some assignments may have saved. Reload materials before retrying.`);
     }
   };
 
@@ -1021,161 +1044,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
     setPlacementNotice(`Suggested ${candidate.name} for ${selectedSpace.name}. It is not placed yet: review the selected-wall elevation, then click the catalogue card to run clearance checks and save it.`);
     return;
 
-    // Legacy client-only auto-fill kept below temporarily for a narrow diff.
-    // It is unreachable: AI suggestions must never impersonate persisted modules.
-    const newModules: Module[] = [];
-    
-    spaces.forEach((s) => {
-      const targetWall = walls.find((w) => w.id.startsWith(s.id) || w.id.includes(s.id)) ?? walls[0];
-      const wId = targetWall?.id ?? `wall-${s.id}-1`;
 
-      if (s.roomType === 'living' || s.roomType === 'other') {
-        newModules.push({
-          id: `mod-tv-${s.id}`,
-          roomId: s.id,
-          family: 'tv-unit',
-          label: '2400 mm Fluted TV Console Wall',
-          widthMm: 2400,
-          depthMm: 400,
-          heightMm: 2100,
-          wallId: wId,
-          offsetMm: 200,
-          configuration: {
-            archetype: 'full_wall_storage',
-            shutterStyle: 'swing',
-            drawerCount: 3,
-            includeLoft: false,
-            glassProfile: false,
-            sideFillerLeft: false,
-            sideFillerRight: false,
-            handleStyle: 'long-profile',
-            lighting: 'shelf-led',
-          },
-        });
-      } else if (s.roomType === 'bedroom' || s.roomType === 'master_bedroom') {
-        newModules.push({
-          id: `mod-wardrobe-${s.id}`,
-          roomId: s.id,
-          family: 'wardrobe',
-          label: '2400 mm 4-Shutter Profile-Glass Wardrobe',
-          widthMm: 2400,
-          depthMm: 600,
-          heightMm: 2400,
-          wallId: wId,
-          offsetMm: 150,
-          configuration: {
-            archetype: 'profile_glass_display',
-            shutterStyle: 'profile-glass',
-            drawerCount: 2,
-            includeLoft: true,
-            glassProfile: true,
-            sideFillerLeft: false,
-            sideFillerRight: false,
-            handleStyle: 'gola',
-            lighting: 'vertical-led',
-          },
-        });
-      } else if (s.roomType === 'kitchen') {
-        newModules.push({
-          id: `mod-kitchen-${s.id}`,
-          roomId: s.id,
-          family: 'kitchen',
-          label: '2700 mm Base Drawer & Overhead Kitchen Wall',
-          widthMm: 2700,
-          depthMm: 600,
-          heightMm: 2100,
-          wallId: wId,
-          offsetMm: 100,
-          configuration: {
-            archetype: 'full_wall_storage',
-            shutterStyle: 'swing',
-            drawerCount: 4,
-            includeLoft: true,
-            glassProfile: false,
-            sideFillerLeft: false,
-            sideFillerRight: false,
-            handleStyle: 'gola',
-            lighting: 'shelf-led',
-          },
-        });
-      } else if (s.roomType === 'dining') {
-        newModules.push({
-          id: `mod-crockery-${s.id}`,
-          roomId: s.id,
-          family: 'crockery',
-          label: '1800 mm Crockery Unit & Bar with Fluted Glass',
-          widthMm: 1800,
-          depthMm: 450,
-          heightMm: 2100,
-          wallId: wId,
-          offsetMm: 200,
-          configuration: {
-            archetype: 'profile_glass_display',
-            shutterStyle: 'profile-glass',
-            drawerCount: 2,
-            includeLoft: false,
-            glassProfile: true,
-            sideFillerLeft: false,
-            sideFillerRight: false,
-            handleStyle: 'knob',
-            lighting: 'shelf-led',
-          },
-        });
-      } else if (s.roomType === 'pooja') {
-        newModules.push({
-          id: `mod-pooja-${s.id}`,
-          roomId: s.id,
-          family: 'pooja',
-          label: '1200 mm Mandir with CNC Jaali & Pull-out Tray',
-          widthMm: 1200,
-          depthMm: 400,
-          heightMm: 2100,
-          wallId: wId,
-          offsetMm: 150,
-          configuration: {
-            archetype: 'minimal_floating',
-            shutterStyle: 'swing',
-            drawerCount: 2,
-            includeLoft: false,
-            glassProfile: false,
-            sideFillerLeft: false,
-            sideFillerRight: false,
-            handleStyle: 'knob',
-            lighting: 'shelf-led',
-          },
-        });
-      }
-    });
-
-    const finalModules: Module[] = newModules.length ? newModules : [
-      {
-        id: 'mod-kitchen-default',
-        roomId: spaceId ?? 'room-kitchen',
-        family: 'kitchen',
-        label: '2700 mm Base Drawer & Overhead Kitchen Wall',
-        widthMm: 2700,
-        depthMm: 600,
-        heightMm: 2100,
-        wallId: wallId ?? 'wall-1',
-        offsetMm: 100,
-        configuration: {
-          archetype: 'full_wall_storage',
-          shutterStyle: 'swing' as const,
-          drawerCount: 4,
-          includeLoft: true,
-          glassProfile: false,
-          sideFillerLeft: false,
-          sideFillerRight: false,
-          handleStyle: 'gola' as const,
-          lighting: 'shelf-led' as const,
-        },
-      }
-    ];
-
-    setDraftModules(finalModules);
-    const activeMatch = finalModules.find((m) => m.roomId === spaceId) ?? finalModules[0];
-    setSelectedModuleId(activeMatch?.id ?? null);
-    setPlacementNotice(`✨ AI auto-picked feature walls and fitted ${finalModules.length} modular units across all rooms.`);
   };
 
   const getPrebuiltSuggestions = (roomType: string) => {
@@ -1334,7 +1203,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
               method: 'POST',
               headers,
               body: JSON.stringify({ ...assignment, targetKind: 'module', moduleInstanceId: mod.id, status: 'draft' }),
-            }).catch(() => null)
+            }).then(requireSavedResponse)
           ));
         }
       }
@@ -1970,7 +1839,6 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         </Button>
       </div>
 
-      <UltimateModularIntelligenceBar roomType={room} roomModules={draftModules.filter((m) => m.roomId === spaceId)} />
       {designMode === 'elevations' ? (
         <div className="elevation-dedicated-view" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
           <Card style={{ border: '1px solid #dcd3c5', borderRadius: '12px', background: '#fff', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
@@ -3098,13 +2966,30 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                 </div>
               </div>
 
+              {room === 'kitchen' && projectId && spaceId && <KitchenAiReview key={`${projectId}:${spaceId}`} projectId={projectId} roomId={spaceId}/>}
+              {/* The live room board reflects saved assignments, not unsaved inspiration. */}
+              <UltimateModularIntelligenceBar
+                roomType={room}
+                roomModules={draftModules}
+              />
               <RoomMoodboardMakerCard
                 roomId={spaceId || 'default-room'}
-                roomName={spaces.find((s) => s.id === spaceId)?.name ?? room.toUpperCase()}
+                roomName={selectedSpace?.name ?? room}
                 roomType={room}
-                roomModules={draftModules.filter((m) => m.roomId === spaceId)}
+                roomModules={draftModules}
               />
-
+              <RoomMaterialBoard
+                projectId={projectId}
+                roomId={spaceId}
+                roomName={selectedSpace?.name ?? room}
+                sceneVersionId={compiledSceneId}
+                modules={draftModules}
+                materials={availableMaterials}
+                refreshToken={moodboardRefreshToken}
+                onMaterialImported={(material) => setMaterialLibrary(current => [...current.filter(m => m.id !== material.id), material])}
+                onAssignmentSaved={() => { setCompiledSceneId(null); setLocalSceneApproved(false); setMoodboardRefreshToken(n => n + 1); window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } })); }}
+              />
+              {room === 'kitchen' && projectId && spaceId && compiledSceneId && <KitchenQuoteReview key={`${projectId}:${spaceId}:${compiledSceneId}`} projectId={projectId} roomId={spaceId} sceneVersionId={compiledSceneId}/>}
               {/* 1. Curated Room Furniture Packages */}
               <div style={{ background: '#faf8f5', padding: '12px', borderRadius: '10px', border: '1px solid #ede5d8' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -3603,6 +3488,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   ) : (
                     <System32ScheduleTable
                       modules={roomModules}
+                      materials={availableMaterials}
                       selectedModuleId={selectedModuleId}
                       onSelectModule={(id) => setSelectedModuleId(id)}
                     />
@@ -4349,10 +4235,12 @@ function RoomFloorPlanPreview({
 
 function System32ScheduleTable({
   modules,
+  materials,
   selectedModuleId,
   onSelectModule,
 }: {
   modules: Module[];
+  materials: any[];
   selectedModuleId?: string | null;
   onSelectModule?: (id: string) => void;
 }) {
@@ -4360,9 +4248,9 @@ function System32ScheduleTable({
     <div style={{ background: '#fff', border: '1px solid #e7dcce', borderRadius: '10px', overflow: 'hidden' }}>
       <div style={{ padding: '12px 16px', background: 'linear-gradient(135deg, #faf7f2, #fff)', borderBottom: '1px solid #ede5d8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--gold-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          📋 SYSTEM 32 CABINETRY & HARDWARE SCHEDULE
+          CABINETRY & MATERIAL REFERENCES
         </span>
-        <Badge tone="success">✓ {modules.length} Units Validated</Badge>
+        <Badge>{modules.length} placed units · review required</Badge>
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
@@ -4382,6 +4270,11 @@ function System32ScheduleTable({
               const isSel = m.id === selectedModuleId;
               const tag = `M-${String(index + 1).padStart(2, '0')}`;
               const isGlass = m.configuration?.glassProfile || m.configuration?.shutterStyle === 'profile-glass';
+              const materialLabel = (slot: string) => {
+                const id = m.finishes?.[slot] ?? (slot === 'carcass' ? m.materialId : undefined);
+                const material = materials.find(item => item.id === id);
+                return material ? `${material.name}${material.metadata?.supplierCode || material.code ? ` · ${material.metadata?.supplierCode ?? material.code}` : ''}` : 'Specification pending';
+              };
               return (
                 <tr
                   key={m.id}
@@ -4401,11 +4294,11 @@ function System32ScheduleTable({
                   <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontWeight: 700, color: '#292524' }}>
                     {m.widthMm} × {m.depthMm} × {m.heightMm} mm
                   </td>
-                  <td style={{ padding: '10px 12px', color: '#44403c' }}>18mm HDHMR + 0.8mm PVC Edge</td>
+                  <td style={{ padding: '10px 12px', color: '#44403c' }}>{materialLabel('carcass')}</td>
                   <td style={{ padding: '10px 12px', color: '#44403c' }}>
-                    {isGlass ? 'Bronze Profile Glass' : 'High Gloss Acrylic / PU'}
+                    {materialLabel(isGlass ? 'glass' : 'shutter')}
                   </td>
-                  <td style={{ padding: '10px 12px', color: '#44403c' }}>Blum Clip-Top Soft-Close</td>
+                  <td style={{ padding: '10px 12px', color: '#44403c' }}>{materialLabel('hardware')}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right' }}>
                     <button
                       type="button"

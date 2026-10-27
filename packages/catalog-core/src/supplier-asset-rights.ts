@@ -156,3 +156,45 @@ export function verifySupplierAssetRedistribution(input: {
     record,
   };
 }
+
+/**
+ * A signed/source-verifiable license record is required before a third-party
+ * image/GLB is imported and redistributed. User-reported permission can be
+ * recorded but must not be silently broadened into hosting/distribution rights.
+ */
+export type AssetUse = 'catalog-metadata' | 'display-thumbnail' | 'hosted-3d' | 'render-output';
+export type SupplierGrant = {
+  supplier: string;
+  scope: readonly AssetUse[];
+  proofReference: string;
+  approvedBy: string;
+  validFrom: string;
+  validUntil?: string;
+  territory: string;
+  permittedSkuIds: readonly string[] | 'all';
+};
+export type ThirdPartyAsset = {
+  productSku: string;
+  supplier: string;
+  kind: 'image' | 'glb' | 'texture';
+  sourceUrl: string;
+  sha256: string;
+  boundingBoxMm?: {width:number;depth:number;height:number};
+};
+export type AssetRightsResult = { allowed: boolean; blockers: string[] };
+export function checkSupplierAssetRights(input: { grant: SupplierGrant | null; asset: ThirdPartyAsset; intendedUse: AssetUse; atDate?: string }): AssetRightsResult {
+  const blockers:string[]=[];
+  if(input.intendedUse==='catalog-metadata') return {allowed:true,blockers:[]};
+  const g=input.grant;
+  if(!g)return {allowed:false,blockers:['No documented supplier grant for redistribution or imagery.']};
+  if(g.supplier!==input.asset.supplier)blockers.push('Grant supplier does not match asset supplier.');
+  if(!g.scope.includes(input.intendedUse))blockers.push('Grant does not cover this asset usage.');
+  if(!g.proofReference.trim()||!g.approvedBy.trim())blockers.push('A traceable grant and approver are required.');
+  if(g.permittedSkuIds!=='all'&&!g.permittedSkuIds.includes(input.asset.productSku))blockers.push('SKU is not within the grant scope.');
+  const now=input.atDate??new Date().toISOString().slice(0,10);
+  if(g.validFrom>now||(g.validUntil&&g.validUntil<now))blockers.push('Grant is not in its permitted date range.');
+  if(!/^https:\/\//i.test(input.asset.sourceUrl))blockers.push('Asset source must be HTTPS.');
+  if(!/^[a-f0-9]{64}$/i.test(input.asset.sha256))blockers.push('SHA-256 content hash is required for asset provenance.');
+  if(input.asset.kind==='glb'&&(!input.asset.boundingBoxMm||Object.values(input.asset.boundingBoxMm).some(v=>!Number.isFinite(v)||v<=0)))blockers.push('3D assets require a measured bounding box for dimensional QA.');
+  return {allowed:blockers.length===0,blockers};
+}

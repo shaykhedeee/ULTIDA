@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { isolateSceneResources } from './scene-resource-disposal';
 
 // ─── Constants & Guardrails ──────────────────────────────────────────────────
 export const GLB_MAGIC_NUMBER = 0x46546c67; // "glTF" in little-endian
@@ -407,6 +408,7 @@ class GlbAssetPipelineService {
   ): InstantiatedDigitalTwin {
     // Clone scene to allow multiple independent instances
     const root = gltf.scene.clone(true);
+    isolateSceneResources(root);
 
     // Compute bounding box
     root.updateMatrixWorld(true);

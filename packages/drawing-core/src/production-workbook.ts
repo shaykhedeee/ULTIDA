@@ -1,6 +1,6 @@
 import { deflateRawSync } from 'node:zlib';
 import type { CutlistPart, EdgeBandingSummary, NestingSheet, ProductionSnapshotV1 } from './index.js';
-import { calculateEdgeBandingSummary, nestPanels2D } from './index.js';
+import { calculateEdgeBandingSummary, nestPanels2D, productionLabelPayload, nestLaminateFaces } from './index.js';
 import type { DrawingCutlistAnalysisResult } from './drawing-cutlist-analyzer.js';
 
 export interface ProductionWorkbookOptions {
@@ -374,6 +374,7 @@ export function generateProductionWorkbookXlsx(snapshot: ProductionSnapshotV1, o
   const generatedAt = options.generatedAt ?? new Date();
   const provenance = options.provenance ?? `Approved scene ${snapshot.sceneVersion}`;
   const nesting = nestPanels2D(snapshot.parts, snapshot.fabricationRules.sheetWidthMm, snapshot.fabricationRules.sheetHeightMm, snapshot.fabricationRules.kerfMm, snapshot.fabricationRules.trimMm);
+  const laminate = nestLaminateFaces(snapshot);
   const nestedById = new Map(nesting.updatedParts.map((part) => [part.partInstanceId ?? part.id, part]));
   const edgeBanding: EdgeBandingSummary[] = calculateEdgeBandingSummary(snapshot.parts);
   const boardGroups = new Map<string, { materialCode: string; thicknessMm: number; panelAreaSqm: number; sheets: NestingSheet[] }>();
@@ -439,7 +440,7 @@ export function generateProductionWorkbookXlsx(snapshot: ProductionSnapshotV1, o
     {
       name: 'Panel labels', freezeRows: 1, widths: [25, 28, 25, 18, 17, 17, 17, 22, 20], rows: [
         ['Label ID', 'Print name', 'Module ID', 'Room ID', 'Length (mm)', 'Width (mm)', 'Thickness (mm)', 'Material code', 'Barcode payload'],
-        ...snapshot.parts.map((part) => [part.partInstanceId, part.partName, part.moduleId, part.roomId, part.lengthMm, part.widthMm, part.thicknessMm, part.materialCode, part.partInstanceId])
+        ...snapshot.parts.map((part) => [part.partInstanceId, part.partName, part.moduleId, part.roomId, part.lengthMm, part.widthMm, part.thicknessMm, part.materialCode, productionLabelPayload(snapshot, part)])
       ]
     },
     { name: 'Materials', freezeRows: 1, widths: [30, 18, 18, 24], rows: materialSummary(snapshot) },
@@ -450,11 +451,20 @@ export function generateProductionWorkbookXlsx(snapshot: ProductionSnapshotV1, o
       ],
     },
     {
-      name: 'Laminate requirements', widths: [32, 22, 90], rows: [
-        ['Status', 'Required finish-face data', 'Action'],
-        ['NOT IN SNAPSHOT', 'Scene production snapshot currently carries substrate material codes only; separate face A/B laminate assignments and supplier sheet sizes are not authoritative here.', 'Assign and persist face finishes plus supplier stock dimensions before a laminate sheet quantity can be calculated. No laminate inventory or sheet count is inferred.'],
+      name: 'Laminate requirements', rows: [
+        ['Finish', 'Sheet ID', 'Thickness mm', 'Stock X mm', 'Stock Y mm', 'Utilization %', 'Source scene'],
+        ...laminate.sheets.map(s => [s.materialCode, s.sheetId, s.thicknessMm, s.sheetWidthMm, s.sheetHeightMm, s.utilizationPercentage, snapshot.sceneVersion]),
+        ...laminate.unresolvedPartIds.map(id => ['UNASSIGNED', id, 'Assign face A/B; no quantity inferred']),
       ],
     },
+    { name: 'Laminate placements', rows: [
+      ['Face ID', 'Physical panel ID', 'Finish', 'Sheet ID', 'X mm', 'Y mm', 'Blank length mm', 'Blank width mm', 'Rotated'],
+      ...laminate.parts.map(p => [p.partInstanceId, p.sourcePartId, p.materialCode, p.sheetId, p.placedPos?.xMm, p.placedPos?.yMm, p.lengthMm, p.widthMm, p.placedPos?.rotated]),
+    ] },
+    { name: 'Face recipes', rows: [
+      ['Panel ID', 'Mode', 'Face A', 'Face B', 'A allowance mm', 'B allowance mm'],
+      ...snapshot.parts.map(p => [p.partInstanceId, p.surfaceRecipe?.mode ?? 'UNASSIGNED', p.surfaceRecipe ? p.surfaceRecipe.faceA?.code ?? 'BARE' : 'UNASSIGNED', p.surfaceRecipe ? p.surfaceRecipe.faceB?.code ?? 'BARE' : 'UNASSIGNED', p.surfaceRecipe?.faceA?.allowanceMm, p.surfaceRecipe?.faceB?.allowanceMm]),
+    ] },
     {
       name: 'Edgebanding', freezeRows: 1, widths: [30, 18, 22], rows: [
         ['Tape type', 'Thickness (mm)', 'Total length (m)'],
@@ -469,8 +479,8 @@ export function generateProductionWorkbookXlsx(snapshot: ProductionSnapshotV1, o
     },
     {
       name: 'Nesting', freezeRows: 1, widths: [35, 25, 16, 18, 18, 18, 18, 18, 18], rows: [
-        ['Nesting sheet', 'Material code', 'Thickness (mm)', 'Stock width (mm)', 'Stock length (mm)', 'Used area (sqm)', 'Utilisation (%)', 'Panels placed', 'Scene revision'],
-        ...nesting.sheets.map((sheet: NestingSheet) => [sheet.sheetId, sheet.materialCode, sheet.thicknessMm, sheet.sheetWidthMm, sheet.sheetHeightMm, sheet.usedAreaSqm, sheet.utilizationPercentage, sheet.placedPanels.length, snapshot.sceneVersion])
+        ['Nesting sheet', 'Material code', 'Thickness (mm)', 'Stock width (mm)', 'Stock length (mm)', 'Used area (sqm)', 'Utilisation (%)', 'Panels placed', 'Scene revision', 'Face A', 'Face B'],
+        ...nesting.sheets.map((sheet: NestingSheet) => [sheet.sheetId, sheet.materialCode, sheet.thicknessMm, sheet.sheetWidthMm, sheet.sheetHeightMm, sheet.usedAreaSqm, sheet.utilizationPercentage, sheet.placedPanels.length, snapshot.sceneVersion, sheet.surfaceRecipe?.faceA?.code, sheet.surfaceRecipe?.faceB?.code])
       ]
     },
     {

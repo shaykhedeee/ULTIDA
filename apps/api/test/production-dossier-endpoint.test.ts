@@ -103,7 +103,9 @@ test('buildDossierSpecFromContext constructs an authoritative ProductionDossierS
   assert.equal(spec.schema, 'production.dossier.v1');
   assert.ok(spec.project.name);
   assert.ok(spec.project.clientName);
-  assert.equal(spec.project.status, 'approved');
+  assert.equal(spec.project.status, 'draft');
+  assert.match(spec.project.revision, /REVIEW REQUIRED/);
+  assert.equal(spec.bom.boardNesting.sheetsLaminate, null);
 
   // Verify brief & rooms scope
   assert.equal(spec.brief?.lifestyleBrief, 'No approved project brief has been recorded for this scene.');

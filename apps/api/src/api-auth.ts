@@ -50,7 +50,11 @@ export async function authenticateProjectUser(request: Request, response: Respon
 }
 
 export async function requireProjectUser(request: AuthenticatedRequest, response: Response, next: NextFunction) {
-  const projectId = String(request.body?.projectId ?? request.params.projectId ?? request.query.projectId ?? '');
+  const contexts = [request.params.projectId, request.body?.projectId, request.query.projectId].filter(value => value !== undefined && value !== null && value !== '');
+  if (contexts.some(value => typeof value !== 'string') || new Set(contexts).size > 1) {
+    return response.status(400).json({ success: false, code: 'PROJECT_CONTEXT_MISMATCH', message: 'Project identities in the path, body and query must agree.' });
+  }
+  const projectId = String(contexts[0] ?? '');
   if (!projectId) return response.status(400).json({ success: false, code: 'PROJECT_REQUIRED', message: 'A project id is required.' });
   const actor = await authenticateProjectUser(request, response, projectId);
   if (!actor) return;

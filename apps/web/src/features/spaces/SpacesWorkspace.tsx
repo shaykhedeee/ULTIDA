@@ -1723,7 +1723,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
     });
 
     setOpenings(newOpenings);
-    setSaveState(`✨ AI detected & placed ${newOpenings.length} architectural doors and windows on room boundaries.`);
+    setSaveState(`Prepared ${newOpenings.length} door and window proposals. Confirm their positions and dimensions against site evidence.`);
     return newOpenings;
   };
 
@@ -1769,15 +1769,16 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
 
     setRooms(updatedRooms);
     setCanvasRenderMode('3d_isometric');
-    setSaveState(`AI enhanced all ${updatedRooms.length} rooms, placed ${detectedOpenings.length} doors & windows, and verified all spaces for 3D layout.`);
-    void saveGeometryVersion(updatedRooms);
-
-    // Apply layout candidates to scene for all rooms
+    setSaveState(`Prepared ${updatedRooms.length} room proposals. Openings, finishes and wall roles require designer review.`);
     void (async () => {
-      for (const r of updatedRooms) {
-        await applyLayoutCandidateToScene(r, 'balanced').catch(() => null);
+      try {
+        const saved = await saveGeometryVersion(updatedRooms, { openings: detectedOpenings });
+        setSaveState(saved
+          ? `Saved ${updatedRooms.length} unverified room proposals. Review measurements and openings before approving layouts.`
+          : 'Room proposals remain unsaved. Check your session and project errors, then retry saving.');
+      } catch {
+        setSaveState('Room proposals could not be saved. Review the draft and retry; no scene synchronization was confirmed.');
       }
-      setSaveState('All spaces verified with doors, windows, and modular units synced to 3D Scene.');
     })();
   };
 
@@ -1861,7 +1862,10 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       return;
     }
     const session = (await supabase.auth.getSession()).data.session;
-    if (!session?.access_token) { setSaveState('Your session expired. Sign in again.'); return; }
+    if (!session?.access_token) {
+      setRooms((current) => current.map((candidate) => candidate.id === id ? { ...candidate, included: room.included } : candidate));
+      setSaveState('Your session expired. Sign in again.'); return;
+    }
     const apiBase = getApiBase();
     try {
       const response = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}/scope`, {
@@ -2677,12 +2681,20 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
 
     setAiProposals(proposals);
     setAiProposalRoomId(room.id);
-    setSaveState(`Selected & Applied ${candidateType.toUpperCase()} layout to ${room.name}. Room is approved & verified.`);
+    setSaveState(`Saving ${candidateType} layout for ${room.name}… Approval is pending.`);
 
     try {
       const persistedRoom = await persistRoom(updatedRoom, 'verified');
-      if (!persistedRoom) return;
-      if (!await ensureApprovedRoomLayout(persistedRoom)) return;
+      if (!persistedRoom) {
+        setRooms(rs => rs.map(r => r.id === room.id ? room : r));
+        setSaveState('Layout could not be saved. Room verification remains unchanged.');
+        return;
+      }
+      if (!await ensureApprovedRoomLayout(persistedRoom)) {
+        setRooms(rs => rs.map(r => r.id === room.id ? room : r));
+        setSaveState('Layout saved but approval did not complete. Review the room before retrying.');
+        return;
+      }
       setSaveState(`Measured ${candidateType} layout approved for ${room.name}. Select a wall in the 2D plan, then place a compatible module from the library.`);
       // Candidate selection establishes a brief only. Exact modules are created
       // after an explicit approved layout in the wall-anchored module editor.
@@ -2722,7 +2734,8 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       }
       */
     } catch {
-      // ignore
+      setRooms(rs => rs.map(r => r.id === room.id ? room : r));
+      setSaveState('Layout save or approval failed. Review the saved room before retrying.');
     }
   }
 
@@ -5744,7 +5757,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                         <input
                           type="checkbox"
                           checked={isInc}
-                          onChange={() => {}}
+                          onChange={(event) => void includeRoom(r.id, event.target.checked)}
                           onClick={(e) => e.stopPropagation()}
                         />
                         <div className="scope-room-info">

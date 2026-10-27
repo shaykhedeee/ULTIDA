@@ -40,7 +40,11 @@ export type SceneModuleV1 = {
   confidence?: number;
 };
 
+export type LaminateFace = { code: string; thicknessMm: number; grain: 'none' | 'length' | 'width'; allowanceMm: number; stockWidthMm: number; stockHeightMm: number };
+export type SurfaceRecipe = { mode: 'prelaminated' | 'laminate_after_cut'; faceA: LaminateFace | null; faceB: LaminateFace | null };
+
 export type SceneModulePartV1 = {
+  surfaceRecipe?: SurfaceRecipe;
   id: string;
   moduleId: string;
   roomId?: string;

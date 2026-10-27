@@ -1,0 +1,11 @@
+.ultida-calib-check{background:#fff;border:1px solid #e1d7c6;border-radius:11px;padding:11px 15px;color:#322a21}
+.ultida-calib-check summary{cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;list-style:none}
+.ultida-calib-check summary::-webkit-details-marker{display:none}.ultida-calib-check summary span{margin-left:auto;color:#7d756d;font-size:10px;font-weight:500}
+.ultida-calib-check>p{font-size:11px;line-height:1.5;color:#695f54;margin:13px 0}
+.ultida-calib-check-form{display:grid;grid-template-columns:1fr 200px;gap:12px}
+.ultida-calib-check-form label{font-weight:700;font-size:11px;display:grid;gap:4px}
+.ultida-calib-check-form select,.ultida-calib-check-form input{width:100%;border:1px solid #d6c8b9;border-radius:6px;padding:9px;color:#352719;background:#fff;font-size:12px;min-height:36px}
+.ultida-calib-check-note{display:flex;align-items:center;gap:6px}.ultida-calib-result{display:flex;align-items:center;gap:10px;border-radius:8px;background:#e7f5eb;color:#21613f;padding:10px;margin:12px 0}
+.ultida-calib-result.is-advisory{background:#fff4dd;color:#936019}.ultida-calib-result.is-conflict{background:#fff0e8;color:#a54429}
+.ultida-calib-result div{display:grid;gap:4px}.ultida-calib-result strong{font-size:11px}.ultida-calib-result span{font-size:10px}
+.ultida-calib-check-legend{color:#82766a;font-size:9.5px;display:block;margin-top:12px}@media(max-width:640px){.ultida-calib-check-form{grid-template-columns:1fr}}

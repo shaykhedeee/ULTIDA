@@ -1,3 +1,7 @@
+import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { selectProjectDossierScenes } from './project-dossier-manifest.js';
+import { nestLaminateFaces, generateNestingSheetsSvg } from '@ultida/drawing-core';
+import { applyProductionReleaseAuthority, productionReviewFingerprint } from './production-release-authority.js';
 import { sceneDocumentSections } from './scene-document-sections.js';
 import { resolvePartMaterial } from './scene-part-material.js';
 import { existsSync } from 'node:fs';
@@ -30,27 +34,7 @@ import { parseRoomDesignInputs } from './room-design-inputs.js';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { getIkeaResearchStock, parseIkeaStockQuery } from './research-sourcing.js';
 import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
-import {
-  listCatalog,
-  validatePlacement,
-  RoomTypeSchema,
-  IndianModularCatalog,
-  listDesignPresets,
-  ModuleFamilySchema,
-  getCatalogVault,
-  CuratedLaminateCatalog,
-  CATALOG_VERSION,
-  getCatalogDigitalTwin,
-  VERIFIED_HARDWARE_REGISTRY,
-  validateHardwareCompatibility,
-  BARE_BONES_FINISH_FAMILIES,
-  VENDOR_APPROVED_LAMINATES,
-  IKEA_INDIA_RETAIL_CATALOG,
-  solveEqualShutterWallFit,
-  proposeModularRuns,
-  runAiManufacturingPreflight,
-  buildUnderCabinetLedDetail,
-} from '@ultida/catalog-core';
+import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, listDesignPresets, ModuleFamilySchema, getCatalogVault, CuratedLaminateCatalog, CATALOG_VERSION, getCatalogDigitalTwin, VERIFIED_MERINO_REFERENCES, VERIFIED_IKEA_REFERENCES, proposeModularRuns, VERIFIED_HARDWARE_REGISTRY, validateHardwareCompatibility, BARE_BONES_FINISH_FAMILIES, VENDOR_APPROVED_LAMINATES, IKEA_INDIA_RETAIL_CATALOG, solveEqualShutterWallFit, buildUnderCabinetLedDetail, runAiManufacturingPreflight } from '@ultida/catalog-core';
 import { CanonicalPlanModelSchema, parsePlanIntake } from '@ultida/plan-core';
 import { validateGeometry } from '@ultida/geometry-core';
 import { analyzePlanWithProvider, isPlanVisionProviderConfigured } from './plan-analyzer.js';
@@ -67,6 +51,13 @@ import { invalidateModuleOutputs } from './module-output-invalidation.js';
 import { evaluateVastuCompliance, generateCandidates } from '@ultida/layout-core';
 import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord } from './reference-retrieval.js';
 import { getDeploymentIdentity, isPreviewWriteAllowed } from './deployment-identity.js';
+import { resolveKitchenAiSelection } from './kitchen-ai-selection.js';
+import { evaluateKitchenMilestone } from './kitchen-milestone.js';
+import { previewKitchenQuote, KitchenQuoteError } from './kitchen-quote.js';
+import { supplierMaterialReference } from './supplier-material.js';
+import { sceneMaterialAssignments, sceneDefaultMaterialSlots } from './scene-material-assignments.js';
+import { registerMoodboardRoutes } from './moodboard-routes.js';
+import { validateReferenceImage } from './reference-image-validation.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8800);
@@ -116,20 +107,9 @@ async function listAuraAuditEvents(client: ReturnType<typeof getRequestSupabaseC
 }
 
 async function appendAuraAuditEvent(client: ReturnType<typeof getRequestSupabaseClient>, organizationId: string, event: AuraAuditEvent): Promise<void> {
-  const { error } = await client.from('aura_audit_events').insert({
-    id: event.id,
-    organization_id: organizationId,
-    project_id: event.projectId,
-    actor_id: event.actorId,
-    tool_id: event.toolId,
-    event_type: event.eventType,
-    source_version_id: event.sourceVersionId,
-    proposal_id: event.proposalId,
-    payload: event.payload,
-    provenance: event.provenance ?? null,
-    created_at: event.createdAt,
-  });
-  if (error) throw new Error(`AURA_AUDIT_STORE_UNAVAILABLE:${error.message}`);
+  const { data, error } = await client.rpc('append_aura_event_atomic',{p_event:event});
+  if (error) throw new Error(`${error.code==='40001'?'AURA_PROPOSAL_CONFLICT':'AURA_AUDIT_STORE_UNAVAILABLE'}:${error.message}`);
+  if(!data?.id) throw new Error('AURA_AUDIT_STORE_UNAVAILABLE:Append unconfirmed');
 }
 
 function dxfLine(x1: number, y1: number, x2: number, y2: number, layer: string) {
@@ -185,15 +165,7 @@ function assertSceneBayReconciliation(scene: ReturnType<typeof migrateScene>) {
   }
 }
 
-function applyProductionReview<T extends ReturnType<typeof buildCutlist>>(cutlist: T, review: any): T {
-  const approvedIds = new Set(Array.isArray(review?.approved_part_ids) ? review.approved_part_ids.map(String) : []);
-  const approved = review?.status === 'approved' && cutlist.parts.length > 0 && cutlist.parts.every((part) => approvedIds.has(part.partInstanceId));
-  return {
-    ...cutlist,
-    parts: cutlist.parts.map((part) => ({ ...part, status: approvedIds.has(part.partInstanceId) ? 'approved' as const : 'review_required' as const })),
-    status: approved ? 'approved' as const : 'review_required' as const,
-  };
-}
+const applyProductionReview = applyProductionReleaseAuthority;
 
 // Kept as a compatibility export for older API tests and integrations. The
 // drawing-core writer remains the only DXF geometry authority.
@@ -291,6 +263,40 @@ app.get('/api/research/ikea-stock', requireStudioUser, async (request, response)
   }
 });
 
+registerMoodboardRoutes(app, getRequestSupabaseClient);
+
+app.get('/api/catalog/verified-suppliers', (request, response) => {
+  const kind = String(request.query.kind ?? 'all');
+  if (!['all', 'merino', 'ikea'].includes(kind)) return response.status(400).json({ success: false, code: 'INVALID_SUPPLIER_KIND' });
+  const q = String(request.query.q ?? '').toLowerCase().trim().slice(0, 120);
+  const merino = kind === 'ikea' ? [] : VERIFIED_MERINO_REFERENCES.filter(item => `${item.decorCode} ${item.name} ${item.productLine}`.toLowerCase().includes(q));
+  const ikea = kind === 'merino' ? [] : VERIFIED_IKEA_REFERENCES.filter(item => `${item.productNumber} ${item.name} ${item.category}`.toLowerCase().includes(q));
+  return response.json({ success: true, dataVersion: '2026-10-13-curated', sources: { merino, ikea }, verifiedManufacturerReferences: true, licensedAssetsIncluded: false, stockChecked: false, note: 'Supplier-listed reference records only. Exact material finish, product asset rights and fabrication suitability require separate verification.' });
+});
+
+app.post('/api/catalog/modular-run/proposals', requireStudioUser, (request, response) => {
+  const input = request.body ?? {};
+  const family = ModuleFamilySchema.safeParse(input.family);
+  const integer = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+  const wallLengthMm = input.wallLengthMm;
+  const availableAisleMm = input.availableAisleMm;
+  const leftReturnMm = input.leftReturnMm ?? 0;
+  const rightReturnMm = input.rightReturnMm ?? 0;
+  const restrictions = input.restrictions ?? [];
+  if (!family.success || !integer(wallLengthMm) || !integer(availableAisleMm) || !integer(leftReturnMm) || !integer(rightReturnMm)
+      || !Array.isArray(restrictions) || restrictions.length > 25 || !restrictions.every((r: unknown) =>
+      !!r && typeof r === 'object' && integer((r as { startMm?: unknown }).startMm) && integer((r as { endMm?: unknown }).endMm) &&
+      typeof (r as { reason?: unknown }).reason === 'string' && (r as { reason: string }).reason.length <= 160)) {
+    return response.status(400).json({ success: false, code: 'INVALID_MODULAR_RUN_INPUT', message: 'Submit a measured wall, room aisle and optional valid wall restrictions.' });
+  }
+  const maxFillerMm = input.maxFillerMm ?? 250;
+  if (!integer(maxFillerMm) || maxFillerMm > 1000 || wallLengthMm > 20000 || availableAisleMm > 10000) {
+    return response.status(400).json({ success: false, code: 'MODULAR_RUN_LIMIT_EXCEEDED' });
+  }
+  const proposals = proposeModularRuns({ family: family.data, wallLengthMm, availableAisleMm, leftReturnMm, rightReturnMm, restrictions, maxFillerMm }, listCatalog());
+  return response.json({ success: true, ...proposals, approval: 'not-approved', roomGeometryChecked: false, manufacturingApproved: false });
+});
+
 app.get('/api/catalog/laminates', (request, response) => {
   const family = typeof request.query.family === 'string' ? request.query.family : '';
   const result = family ? CuratedLaminateCatalog.filter((item) => item.family === family || item.suitableFor.includes(family as never)) : CuratedLaminateCatalog;
@@ -325,6 +331,7 @@ app.post('/api/aura/audit-events', async (request, response) => {
     if (!actor) return;
     if (submittedEvent.actorId !== actor.userId) return response.status(403).json({ success: false, code: 'AURA_ACTOR_MISMATCH', message: 'Review events must be attributed to the authenticated project member.' });
     const history = await listAuraAuditEvents(actor.client, actor.projectId, submittedEvent.proposalId);
+    if(submittedEvent.toolId==='place_modular_kitchen' && submittedEvent.eventType==='proposal_created') return response.status(422).json({success:false,code:'USE_MEASURED_KITCHEN_PREVIEW'});
     validateAuraAuditTransition(history, submittedEvent);
     await appendAuraAuditEvent(actor.client, actor.organizationId ?? '', submittedEvent);
     return response.status(201).json({ success: true, event: submittedEvent, persisted: true, persistence: 'supabase' });
@@ -353,30 +360,45 @@ app.get('/api/aura/audit-events', async (request, response) => {
 app.post('/api/aura/tools/:toolId/preview', async (request, response) => {
   const toolId = request.params.toolId;
   const { projectId, sceneVersionId, roomId, widthMm, style, laminate } = request.body ?? {};
-  if (typeof projectId !== 'string' || typeof sceneVersionId !== 'string') return response.status(400).json({ success: false, code: 'SCENE_CONTEXT_REQUIRED', message: 'An approved scene context is required.' });
+  if (typeof projectId !== 'string' || (toolId!=='place_modular_kitchen' && typeof sceneVersionId !== 'string')) return response.status(400).json({ success: false, code: 'SCENE_CONTEXT_REQUIRED', message: 'An approved scene context is required.' });
   const actor = await authenticateProjectUser(request, response, projectId);
   if (!actor) return;
   if (!actor.organizationId) return response.status(503).json({ success: false, code: 'AURA_ORGANIZATION_CONTEXT_MISSING', message: 'The project organization could not be resolved.' });
+  if(toolId!=='place_modular_kitchen') {
   const sceneContext = await actor.client.from('scene_versions').select('id,status').eq('project_id', actor.projectId).eq('id', sceneVersionId).maybeSingle();
   if (sceneContext.error) return response.status(503).json({ success: false, code: 'SCENE_CONTEXT_UNAVAILABLE', message: sceneContext.error.message });
   if (!sceneContext.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND', message: 'That scene version does not belong to this project.' });
   if (!['approved', 'locked'].includes(String(sceneContext.data.status))) return response.status(409).json({ success: false, code: 'AURA_APPROVED_SCENE_REQUIRED', message: 'Approve the scene before creating an AURA proposal.' });
+  }
   const actorId = actor.userId;
   if (toolId === 'place_modular_kitchen') {
+    if (typeof roomId !== 'string') return response.status(422).json({success:false,code:'MEASURED_KITCHEN_REQUIRED'});
+    const [measuredPlan,kitchen] = await Promise.all([
+      actor.client.from('floor_plan_versions').select('id,status,approved_at,canonical_model').eq('project_id',projectId).eq('active_version',true).maybeSingle(),
+      actor.client.from('spaces').select('id,space_id,room_type').eq('project_id',projectId).eq('id',roomId).maybeSingle(),
+    ]);
+    if (measuredPlan.error || kitchen.error) return response.status(503).json({success:false,code:'PLAN_CONTEXT_UNAVAILABLE'});
+    const plan=measuredPlan.data;
+    const measuredRoom=plan?.canonical_model?.spaces?.find((s:any)=>s.id===kitchen.data?.space_id || s.id===roomId);
+    const polygon=measuredRoom?.worldPolygon;
+    if (!plan || plan.status!=='approved' || !plan.approved_at || plan.canonical_model?.scale?.verified!==true || kitchen.data?.room_type!=='kitchen' || !Array.isArray(polygon) || polygon.length<3) return response.status(409).json({success:false,code:'APPROVED_MEASURED_KITCHEN_REQUIRED'});
+    const longestWall=Math.max(...polygon.map((p:any,i:number)=>Math.hypot(p.xMm-polygon[(i+1)%polygon.length].xMm,p.yMm-polygon[(i+1)%polygon.length].yMm)));
+    if (!Number.isFinite(widthMm) || widthMm<1200 || widthMm>longestWall || !Number.isFinite(request.body?.clearanceMm) || request.body.clearanceMm<900) return response.status(422).json({success:false,code:'MEASURED_RUN_INPUT_REQUIRED',message:'Enter a run within a measured wall and a verified aisle of at least 900mm.'});
+
     const runWidth = typeof widthMm === 'number' && widthMm >= 1200 ? Math.round(widthMm) : 3000;
     const clearance = typeof request.body?.clearanceMm === 'number' ? request.body.clearanceMm : 900;
     const candidates = listCatalog('kitchen').filter((item) => ['kitchen-base', 'kitchen-wall', 'kitchen-tall', 'kitchen-corner'].includes(item.family));
     const ordered = ['kit-corner-900', 'kit-sink-900', 'kit-base-600', 'kit-base-600', 'kit-wall-600', 'kit-tall-600'];
     let remaining = runWidth;
     const modules = ordered.map((id) => candidates.find((item) => item.id === id)).filter(Boolean).map((item: any) => {
-      if (remaining <= 0) return null;
+      if (remaining < item.widthMm) return null;
       remaining -= item.widthMm;
       const validation = validatePlacement(item, 'kitchen', clearance);
       return { moduleId: item.id, family: item.family, widthMm: item.widthMm, depthMm: item.depthMm, heightMm: item.heightMm, validation };
     }).filter(Boolean);
     const proposalId = `aura-kitchen-${Date.now()}`;
-    const proposal = { family: 'modular-kitchen', roomId: roomId ?? 'kitchen', runWidthMm: runWidth, clearanceMm: clearance, modules, unfilledWidthMm: Math.max(0, remaining), provisional: true, requiresConfirmation: true };
-    const auditEvent = createAuraAuditEvent({ projectId, actorId, toolId, eventType: 'proposal_created', sourceVersionId: sceneVersionId, proposalId, payload: { proposal }, provenance: { compilerVersion: 'aura-preview-v1', provider: 'deterministic-catalog' } });
+    const proposal = { sourcePlanVersionId:plan.id, measuredWallLimitMm:longestWall, family: 'modular-kitchen', roomId: roomId ?? 'kitchen', runWidthMm: runWidth, clearanceMm: clearance, modules, unfilledWidthMm: Math.max(0, remaining), provisional: true, requiresConfirmation: true };
+    const auditEvent = createAuraAuditEvent({ projectId, actorId, toolId, eventType: 'proposal_created', sourceVersionId: plan.id, proposalId, payload: { proposal }, provenance: { compilerVersion: 'aura-preview-v1', provider: 'deterministic-catalog' } });
     await appendAuraAuditEvent(actor.client, actor.organizationId, auditEvent);
     return response.status(200).json({ success: true, mode: 'preview', toolId, projectId, sceneVersionId, proposalId, proposal, audit: { event: auditEvent, persisted: true, persistence: 'supabase', next: 'POST /api/aura/audit-events with proposal_approved, proposal_rejected, or correction_recorded.' } });
   }
@@ -638,8 +660,8 @@ app.post('/api/drawings/elevations.svg', requireProjectUser, async (request, res
 app.post('/api/production/cutlist', requireProjectUser, async (request, response) => {
   try {
     if (!request.body?.sceneVersionId) return response.status(400).json({ success: false, code: 'INVALID_CUTLIST_REQUEST', message: 'A saved scene revision is required.' });
-    const { scene: normalized } = await readApprovedProductionContext(request);
-    return response.status(200).json({ success: true, cutlist: buildCutlist(normalized) });
+    const { cutlist } = await readApprovedProductionContext(request);
+    return response.status(200).json({ success: true, cutlist });
   } catch (err: any) {
     console.error('Cutlist error:', err);
     return response.status(err?.status ?? 500).json({ success: false, code: err?.code ?? 'CUTLIST_FAILED', message: err?.message, issues: err?.issues });
@@ -648,20 +670,10 @@ app.post('/api/production/cutlist', requireProjectUser, async (request, response
 
 app.get('/api/projects/:projectId/scenes/:sceneVersionId/production-snapshot', requireProjectUser, async (request, response) => {
   try {
-    const projectId = String(request.params.projectId);
-    const sceneVersionId = String(request.params.sceneVersionId);
-    const client = getRequestSupabaseClient(request);
-    const result = await client.from('scene_versions').select('id,status,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
-    if (result.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: result.error.message });
-    if (!result.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND', message: 'That scene version does not belong to this project.' });
-    if (!['approved', 'locked'].includes(String(result.data.status))) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'Approve this exact scene before creating manufacturing outputs.' });
-    const scene = migrateScene(result.data.scene);
-    assertSceneBayReconciliation(scene);
-    const review = await client.from('production_snapshot_reviews').select('status,approved_part_ids,review_notes,reviewed_at,reviewed_by').eq('project_id', projectId).eq('scene_version_id', sceneVersionId).maybeSingle();
-    if (review.error && review.error.code !== 'PGRST205') return response.status(500).json({ success: false, code: 'PRODUCTION_REVIEW_READ_FAILED', message: review.error.message });
-    return response.json({ success: true, cutlist: applyProductionReview(buildCutlist(scene), review.data), review: review.data ?? null, source: { projectId, sceneVersionId, sceneStatus: result.data.status } });
+    const { cutlist, review } = await readApprovedProductionContext(request);
+    return response.json({ success: true, cutlist, review, source: { projectId: String(request.params.projectId), sceneVersionId: String(request.params.sceneVersionId) } });
   } catch (err: any) {
-    return response.status(422).json({ success: false, code: 'PRODUCTION_SNAPSHOT_FAILED', message: err?.message ?? 'The approved scene could not produce an authoritative manufacturing snapshot.' });
+    return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_SNAPSHOT_FAILED', message: err?.message ?? 'The approved scene could not produce an authoritative manufacturing snapshot.' });
   }
 });
 
@@ -683,7 +695,7 @@ app.put('/api/projects/:projectId/scenes/:sceneVersionId/production-review', req
     const validIds = new Set(cutlist.parts.map((part) => part.partInstanceId));
     const uniqueIds = [...new Set(requestedIds)].filter((id) => validIds.has(id));
     if (!cutlist.parts.length) return response.status(422).json({ success: false, code: 'PRODUCTION_PARTS_REQUIRED', message: 'The approved scene has no exact physical panels to review.' });
-    if (uniqueIds.length !== cutlist.parts.length) return response.status(422).json({ success: false, code: 'PRODUCTION_REVIEW_INCOMPLETE', message: 'Review every physical panel before approving the production pack.' });
+    if (uniqueIds.length !== cutlist.parts.length || requestedIds.length !== uniqueIds.length) return response.status(422).json({ success: false, code: 'PRODUCTION_REVIEW_INCOMPLETE', message: 'Review every physical panel before approving the production pack.' });
     const notes = typeof request.body?.notes === 'string' ? request.body.notes.trim().slice(0, 2000) : '';
     const reviewedAt = new Date().toISOString();
     const write = await client.from('production_snapshot_reviews').upsert({
@@ -691,13 +703,14 @@ app.put('/api/projects/:projectId/scenes/:sceneVersionId/production-review', req
       project_id: projectId,
       scene_version_id: sceneVersionId,
       fabrication_rules_version: cutlist.fabricationRules.version,
+      source_fingerprint: productionReviewFingerprint(cutlist),
       status: 'approved',
       approved_part_ids: uniqueIds,
       review_notes: notes || null,
       reviewed_by: authReq.ultidaUser!.id,
       reviewed_at: reviewedAt,
       updated_at: reviewedAt,
-    }, { onConflict: 'project_id,scene_version_id' }).select('status,approved_part_ids,review_notes,reviewed_at,reviewed_by').single();
+    }, { onConflict: 'project_id,scene_version_id' }).select('status,approved_part_ids,fabrication_rules_version,source_fingerprint,review_notes,reviewed_at,reviewed_by').single();
     if (write.error) return response.status(500).json({ success: false, code: 'PRODUCTION_REVIEW_SAVE_FAILED', message: write.error.message });
     return response.json({ success: true, cutlist: applyProductionReview(cutlist, write.data), review: write.data });
   } catch (err: any) {
@@ -705,18 +718,26 @@ app.put('/api/projects/:projectId/scenes/:sceneVersionId/production-review', req
   }
 });
 
-async function readApprovedProductionContext(request: express.Request) {
+export async function readApprovedProductionContext(request: express.Request, client = getRequestSupabaseClient(request)) {
   const projectId = String(request.params.projectId ?? request.body?.projectId ?? '');
   const sceneVersionId = String(request.params.sceneVersionId ?? request.body?.sceneVersionId ?? request.query.sceneVersionId ?? '');
   if (!projectId || !sceneVersionId) throw Object.assign(new Error('A project and saved scene revision are required.'), { status: 400, code: 'SAVED_SCENE_REQUIRED' });
-  const client = getRequestSupabaseClient(request);
   const result = await client.from('scene_versions').select('id,status,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle();
   if (result.error) throw Object.assign(new Error(result.error.message), { status: 500, code: 'SCENE_VERSION_READ_FAILED' });
   if (!result.data) throw Object.assign(new Error('That scene version does not belong to this project.'), { status: 404, code: 'SCENE_VERSION_NOT_FOUND' });
   if (!['approved', 'locked'].includes(String(result.data.status))) throw Object.assign(new Error('Approve this exact scene before creating manufacturing outputs.'), { status: 409, code: 'SCENE_NOT_PRODUCTION_READY' });
   const scene = migrateScene(result.data.scene);
   assertSceneBayReconciliation(scene);
-  return { scene, snapshot: buildProductionSnapshot(scene, undefined, IndianModularCatalog) };
+  const intent = request.query.intent ?? request.body?.intent ?? 'draft';
+  if (intent !== 'draft' && intent !== 'released') throw Object.assign(new Error('Export intent must be draft or released.'), { status: 400, code: 'INVALID_EXPORT_INTENT' });
+  const review = await client.from('production_snapshot_reviews').select('status,approved_part_ids,fabrication_rules_version,source_fingerprint').eq('project_id', projectId).eq('scene_version_id', sceneVersionId).maybeSingle();
+  if (review.error) throw Object.assign(new Error('Production review evidence is unavailable.'), { status: 503, code: 'PRODUCTION_REVIEW_UNAVAILABLE' });
+  const snapshot = applyProductionReleaseAuthority(buildProductionSnapshot(scene, undefined, IndianModularCatalog), review.data, intent);
+  snapshot.savedSceneVersionId = sceneVersionId;
+  const cutlist = applyProductionReleaseAuthority(buildCutlist(scene), review.data, intent);
+  request.res?.setHeader('X-ULTIDA-Scene-Version', sceneVersionId);
+  request.res?.setHeader('X-ULTIDA-Production-Status', snapshot.status);
+  return { scene, snapshot, cutlist, review: review.data };
 }
 
 async function readElevationProductionInputs(request: express.Request, scene: ReturnType<typeof migrateScene>) {
@@ -725,10 +746,10 @@ async function readElevationProductionInputs(request: express.Request, scene: Re
   const client = getRequestSupabaseClient(request);
   const [planResult, reviewResult] = await Promise.all([
     client.from('floor_plan_versions').select('status,approved_at,canonical_model').eq('project_id', projectId).eq('id', scene.floorPlanVersionId).maybeSingle(),
-    client.from('production_snapshot_reviews').select('status,approved_part_ids,review_notes,reviewed_at,reviewed_by').eq('project_id', projectId).eq('scene_version_id', sceneVersionId).maybeSingle(),
+    client.from('production_snapshot_reviews').select('status,approved_part_ids,fabrication_rules_version,source_fingerprint,review_notes,reviewed_at,reviewed_by').eq('project_id', projectId).eq('scene_version_id', sceneVersionId).maybeSingle(),
   ]);
   if (planResult.error) throw Object.assign(new Error(planResult.error.message), { status: 500, code: 'PLAN_MEASUREMENT_READ_FAILED' });
-  if (reviewResult.error && reviewResult.error.code !== 'PGRST205') throw Object.assign(new Error(reviewResult.error.message), { status: 500, code: 'PRODUCTION_REVIEW_READ_FAILED' });
+  if (reviewResult.error) throw Object.assign(new Error(reviewResult.error.message), { status: 500, code: 'PRODUCTION_REVIEW_READ_FAILED' });
   const planModel = CanonicalPlanModelSchema.safeParse(planResult.data?.canonical_model);
   const measurementStatus = planResult.data?.status === 'approved'
     && Boolean(planResult.data?.approved_at)
@@ -754,7 +775,7 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
   let factoryManager = 'FACTORY MANAGER TO BE CONFIRMED';
 
   try {
-    const projResult = await client.from('projects').select('*').eq('id', projectId).maybeSingle();
+    const projResult = process.env.SUPABASE_URL ? await client.from('projects').select('*').eq('id', projectId).maybeSingle() : { data: null };
     if (projResult.data) {
       if (projResult.data.name) projectName = projResult.data.name;
       if (projResult.data.client_name) clientName = projResult.data.client_name;
@@ -764,7 +785,7 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
 
   let briefData: any = null;
   try {
-    const briefResult = await client.from('project_briefs').select('brief').eq('project_id', projectId).maybeSingle();
+    const briefResult = process.env.SUPABASE_URL ? await client.from('project_briefs').select('brief').eq('project_id', projectId).maybeSingle() : { data: null };
     if (briefResult.data?.brief) {
       briefData = briefResult.data.brief;
       if (briefData.clientName) clientName = briefData.clientName;
@@ -793,8 +814,8 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
       designerName,
       factoryManager,
       date: new Date().toISOString().split('T')[0],
-      revision: `REV-${scene.metadata?.designVersion || '02'} (APPROVED)`,
-      status: (scene.metadata?.status as any) || 'approved',
+      revision: `REV-${scene.metadata.designVersion} (${snapshot.status === 'approved' ? 'PRODUCTION REVIEWED' : 'DRAFT - REVIEW REQUIRED'})`,
+      status: snapshot.status === 'approved' ? 'approved' : 'draft',
     },
     brief: {
       lifestyleBrief: typeof briefData?.lifestyle === 'string' ? briefData.lifestyle : 'No approved project brief has been recorded for this scene.',
@@ -817,7 +838,7 @@ export async function buildDossierSpecFromContext(request: express.Request, scen
       boardNesting: {
         sheets18mm: nesting.sheets.filter((sheet) => sheet.thicknessMm === 18).length,
         sheets8mm: nesting.sheets.filter((sheet) => sheet.thicknessMm === 8).length,
-        sheetsLaminate: 0,
+        sheetsLaminate: null,
         totalAreaSqm: snapshot.parts.reduce((total: number, part: any) => total + (part.lengthMm * part.widthMm * part.quantity) / 1_000_000, 0),
         totalAreaSqFt: snapshot.parts.reduce((total: number, part: any) => total + (part.lengthMm * part.widthMm * part.quantity) / 1_000_000, 0) * 10.7639,
         nestingYieldPct: stockAreaSqm ? Math.round(usedAreaSqm / stockAreaSqm * 1000) / 10 : 0,
@@ -863,26 +884,121 @@ app.get('/api/projects/:projectId/dossier.pdf', requireProjectUser, async (reque
   try {
     const projectId = String(request.params.projectId);
     const client = getRequestSupabaseClient(request);
-    const sceneResult = await client.from('scene_versions').select('id,status,scene').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-    if (sceneResult.error) return response.status(500).json({ success: false, code: 'SCENE_VERSION_READ_FAILED', message: sceneResult.error.message });
-    if (!sceneResult.data?.scene) return response.status(409).json({ success: false, code: 'APPROVED_SCENE_REQUIRED', message: 'Compile and approve a saved scene before generating a project dossier.' });
-    if (!['approved', 'locked'].includes(String(sceneResult.data.status))) return response.status(409).json({ success: false, code: 'SCENE_NOT_PRODUCTION_READY', message: 'The latest saved scene is not approved. Approve its current revision before exporting.' });
-    const sceneToUse = migrateScene(sceneResult.data.scene);
-    assertSceneBayReconciliation(sceneToUse);
-    const snapshot = buildProductionSnapshot(sceneToUse, undefined, IndianModularCatalog);
-    const dossier = await buildDossierSpecFromContext(request, sceneToUse, snapshot);
-    const stream = new PassThrough();
-    const chunks: Buffer[] = [];
-    stream.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
-    const completed = new Promise<void>((resolveStream, rejectStream) => { stream.once('end', resolveStream); stream.once('error', rejectStream); });
-    generateProductionDossierPdf(dossier, stream);
-    await completed;
+    const [sceneResult, spacesResult, activePlanResult] = await Promise.all([
+      client.from('scene_versions').select('id,status,scene,floor_plan_version_id,version_number').eq('project_id', projectId).eq('branch_name', 'main').order('version_number', { ascending: false }).limit(1000),
+      client.from('spaces').select('id,space_id,floor_plan_version_id').eq('project_id', projectId),
+      client.from('floor_plan_versions').select('id,status,canonical_model').eq('project_id', projectId).eq('active_version', true).maybeSingle(),
+    ]);
+    if (sceneResult.error || spacesResult.error || activePlanResult.error) throw new Error('DOSSIER_SOURCE_READ_FAILED');
+    if (!activePlanResult.data || activePlanResult.data.status !== 'approved') throw new Error('APPROVED_ACTIVE_PLAN_REQUIRED');
+    if ((sceneResult.data?.length ?? 0) >= 1000) throw new Error('DOSSIER_HISTORY_LIMIT: Archive history before exporting.');
+    const rows = sceneResult.data ?? [];
+    const planId = activePlanResult.data.id;
+    const selected = selectProjectDossierScenes(rows.filter(r => r.floor_plan_version_id === planId), [...new Set<string>([...(spacesResult.data ?? []).filter(r => r.floor_plan_version_id === planId).map(r => String(r.space_id ?? r.id)), ...(activePlanResult.data.canonical_model?.spaces ?? []).map((r: any) => String(r.id))])]);
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    let page = pdf.addPage([842, 595]), y = 550;
+    const line = (text: string) => {
+      if (y < 45) { page = pdf.addPage([842, 595]); y = 550; }
+      page.drawText(text.replace(/[^\x20-\x7E]/g, '?').slice(0, 120), { x: 35, y, size: 11, font }); y -= 20;
+    };
+    line('ULTIDA - Project dossier source manifest');
+    line(`Project: ${projectId}`); line(`Floor plan: ${planId}`);
+    line('Each room below uses its latest saved approved geometry. Manufacturing review is checked per scene.');
+    const manifest: any[] = [];
+    for (const row of selected) {
+      const roomRequest = Object.assign(Object.create(request), { params: { ...request.params, sceneVersionId: row.id } });
+      const { scene, snapshot } = await readApprovedProductionContext(roomRequest, client);
+      const dossier = await buildDossierSpecFromContext(roomRequest, scene, snapshot);
+      const roomNames = scene.rooms.map(r => r.name ?? r.id).join(', ');
+      line(`${roomNames} | scene ${row.id} | ${snapshot.status}`);
+      manifest.push({ sceneVersionId: row.id, rooms: scene.rooms.map(r => ({ id: r.id, spaceId: r.spaceId, name: r.name })), manufacturingStatus: snapshot.status });
+      const stream = new PassThrough(), chunks: Buffer[] = [];
+      stream.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+      const completed = new Promise<void>((resolve, reject) => { stream.once('end', resolve); stream.once('error', reject); });
+      generateProductionDossierPdf(dossier, stream); await completed;
+      const source = await PDFDocument.load(Buffer.concat(chunks));
+      for (const copied of await pdf.copyPages(source, source.getPageIndices())) pdf.addPage(copied);
+      const renders = await client.from('artifacts').select('id,storage_path,provenance,stale').eq('project_id', projectId).eq('scene_version_id', row.id).eq('kind', 'photoreal_render').eq('status', 'ready').order('created_at', { ascending: false }).limit(30);
+      if (renders.error) throw new Error('DOSSIER_RENDER_READ_FAILED');
+      const approvedRenders = (renders.data ?? []).filter(r => !r.stale && r.provenance?.reviewStatus === 'approved');
+      const renderIds: string[] = [];
+      for (const render of approvedRenders.slice(0, 6)) {
+        const asset = await client.storage.from('project-assets').download(render.storage_path);
+        if (asset.error || !asset.data) throw new Error('DOSSIER_RENDER_DOWNLOAD_FAILED');
+        if (asset.data.size > 20 * 1024 * 1024) throw new Error('DOSSIER_RENDER_TOO_LARGE');
+        const bytes = new Uint8Array(await asset.data.arrayBuffer());
+        const image = bytes[0] === 137 ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+        const renderPage = pdf.addPage([842, 595]);
+        const fit = image.scaleToFit(772, 485);
+        renderPage.drawImage(image, { x: (842-fit.width)/2, y: 50, width: fit.width, height: fit.height });
+        renderPage.drawText(`Approved render ${render.id} | Scene ${row.id}`, { x: 35, y: 560, size: 10, font });
+        renderIds.push(render.id);
+      }
+      manifest[manifest.length - 1].approvedRenderIds = renderIds;
+      if (!renderIds.length) line(`Scene ${row.id}: approved 3D renders not available - visual section incomplete.`);
+
+    }
+    await pdf.attach(Buffer.from(JSON.stringify({ projectId, floorPlanVersionId: planId, generatedAt: new Date().toISOString(), scenes: manifest }, null, 2)), 'source-manifest.json', { mimeType: 'application/json' });
+    response.removeHeader('X-ULTIDA-Scene-Version');
+    response.setHeader('X-ULTIDA-Dossier-Scene-Count', String(manifest.length));
+    response.setHeader('X-ULTIDA-Production-Status', manifest.every(entry => entry.manufacturingStatus === 'approved') ? 'approved' : 'review_required');
+    response.setHeader('X-ULTIDA-Visual-Completeness', manifest.every(entry => entry.approvedRenderIds.length > 0) ? 'complete' : 'missing-approved-renders');
     response.setHeader('content-type', 'application/pdf');
     response.setHeader('content-disposition', `attachment; filename="ultida-${projectId}-turnkey-dossier.pdf"`);
-    return response.send(Buffer.concat(chunks));
+    return response.send(Buffer.from(await pdf.save()));
   } catch (err: any) {
     return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'DOSSIER_EXPORT_FAILED', message: err?.message });
   }
+});
+
+// Finish edits create an immutable draft revision; existing approvals cannot carry over.
+app.post('/api/projects/:projectId/scenes/:sceneVersionId/surface-recipes', requireProjectUser, async (request, response) => {
+  try {
+    const client = getRequestSupabaseClient(request), projectId = String(request.params.projectId);
+    const user = (request as import('./api-auth.js').AuthenticatedRequest).ultidaUser!;
+    const membership = await client.from('organization_members').select('role').eq('organization_id', user.organizationId).eq('user_id', user.id).maybeSingle();
+    if (membership.error || !['owner', 'admin', 'designer', 'production'].includes(membership.data?.role ?? '')) return response.status(403).json({ success: false, code: 'FINISH_EDIT_FORBIDDEN' });
+    const source = await client.from('scene_versions').select('*').eq('project_id', projectId).eq('id', String(request.params.sceneVersionId)).maybeSingle();
+    if (source.error || !source.data) return response.status(404).json({ success: false, code: 'SCENE_VERSION_NOT_FOUND' });
+    if (!['draft', 'approved', 'locked'].includes(source.data.status)) throw new Error('SCENE_NOT_EDITABLE');
+    const scene = migrateScene(source.data.scene);
+    const assignments = request.body?.assignments;
+    if (!Array.isArray(assignments) || !assignments.length || assignments.length > 5000) throw new Error('SURFACE_ASSIGNMENTS_REQUIRED');
+    const byId = new Map(scene.moduleParts.map(p => [p.id, p]));
+    const seen = new Set<string>();
+    for (const assignment of assignments) {
+      if (!byId.has(assignment.partId) || seen.has(assignment.partId) || !assignment.surfaceRecipe) throw new Error('INVALID_SURFACE_PART');
+      seen.add(assignment.partId);
+      byId.get(assignment.partId)!.surfaceRecipe = assignment.surfaceRecipe;
+    }
+    const id = crypto.randomUUID();
+    scene.metadata = { ...scene.metadata, status: 'draft', designVersion: id, changeReason: 'Updated physical panel face recipes' };
+    const validated = migrateScene(scene);
+    // Validate stock fit, quantity and laminate allowances before persisting.
+    const trial = buildProductionSnapshot({ ...validated, metadata: { ...validated.metadata, status: 'approved' } }, undefined, IndianModularCatalog);
+    nestLaminateFaces(trial);
+    nestPanels2D(trial.parts);
+    const latest = await client.from('scene_versions').select('version_number').eq('project_id', projectId).eq('branch_name', source.data.branch_name).order('version_number', { ascending: false }).limit(1).maybeSingle();
+    if (latest.error) throw new Error('SCENE_VERSION_READ_FAILED');
+    const created = await client.from('scene_versions').insert({ id, project_id: projectId, organization_id: user.organizationId, floor_plan_version_id: source.data.floor_plan_version_id,
+      branch_name: source.data.branch_name, version_number: (latest.data?.version_number ?? 0) + 1, status: 'draft',
+      scene: { ...source.data.scene, ...validated }, change_reason: validated.metadata.changeReason, created_by: user.id,
+    }).select('id').single();
+    if (created.error) return response.status(created.error.code === '23505' ? 409 : 500).json({ success: false, code: 'SCENE_CREATE_FAILED', message: 'Could not save the new revision. Refresh and retry.' });
+    return response.status(201).json({ success: true, sceneVersionId: id, status: 'draft' });
+  } catch (err: any) { return response.status(422).json({ success: false, code: 'SURFACE_RECIPE_INVALID', message: err.message }); }
+});
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/laminate-nesting.svg', requireProjectUser, async (request, response) => {
+  try {
+    const snapshot = await readApprovedProductionScene(request);
+    const laminate = nestLaminateFaces(snapshot);
+    if (!laminate.complete) return response.status(409).json({ success: false, code: 'LAMINATE_ASSIGNMENTS_REQUIRED', message: `Assign both faces (or explicitly bare) for ${laminate.unresolvedPartIds.length} panels.` });
+    response.setHeader('content-type', 'image/svg+xml; charset=utf-8');
+    response.setHeader('content-disposition', 'attachment; filename="ultida-laminate-nesting.svg"');
+    return response.send(generateNestingSheetsSvg(laminate.sheets, snapshot));
+  } catch (err: any) { return response.status(err.status ?? 422).json({ success: false, code: err.code ?? 'LAMINATE_NESTING_FAILED', message: err.message }); }
 });
 
 app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/labels.svg', requireProjectUser, async (request, response) => {
@@ -967,8 +1083,7 @@ app.post('/api/projects/:projectId/vastu-assessment', requireProjectUser, async 
 
 app.post('/api/production/cutlist.csv', requireProjectUser, async (request, response) => {
   try {
-    const { scene: normalized } = await readApprovedProductionContext(request);
-    const cutlist = buildCutlist(normalized);
+    const { cutlist } = await readApprovedProductionContext(request);
     response.setHeader('content-type', 'text/csv');
     const quote = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const rows = cutlist.parts.map((part) => [part.partInstanceId, part.sourcePartId, part.moduleId, part.family, part.roomId, part.semanticType, part.partName, part.lengthMm, part.widthMm, part.thicknessMm, part.materialCode, part.grainDirection, part.edgeSchedule?.tapeType ?? 'none', part.status].map(quote).join(','));
@@ -1168,7 +1283,7 @@ app.post('/api/projects/:projectId/renders/:renderId/review', requireProjectUser
   const decision = typeof request.body?.decision === 'string' ? request.body.decision : '';
   if (!['approved', 'rejected'].includes(decision)) return response.status(400).json({ success: false, code: 'INVALID_DECISION', message: 'decision must be approved or rejected.' });
   const result = await reviewVisualJob(process.env, renderId, projectId, decision, String(request.body?.note ?? ''), getRequestSupabaseClient(request));
-  return response.status(result.status === 'not_found' ? 404 : result.status === 'conflict' ? 409 : 200).json({ success: result.status === 'succeeded', result });
+  return response.status(result.status === 'not_found' ? 404 : result.status === 'conflict' ? 409 : result.status === 'succeeded' ? 200 : 503).json({ success: result.status === 'succeeded', result });
 });
 
 // Canonical entry point — requires auth; callers must use /initiate + /complete sub-routes
@@ -1350,13 +1465,20 @@ app.post('/api/projects/:projectId/references/complete', requireProjectUser, asy
   }
   const organizationId = authReq.ultidaUser!.organizationId;
   const requiredPrefix = `${organizationId}/${projectId}/references/`;
-  if (!storagePath.startsWith(requiredPrefix)) return response.status(403).json({ success: false, code: 'INVALID_STORAGE_PATH', message: 'The upload path does not belong to this project.' });
+  const safeReferenceName = fileName.replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').slice(-120);
+  const expectedReferencePath = `${requiredPrefix}${assetId}-${safeReferenceName}`;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assetId) || storagePath !== expectedReferencePath) return response.status(403).json({ success: false, code: 'INVALID_STORAGE_PATH', message: 'Use the exact asset identity and path returned by reference upload initiation.' });
   const client = getServerSupabaseClient();
   if (!client) return response.status(503).json({ success: false, code: 'STORAGE_SIGNING_UNAVAILABLE', message: 'Secure file storage is not configured on the server yet.' });
   try {
     const downloaded = await client.storage.from('project-assets').download(storagePath);
     if (downloaded.error || !downloaded.data) return response.status(409).json({ success: false, code: 'UPLOAD_NOT_FOUND', message: downloaded.error?.message ?? 'The uploaded reference could not be verified.' });
-    const sha256 = createHash('sha256').update(Buffer.from(await downloaded.data.arrayBuffer())).digest('hex');
+    if (downloaded.data.size > 25 * 1024 * 1024) return response.status(413).json({ success: false, code: 'REFERENCE_TOO_LARGE' });
+    const referenceBytes = Buffer.from(await downloaded.data.arrayBuffer());
+    let verifiedImage;
+    try { verifiedImage = await validateReferenceImage(referenceBytes, mimeType, fileSize); }
+    catch { return response.status(422).json({ success: false, code: 'INVALID_REFERENCE_IMAGE', message: 'The uploaded bytes must match a single PNG, JPEG or WebP image and the declared file size.' }); }
+    const sha256 = createHash('sha256').update(referenceBytes).digest('hex');
     const existing = await client.from('project_assets').select('id').eq('project_id', projectId).eq('kind', 'reference_image').contains('metadata', { sha256 }).maybeSingle();
     if (existing.error) return response.status(500).json({ success: false, code: 'REFERENCE_DEDUPE_FAILED', message: existing.error.message });
     if (existing.data) {
@@ -1366,7 +1488,7 @@ app.post('/api/projects/:projectId/references/complete', requireProjectUser, asy
     }
     const asset = await client.from('project_assets').insert({
       id: assetId, organization_id: organizationId, project_id: projectId, kind: 'reference_image', storage_path: storagePath,
-      mime_type: mimeType || 'image/png', metadata: { originalName: fileName, size: Number(fileSize) || downloaded.data.size, sha256 }, created_by: authReq.ultidaUser!.id
+      mime_type: verifiedImage.mimeType, metadata: { originalName: fileName, size: verifiedImage.fileSize, width: verifiedImage.width, height: verifiedImage.height, sha256 }, created_by: authReq.ultidaUser!.id
     }).select('id,storage_path,mime_type').single();
     if (asset.error || !asset.data) return response.status(500).json({ success: false, code: 'ASSET_RECORD_FAILED', message: asset.error?.message ?? 'The reference asset could not be recorded.' });
     const cleanTags = Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim().toLowerCase()).filter(Boolean).slice(0, 12) : [];
@@ -2150,6 +2272,117 @@ app.patch('/api/projects/:projectId/module-instances/:moduleId', requireProjectU
   return response.json({ success: true, module: updated.data, sceneRecompileRequired: true });
 });
 
+/** Exact-room, exact-scene kitchen release evidence. Never creates or approves any output. */
+app.get('/api/projects/:projectId/kitchen-milestone', requireProjectUser, async (request, response) => {
+  const projectId = String(request.params.projectId);
+  const roomId = typeof request.query.roomId === 'string' ? request.query.roomId : '';
+  const sceneVersionId = typeof request.query.sceneVersionId === 'string' ? request.query.sceneVersionId : '';
+  if (!roomId || !sceneVersionId || roomId.length > 100 || sceneVersionId.length > 100) {
+    return response.status(400).json({ success: false, code: 'KITCHEN_MILESTONE_CONTEXT_REQUIRED', message: 'Choose an existing room and saved scene version.' });
+  }
+  const client = getRequestSupabaseClient(request);
+  const project = await client.from('projects').select('id,organization_id').eq('id', projectId).maybeSingle();
+  if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND' });
+  const [plan, room, layouts, modules, assignments, materials, scene, renders, productionReview, quoteVersion] = await Promise.all([
+    client.from('floor_plan_versions').select('id,status,approved_at,canonical_model').eq('project_id', projectId).eq('active_version', true).maybeSingle(),
+    client.from('spaces').select('id,space_id,name,room_type').eq('project_id', projectId).eq('id', roomId).maybeSingle(),
+    client.from('layouts').select('id,status').eq('project_id', projectId).limit(1000),
+    client.from('module_instances').select('id,space_id,template_id,layout_id,config_json,position_json').eq('project_id', projectId).eq('space_id', roomId).limit(1000),
+    client.from('material_assignments').select('material_id,module_instance_id,target_kind,target_id,semantic_slot,status,revision').eq('project_id', projectId).order('revision', { ascending: true }).limit(1000),
+    client.from('material_library_items').select('id,brand,supplier,code,category,metadata').eq('organization_id', project.data.organization_id).limit(1500),
+    client.from('scene_versions').select('id,status,floor_plan_version_id,scene').eq('project_id', projectId).eq('id', sceneVersionId).maybeSingle(),
+    client.from('artifacts').select('id,kind,status,stale,scene_version_id,provenance').eq('project_id', projectId).eq('scene_version_id', sceneVersionId).eq('kind', 'render').limit(100),
+    client.from('production_snapshot_reviews').select('status,approved_part_ids,fabrication_rules_version,source_fingerprint').eq('project_id', projectId).eq('scene_version_id', sceneVersionId).maybeSingle(),
+    client.from('kitchen_quote_versions').select('status,document').eq('project_id',projectId).eq('room_id',roomId).eq('scene_version_id',sceneVersionId).order('revision',{ascending:false}).limit(1).maybeSingle(),
+  ]);
+  const reads = [plan, room, layouts, modules, assignments, materials, scene, renders, productionReview, quoteVersion];
+  const failure = reads.find(x => x.error);
+  if (failure?.error) return response.status(503).json({ success: false, code: 'KITCHEN_MILESTONE_EVIDENCE_UNAVAILABLE', message: failure.error.message });
+  const truncated = layouts.data?.length === 1000 || modules.data?.length === 1000 || assignments.data?.length === 1000 || materials.data?.length === 1500;
+  if (truncated) return response.status(409).json({ success: false, code: 'KITCHEN_MILESTONE_DATA_TRUNCATED', message: 'Evidence requires pagination before safe verification.' });
+  let cutlist: ReturnType<typeof buildCutlist> | null = null;
+  let productionError: string | null = null;
+  if (scene.data && ['approved', 'locked'].includes(String(scene.data.status))) {
+    try {
+      const normalized = migrateScene(scene.data.scene);
+      assertSceneBayReconciliation(normalized);
+      cutlist = buildCutlist(normalized);
+    } catch (err) {
+      productionError = err instanceof Error ? err.message : 'Production snapshot could not be compiled.';
+    }
+  }
+  let audit:AuraAuditEvent[];
+  try {audit=await listAuraAuditEvents(client,projectId,undefined,1000);} catch {return response.status(503).json({success:false,code:'AURA_EVIDENCE_UNAVAILABLE'});}
+  if(audit.length>=1000) return response.status(409).json({success:false,code:'AURA_EVIDENCE_TRUNCATED'});
+  const aiSelection=resolveKitchenAiSelection(audit,roomId,String(plan.data?.id ?? ''));
+  // Only current persisted approvals may satisfy commercial and AI evidence.
+  const report = evaluateKitchenMilestone({
+    projectId, roomId, sceneVersionId,
+    plan: plan.data, room: room.data, layouts: layouts.data ?? [], modules: modules.data ?? [],
+    catalogTemplateIds: listCatalog('kitchen').map(module => module.id), aiSelection,
+    assignments: assignments.data ?? [], materials: materials.data ?? [], scene: scene.data,
+    renders: renders.data ?? [], productionReview: productionReview.data,
+    cutlist, quote: quoteVersion.data ? {sceneVersionId, status:quoteVersion.data.status,lines:quoteVersion.data.document?.lines}:null,
+  });
+  return response.json({ success: true, ...report, productionError, quotePersistence: 'versioned', measuredKitchenCanary: 'not_proven' });
+});
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/kitchen/quote',requireProjectUser,async(request,response)=>{
+  const roomId=typeof request.query.roomId==='string'?request.query.roomId:'';
+  if(!roomId) return response.status(400).json({success:false,code:'ROOM_REQUIRED'});
+  const result=await getRequestSupabaseClient(request).from('kitchen_quote_versions').select('*').eq('project_id',String(request.params.projectId)).eq('room_id',roomId).eq('scene_version_id',String(request.params.sceneVersionId)).order('revision',{ascending:false}).limit(50);
+  if(result.error) return response.status(503).json({success:false,code:'QUOTE_HISTORY_UNAVAILABLE'});
+  return response.json({success:true,quote:result.data?.[0] ?? null,history:result.data ?? []});
+});
+
+/** Explicitly priced draft quote, derived only from the exact approved scene cutlist. */
+app.post(['/api/projects/:projectId/scenes/:sceneVersionId/kitchen/quote-preview','/api/projects/:projectId/scenes/:sceneVersionId/kitchen/quote'], requireProjectUser, async (request, response) => {
+  const projectId = String(request.params.projectId);
+  const sceneVersionId = String(request.params.sceneVersionId);
+  const roomId = typeof request.body?.roomId === 'string' ? request.body.roomId : '';
+  if (!roomId || roomId.length > 100) return response.status(400).json({ success: false, code: 'KITCHEN_ROOM_REQUIRED' });
+  const client = getRequestSupabaseClient(request);
+  const [room, saved] = await Promise.all([
+    client.from('spaces').select('id,room_type').eq('id', roomId).eq('project_id', projectId).maybeSingle(),
+    client.from('scene_versions').select('id,status,scene').eq('id', sceneVersionId).eq('project_id', projectId).maybeSingle(),
+  ]);
+  if (room.error || saved.error) return response.status(503).json({ success: false, code: 'QUOTE_SCENE_LOOKUP_FAILED' });
+  if (!room.data || room.data.room_type !== 'kitchen' || !saved.data) return response.status(404).json({ success: false, code: 'KITCHEN_OR_SCENE_NOT_FOUND' });
+  if (!['approved', 'locked'].includes(String(saved.data.status))) return response.status(409).json({ success: false, code: 'APPROVED_SCENE_REQUIRED' });
+  try {
+    const normalized = migrateScene(saved.data.scene);
+    assertSceneBayReconciliation(normalized);
+    // A persisted scene is compiled for exactly one approved space. Do not
+    // quote another room's scene, even if a valid room ID was supplied.
+    const storedModules = await client.from('module_instances').select('id').eq('space_id', roomId).eq('project_id', projectId).limit(1000);
+    if (storedModules.error) return response.status(503).json({ success: false, code: 'ROOM_MODULE_LOOKUP_FAILED' });
+    const roomModuleIds = new Set((storedModules.data ?? []).map(m => m.id));
+    if (!(normalized.modules?.length) || !normalized.modules.every(m => roomModuleIds.has(m.id))) {
+      return response.status(422).json({ success: false, code: 'SCENE_ROOM_MISMATCH' });
+    }
+    const cutlist = buildCutlist(normalized);
+    if (cutlist.excludedModules?.length || !cutlist.parts.length) return response.status(422).json({ success: false, code: 'PRODUCTION_CUTLIST_INCOMPLETE' });
+    const preview = previewKitchenQuote({
+      projectId, roomId, sceneVersionId, lines: request.body?.lines,
+      labourInr: request.body?.labourInr, marginRate: request.body?.marginRate, gstRate: request.body?.gstRate,
+    }, cutlist.parts);
+    if (request.path.endsWith('/quote')) {
+      const expectedRevision=request.body?.expectedRevision, status=request.body?.status;
+      if (!Number.isSafeInteger(expectedRevision) || expectedRevision<0 || !['draft','approved','rejected'].includes(status)) return response.status(422).json({success:false,code:'QUOTE_REVIEW_REQUIRED'});
+      if(status==='approved' && request.body.lines.some((l:any)=>typeof l.rateSource!=='string' || !l.rateSource.trim() || l.rateSource.length>500 || typeof l.effectiveDate!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(l.effectiveDate))) return response.status(422).json({success:false,code:'SUPPLIER_RATE_EVIDENCE_REQUIRED'});
+      const document={...preview,lines:request.body.lines.map((l:any)=>({sourcePartId:l.partInstanceId,unitRateInr:l.unitRateInr,rateSource:l.rateSource ?? null,effectiveDate:l.effectiveDate ?? null})),labourInr:request.body.labourInr,marginRate:request.body.marginRate,gstRate:request.body.gstRate};
+      const result=await client.rpc('save_kitchen_quote_atomic',{p_project_id:projectId,p_room_id:roomId,p_scene_id:sceneVersionId,p_expected_revision:expectedRevision,p_status:status,p_document:document,p_scene:saved.data.scene});
+      if(result.error) return response.status(result.error.code==='40001'?409:503).json({success:false,code:'QUOTE_SAVE_FAILED',message:result.error.message});
+      if(!result.data?.id) return response.status(503).json({success:false,code:'QUOTE_SAVE_UNCONFIRMED'});
+      return response.json({success:true,quote:result.data});
+    }
+    return response.json({ success: true, preview, source: { projectId, roomId, sceneVersionId }, productionApproved: false });
+  } catch (error) {
+    const code = error instanceof KitchenQuoteError ? error.code : 'KITCHEN_QUOTE_PREVIEW_FAILED';
+    return response.status(422).json({ success: false, code, message: error instanceof Error ? error.message : 'Quote cannot be prepared.' });
+  }
+});
+
 app.get('/api/projects/:projectId/design-context', requireProjectUser, async (request, response) => {
   const projectId = String(request.params.projectId);
   const client = getRequestSupabaseClient(request);
@@ -2210,7 +2443,7 @@ app.post('/api/projects/:projectId/material-library/starter', requireProjectUser
     finish: item.finish,
     grain_direction: item.family === 'woodgrain' ? 'follow_part' : 'none',
     thickness_mm: item.thicknessMm,
-    availability: 'available',
+    availability: 'unknown',
     metadata: { family: item.family, suitableFor: item.suitableFor, edgeBand: item.edgeBand, colourHex: item.colourHex, source: 'ultida-curated-starter', requiresSupplierConfirmation: true,
       ...('swatchUrl' in item ? { swatchUrl: item.swatchUrl, materialVersionId: item.id, supplierCode: item.supplierCode, sourceUrl: item.sourceUrl, allowedSlots: item.allowedSlots, pbr: item.pbr } : {}),
     },
@@ -2221,6 +2454,22 @@ app.post('/api/projects/:projectId/material-library/starter', requireProjectUser
   const materials = await client.from('material_library_items').select('*').eq('organization_id', project.data.organization_id).order('name');
   if (materials.error) return response.status(500).json({ success: false, code: 'MATERIAL_LIBRARY_LOAD_FAILED', message: materials.error.message });
   return response.status(201).json({ success: true, created: inserted.data?.length ?? 0, materials: materials.data ?? [], note: 'Starter materials are visual and specification placeholders. Confirm current supplier SKU and technical sheet before production.' });
+});
+
+app.post('/api/projects/:projectId/material-library/supplier-reference', requireProjectUser, async (request, response) => {
+  const source = typeof request.body?.sourceId === 'string' ? supplierMaterialReference(request.body.sourceId) : null;
+  if (!source) return response.status(422).json({ success: false, code: 'UNKNOWN_SUPPLIER_REFERENCE' });
+  const client = getRequestSupabaseClient(request);
+  const project = await client.from('projects').select('organization_id').eq('id', request.params.projectId).single();
+  if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND' });
+  const result = await client.from('material_library_items').upsert({
+    ...source, organization_id: project.data.organization_id,
+    created_by: (request as import('./api-auth.js').AuthenticatedRequest).ultidaUser!.id,
+  }, { onConflict: 'organization_id,code', ignoreDuplicates: true });
+  if (result.error) return response.status(503).json({ success: false, code: 'SUPPLIER_IMPORT_FAILED', message: result.error.message });
+  const saved = await client.from('material_library_items').select('*').eq('organization_id', project.data.organization_id).eq('code', source.code).single();
+  if (saved.error || !saved.data) return response.status(503).json({ success: false, code: 'SUPPLIER_IMPORT_READ_FAILED' });
+  return response.json({ success: true, material: saved.data, sourceRecordId: source.code });
 });
 
 app.post('/api/projects/:projectId/material-library', requireProjectUser, async (request, response) => {
@@ -2258,6 +2507,20 @@ app.post('/api/projects/:projectId/material-library', requireProjectUser, async 
   return response.status(201).json({ success: true, material: material.data });
 });
 
+// Room moodboards read the authoritative revisioned assignments. This API never
+// accepts client-supplied organization IDs and relies on project-scoped auth + RLS.
+app.get('/api/projects/:projectId/material-assignments', requireProjectUser, async (request, response) => {
+  const client = getRequestSupabaseClient(request);
+  const projectId = String(request.params.projectId);
+  const result = await client.from('material_assignments')
+    .select('id,project_id,material_id,module_instance_id,target_kind,target_id,semantic_slot,revision,status')
+    .eq('project_id', projectId)
+    .order('revision', { ascending: false })
+    .limit(1000);
+  if (result.error) return response.status(503).json({ success: false, code: 'MATERIAL_ASSIGNMENTS_LOAD_FAILED', message: 'Saved assignments are unavailable.' });
+  return response.json({ success: true, assignments: result.data ?? [], truncated: (result.data?.length ?? 0) >= 1000 });
+});
+
 app.post('/api/projects/:projectId/material-assignments', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const projectId = String(request.params.projectId);
@@ -2268,6 +2531,10 @@ app.post('/api/projects/:projectId/material-assignments', requireProjectUser, as
   if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
   const material = await client.from('material_library_items').select('id').eq('id', parsed.data.materialId).eq('organization_id', project.data.organization_id).single();
   if (material.error || !material.data) return response.status(422).json({ success: false, code: 'MATERIAL_NOT_IN_ORGANIZATION_LIBRARY', message: 'Select a material from this organization library.' });
+  if (parsed.data.targetKind === 'room') {
+    const room = await client.from('spaces').select('id').eq('id', parsed.data.targetId).eq('project_id', projectId).maybeSingle();
+    if (room.error || !room.data) return response.status(422).json({ success: false, code: 'MATERIAL_ROOM_NOT_FOUND', message: 'The selected room does not belong to this project.' });
+  }
   if (parsed.data.moduleInstanceId) {
     const module = await client.from('module_instances').select('id').eq('id', parsed.data.moduleInstanceId).eq('project_id', projectId).single();
     if (module.error || !module.data) return response.status(422).json({ success: false, code: 'MATERIAL_MODULE_NOT_FOUND', message: 'The material target module does not belong to this project.' });
@@ -2443,13 +2710,14 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
   const project = await client.from('projects').select('organization_id').eq('id', projectId).single();
   if (project.error || !project.data) return response.status(404).json({ success: false, code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' });
   const assignments = await client.from('material_assignments')
-    .select('material_id,semantic_slot,target_kind,target_id,module_instance_id,revision,created_at')
+    .select('material_id,semantic_slot,target_kind,target_id,module_instance_id,revision,created_at,status')
     .eq('project_id', projectId)
     .order('revision', { ascending: false })
     .order('created_at', { ascending: false });
   if (assignments.error) return response.status(500).json({ success: false, code: 'MATERIAL_ASSIGNMENT_READ_FAILED', message: assignments.error.message });
   const latestBySlot = new Map<string, any>();
-  for (const assignment of assignments.data ?? []) {
+  const partOwners = new Map<string, string>(moduleParts.flatMap(p => p.moduleId ? [[p.id, p.moduleId] as [string, string]] : []));
+  for (const assignment of sceneMaterialAssignments(assignments.data ?? [], roomId, new Set(sceneModules.map(m => m.id)), partOwners)) {
     const targetKey = `${String(assignment.target_kind ?? 'semantic_slot')}:${String(assignment.target_id ?? projectId)}:${String(assignment.module_instance_id ?? '')}:${String(assignment.semantic_slot)}`;
     if (!latestBySlot.has(targetKey)) latestBySlot.set(targetKey, assignment);
   }
@@ -2477,13 +2745,15 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
       metalness: Number.isFinite(Number(material.metalness)) && material.metalness !== null ? Number(material.metalness) : undefined,
     };
   });
-  const materialBySlot = new Map<string, string>();
+  const materialBySlot = sceneDefaultMaterialSlots([...latestBySlot.values()]);
   const materialByModuleAndSlot = new Map<string, string>();
+  const materialByPart = new Map<string, string>();
   for (const assignment of latestBySlot.values()) {
     const materialId = String(assignment.material_id);
     const semanticSlot = assignment.semantic_slot === 'back_panel' ? 'backPanel' : assignment.semantic_slot === 'profile' ? 'metal' : String(assignment.semantic_slot);
     const moduleId = String(assignment.module_instance_id ?? (assignment.target_kind === 'module' ? assignment.target_id : ''));
-    if (moduleId) materialByModuleAndSlot.set(`${moduleId}:${semanticSlot}`, materialId);
+    if (assignment.target_kind === 'part') materialByPart.set(String(assignment.target_id), materialId);
+    else if (moduleId) materialByModuleAndSlot.set(`${moduleId}:${semanticSlot}`, materialId);
     else if (assignment.target_kind !== 'module' && !materialBySlot.has(semanticSlot)) materialBySlot.set(semanticSlot, materialId);
   }
   const defaultModuleMaterial = materialBySlot.get('shutter') ?? materialBySlot.get('carcass') ?? materials[0]?.id;
@@ -2497,7 +2767,7 @@ app.post('/api/projects/:projectId/scenes/compile', requireProjectUser, async (r
   }));
   const resolvedModuleParts = moduleParts.map((part) => ({
     ...part,
-    materialId: resolvePartMaterial(part, materialByModuleAndSlot, materialBySlot),
+    materialId: materialByPart.get(part.id) ?? resolvePartMaterial(part, materialByModuleAndSlot, materialBySlot),
   }));
   const savedDesignInputs = selectedSpace.data.settings_json?.designInputs;
   if (!savedDesignInputs) return response.status(409).json({ success: false, code: 'ROOM_DESIGN_INPUTS_REQUIRED', message: 'Save this room’s wall bays and flooring in Spaces before reviewing its saved design in 3D.', issues: [{ message: 'Use Save room to persist the design inputs.' }] });
@@ -3152,6 +3422,105 @@ app.post('/api/projects/:projectId/rooms/:roomId/verify', requireProjectUser, as
   });
 });
 
+
+app.post('/api/catalog/modules/:moduleId/preview', (request, response) => {
+  const moduleId = String(request.params.moduleId ?? '').trim();
+  const entry = IndianModularCatalog.find((item) => item.id === moduleId);
+  if (!entry) {
+    return response.status(404).json({ success: false, code: 'MODULE_NOT_FOUND', message: 'Catalog module not found.' });
+  }
+  const widthMm = Number(request.body?.widthMm ?? request.body?.dimensions?.width ?? entry.widthMm);
+  const depthMm = Number(request.body?.depthMm ?? request.body?.dimensions?.depth ?? entry.depthMm);
+  const heightMm = Number(request.body?.heightMm ?? request.body?.dimensions?.height ?? entry.heightMm);
+  const minWidth = Math.max(200, Math.round(entry.widthMm * 0.5));
+  const maxWidth = Math.round(entry.widthMm * 2.0);
+  const minDepth = Math.max(200, Math.round(entry.depthMm * 0.5));
+  const maxDepth = Math.round(entry.depthMm * 1.5);
+  const minHeight = Math.max(200, Math.round(entry.heightMm * 0.5));
+  const maxHeight = Math.max(3000, Math.round(entry.heightMm * 1.5));
+  if (
+    !Number.isFinite(widthMm) || !Number.isFinite(depthMm) || !Number.isFinite(heightMm) ||
+    widthMm <= 0 || depthMm <= 0 || heightMm <= 0 ||
+    widthMm < minWidth || widthMm > maxWidth ||
+    depthMm < minDepth || depthMm > maxDepth ||
+    heightMm < minHeight || heightMm > maxHeight
+  ) {
+    return response.status(422).json({
+      success: false,
+      code: 'INVALID_CONSTRUCTION_ENVELOPE',
+      message: `Requested dimensions (${widthMm}×${depthMm}×${heightMm} mm) fall outside certified module envelope.`,
+      bounds: {
+        nominal: { width: entry.widthMm, depth: entry.depthMm, height: entry.heightMm },
+        min: { width: minWidth, depth: minDepth, height: minHeight },
+        max: { width: maxWidth, depth: maxDepth, height: maxHeight },
+      },
+    });
+  }
+  const compiled = compileStoredModuleForScene(
+    {
+      id: `preview-${entry.id}`,
+      space_id: 'preview-room',
+      category: entry.family,
+      template_id: entry.id,
+      config_json: {
+        widthMm,
+        depthMm,
+        heightMm,
+        family: entry.family,
+        ...(typeof request.body?.config === 'object' && request.body?.config ? request.body.config : {}),
+      },
+      position_json: {
+        xMm: 0,
+        yMm: 0,
+        zMm: entry.family === 'kitchen-wall' ? 1450 : 0,
+        rotationDeg: 0,
+        wallId: 'preview-wall',
+      },
+    },
+    [
+      {
+        id: 'preview-wall',
+        worldStart: { xMm: 0, yMm: 0 },
+        worldEnd: { xMm: Math.max(3600, widthMm + 600), yMm: 0 },
+        heightMm: Math.max(3000, heightMm + 1500),
+      },
+    ],
+  );
+  if (!compiled.ok) {
+    return response.status(422).json({
+      success: false,
+      code: compiled.code || 'CONSTRUCTION_PREVIEW_FAILED',
+      message: compiled.message || 'Unable to compile construction preview for requested dimensions.',
+    });
+  }
+  return response.json({
+    success: true,
+    moduleId: entry.id,
+    catalogVersion: CATALOG_VERSION,
+    dimensions: { widthMm, depthMm, heightMm },
+    componentCount: compiled.parts.length,
+    components: compiled.parts,
+  });
+});
+
+app.get('/api/studio/material-library', requireStudioUser, async (request, response) => {
+  const authReq = request as import('./api-auth.js').AuthenticatedRequest;
+  const client = getRequestSupabaseClient(request);
+  const { data: items, error } = await client
+    .from('material_library_items')
+    .select('*')
+    .eq('organization_id', authReq.ultidaUser!.organizationId)
+    .order('updated_at', { ascending: false });
+  if (error) {
+    return response.status(500).json({ success: false, message: error.message });
+  }
+  return response.json({
+    success: true,
+    items: items ?? [],
+    curatedCatalog: CuratedLaminateCatalog,
+  });
+});
+
 app.get('/api/catalog/verified-hardware', (_request, response) => {
   return response.json({
     success: true,
@@ -3199,11 +3568,16 @@ app.post('/api/catalog/solve-wall-fit', (request, response) => {
     rightScribingFillerMm: Number(request.body?.rightScribingFillerMm ?? 50),
     openDisplayEndShelfWidthMm: Number(request.body?.openDisplayEndShelfWidthMm ?? 0),
   });
-  const proposals = proposeModularRuns({
-    wallWidthMm,
-    wallHeightMm: totalHeightMm,
-    roomType: request.body?.roomType === 'kitchen' ? 'kitchen' : 'wardrobe',
-  });
+  const proposals = proposeModularRuns(
+    {
+      family: 'wardrobe',
+      wallLengthMm: wallWidthMm,
+      availableAisleMm: Number(request.body?.availableAisleMm ?? 950),
+      leftReturnMm: Number(request.body?.leftScribingFillerMm ?? 50),
+      rightReturnMm: Number(request.body?.rightScribingFillerMm ?? 50),
+    },
+    listCatalog(),
+  );
   const ledSchedule = buildUnderCabinetLedDetail({ wallRunWidthMm: wallWidthMm });
   return response.json({
     success: true,

@@ -1,3 +1,7 @@
+export { nestLaminateFaces } from './laminate-nesting.js';
+import QRCode from 'qrcode';
+import type { SurfaceRecipe } from './scene-types.js';
+export type { SurfaceRecipe, LaminateFace } from './scene-types.js';
 import { PdfWriter } from './pdf-writer.js';
 import type { Writable } from 'node:stream';
 import type { SceneV1, SceneWallV1, SceneOpeningV1, SceneModuleV1, SceneModulePartV1, SceneRoomV1 } from './scene-types.js';
@@ -6,7 +10,6 @@ export * from './elevation-sheet.js';
 export * from './pdf-writer.js';
 export * from './production-dossier-pdf.js';
 export * from './production-workbook.js';
-export * from './laminate-aware-nesting.js';
 import { generateArchitecturalShopSheetSvg, type ShopDrawingOptions } from './shop-drawing-renderer.js';
 
 export const ULTIDA_DRAWING_STANDARD_V1 = {
@@ -828,6 +831,7 @@ export type EdgeSchedule = {
 };
 
 export type CutlistPart = {
+  surfaceRecipe?: SurfaceRecipe;
   id: string;
   /** Unique physical panel identity. Quantity rows are expanded before nesting. */
   partInstanceId?: string;
@@ -901,6 +905,7 @@ export const UNCERTIFIED_MODULE_FAMILIES = new Set([
 ]);
 
 export type ProductionSnapshotV1 = {
+  savedSceneVersionId?: string;
   schema: 'production.snapshot.v1';
   projectId: string;
   sceneVersion: string;
@@ -1048,6 +1053,7 @@ export function buildProductionSnapshot(
       family: moduleFamily.get(part.moduleId) ?? 'module-part', semanticType,
       partName: part.name, ...dimensions, ...edge,
       grainDirection: semanticType === 'shutter' || semanticType === 'back_panel' || semanticType === 'panel' ? 'vertical' : semanticType === 'glass' ? 'none' : 'horizontal',
+      surfaceRecipe: part.surfaceRecipe,
       materialCode, quantity: 1, status: 'review_required', sourceSceneVersion: scene.metadata.designVersion,
     });
   }
@@ -1077,6 +1083,7 @@ export type PlacedPanel = {
 };
 
 export type NestingSheet = {
+  surfaceRecipe?: SurfaceRecipe;
   sheetId: string;
   materialCode: string;
   thicknessMm: number;
@@ -1147,25 +1154,33 @@ export function nestPanels2D(
     sRespectGrain = respectGrain;
   }
 
-  const updatedParts = parts.map((p) => ({ ...p }));
+  if (![sWidth, sHeight, sKerf, sTrim].every(Number.isFinite) || sWidth <= 2 * sTrim || sHeight <= 2 * sTrim || sKerf < 0 || sTrim < 0) throw new Error('INVALID_NESTING_STOCK');
+  const ids = new Set<string>();
+  for (const part of parts) {
+    if (!Number.isInteger(part.quantity) || part.quantity <= 0 || ![part.lengthMm, part.widthMm, part.thicknessMm].every(v => Number.isFinite(v) && v > 0)) throw new Error('INVALID_NESTING_PANEL');
+    for (let q = 0; q < part.quantity; q++) {
+      const id = part.quantity > 1 ? `${part.id}#${q + 1}` : (part.partInstanceId ?? part.id);
+      if (ids.has(id)) throw new Error(`DUPLICATE_PANEL_ID:${id}`);
+      ids.add(id);
+    }
+  }
+  const updatedParts = parts.flatMap((part) => Array.from({ length: part.quantity }, (_, q) => ({
+    ...part, partInstanceId: part.quantity > 1 ? `${part.id}#${q + 1}` : (part.partInstanceId ?? part.id),
+    quantity: 1, sheetId: undefined, placedPos: undefined,
+  })));
   const sheets: NestingSheet[] = [];
 
   // Group parts by material code & thickness
   const groups = new Map<string, CutlistPart[]>();
   for (const part of updatedParts) {
-    const key = `${part.materialCode || '18mm-plywood'}::${part.thicknessMm}`;
+    const key = JSON.stringify([part.materialCode || '18mm-plywood', part.thicknessMm, part.surfaceRecipe?.mode === 'prelaminated' ? part.surfaceRecipe : null]);
     if (!groups.has(key)) groups.set(key, []);
     const list = groups.get(key)!;
-    for (let q = 0; q < part.quantity; q++) {
-      list.push({ ...part, partInstanceId: part.quantity > 1 ? `${part.id}#${q + 1}` : (part.partInstanceId ?? part.id), quantity: 1 });
-    }
+    list.push(part);
   }
 
   for (const [key, groupParts] of groups.entries()) {
-    const separator = key.lastIndexOf('::');
-    const materialCode = key.slice(0, separator);
-    const thickStr = key.slice(separator + 2);
-    const thicknessMm = Number(thickStr) || 18;
+    const [materialCode, thicknessMm] = JSON.parse(key) as [string, number];
 
     // Sort parts descending by area for efficient packing
     const unplaced = [...groupParts].sort((a, b) => b.lengthMm * b.widthMm - a.lengthMm * a.widthMm);
@@ -1173,12 +1188,12 @@ export function nestPanels2D(
     let sheetCount = 0;
     while (unplaced.length > 0) {
       sheetCount++;
-      const sheetId = `sheet-${materialCode}-${thicknessMm}mm-#${sheetCount}`;
+      const sheetId = `sheet-${materialCode}-${thicknessMm}mm-g${[...groups.keys()].indexOf(key) + 1}-#${sheetCount}`;
       const freeRects = [{ x: sTrim, y: sTrim, w: sWidth - sTrim * 2, h: sHeight - sTrim * 2 }];
       const placedPanels: PlacedPanel[] = [];
       let usedAreaSqMm = 0;
 
-      for (let i = unplaced.length - 1; i >= 0; i--) {
+      for (let i = 0; i < unplaced.length;) {
         const part = unplaced[i];
         let bestRectIdx = -1;
         let bestRotated = false;
@@ -1187,16 +1202,20 @@ export function nestPanels2D(
         const partW = part.widthMm + sKerf;
         const partL = part.lengthMm + sKerf;
 
+        const faceGrains = part.surfaceRecipe?.mode === 'prelaminated'
+          ? new Set([part.surfaceRecipe.faceA?.grain, part.surfaceRecipe.faceB?.grain].filter(g => g && g !== 'none')) : new Set();
+        if (faceGrains.size > 1) throw new Error(`CONFLICTING_PRELAMINATED_GRAIN:${part.partInstanceId ?? part.id}`);
+        const widthGrain = faceGrains.has('width');
         // Try normal and rotated (unless restricted by grain)
         const allowRotate = sRespectGrain
-          ? (part.grainDirection !== 'vertical' && part.grainDirection !== 'horizontal')
+          ? (part.grainDirection !== 'vertical' && part.grainDirection !== 'horizontal' && !(part.surfaceRecipe?.mode === 'prelaminated' && [part.surfaceRecipe.faceA, part.surfaceRecipe.faceB].some(face => face && face.grain !== 'none')))
           : true;
 
         for (let r = 0; r < freeRects.length; r++) {
           const free = freeRects[r];
 
           // Normal orientation: length along X, width along Y
-          if (free.w >= partL && free.h >= partW) {
+          if (!widthGrain && free.w >= partL && free.h >= partW) {
             const leftoverShort = Math.min(free.w - partL, free.h - partW);
             if (leftoverShort < bestShortSideFit) {
               bestShortSideFit = leftoverShort;
@@ -1206,7 +1225,7 @@ export function nestPanels2D(
           }
 
           // Rotated orientation
-          if (allowRotate && free.w >= partW && free.h >= partL) {
+          if ((allowRotate || widthGrain) && free.w >= partW && free.h >= partL) {
             const leftoverShort = Math.min(free.w - partW, free.h - partL);
             if (leftoverShort < bestShortSideFit) {
               bestShortSideFit = leftoverShort;
@@ -1251,6 +1270,8 @@ export function nestPanels2D(
           }
 
           unplaced.splice(i, 1);
+        } else {
+          i++;
         }
       }
 
@@ -1258,13 +1279,14 @@ export function nestPanels2D(
       const utilization = Math.min(100, Math.round((usedAreaSqMm / totalSheetArea) * 1000) / 10);
 
       sheets.push({
+        surfaceRecipe: groupParts[0]?.surfaceRecipe?.mode === 'prelaminated' ? groupParts[0].surfaceRecipe : undefined,
         sheetId,
         materialCode,
         thicknessMm,
         sheetWidthMm: sWidth,
         sheetHeightMm: sHeight,
         placedPanels,
-        usedAreaSqm: Math.round((usedAreaSqMm / 1_000_000) * 100) / 100,
+        usedAreaSqm: usedAreaSqMm / 1_000_000,
         utilizationPercentage: utilization,
       });
       if (!placedPanels.length) {
@@ -1570,38 +1592,45 @@ function escapeProductionXml(value: unknown) {
   return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-/** Printable, scene-linked panel labels. The instance ID is the stable QR/barcode payload. */
+/** Non-secret, versioned identity; scanning never grants authorization. */
+export function productionLabelPayload(snapshot: ProductionSnapshotV1, part: CutlistPart) {
+  return JSON.stringify({ v: 1, project: snapshot.projectId, scene: snapshot.savedSceneVersionId ?? snapshot.sceneVersion, part: part.partInstanceId ?? part.id });
+}
+export function productionQrSvg(payload: string, x = 0, y = 0, size = 112) {
+  const qr = QRCode.create(payload, { errorCorrectionLevel: 'M' });
+  const n = qr.modules.size;
+  const cells: string[] = [];
+  for (let row = 0; row < n; row++) for (let col = 0; col < n; col++) {
+    if (qr.modules.get(row, col)) cells.push(`M${col + 4},${row + 4}h1v1h-1z`);
+  }
+  return `<svg x="${x}" y="${y}" width="${size}" height="${size}" viewBox="0 0 ${n + 8} ${n + 8}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="white"/><path d="${cells.join('')}" fill="black"/></svg>`;
+}
 export function generateProductionLabelsSvg(snapshot: ProductionSnapshotV1) {
-  const labelWidth = 360;
-  const labelHeight = 190;
-  const columns = 3;
+  const labelWidth = 420, labelHeight = 220, columns = 2;
   const rows = Math.max(1, Math.ceil(snapshot.parts.length / columns));
-  const width = labelWidth * columns;
-  const height = labelHeight * rows;
   const labels = snapshot.parts.map((part, index) => {
-    const x = (index % columns) * labelWidth;
-    const y = Math.floor(index / columns) * labelHeight;
-    const edge = part.edgeSchedule?.tapeType ?? 'none';
-    return `<g transform="translate(${x} ${y})"><rect x="8" y="8" width="344" height="174" rx="8" fill="#fff" stroke="#171717"/><text x="22" y="35" font-size="14" font-weight="700">${escapeProductionXml(part.partName)}</text><text x="22" y="58" font-size="11">${escapeProductionXml(part.partInstanceId)}</text><text x="22" y="82" font-size="13" font-weight="600">${part.lengthMm} x ${part.widthMm} x ${part.thicknessMm} mm</text><text x="22" y="105" font-size="11">Material: ${escapeProductionXml(part.materialCode)}</text><text x="22" y="126" font-size="11">Edge: ${escapeProductionXml(edge)} | Grain: ${escapeProductionXml(part.grainDirection)}</text><text x="22" y="147" font-size="11">Module: ${escapeProductionXml(part.moduleId)} | Room: ${escapeProductionXml(part.roomId ?? '-')}</text><text x="22" y="168" font-size="9">Scene ${escapeProductionXml(snapshot.sceneVersion)} | scan ID: ${escapeProductionXml(part.partInstanceId)}</text></g>`;
+    const x = (index % columns) * labelWidth, y = Math.floor(index / columns) * labelHeight;
+    const fields = [part.partName, part.partInstanceId, `${part.lengthMm} x ${part.widthMm} x ${part.thicknessMm} mm`, `Core: ${part.materialCode}`, `Edge: ${part.edgeSchedule?.tapeType ?? 'none'}`, `Grain: ${part.grainDirection}`, `A: ${part.surfaceRecipe?.faceA?.code ?? 'unassigned / bare'}`, `B: ${part.surfaceRecipe?.faceB?.code ?? 'unassigned / bare'}`];
+    return `<g transform="translate(${x} ${y})"><rect x="4" y="4" width="412" height="212" fill="white" stroke="black"/>${fields.map((v,i) => `<text x="12" y="${24+i*19}" font-size="11" ${String(v).length > 38 ? 'textLength="264"' : ''} lengthAdjust="spacingAndGlyphs">${escapeProductionXml(v)}</text>`).join('')}${productionQrSvg(productionLabelPayload(snapshot, part), 280, 12, 128)}<text x="12" y="182" font-size="10">Room ${escapeProductionXml(part.roomId)} | Module ${escapeProductionXml(part.moduleId)}</text><text x="12" y="197" font-size="9">Scene ${escapeProductionXml(snapshot.sceneVersion)}</text><text x="12" y="210" font-size="9">${snapshot.status === 'approved' ? 'PRODUCTION REVIEWED' : 'DRAFT - NOT FOR CUTTING'}</text></g>`;
   }).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#f4f1ea"/><g font-family="Arial, sans-serif" fill="#171717">${labels}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="200mm" height="${rows * 52.38}mm" viewBox="0 0 ${columns * labelWidth} ${rows * labelHeight}"><g font-family="Arial, sans-serif" fill="black">${labels}</g></svg>`;
 }
 
 /** Reproducible cut diagrams using the same deterministic nesting result as the cutlist. */
 export function generateProductionNestingSvg(snapshot: ProductionSnapshotV1) {
   const { sheets } = nestPanels2D(snapshot.parts, snapshot.fabricationRules.sheetWidthMm, snapshot.fabricationRules.sheetHeightMm, snapshot.fabricationRules.kerfMm, snapshot.fabricationRules.trimMm);
-  const pageWidth = 1000;
-  const sheetDrawWidth = 920;
-  const scale = sheetDrawWidth / snapshot.fabricationRules.sheetWidthMm;
-  const sheetDrawHeight = snapshot.fabricationRules.sheetHeightMm * scale;
-  const sectionHeight = sheetDrawHeight + 100;
-  const pageHeight = Math.max(180, sheets.length * sectionHeight + 40);
-  const sections = sheets.map((sheet, index) => {
-    const y = 30 + index * sectionHeight;
-    const panels = sheet.placedPanels.map((panel) => `<g><rect x="${40 + panel.xMm * scale}" y="${y + 42 + panel.yMm * scale}" width="${panel.widthMm * scale}" height="${panel.lengthMm * scale}" fill="#d8c3a5" stroke="#34271f"/><text x="${44 + panel.xMm * scale}" y="${y + 58 + panel.yMm * scale}" font-size="9">${escapeProductionXml(panel.partInstanceId)}</text><text x="${44 + panel.xMm * scale}" y="${y + 70 + panel.yMm * scale}" font-size="8">${panel.widthMm}x${panel.lengthMm}${panel.rotated ? ' R' : ''}</text></g>`).join('');
-    return `<g><text x="40" y="${y + 18}" font-size="15" font-weight="700">${escapeProductionXml(sheet.sheetId)}</text><text x="760" y="${y + 18}" font-size="12">${escapeProductionXml(sheet.materialCode)} ${sheet.thicknessMm} mm | ${sheet.utilizationPercentage}% used</text><rect x="40" y="${y + 42}" width="${sheetDrawWidth}" height="${sheetDrawHeight}" fill="#fff" stroke="#111" stroke-width="2"/>${panels}</g>`;
+  return generateNestingSheetsSvg(sheets, snapshot);
+}
+export function generateNestingSheetsSvg(sheets: NestingSheet[], snapshot: ProductionSnapshotV1) {
+  let y = 20;
+  const escape = escapeProductionXml;
+  const sections = sheets.map(sheet => {
+    const scale = 920 / sheet.sheetWidthMm, h = sheet.sheetHeightMm * scale;
+    const panels = sheet.placedPanels.map(p => `<rect x="${40+p.xMm*scale}" y="${y+65+p.yMm*scale}" width="${p.widthMm*scale}" height="${p.lengthMm*scale}" fill="#dfc7a5" stroke="black"/><text x="${43+p.xMm*scale}" y="${y+78+p.yMm*scale}" font-size="8">${escape(p.partInstanceId)}</text>`).join('');
+    const output = `<g><text x="40" y="${y+15}" font-size="13">${escape(sheet.sheetId)} | ${sheet.sheetWidthMm} x ${sheet.sheetHeightMm} mm | ${sheet.utilizationPercentage}% used</text><text x="40" y="${y+32}" font-size="11">${escape(sheet.materialCode)} ${sheet.thicknessMm} mm | A: ${escape(sheet.surfaceRecipe?.faceA?.code ?? '-')} | B: ${escape(sheet.surfaceRecipe?.faceB?.code ?? '-')}</text><text x="40" y="${y+49}" font-size="10">Scene ${escape(snapshot.savedSceneVersionId ?? snapshot.sceneVersion)} | ${snapshot.status === 'approved' ? 'PRODUCTION REVIEWED' : 'DRAFT - NOT FOR CUTTING'}</text><rect x="40" y="${y+65}" width="920" height="${h}" fill="white" stroke="black"/>${panels}</g>`;
+    y += h + 100; return output;
   }).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${pageWidth}" height="${pageHeight}" viewBox="0 0 ${pageWidth} ${pageHeight}"><rect width="100%" height="100%" fill="#f4f1ea"/><g font-family="Arial, sans-serif" fill="#171717">${sections || '<text x="40" y="80">No nestable sheet parts were found.</text>'}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="${Math.max(120,y)}" viewBox="0 0 1000 ${Math.max(120,y)}"><g font-family="Arial" fill="black">${sections || '<text x="40" y="60">No loose laminate sheets: faces are bare or supplied prelaminated.</text>'}</g></svg>`;
 }
 
 export function generateFullProductionCutlist(scene: SceneV1) {
@@ -2105,3 +2134,5 @@ export { generateSketchUpRubyScript } from './sketchup-exporter.js';
 export { generateArchitecturalShopSheetSvg, type ShopDrawingOptions } from './shop-drawing-renderer.js';
 export { generateSceneFabricationElevationSvg, type ElevationCutlistPart } from './scene-elevation-renderer.js';
 export * from './drawing-cutlist-analyzer.js';
+
+export * from './laminate-aware-nesting.js';

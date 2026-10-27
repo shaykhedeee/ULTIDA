@@ -1546,7 +1546,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         {/* /production → silent redirect to Cutlist & Drawings */}
         <Route path="production" element={<Navigate to={`/projects/${projectId}/drawings`} replace />} />
         {/* /drawings = primary Cutlist Studio */}
-        <Route path="drawings" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} initialTab="release" />} />
+        <Route path="drawings" element={<ProductionWorkspace projectId={projectId ?? ''} sceneVersionId={sceneVersionId} sceneApproved={sceneApproved} modules={sceneModules} materials={sceneMaterials} onSceneRevisionCreated={(id) => { setSceneVersionId(id); setSceneApproved(false); }} onSceneCreated={saveScene} onSceneApproved={async () => { await approveScene(); }} initialTab="release" />} />
 
         <Route path="estimate" element={
           <CommercialWorkspace

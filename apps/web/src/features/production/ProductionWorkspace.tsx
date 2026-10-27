@@ -1,3 +1,4 @@
+import { SurfaceRecipeEditor } from './SurfaceRecipeEditor';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -103,6 +104,7 @@ interface ProductionWorkspaceProps {
   }>;
   onSceneCreated: (id: string, modules: any[], materials: any[]) => void;
   onSceneApproved: () => Promise<void>;
+  onSceneRevisionCreated?: (id: string) => void;
 }
 
 function resolveTab(raw: string | undefined): TabId {
@@ -144,7 +146,7 @@ function estimateSheets(parts: Part[], fabricationRules: ProductionCutlist['fabr
 // ─── Component ───────────────────────────────────────────────────────────────
 export function ProductionWorkspace({
   projectId, sceneVersionId, sceneApproved, modules, materials,
-  onSceneCreated: _onSceneCreated, onSceneApproved: _onSceneApproved, initialTab,
+  onSceneCreated: _onSceneCreated, onSceneApproved: _onSceneApproved, onSceneRevisionCreated, initialTab,
 }: ProductionWorkspaceProps) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabId>(resolveTab(initialTab));
@@ -190,7 +192,7 @@ export function ProductionWorkspace({
     const apiBase = getApiBase();
     const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}`, { headers: { Authorization: `Bearer ${token}` } });
     const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.success || payload?.sceneVersion?.status !== 'approved' || !payload?.sceneVersion?.scene) {
+    if (!response.ok || !payload?.success || !['approved', 'locked'].includes(payload?.sceneVersion?.status) || !payload?.sceneVersion?.scene) {
       setExportState(payload?.message ?? 'This exact scene is not approved or could not be read.');
       return null;
     }
@@ -204,7 +206,9 @@ export function ProductionWorkspace({
     try {
       const source = await readApprovedScene();
       if (!source || !sceneVersionId) return;
-      const response = await fetch(`${source.apiBase}${path}`, {
+      const intent = releaseReady ? 'released' : 'draft';
+      const exportPath = `${path}${path.includes('?') ? '&' : '?'}intent=${intent}`;
+      const response = await fetch(`${source.apiBase}${exportPath}`, {
         method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${source.token}` },
         ...(method === 'POST' ? { body: JSON.stringify({ projectId, sceneVersionId, scene: source.scene, ...bodyExtra }) } : {}),
@@ -214,11 +218,11 @@ export function ProductionWorkspace({
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
       URL.revokeObjectURL(url);
-      setExportState('File exported from the saved approved scene.');
+      setExportState(releaseReady ? 'Exported with the saved production review.' : 'Draft exported — production review is still required.');
     } catch { setExportState('Production export service is unavailable.'); }
   }
 
-  async function downloadApprovedProductionAsset(asset: 'labels.svg' | 'nesting.svg', filename: string) {
+  async function downloadApprovedProductionAsset(asset: 'labels.svg' | 'nesting.svg' | 'laminate-nesting.svg', filename: string) {
     setExportState('Preparing authoritative production asset...');
     try {
       if (!sceneVersionId) throw new Error('Approve a scene first.');
@@ -227,13 +231,13 @@ export function ProductionWorkspace({
       const token = data.session?.access_token;
       if (!token) throw new Error('Sign in again to export production assets.');
       const apiBase = getApiBase();
-      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production/${asset}`, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(`${apiBase}/projects/${projectId}/scenes/${sceneVersionId}/production/${asset}?intent=${releaseReady ? 'released' : 'draft'}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error(await response.text());
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
       URL.revokeObjectURL(url);
-      setExportState('File exported from the saved approved scene.');
+      setExportState(releaseReady ? 'Exported with the saved production review.' : 'Draft exported — production review is still required.');
     } catch (error) { setExportState(error instanceof Error ? error.message : 'Production asset export failed.'); }
   }
 
@@ -260,18 +264,7 @@ export function ProductionWorkspace({
 
   // ─── CSV download ─────────────────────────────────────────────────────────
   function downloadClientCsv() {
-    if (!sceneApproved || !parts.length) { setExportState('No approved production snapshot is available to export.'); return; }
-    const headers = ['Part Instance ID', 'Part Name', 'Room', 'Module Family', 'Length (mm)', 'Width (mm)', 'Thickness (mm)', 'Quantity', 'Substrate Material Code', 'Face Finishes', 'Grain', 'Edging'];
-    const targetParts = scopedParts.length > 0 ? scopedParts : parts;
-    const rows = targetParts.map((p) => [
-      p.partInstanceId || p.id, `"${p.partName}"`, p.roomId, p.family,
-    p.lengthMm, p.widthMm, p.thicknessMm, p.quantity, p.materialCode, `"${(p.faceFinishes ?? []).map((finish) => `${finish.face}:${finish.finishCode} ${finish.areaSqm}m2`).join('; ')}"`, p.grainDirection, `"${p.edging}"`,
-    ]);
-    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    const suffix = activeRoomScope !== 'all' ? `-${activeRoomScope}` : '';
-    const link = document.createElement('a'); link.href = url; link.download = `ultida-${sceneVersionId ?? 'unapproved'}${suffix}-cutlist.csv`; link.click();
-    URL.revokeObjectURL(url);
+    void downloadProductionFile('/production/cutlist.csv', `ultida-${sceneVersionId ?? 'draft'}-cutlist.csv`);
   }
 
   // ─── Release approve ─────────────────────────────────────────────────────
@@ -2105,12 +2098,15 @@ export function ProductionWorkspace({
                 {releaseReady && <Badge variant="success" style={{ marginTop: 12, display: 'inline-flex' }}>✓ Production pack approved</Badge>}
               </div>
 
+              {sceneVersionId && parts.length > 0 && <SurfaceRecipeEditor key={sceneVersionId} projectId={projectId} sceneVersionId={sceneVersionId} parts={parts} onCreated={onSceneRevisionCreated} />}
               {/* Primary exports */}
               <div className="release-section">
                 <h4>Review the final document, then prepare fabrication</h4>
                 <div className="exports-primary-grid">
+                  <Card><CardHeader>Whole-project dossier (PDF)</CardHeader><CardContent><p>Includes every room's latest approved scene, with a source manifest. Missing or unapproved rooms block export.</p><Button disabled={!sceneApproved} onClick={() => void downloadProductionFile(`/projects/${projectId}/dossier.pdf`, `ultida-${projectId}-dossier.pdf`, 'GET')}>Export project dossier</Button></CardContent></Card>
+                  <Card><CardHeader>Laminate face cutouts (SVG)</CardHeader><CardContent><p>Separate finish sheets with allowances, grain and physical-panel IDs. Assign all faces first.</p><Button disabled={!sceneApproved} onClick={() => void downloadApprovedProductionAsset('laminate-nesting.svg', `ultida-${sceneVersionId}-laminates.svg`)}>Export laminate cutouts</Button></CardContent></Card>
                   <Card className="featured-export">
-                    <CardHeader>Approved Design &amp; Production Document (PDF)</CardHeader>
+                    <CardHeader>Design &amp; Production Document (PDF)</CardHeader>
                     <CardContent>
                       <p>Index, wall elevations, carcass sections, fabrication rules, material summary, hardware and panel cutlist — all from this exact scene revision.</p>
                       <Button variant="primary" size="sm"

@@ -40,7 +40,7 @@ export const CatalogModuleSchema = z.object({
 export type CatalogModule = z.infer<typeof CatalogModuleSchema>;
 
 /** Immutable catalog identity carried into module instances and production outputs. */
-export const CATALOG_VERSION = 'ultida-catalog-2026.09.06';
+export const CATALOG_VERSION = 'ultida-catalog-2026.10.21';
 export type CatalogDigitalTwin = {
   catalogVersion: string;
   templateId: string;
@@ -575,9 +575,64 @@ export {
 
 export { MODULE_STYLE_REFERENCES } from './module-style-references.js';
 
+import {
+  proposeModularRuns as proposeParametricModularRuns,
+  type ModularRunProposalOption,
+} from './parametric-wall-divider.js';
+import {
+  proposeModularRuns as proposeTemplateModularRuns,
+  type RunInput,
+  type RunResult,
+  type RunProposal,
+  type RunPlacement,
+  type RealModuleTemplate,
+  type RestrictedInterval,
+} from './modular-run-intelligence.js';
+
 export * from './fittings/verified-hardware.js';
 export * from './vendor-approved-registry.js';
 export * from './supplier-asset-rights.js';
 export * from './parametric-wall-divider.js';
 export * from './ai-collision-and-led-detailer.js';
 
+export { STARTER_FITTINGS, checkFittingCompatibility, checkRunnerPair } from './fittings/verified-hardware.js';
+export type { FittingBrand, FittingRecord, FittingFitRequest } from './fittings/verified-hardware.js';
+export { VERIFIED_MERINO_REFERENCES, VERIFIED_IKEA_REFERENCES, findVerifiedProduct } from './verified-supplier-catalog.js';
+export type { MerinoReference, IkeaReference } from './verified-supplier-catalog.js';
+export { checkSupplierAssetRights } from './supplier-asset-rights.js';
+export type { SupplierGrant, ThirdPartyAsset, AssetUse, AssetRightsResult } from './supplier-asset-rights.js';
+export type { RunInput, RunResult, RunProposal, RunPlacement, RealModuleTemplate, RestrictedInterval };
+
+export function proposeModularRuns(input: {
+  wallWidthMm: number;
+  wallHeightMm?: number;
+  roomType: 'kitchen' | 'wardrobe' | 'living' | 'pooja';
+  plumbingCenterMm?: number;
+}): ModularRunProposalOption[];
+export function proposeModularRuns(
+  input: RunInput,
+  templates: readonly RealModuleTemplate[],
+): RunResult;
+export function proposeModularRuns(
+  input:
+    | {
+        wallWidthMm: number;
+        wallHeightMm?: number;
+        roomType: 'kitchen' | 'wardrobe' | 'living' | 'pooja';
+        plumbingCenterMm?: number;
+      }
+    | RunInput,
+  templates?: readonly RealModuleTemplate[],
+): ModularRunProposalOption[] | RunResult {
+  if (Array.isArray(templates)) {
+    return proposeTemplateModularRuns(input as RunInput, templates);
+  }
+  return proposeParametricModularRuns(
+    input as {
+      wallWidthMm: number;
+      wallHeightMm?: number;
+      roomType: 'kitchen' | 'wardrobe' | 'living' | 'pooja';
+      plumbingCenterMm?: number;
+    },
+  );
+}

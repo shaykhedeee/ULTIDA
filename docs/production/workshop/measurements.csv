@@ -1,0 +1,1 @@
+project_id,scene_id,part_id,expected_length_mm,measured_length_mm,length_tolerance_mm,expected_width_mm,measured_width_mm,width_tolerance_mm,expected_thickness_mm,measured_thickness_mm,thickness_tolerance_mm,face_a_match,face_b_match,grain_match,assembly_pass,qr_payload,operator,evidence_file

@@ -55,7 +55,7 @@ const PERSPECTIVE_SCENE: any = {
   openings: [{ id: 'door-1', wallId: 'wall-1', kind: 'door', offsetMm: 1000, widthMm: 900, heightMm: 2100, sillHeightMm: 0, confidence: 1 }],
   fixedFixtures: [], modules: [{ id: 'tv-1', roomId: 'room-1', family: 'tv_unit', widthMm: 1800, depthMm: 400, heightMm: 600, position: { xMm: 1400, yMm: 500 }, rotationDeg: 0, anchor: 'floor', materialId: 'mat-tv', confidence: 1 }],
   materials: [{ id: 'mat-tv', name: 'Oak', code: 'OAK-01' }], lighting: [],
-  cameras: [{ id: 'camera-1', name: 'Corner', position: { xMm: 2000, yMm: 1700, zMm: -3500 }, target: { xMm: 2000, yMm: 1100, zMm: 1200 }, lensMm: 35 }],
+  cameras: [{ id: 'camera-1', name: 'Corner', position: { xMm: 2000, yMm: -3500, zMm: 1700 }, target: { xMm: 2000, yMm: 1200, zMm: 1100 }, lensMm: 35 }],
   constraints: [], unresolvedDetections: [], metadata: { branch: 'main', status: 'approved', changeReason: 'fixture', schemaVersion: 'scene.v1', designVersion: 'design-1' },
 };
 
@@ -232,4 +232,48 @@ test('version lineage remains intact in the persisted record', async () => {
   assert.equal(res.record.layoutVersionId, 'layout-v1');
   assert.equal(res.record.moduleSnapshotId, 'module-v1');
   assert.equal(res.record.materialVersionId, 'materials-v1');
+});
+
+
+test('unknown saved camera never silently falls back to a different view', () => {
+  assert.throws(() => renderScenePerspectiveArtifacts(PERSPECTIVE_SCENE, { cameraId: 'missing' }), /camera/i);
+});
+
+test('canonical z-up camera views a module directly in front of its target', () => {
+  const scene = structuredClone(PERSPECTIVE_SCENE);
+  scene.walls = []; scene.openings = []; scene.rooms = [];
+  scene.cameras[0].position = { xMm: 2300, yMm: -3500, zMm: 300 };
+  scene.cameras[0].target = { xMm: 2300, yMm: 700, zMm: 300 };
+  const mask = renderScenePerspectiveArtifacts(scene, { width: 160, height: 120 }).objectMasks.find(mask => mask.id === 'tv-1')!;
+  assert.ok(mask);
+  const { data, width, height } = decodePngRgba(Buffer.from(mask.url.split(',')[1]!, 'base64'));
+  assert.equal(data[(Math.floor(height / 2) * width + Math.floor(width / 2)) * 4], 255, 'Camera target must lie inside the visible module mask');
+});
+
+test('occluded parts have no edit mask and visible exact parts expose their module union', () => {
+  const scene = structuredClone(PERSPECTIVE_SCENE);
+  scene.walls = []; scene.openings = []; scene.rooms = [];
+  scene.cameras[0].position = { xMm: 500, yMm: -3000, zMm: 500 };
+  scene.cameras[0].target = { xMm: 500, yMm: 1000, zMm: 500 };
+  scene.moduleParts = [
+    { id: 'front', moduleId: 'tv-1', semanticType: 'carcass', widthMm: 1000, depthMm: 100, heightMm: 1000, position: { xMm: 0, yMm: 0, zMm: 0 }, rotationDeg: 0, materialId: 'front-mat' },
+    { id: 'hidden', moduleId: 'tv-1', semanticType: 'carcass', widthMm: 500, depthMm: 100, heightMm: 500, position: { xMm: 250, yMm: 1000, zMm: 250 }, rotationDeg: 0, materialId: 'hidden-mat' },
+  ];
+  const artifacts = renderScenePerspectiveArtifacts(scene, { width: 160, height: 120 });
+  assert.ok(artifacts.objectMasks.some(mask => mask.id === 'front'));
+  assert.ok(!artifacts.objectMasks.some(mask => mask.id === 'hidden'));
+  assert.ok(artifacts.objectMasks.some(mask => mask.id === 'tv-1'));
+  assert.ok(!artifacts.materialRegions.some(mask => mask.materialId === 'hidden-mat'));
+  assert.equal(artifacts.semanticMasks?.find(mask => mask.moduleId === 'tv-1' && mask.semanticSlot === 'carcass')?.url, artifacts.objectMasks.find(mask => mask.id === 'front')?.url);
+});
+
+test('visible drawer and loft fronts contribute to shutter masks and lighting channels to lighting masks',()=>{
+ const scene=structuredClone(PERSPECTIVE_SCENE);
+ scene.walls=[];scene.openings=[];scene.rooms=[];
+ scene.cameras[0].position={xMm:500,yMm:-3000,zMm:500};scene.cameras[0].target={xMm:500,yMm:1000,zMm:500};
+ for(const [semanticType,slot] of [['drawer','shutter'],['loft','shutter'],['lighting_channel','lighting'],['lighting_anchor','lighting']]) {
+   scene.moduleParts=[{id:'front',moduleId:'tv-1',semanticType,widthMm:1000,depthMm:100,heightMm:1000,position:{xMm:0,yMm:0,zMm:0},rotationDeg:0} as any];
+   const result=renderScenePerspectiveArtifacts(scene,{width:160,height:120});
+   assert.equal(result.semanticMasks?.find(mask=>mask.semanticSlot===slot)?.url,result.objectMasks.find(mask=>mask.id==='front')?.url);
+ }
 });

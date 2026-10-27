@@ -2,6 +2,7 @@ import { Box, CheckCircle2, Clipboard, Download, FilePlus2, Loader2, Search, Sli
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ModulePreview } from '../../components/library/ModulePreview';
+import SupplierCatalogExplorer from '../../components/library/SupplierCatalogExplorer';
 import ModularCabinetBuilder from '../../components/modular/ModularCabinetBuilder';
 import { compileCabinetCncPackage, generateHomagWoodWopMpr, generateBiesseCix, type CncPanel, type CabinetCncPackage } from '@ultida/catalog-core';
 import './modular-unit-planner.css';
@@ -262,8 +263,9 @@ export function ModularUnitPlanner() {
   }
 
   return <main className="module-planner">
-    <header className="module-planner-hero"><div><p>MODULAR UNIT PLANNER</p><h1>Choose, size and prepare a real modular unit.</h1><span>Standalone planning for ULTIDA TV walls, crockery, wardrobes, kitchens, pooja, study and storage. No brands, prices or shopping cart—only configurable interior modules.</span></div><button onClick={() => navigate('/projects')}><FilePlus2 size={16} /> Start a project</button></header>
+    <header className="module-planner-hero"><div><p>MODULAR UNIT PLANNER</p><h1>Choose, size and prepare a real modular unit.</h1><span>Production-aware ULTIDA construction modules with a separate source-linked Merino and IKEA reference catalog. Real retail products are not treated as fabrication parts.</span></div><button onClick={() => navigate('/projects')}><FilePlus2 size={16} /> Start a project</button></header>
     <p className="module-planner-status" role="status">{modules.length ? <CheckCircle2 size={15} /> : <Loader2 className="ultida-spinner" size={15} />}{status}</p>
+    <details className="ult-supplier-drawer"><summary>Verified suppliers, Merino finishes, IKEA products &amp; modular-run composer</summary><SupplierCatalogExplorer modules={modules} /></details>
     <div style={{ display: 'flex', gap: 8, margin: '14px 0 20px', background: '#e7e5e4', padding: 4, borderRadius: 8, width: 'fit-content' }}>
       <button
         type="button"

@@ -17,7 +17,13 @@ const files = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).spli
 const findings = [];
 for (const file of files) {
   let content;
-  try { content = readFileSync(file, 'utf8'); } catch { continue; }
+  try {
+    const bytes = readFileSync(file);
+    // Binary assets are not source text; decoding them can make regex scanning
+    // extremely slow and produces meaningless key matches.
+    if (bytes.includes(0)) continue;
+    content = bytes.toString('utf8');
+  } catch { continue; }
   for (const pattern of patterns) {
     pattern.lastIndex = 0;
     if (pattern.test(content)) findings.push(file);

@@ -1,0 +1,21 @@
+.ultida-material-board{color:#29231b;border:1px solid #ded2bf;background:#fffdf9;border-radius:12px;padding:16px;display:grid;gap:13px}
+.ultida-material-board-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.ultida-board-kicker{color:#947334;font-size:10px;font-weight:900;letter-spacing:.12em}
+.ultida-material-board h3{margin:3px 0 5px;font-size:18px}.ultida-material-board-head p{font-size:11px;color:#70665a;margin:0;max-width:600px}
+.ultida-material-board-tools{display:flex;gap:6px}.ultida-material-board button{cursor:pointer;border-radius:7px;border:1px solid #d8c9af;background:white;padding:8px 9px;font-size:11px;color:#463829;font-weight:750}
+.ultida-material-board button:focus-visible{outline:3px solid #b68d42;outline-offset:2px}.ultida-material-board button:disabled{cursor:not-allowed;opacity:.5}
+.ultida-material-board-tools button{display:flex;align-items:center;gap:5px}
+.ultida-board-stats{display:flex;flex-wrap:wrap;gap:7px}.ultida-board-stats span{display:flex;align-items:center;gap:5px;background:#f2e9db;border-radius:999px;padding:6px 9px;font-size:10.5px;font-weight:750}
+.ultida-board-alert{display:flex;align-items:center;gap:7px;background:#fff3e7;color:#914421;border:1px solid #efc8a0;border-radius:8px;padding:9px;font-size:11px}
+.ultida-board-empty{display:grid;gap:6px;justify-items:center;text-align:center;padding:25px 20px;background:#faf6ef;border:1px dashed #d8c7aa;border-radius:10px}.ultida-board-empty strong{font-size:12px}.ultida-board-empty span{color:#7a7167;font-size:11px;max-width:340px}
+.ultida-board-view-toggle{display:flex;gap:5px}.ultida-board-view-toggle button[aria-pressed='true']{background:#3d3224;color:#fff;border-color:#3d3224}
+.ultida-board-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:10px}.ultida-board-cards.is-editorial{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.ultida-board-material{min-width:0;overflow:hidden;border:1px solid #e5ded1;border-radius:9px;background:white}
+.ultida-board-material-swatch{height:102px;display:flex;justify-content:flex-end;align-items:end;padding:6px}.ultida-board-cards.is-editorial .ultida-board-material-swatch{height:148px}.ultida-board-material-swatch span{font-size:8px;letter-spacing:.05em;background:#fffdebdf;border-radius:3px;padding:3px 5px;color:#30281b;font-weight:800}
+.ultida-board-material-info{padding:10px;display:grid;gap:4px;min-width:0}.ultida-board-material-info small{font-size:10px;color:#937e5c}.ultida-board-material-info strong{font-size:12px;overflow-wrap:anywhere}.ultida-board-material-info p{font-size:10px;margin:0;color:#675f55}.ultida-board-material-info>span{font-size:10px;color:#81766b}
+.ultida-board-source-status{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:750;margin-top:5px;color:#96651c}.ultida-board-source-status.has-reference{color:#276b49}
+.ultida-board-notes{font-size:11px;display:grid;gap:6px;font-weight:800}.ultida-board-notes span{font-size:10px;font-weight:400;color:#8a8075}.ultida-board-notes textarea{width:100%;border:1px solid #d9cbbb;border-radius:8px;background:white;padding:10px;color:#342a1e;resize:vertical;font:inherit;font-weight:500}
+.ultida-board-disclaimer{color:#756b60;font-size:10px;margin:0;line-height:1.5}
+@media(max-width:600px){.ultida-board-cards,.ultida-board-cards.is-editorial{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:360px){.ultida-board-cards,.ultida-board-cards.is-editorial{grid-template-columns:1fr}}
+
+.ultida-board-room-editor{border-radius:10px;border:1px solid #dfd1b9;background:#f8f4eb;padding:12px;display:grid;gap:9px}.ultida-board-room-editor strong{font-size:12px}.ultida-board-room-editor p,.ultida-board-room-editor small{font-size:10px;color:#75695c;margin:3px 0 0}.ultida-board-room-editor-fields{display:grid;grid-template-columns:110px minmax(0,1fr) auto;gap:6px}.ultida-board-room-editor select{border:1px solid #d9cbb7;border-radius:7px;background:white;color:#3d3020;padding:7px;font-size:11px;min-width:0}.ultida-board-room-editor-fields button{background:#332719;color:white;border-color:#332719}@media(max-width:580px){.ultida-board-room-editor-fields{grid-template-columns:1fr}}

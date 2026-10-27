@@ -1,2 +1,39 @@
--- Index for atomic moodboard version lookup
-create index if not exists room_moodboard_versions_project_space_idx on public.room_moodboard_versions(project_id, space_id, version_number desc);
+-- Source tables are held stable through validation and immutable append.
+-- These short SHARE locks also protect against newly inserted assignments.
+create function public.save_room_moodboard_atomic(p_project_id text,p_room_id text,p_revision integer,p_document jsonb,p_sources jsonb)
+returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
+declare org uuid; rev integer; expected jsonb; actual jsonb; saved public.room_moodboard_versions%rowtype;
+begin
+ perform set_config('lock_timeout','5s',true);
+ select organization_id into org from public.projects where id::text=p_project_id;
+ if auth.uid() is null or org is null or not private.is_org_member(org) then raise exception 'Access denied' using errcode='42501'; end if;
+ if not exists(select 1 from public.spaces where id::text=p_room_id and project_id::text=p_project_id and organization_id=org) then raise exception 'Room not found'; end if;
+ if p_document->>'schema' is distinct from 'ultida.moodboard.v1' or p_document->>'projectId' is distinct from p_project_id or p_document->>'roomId' is distinct from p_room_id or jsonb_typeof(p_document->'cards') is distinct from 'array' or jsonb_array_length(p_document->'cards')>80 then raise exception 'Invalid board'; end if;
+ if jsonb_typeof(p_document->'projectId') is distinct from 'string' or jsonb_typeof(p_document->'roomId') is distinct from 'string' or jsonb_typeof(p_document->'sourceFingerprint') is distinct from 'string' or not p_document ? 'sceneVersionId' or (p_document ? 'notes' and jsonb_typeof(p_document->'notes') is distinct from 'string') then raise exception 'Invalid board field types'; end if;
+ if p_revision is null or p_revision<0 or jsonb_typeof(p_document->'title') is distinct from 'string' or length(p_document->>'title') not between 1 and 200 or length(coalesce(p_document->>'notes',''))>5000 or coalesce(p_document->>'template','') not in ('editorial','grid','studio') or length(coalesce(p_document->>'sourceFingerprint','')) not between 1 and 128 or jsonb_typeof(p_document->'canvas') is distinct from 'object' then raise exception 'Invalid board structure'; end if;
+ if exists(select 1 from jsonb_object_keys(p_document) k where k not in ('schema','projectId','roomId','sceneVersionId','sourceFingerprint','title','notes','template','canvas','cards')) then raise exception 'Unsupported board fields'; end if;
+ if jsonb_typeof(p_document->'canvas'->'width') is distinct from 'number' or jsonb_typeof(p_document->'canvas'->'height') is distinct from 'number' or (p_document->'canvas'->>'width')::numeric not between 600 and 1600 or (p_document->'canvas'->>'height')::numeric not between 600 and 1600 or (p_document->'canvas'->>'width')::numeric%1<>0 or (p_document->'canvas'->>'height')::numeric%1<>0 or coalesce(p_document->'canvas'->>'background','') !~ '^#[0-9a-fA-F]{6}$' then raise exception 'Invalid canvas'; end if;
+ if exists(select 1 from jsonb_array_elements(p_document->'cards') c where nullif(c->>'id','') is null or length(c->>'id')>200 or coalesce(c->>'kind','') not in ('material','image','note') or (c->>'kind'='material' and nullif(c->>'materialId','') is null) or (c->>'kind'='image' and nullif(c->>'assetId','') is null) or length(coalesce(c->>'title',''))>200 or length(coalesce(c->>'note',''))>2000 or jsonb_typeof(c->'x') is distinct from 'number' or jsonb_typeof(c->'y') is distinct from 'number' or jsonb_typeof(c->'width') is distinct from 'number' or jsonb_typeof(c->'height') is distinct from 'number' or (c->>'x')::numeric<0 or (c->>'y')::numeric<0 or (c->>'width')::numeric<100 or (c->>'height')::numeric<100 or (c->>'x')::numeric+(c->>'width')::numeric>(p_document->'canvas'->>'width')::numeric or (c->>'y')::numeric+(c->>'height')::numeric>(p_document->'canvas'->>'height')::numeric) then raise exception 'Invalid card bounds or identities'; end if;
+ if exists(select 1 from jsonb_array_elements(p_document->'cards') c cross join lateral jsonb_object_keys(c) k where k not in ('id','kind','materialId','assetId','title','note','x','y','width','height')) then raise exception 'Unsupported card fields'; end if;
+ if (select count(*) from jsonb_array_elements(p_document->'cards'))<>(select count(distinct c->>'id') from jsonb_array_elements(p_document->'cards') c) then raise exception 'Duplicate cards'; end if;
+ lock table public.material_assignments,public.material_library_items,public.module_instances,public.project_assets,public.scene_versions in share mode;
+ perform 1 from public.projects where id::text=p_project_id for update;
+ select coalesce(max(revision),0) into rev from public.room_moodboard_versions where project_id::text=p_project_id and room_id::text=p_room_id;
+ if rev<>p_revision then raise exception 'Board revision conflict' using errcode='40001'; end if;
+ select coalesce(jsonb_agg(to_jsonb(a) order by to_jsonb(a)::text),'[]') into actual from (select target_kind,target_id,module_instance_id,semantic_slot,material_id,revision,status from public.material_assignments where project_id::text=p_project_id) a;
+ select coalesce(jsonb_agg(value order by value::text),'[]') into expected from jsonb_array_elements(p_sources->'assignments');
+ if actual is distinct from expected then raise exception 'Assignments changed' using errcode='40001'; end if;
+ select coalesce(jsonb_agg(to_jsonb(m) order by to_jsonb(m)::text),'[]') into actual from (select id,texture_asset_id,updated_at,metadata from public.material_library_items where organization_id=org) m;
+ select coalesce(jsonb_agg(value order by value::text),'[]') into expected from jsonb_array_elements(p_sources->'materials');
+ if actual is distinct from expected then raise exception 'Materials changed' using errcode='40001'; end if;
+ select coalesce(jsonb_agg(id::text order by id::text),'[]') into actual from public.module_instances where project_id::text=p_project_id and space_id::text=p_room_id;
+ select coalesce(jsonb_agg(value order by value),'[]') into expected from jsonb_array_elements_text(p_sources->'moduleIds');
+ if actual is distinct from expected then raise exception 'Room modules changed' using errcode='40001'; end if;
+ if nullif(p_document->>'sceneVersionId','') is not null and not exists(select 1 from public.scene_versions sv where sv.id::text=p_document->>'sceneVersionId' and sv.project_id::text=p_project_id and jsonb_array_length(sv.scene->'modules')>0 and not exists(select 1 from jsonb_array_elements(sv.scene->'modules') sm where not actual @> jsonb_build_array(sm->>'id'))) then raise exception 'Scene room mismatch'; end if;
+ if exists(select 1 from jsonb_array_elements(p_document->'cards') c where (c->>'materialId' is not null and not exists(select 1 from public.material_library_items m where m.id::text=c->>'materialId' and m.organization_id=org)) or (c->>'assetId' is not null and not exists(select 1 from public.project_assets a where a.id::text=c->>'assetId' and a.project_id::text=p_project_id and a.organization_id=org and a.kind='reference_image' and a.mime_type in ('image/png','image/jpeg','image/webp','image/avif') and a.storage_path like org::text||'/'||p_project_id||'/%' and a.storage_path not like '%/../%'))) then raise exception 'Unauthorized board source'; end if;
+ insert into public.room_moodboard_versions(project_id,room_id,organization_id,revision,document,source_fingerprint,created_by) select p.id,s.id,org,rev+1,p_document,p_document->>'sourceFingerprint',auth.uid() from public.projects p,public.spaces s where p.id::text=p_project_id and s.id::text=p_room_id returning * into saved;
+ return jsonb_build_object('revision',saved.revision,'document',saved.document);
+end $$;
+revoke insert on public.room_moodboard_versions from authenticated;
+revoke all on function public.save_room_moodboard_atomic(text,text,integer,jsonb,jsonb) from public,anon;
+grant execute on function public.save_room_moodboard_atomic(text,text,integer,jsonb,jsonb) to authenticated;

@@ -256,6 +256,27 @@ function maskBoundaryAlignment(region: Uint8Array, width: number, height: number
  * provider.  This deliberately derives counts from projected masks and image
  * edges; it never copies counts, object IDs, or camera values from the scene.
  */
+/** Measure collateral edits against the exact conditioning raster, outside the owned mask. */
+export async function measureMaskEdit(referenceImage:Buffer|string, outputImage:Buffer|string, maskImage:Buffer|string) {
+  const reference=await rasterize(referenceImage,512,384), observed=await rasterize(outputImage,512,384), mask=maskPixels(await rasterize(maskImage,512,384));
+  let outside=0,changed=0,inside=0,totalDelta=0;
+  for(let pixel=0;pixel<mask.length;pixel++) {
+    if(mask[pixel]) {inside++;continue;}
+    outside++;let delta=0;
+    for(let c=0;c<3;c++) delta+=Math.abs(reference.data[pixel*reference.channels+c]!-observed.data[pixel*observed.channels+c]!)/3;
+    totalDelta+=delta;if(delta>12)changed++;
+  }
+  const changedFraction=outside?changed/outside:1,meanDelta=outside?totalDelta/outside:255;
+  return {schema:'ultida.mask-qa.v1',insidePixels:inside,outsidePixels:outside,changedFraction,meanDelta,channelTolerance:12,maxChangedFraction:.02,maxMeanDelta:4,passed:inside>0 && outside>0 && changedFraction<=.02 && meanDelta<=4};
+}
+async function addMaskEditQA(qa:ReturnType<typeof runRenderQA>,artifacts:BaseRenderArtifacts,image:Buffer,maskId:string|undefined) {
+  const mask=[...artifacts.objectMasks,...(artifacts.semanticMasks??[])].find(mask=>mask.id===maskId);
+  if(!mask) {qa.issues.push({kind:'material_regions',severity:'blocking',message:'Owned material-edit mask is unavailable.'});return;}
+  const evidence=await measureMaskEdit(artifacts.rgb.url,image,mask.url);
+  Object.assign(qa,{maskEditEvidence:evidence});
+  if(!evidence.passed) qa.issues.push({kind:'material_regions',severity:'blocking',message:`Material edit changed pixels outside its owned mask (${(evidence.changedFraction*100).toFixed(2)}%; mean channel delta ${evidence.meanDelta.toFixed(2)}).`});
+}
+
 export async function measureRenderImage(scene: import('@ultida/scene-core').SceneV1, artifacts: BaseRenderArtifacts, image: Buffer | string): Promise<MeasuredResult> {
   const reference = await rasterize(artifacts.edgeMap.url, 512, 384);
   const observed = await rasterize(image, reference.width, reference.height);
@@ -398,6 +419,7 @@ async function persistTechnicalArtifacts(
     { kind: 'technical_preview', label: 'rgb', value: artifacts.rgb },
     { kind: 'render_depth', label: 'depth', value: artifacts.depth },
     { kind: 'render_edge_map', label: 'edge', value: artifacts.edgeMap },
+    ...(artifacts.semanticMasks ?? []).map((value) => ({ kind: 'render_object_mask', label: `semantic-${value.id}`, value })),
     ...artifacts.objectMasks.map((value) => ({ kind: 'render_object_mask', label: `object-${value.id}`, value })),
     ...artifacts.openingMasks.map((value) => ({ kind: 'render_opening_mask', label: `opening-${value.id}`, value })),
     ...artifacts.skirtingMasks.map((value) => ({ kind: 'render_skirting_mask', label: `skirting-${value.id}`, value })),
@@ -431,6 +453,7 @@ async function persistTechnicalArtifacts(
     depth: byLabel.get('depth')!,
     edge: byLabel.get('edge')!,
     objectMasks: stored.filter((entry) => entry.label.startsWith('object-')),
+    semanticMasks: stored.filter((entry) => entry.label.startsWith('semantic-')),
     openingMasks: stored.filter((entry) => entry.label.startsWith('opening-')),
     skirtingMasks: stored.filter((entry) => entry.label.startsWith('skirting-')),
     materialMasks: stored.filter((entry) => entry.label.startsWith('material-')),
@@ -589,7 +612,7 @@ export async function createVisualJob(environment: Record<string, string | undef
     }
     persistedJobId = job.data.id;
 
-    const baseArtifacts = renderScenePerspectiveArtifacts(context.scene, { cameraId: request.camera?.view === 'elevation' ? undefined : renderCamera?.id });
+    const baseArtifacts = renderScenePerspectiveArtifacts(context.scene, { cameraId: renderCamera?.id });
     const technicalArtifacts = await persistTechnicalArtifacts(client, {
       organizationId: context.project.organization_id,
       projectId: request.projectId,
@@ -614,7 +637,11 @@ export async function createVisualJob(environment: Record<string, string | undef
       return { status: 'failed' as const, jobId: job.data.id, code: 'RENDER_QA_BLOCKED', message, retryable: false };
     }
     const selectedObjectMask = request.operation === 'material-swap'
-      ? baseArtifacts.objectMasks.find((mask) => mask.id === request.targetModuleId)
+      ? request.targetComponentId
+        ? baseArtifacts.objectMasks.find((mask) => mask.id === request.targetComponentId && context.scene.moduleParts?.some(part => part.id === mask.id && part.moduleId === request.targetModuleId))
+        : request.targetSemanticSlot
+          ? baseArtifacts.semanticMasks?.find(mask => mask.moduleId === request.targetModuleId && mask.semanticSlot === request.targetSemanticSlot)
+          : baseArtifacts.objectMasks.find(mask => mask.id === request.targetModuleId)
       : undefined;
     if (request.operation === 'material-swap' && !selectedObjectMask) {
       await client.from('jobs').update({ status: 'failed', error: 'The selected module has no deterministic scene mask. Recompile the scene before requesting a laminate revision.' }).eq('id', job.data.id);
@@ -671,6 +698,7 @@ export async function createVisualJob(environment: Record<string, string | undef
       // deviations remain review findings rather than silently discarding a
       // usable visual proposal. Construction output still requires the scene.
       const renderQa = await evaluateRenderImageQA(context.scene, baseArtifacts, image.bytes, 'moderate');
+      if(request.operation==='material-swap') await addMaskEditQA(renderQa,baseArtifacts,image.bytes,selectedObjectMask?.id);
       const blockingQa = renderQa.issues.filter((issue) => issue.severity === 'blocking');
       if (blockingQa.length) {
         const message = `Rendered image QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;
@@ -733,9 +761,10 @@ export async function getVisualJob(environment: Record<string, string | undefine
         if (sceneRow.error || !sceneRow.data) throw new Error('The approved scene for this render could not be reloaded for image QA.');
         if (!['draft', 'approved', 'locked'].includes(String(sceneRow.data.status))) throw new Error('This scene changed while the render was running. The render was not saved; compile the latest design and try again.');
         const scene = SceneV1Schema.parse(sceneRow.data.scene);
-        const baseArtifacts = renderScenePerspectiveArtifacts(scene, { cameraId: job.data.input?.camera?.view === 'elevation' ? undefined : scene.cameras[0]?.id });
+        const baseArtifacts = renderScenePerspectiveArtifacts(scene, { cameraId:job.data.input?.cameraId ?? scene.cameras[0]?.id });
         const image = await providerImageBytes({ ...job.data.output, ...polled });
         const renderQa = await evaluateRenderImageQA(scene, baseArtifacts, image.bytes, 'moderate');
+        if(job.data.input?.operation==='material-swap') await addMaskEditQA(renderQa,baseArtifacts,image.bytes,job.data.output?.materialRevision?.maskId);
         const blockingQa = renderQa.issues.filter((issue) => issue.severity === 'blocking');
         if (blockingQa.length) {
           const reason = `Rendered image QA blocked this job: ${blockingQa.map((issue) => issue.message).join(' ')}`;
@@ -792,17 +821,10 @@ export async function listProjectRenders(environment: Record<string, string | un
 
 export async function reviewVisualJob(environment: Record<string, string | undefined>, jobId: string, projectId: string, decision: 'approved' | 'rejected' | 'cancelled', note = '', clientOverride?: SupabaseClient) {
   const client = serverClient(environment, clientOverride);
-  if (!client) return { status: 'succeeded' as const, jobId, reviewStatus: decision };
-  const { data: job, error } = await client.from('jobs').select('id,status,output').eq('id', jobId).eq('project_id', projectId).single();
-  if (error || !job) return { status: 'not_found' as const };
-  if (decision === 'cancelled') {
-    if (!['queued', 'running'].includes(job.status)) return { status: 'conflict' as const, reason: 'Only active jobs can be cancelled.' };
-    await client.from('jobs').update({ status: 'cancelled', output: { ...(job.output ?? {}), reviewStatus: 'cancelled', reviewNote: note } }).eq('id', jobId);
-    return { status: 'cancelled' as const, jobId };
-  }
-  if (job.status !== 'succeeded') return { status: 'conflict' as const, reason: 'Only completed renders can be reviewed.' };
-  const output = { ...(job.output ?? {}), reviewStatus: decision, reviewNote: note, reviewedAt: new Date().toISOString() };
-  await client.from('jobs').update({ output }).eq('id', jobId);
-  if (output.artifactId) await client.from('artifacts').update({ provenance: { ...(output as Record<string, unknown>), signedUrl: undefined } }).eq('id', output.artifactId);
-  return { status: 'succeeded' as const, jobId, reviewStatus: decision };
+  if (!client) return { status: 'failed' as const, code: 'REVIEW_PERSISTENCE_UNAVAILABLE', reason: 'Review persistence is not configured.' };
+  const result = await client.rpc('review_visual_job_atomic', {p_project_id:projectId,p_job_id:jobId,p_decision:decision,p_note:note});
+  if (result.error) return {status:'failed' as const,code:'REVIEW_SAVE_FAILED',reason:result.error.message};
+  const saved = result.data;
+  if (!saved || !['succeeded','cancelled','conflict','not_found'].includes(saved.status)) return {status:'failed' as const,code:'REVIEW_SAVE_UNCONFIRMED',reason:'Atomic review did not return a confirmed result.'};
+  return saved as {status:'succeeded'|'cancelled'|'conflict'|'not_found';jobId?:string;reviewStatus?:string;reason?:string};
 }

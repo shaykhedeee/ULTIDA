@@ -8,7 +8,10 @@ import { createCompiledModuleMeshes } from './compiled-module-meshes';
 import { supabase } from '../../lib/supabase';
 import { IndianModularCatalog } from '@ultida/catalog-core';
 import { Badge, Button, Card, CardContent, CardHeader } from '../../components/ui/primitives';
-import type { RenderIntentV1 } from '@ultida/contracts';
+import type { RenderIntentV1, FloorSurfaceV1 } from '@ultida/contracts';
+import { roomFloorPreviews } from './scene-floor-surfaces';
+import { disposeSceneResources } from './scene-resource-disposal';
+import { applySavedSceneCamera } from './saved-scene-camera';
 import { glbAssetPipeline, DIGITAL_TWIN_REFERENCE_PROFILES } from './glb-asset-pipeline';
 import { measuredRoomAreaSqm, measuredRoomCeilingHeightMm } from './scene-measurements';
 import './scene-studio.css';
@@ -18,6 +21,7 @@ const gltfLoader = new GLTFLoader();
 type Scene = {
   schema: 'scene.v1';
   units: 'mm';
+  floors?: Array<{ id: string; surfaces?: FloorSurfaceV1[] }>;
   rooms: Array<{ id: string; name: string; boundary: Array<{ xMm: number; yMm: number }> }>;
   walls: Array<{ id: string; start: { xMm: number; yMm: number }; end: { xMm: number; yMm: number }; thicknessMm: number; heightMm: number; spaceIds?: string[] }>;
   openings: Array<{ id: string; wallId: string; offsetMm: number; widthMm: number; heightMm: number; sillHeightMm?: number; kind: 'door' | 'window' }>;
@@ -533,6 +537,9 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   const [ceilingVisible, setCeilingVisible] = useState(false);
   const [viewResetKey, setViewResetKey] = useState(0);
   const [preset, setPreset] = useState<Preset>('perspective');
+  const [savedCameraId, setSavedCameraId] = useState<string | null>(null);
+  const [cameraPreviewChanged, setCameraPreviewChanged] = useState(false);
+  useEffect(() => { setSavedCameraId(null); setCameraPreviewChanged(false); }, [sceneVersionId]);
   const [lightingMode, setLightingMode] = useState<LightingPreset>('warm');
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
@@ -549,10 +556,6 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
   const kineticTargetsRef = useRef({ drawerOffset: 0, doorAngleDeg: 0, ledReveal: false });
 
   // Multi-Storey Villa stacking state
-  const [activeStoreyId, setActiveStoreyId] = useState<string>('all');
-  const [explodedAxonometric, setExplodedAxonometric] = useState(false);
-  const [storeys] = useState<StoreyConfig[]>(DEFAULT_VILLA_STOREYS);
-  const [interFloorVoids] = useState<InterFloorVoidConfig[]>(DEFAULT_VILLA_VOIDS);
 
   useEffect(() => {
     kineticTargetsRef.current = {
@@ -693,8 +696,10 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     rendererInstanceRef.current = renderer;
     host.replaceChildren(renderer.domElement);
     const root = new THREE.Scene();
+    let disposed = false;
     const camera = new THREE.PerspectiveCamera(45, width / height, 10, 100000);
     const controls = new OrbitControls(camera, renderer.domElement);
+    controls.addEventListener('start', () => setCameraPreviewChanged(true));
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.minDistance = 200;
@@ -734,183 +739,42 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     const geometryGroup = new THREE.Group(); root.add(geometryGroup);
     const floors = new THREE.Group(); geometryGroup.add(floors);
     for (const room of scene.rooms) {
-      const points = room.boundary.slice(0, -1).map((point) => new THREE.Vector2(point.xMm, point.yMm));
-      if (points.length < 3) continue;
-      const shape = new THREE.Shape(points);
-
-      const rName = (room.name || '').toLowerCase();
-      let floorColor = '#e2dbd0';
-      let floorRoughness = 0.38;
-      let floorMetalness = 0.04;
-
-      if (rName.includes('bath') || rName.includes('toilet') || rName.includes('wash')) {
-        floorColor = '#c2cdd0';
-        floorRoughness = 0.25;
-        floorMetalness = 0.08;
-      } else if (rName.includes('kitchen')) {
-        floorColor = '#cfbc9f';
-        floorRoughness = 0.32;
-        floorMetalness = 0.06;
-      } else if (rName.includes('bed')) {
-        floorColor = '#7d5535';
-        floorRoughness = 0.55;
-        floorMetalness = 0.02;
-      } else if (rName.includes('living') || rName.includes('dining')) {
-        floorColor = '#d2b08a';
-        floorRoughness = 0.45;
-        floorMetalness = 0.03;
-      } else if (rName.includes('balcony') || rName.includes('parking')) {
-        floorColor = '#71717a';
-        floorRoughness = 0.85;
-      }
-
-      const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshStandardMaterial({
-        color: selectedRoomId === room.id ? '#fef3c7' : floorColor,
-        roughness: floorRoughness,
-        metalness: floorMetalness,
-        side: THREE.DoubleSide,
-      }));
-      mesh.rotation.x = Math.PI / 2;
-      mesh.position.y = 0;
-      mesh.receiveShadow = true;
-      mesh.name = `room:${room.id}`;
-      mesh.userData = { kind: 'room', id: room.id, name: room.name };
-      floors.add(mesh);
-    }
-
-    // ─── Multi-Storey Villa Stacking Geometry (Mezzanines, Voids & Stairs) ───
-    if (activeStoreyId === 'all' || activeStoreyId === 'level-first') {
-      const multiStoreyGroup = new THREE.Group();
-      multiStoreyGroup.name = 'villa:multi-storey-stack';
-      geometryGroup.add(multiStoreyGroup);
-
-      const firstFloorElev = explodedAxonometric ? 4800 : 3300;
-
-      // First Floor Slab with Mezzanine Living Room Void and Stairwell Cutout
-      for (const room of scene.rooms) {
-        const points = room.boundary.slice(0, -1).map((point) => new THREE.Vector2(point.xMm, point.yMm));
-        if (points.length < 3) continue;
-        const slabShape = new THREE.Shape(points);
-
-        // Cut out the double-height living mezzanine void if inside this room
-        const rName = (room.name || '').toLowerCase();
-        const isLivingOrHall = rName.includes('living') || rName.includes('hall') || rName.includes('lounge');
-
-        if (isLivingOrHall) {
-          // Add void hole in the first floor slab
-          const voidHole = new THREE.Path([
-            new THREE.Vector2(1200, 1000),
-            new THREE.Vector2(3200, 1000),
-            new THREE.Vector2(3200, 2400),
-            new THREE.Vector2(1200, 2400),
-          ]);
-          slabShape.holes.push(voidHole);
-
-          // Render 12mm Tempered Glass Balustrade with Brushed Brass Top Rail
-          const balustradeMat = new THREE.MeshPhysicalMaterial({
-            color: '#f0f9ff',
-            transmission: 0.9,
-            opacity: 0.7,
-            transparent: true,
-            roughness: 0.05,
-            metalness: 0.1,
-            side: THREE.DoubleSide,
-          });
-          const brassHandrailMat = new THREE.MeshStandardMaterial({ color: '#c59c2d', metalness: 0.9, roughness: 0.2 });
-
-          // 4 Sides of Glass Balustrade around the living room void
-          const voidPerimeter = [
-            [[1200, 1000], [3200, 1000]],
-            [[3200, 1000], [3200, 2400]],
-            [[3200, 2400], [1200, 2400]],
-            [[1200, 2400], [1200, 1000]],
-          ];
-
-          voidPerimeter.forEach(([[x1, y1], [x2, y2]]) => {
-            const segLen = Math.hypot(x2 - x1, y2 - y1);
-            const segAngle = Math.atan2(y2 - y1, x2 - x1);
-            const midX = (x1 + x2) / 2;
-            const midZ = (y1 + y2) / 2;
-
-            // Glass panel (1050mm standard architectural handrail height)
-            const glassGeo = new THREE.BoxGeometry(segLen, 1000, 12);
-            const glassMesh = new THREE.Mesh(glassGeo, balustradeMat);
-            glassMesh.position.set(midX, firstFloorElev + 500, midZ);
-            glassMesh.rotation.y = -segAngle;
-            multiStoreyGroup.add(glassMesh);
-
-            // Brass handrail cap
-            const railGeo = new THREE.BoxGeometry(segLen, 40, 28);
-            const railMesh = new THREE.Mesh(railGeo, brassHandrailMat);
-            railMesh.position.set(midX, firstFloorElev + 1020, midZ);
-            railMesh.rotation.y = -segAngle;
-            multiStoreyGroup.add(railMesh);
-          });
-
-          // Grand Double-Height Living Room Suspended Chandelier
-          const chandelierGroup = new THREE.Group();
-          chandelierGroup.position.set(2200, firstFloorElev + 2600, 1700);
-
-          // Hanging brass rod down into void
-          const rodGeo = new THREE.CylinderGeometry(8, 8, 3200, 12);
-          const rodMesh = new THREE.Mesh(rodGeo, brassHandrailMat);
-          rodMesh.position.y = -1600;
-          chandelierGroup.add(rodMesh);
-
-          // Multi-Tier Tiered Brass Rings with Crystals & 3000K Warm Glow
-          [400, 650, 900].forEach((rad, ringIdx) => {
-            const ringGeo = new THREE.TorusGeometry(rad, 14, 16, 48);
-            const ringMesh = new THREE.Mesh(ringGeo, brassHandrailMat);
-            ringMesh.rotation.x = Math.PI / 2;
-            ringMesh.position.y = -2200 - ringIdx * 280;
-            chandelierGroup.add(ringMesh);
-          });
-
-          const chandelierLight = new THREE.PointLight('#ffd199', 3.5, 7500, 1.6);
-          chandelierLight.position.set(0, -2600, 0);
-          chandelierLight.castShadow = true;
-          chandelierGroup.add(chandelierLight);
-
-          multiStoreyGroup.add(chandelierGroup);
+      for (const floor of roomFloorPreviews(room, scene.floors ?? [], scene.materials)) {
+        if (floor.polygon.length < 3) continue;
+        const shape = new THREE.Shape(floor.polygon.map(p => new THREE.Vector2(p.xMm, p.yMm)));
+        const material = new THREE.MeshStandardMaterial({ color: floor.color, roughness: floor.roughness, metalness: floor.metalness, side: THREE.DoubleSide });
+        if (selectedRoomId === room.id) { material.emissive.set('#fff1cc'); material.emissiveIntensity = .06; }
+        if (floor.surface?.tile) {
+          const tile = floor.surface.tile;
+          const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 512;
+          const context = canvas.getContext('2d');
+          if (context) {
+            const periodX = tile.widthMm + tile.groutWidthMm;
+            const periodY = (tile.lengthMm + tile.groutWidthMm) * (tile.pattern === 'brick' ? 2 : 1);
+            context.fillStyle = floor.color; context.fillRect(0, 0, 512, 512);
+            context.strokeStyle = /^#[0-9a-f]{6}$/i.test(tile.groutColor) ? tile.groutColor : '#cccccc';
+            const rows = tile.pattern === 'brick' ? 2 : 1;
+            context.lineWidth = Math.max(1, tile.groutWidthMm / periodY * 512);
+            for (let row = 0; row < rows; row++) {
+              const y = row * 512 / rows;
+              context.beginPath(); context.moveTo(0, y); context.lineTo(512, y); context.stroke();
+              const x = row % 2 ? 256 : 0;
+              context.lineWidth = Math.max(1, tile.groutWidthMm / periodX * 512);
+              context.beginPath(); context.moveTo(x, y); context.lineTo(x, y + 512 / rows); context.stroke();
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.colorSpace = THREE.SRGBColorSpace; texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(1 / periodX, 1 / periodY); texture.offset.set(-tile.originX / periodX, -tile.originY / periodY);
+            texture.rotation = -tile.angleDeg * Math.PI / 180;
+            material.color.set('#ffffff'); material.map = texture;
+          }
         }
-
-        // Slab Mesh
-        const slabGeo = new THREE.ShapeGeometry(slabShape);
-        const slabMesh = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({
-          color: '#dcd6cd',
-          roughness: 0.45,
-          metalness: 0.05,
-          side: THREE.DoubleSide,
-        }));
-        slabMesh.rotation.x = Math.PI / 2;
-        slabMesh.position.y = firstFloorElev;
-        slabMesh.receiveShadow = true;
-        slabMesh.castShadow = true;
-        multiStoreyGroup.add(slabMesh);
+        const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), material);
+        mesh.rotation.x = Math.PI / 2; mesh.position.y = floor.elevationMm; mesh.receiveShadow = true;
+        mesh.name = `room:${room.id}`;
+        mesh.userData = { kind: 'room', id: room.id, surfaceId: floor.id, materialId: floor.materialId, source: floor.source, name: room.name };
+        floors.add(mesh);
       }
-
-      // Sculptural Villa Cantilever Floating Staircase
-      const stairGroup = new THREE.Group();
-      stairGroup.position.set(3400, 0, 1000);
-      const stepCount = 18;
-      const totalH = firstFloorElev;
-      const stepH = totalH / stepCount;
-      const stepRun = 280;
-
-      for (let s = 0; s < stepCount; s++) {
-        const treadGeo = new THREE.BoxGeometry(1100, 48, stepRun);
-        const treadMesh = new THREE.Mesh(treadGeo, new THREE.MeshStandardMaterial({ color: '#3d2a1a', roughness: 0.35 }));
-        treadMesh.position.set(0, s * stepH + 24, s * (stepRun * 0.75));
-        treadMesh.castShadow = true;
-        treadMesh.receiveShadow = true;
-        stairGroup.add(treadMesh);
-
-        // LED tread underglow
-        const underglow = new THREE.PointLight('#ffeedd', 0.8, 800, 2.0);
-        underglow.position.set(0, s * stepH + 10, s * (stepRun * 0.75));
-        stairGroup.add(underglow);
-      }
-      multiStoreyGroup.add(stairGroup);
     }
 
     const wallsGroup = new THREE.Group(); geometryGroup.add(wallsGroup);
@@ -980,7 +844,9 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               },
               mod.family
             );
+            if (disposed) { if (twin.root) disposeSceneResources(twin.root); return; }
             if (!twin.isFallback && twin.root) {
+              disposeSceneResources(modContainer);
               while (modContainer.children.length > 0) {
                 modContainer.remove(modContainer.children[0]);
               }
@@ -1062,6 +928,12 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     const span = Math.max(size.x, size.z, 2000);
 
     const applyPreset = () => {
+      const saved = scene.cameras.find(view => view.id === savedCameraId);
+      if (saved) {
+        applySavedSceneCamera(camera, controls.target, saved);
+        controls.update();
+        return;
+      }
       let targetCenter = center.clone();
       let targetSpan = span;
 
@@ -1147,6 +1019,8 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       const h = Math.max(host.clientHeight, 300);
       renderer.setSize(w, h);
       camera.aspect = w / h;
+      const saved = scene.cameras.find(view => view.id === savedCameraId);
+      if (saved) camera.setFocalLength(saved.lensMm);
       camera.updateProjectionMatrix();
     };
     const observer = new ResizeObserver(resize);
@@ -1192,12 +1066,14 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       cancelAnimationFrame(frame);
       observer.disconnect();
       renderer.domElement.removeEventListener('pointerdown', onPointer);
+      disposed = true;
       controls.dispose();
+      disposeSceneResources(root);
       renderer.dispose();
       rendererInstanceRef.current = null;
       host.replaceChildren();
     };
-  }, [scene, wallsVisible, ceilingVisible, preset, lightingMode, selectedRoomId, assetFilter, activeStoreyId, explodedAxonometric, viewResetKey]);
+  }, [scene, wallsVisible, ceilingVisible, preset, savedCameraId, lightingMode, selectedRoomId, assetFilter, viewResetKey]);
 
   const activeSelectedRoom = useMemo(() => {
     if (!scene) return null;
@@ -1358,13 +1234,13 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       )}
 
       <div className="scene-toolbar" aria-label="Scene controls" style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        <Button variant={preset === 'perspective' ? 'default' : 'outline'} onClick={() => setPreset('perspective')}><Camera size={15} /> 3D Orbit</Button>
-        <Button variant={preset === 'walkthrough' ? 'default' : 'outline'} onClick={() => setPreset('walkthrough')}><Eye size={15} /> Walkthrough</Button>
-        <Button variant={preset === 'top' ? 'default' : 'outline'} onClick={() => setPreset('top')}><Layers3 size={15} /> Plan</Button>
-        <Button variant={preset === 'isometric' ? 'default' : 'outline'} onClick={() => setPreset('isometric')}><Rotate3D size={15} /> Isometric</Button>
+        <Button variant={preset === 'perspective' ? 'default' : 'outline'} onClick={() => { setSavedCameraId(null); setCameraPreviewChanged(false); setPreset('perspective'); }}><Camera size={15} /> 3D Orbit</Button>
+        <Button variant={preset === 'walkthrough' ? 'default' : 'outline'} onClick={() => { setSavedCameraId(null); setCameraPreviewChanged(false); setPreset('walkthrough'); }}><Eye size={15} /> Walkthrough</Button>
+        <Button variant={preset === 'top' ? 'default' : 'outline'} onClick={() => { setSavedCameraId(null); setCameraPreviewChanged(false); setPreset('top'); }}><Layers3 size={15} /> Plan</Button>
+        <Button variant={preset === 'isometric' ? 'default' : 'outline'} onClick={() => { setSavedCameraId(null); setCameraPreviewChanged(false); setPreset('isometric'); }}><Rotate3D size={15} /> Isometric</Button>
         <Button variant="outline" aria-pressed={!wallsVisible} onClick={() => setWallsVisible((value) => !value)}><Box size={15} /> {wallsVisible ? 'Hide walls' : 'Show walls'}</Button>
         <Button variant="outline" aria-pressed={!ceilingVisible} title="Hide the ceiling to inspect the room. Saved geometry is unchanged." onClick={() => setCeilingVisible((value) => !value)}><Layers3 size={15} /> {ceilingVisible ? 'Remove ceiling' : 'Show ceiling'}</Button>
-        <Button variant={preset === 'front' ? 'default' : 'outline'} aria-pressed={preset === 'front'} onClick={() => setPreset('front')}><Ruler size={15} /> Front view</Button>
+        <Button variant={preset === 'front' ? 'default' : 'outline'} aria-pressed={preset === 'front'} onClick={() => { setSavedCameraId(null); setCameraPreviewChanged(false); setPreset('front'); }}><Ruler size={15} /> Front view</Button>
         <Button variant="outline" onClick={() => setViewResetKey(value => value + 1)}><Camera size={15} /> Fit {selectedRoomId ? 'room' : 'scene'}</Button>
 
         {/* Lighting Atmosphere Selector */}
@@ -1391,52 +1267,6 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
           ))}
         </div>
 
-        {/* Multi-Storey Level Switcher */}
-        <div style={{ display: 'inline-flex', background: '#f5f3ee', borderRadius: 8, padding: 2, border: '1px solid #e7e5e4', marginLeft: 4 }}>
-          {[
-            { id: 'all', label: '🏰 Stacked (All)' },
-            { id: 'level-ground', label: '🏛️ Ground (0m)' },
-            { id: 'level-first', label: '🏢 First (+3.3m)' },
-            { id: 'level-terrace', label: '🌿 Terrace (+6.6m)' },
-          ].map((lvl) => (
-            <button
-              key={lvl.id}
-              type="button"
-              onClick={() => setActiveStoreyId(lvl.id)}
-              style={{
-                padding: '4px 9px',
-                borderRadius: 6,
-                border: 0,
-                background: activeStoreyId === lvl.id ? '#fff' : 'transparent',
-                color: activeStoreyId === lvl.id ? 'var(--gold-dim)' : '#78716c',
-                fontSize: 11,
-                fontWeight: 700,
-                boxShadow: activeStoreyId === lvl.id ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-                cursor: 'pointer',
-              }}
-            >
-              {lvl.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => setExplodedAxonometric((prev) => !prev)}
-            style={{
-              padding: '4px 9px',
-              borderRadius: 6,
-              border: 0,
-              background: explodedAxonometric ? 'rgba(197,156,45,0.2)' : 'transparent',
-              color: explodedAxonometric ? 'var(--gold-dim)' : '#78716c',
-              fontSize: 11,
-              fontWeight: 800,
-              cursor: 'pointer',
-            }}
-            title="Toggle exploded vertical axonometric spacing between storeys"
-          >
-            {explodedAxonometric ? '💥 Exploded (On)' : '📐 Exploded'}
-          </button>
-        </div>
-
         {/* 1-Click High-Res PNG Snapshot */}
         <Button
           variant="outline"
@@ -1444,7 +1274,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
             if (!rendererInstanceRef.current) return;
             const dataUrl = rendererInstanceRef.current.domElement.toDataURL('image/png');
             const link = document.createElement('a');
-            link.download = `Sharma-Residence-3D-${lightingMode}-${preset}.png`;
+            link.download = `ultida-scene-${sceneVersionId ?? 'draft'}-${lightingMode}-${preset}.png`;
             link.href = dataUrl;
             link.click();
           }}
@@ -1961,7 +1791,13 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
       {scene && (
         <div className="scene-bottom-deck">
           <section className="scene-camera-deck" aria-label="Camera views">
-            <div className="scene-deck-heading"><span>CAMERA VIEWS</span><strong>Saved, repeatable scene coverage</strong></div>
+            <div className="scene-deck-heading"><span>SAVED SCENE CAMERAS</span><strong>{cameraPreviewChanged ? 'Orbit changed the preview — restore a saved view' : savedCameraId ? 'Persisted camera restored' : 'Choose a saved view or a preview angle'}</strong></div>
+            <div className="scene-camera-list">
+              {scene.cameras.map(view => <button type="button" key={view.id} className={`scene-camera-card ${savedCameraId === view.id ? 'active' : ''}`} onClick={() => { setSavedCameraId(view.id); setCameraPreviewChanged(false); setViewResetKey(n => n + 1); }}>
+                <span>{view.lensMm} mm</span><strong>{view.name}</strong><small>Saved eye height {view.position.zMm} mm · restore</small>
+              </button>)}
+            </div>
+            <p style={{ fontSize: 11 }}>Preview angles below do not change the saved scene camera used for AI rendering.</p>
             <div className="scene-camera-list">
               {([
                 ['perspective', '01', 'Wide perspective', 'Balanced room overview'],
@@ -1969,7 +1805,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
                 ['front', '03', 'Front elevation', 'Composition check'],
                 ['isometric', '04', 'Isometric', 'Spatial verification'],
               ] as Array<[Preset, string, string, string]>).map(([id, index, title, detail]) => (
-                <button type="button" key={id} className={`scene-camera-card ${preset === id ? 'active' : ''}`} onClick={() => setPreset(id)}>
+                <button type="button" key={id} className={`scene-camera-card ${!savedCameraId && preset === id ? 'active' : ''}`} onClick={() => { setSavedCameraId(null); setCameraPreviewChanged(false); setPreset(id); }}>
                   <span>{index}</span><strong>{title}</strong><small>{detail}</small>
                 </button>
               ))}
