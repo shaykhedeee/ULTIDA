@@ -95,8 +95,13 @@ function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colou
       ? 34
       : plinthY - frontH;
 
-  const doors = module.widthMm >= 1200 ? 3 : module.widthMm >= 500 ? 2 : 1;
-  const doorW = 110 / doors;
+  const hasCurvedDisplay = /curved|open-display/i.test(tags);
+  const effectiveDoorSpanMm = hasCurvedDisplay ? Math.max(900, (module.widthMm || 2600) - 350) : (module.widthMm || 600);
+  const doors = isTall
+    ? Math.max(2, Math.min(6, Math.round(effectiveDoorSpanMm / 500)))
+    : module.widthMm >= 1200 ? 3 : module.widthMm >= 500 ? 2 : 1;
+  const usableShutterSpanPx = hasCurvedDisplay ? 86 : 110;
+  const doorW = usableShutterSpanPx / doors;
   const hasLoft = isTall && hMm >= 2100;
   const loftH = hasLoft ? Math.round(frontH * (630 / hMm)) : 0;
 
@@ -160,7 +165,7 @@ function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colou
       )}
 
       {/* Standard Shutter Doors */}
-      {!hasDrawers && !hasAppliance && Array.from({ length: doors }).map((_, index) => {
+      {!hasDrawers && !hasAppliance && !isPooja && Array.from({ length: doors }).map((_, index) => {
         const x = 24 + index * doorW;
         const isGlassDoor = hasGlass && (index === doors - 1 || doors === 1);
         const shutterTop = frontY + (hasLoft ? loftH + 2 : 2);
@@ -242,7 +247,124 @@ function DetailedCabinet({ module, colours }: { module: ModulePreviewData; colou
         </g>
       )}
 
-      {/* Sacred Pooja Altar Insets */}
+      {/* R120 Curved-Edge Open Display End Shelf Bay (Wardrobe) */}
+      {hasCurvedDisplay && (
+        <g>
+          <path
+            d={`M 110 ${frontY + loftH + 2} H 126 Q 132 ${frontY + loftH + 2} 132 ${frontY + loftH + 10} V ${frontY + frontH - 8} Q 132 ${frontY + frontH - 2} 126 ${frontY + frontH - 2} H 110 Z`}
+            fill="#9d744c"
+            stroke="#5c3d22"
+            strokeWidth="1"
+          />
+          <line x1="112" y1={frontY + loftH + 4} x2="112" y2={frontY + frontH - 4} stroke="#fde047" strokeWidth="1.4" opacity="0.9" />
+          {[0.2, 0.38, 0.56, 0.74].map((ratio, idx) => {
+            const sy = Math.round(frontY + loftH + (frontH - loftH) * ratio);
+            return (
+              <path
+                key={idx}
+                d={`M 110 ${sy} H 127 Q 131 ${sy} 131 ${sy + 2.5}`}
+                fill="none"
+                stroke="#f5efe8"
+                strokeWidth="1.5"
+              />
+            );
+          })}
+        </g>
+      )}
+
+      {/* Sacred Pooja Mandir — Stepped Gopuram Crown, Backlit CNC Om/Lotus Jaali, Brass Bells, Bhog Tray & Ritual Drawers */}
+      {isPooja && (
+        <g>
+          {/* Stepped Gopuram / Shikhara Temple Crown */}
+          <polygon points={`20,${frontY} 134,${frontY} 124,${frontY - 6} 30,${frontY - 6}`} fill="#b4833e" stroke="#784f18" strokeWidth="1" />
+          <polygon points={`32,${frontY - 6} 122,${frontY - 6} 110,${frontY - 12} 44,${frontY - 12}`} fill="#c8964c" stroke="#784f18" strokeWidth="1" />
+          <polygon points={`48,${frontY - 12} 106,${frontY - 12} 94,${frontY - 17} 60,${frontY - 17}`} fill="#dbab5e" stroke="#784f18" strokeWidth="0.9" />
+          {/* Brass Kalash Finial */}
+          <circle cx="77" cy={frontY - 20} r="2.6" fill="#facc15" stroke="#92400e" strokeWidth="0.8" />
+          <polygon points={`77,${frontY - 25} 74.5,${frontY - 19} 79.5,${frontY - 19}`} fill="#facc15" />
+
+          {/* Turned Teak Mandapa Side Pillars */}
+          <rect x="24" y={frontY + 2} width="7" height={Math.round(frontH * 0.62)} fill="#8c5a2b" stroke="#5c3818" strokeWidth="0.9" />
+          <rect x="123" y={frontY + 2} width="7" height={Math.round(frontH * 0.62)} fill="#8c5a2b" stroke="#5c3818" strokeWidth="0.9" />
+
+          {/* Warm 3000K Backlit CNC Jaali Sanctum Arch */}
+          <rect
+            x="32"
+            y={frontY + 3}
+            width="90"
+            height={Math.round(frontH * 0.58)}
+            rx="3"
+            fill="#fef3c7"
+            stroke="#d97706"
+            strokeWidth="1.2"
+          />
+          {/* Intricate Cusped Temple Arch & CNC Lattice Grid */}
+          <path
+            d={`M 36 ${frontY + Math.round(frontH * 0.59)} V ${frontY + 20} Q 36 ${frontY + 8} 56 ${frontY + 8} Q 77 ${frontY + 3} 77 ${frontY + 3} Q 77 ${frontY + 3} 98 ${frontY + 8} Q 118 ${frontY + 8} 118 ${frontY + 20} V ${frontY + Math.round(frontH * 0.59)}`}
+            fill="#fffbeb"
+            stroke="#b45309"
+            strokeWidth="1.4"
+          />
+          {/* Backlit Om Medallion & Lotus Petals */}
+          <circle cx="77" cy={frontY + Math.round(frontH * 0.31)} r="13" fill="#fde047" opacity="0.45" />
+          <circle cx="77" cy={frontY + Math.round(frontH * 0.31)} r="9.5" fill="#fffbeb" stroke="#d97706" strokeWidth="1.2" />
+          <text x="77" y={frontY + Math.round(frontH * 0.31) + 3.5} fill="#b45309" fontSize="10" fontWeight="bold" textAnchor="middle">ॐ</text>
+
+          {/* 4 Hanging Brass Temple Bells */}
+          {[46, 63, 91, 108].map((bx) => (
+            <g key={bx}>
+              <line x1={bx} y1={frontY + 6} x2={bx} y2={frontY + 14} stroke="#b45309" strokeWidth="0.9" />
+              <polygon points={`${bx - 2.6},${frontY + 18} ${bx + 2.6},${frontY + 18} ${bx + 1.4},${frontY + 14} ${bx - 1.4},${frontY + 14}`} fill="#facc15" stroke="#92400e" strokeWidth="0.6" />
+              <circle cx={bx} cy={frontY + 18.8} r="0.9" fill="#92400e" />
+            </g>
+          ))}
+
+          {/* Pull-Out Telescopic Bhog / Diya Tray */}
+          <rect
+            x="21"
+            y={frontY + Math.round(frontH * 0.62)}
+            width="112"
+            height="5.5"
+            rx="1.5"
+            fill="#784f18"
+            stroke="#45270d"
+            strokeWidth="1"
+          />
+          <line
+            x1="46"
+            y1={frontY + Math.round(frontH * 0.62) + 2.8}
+            x2="108"
+            y2={frontY + Math.round(frontH * 0.62) + 2.8}
+            stroke="#facc15"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          />
+
+          {/* Lower Dual Ritual Drawers & Jaali Base Doors */}
+          <rect
+            x="25"
+            y={frontY + Math.round(frontH * 0.69)}
+            width="50"
+            height={Math.max(10, Math.round(frontH * 0.27))}
+            rx="1.5"
+            fill={colours.front}
+            stroke="#8c5a2b"
+            strokeWidth="1"
+          />
+          <rect
+            x="79"
+            y={frontY + Math.round(frontH * 0.69)}
+            width="50"
+            height={Math.max(10, Math.round(frontH * 0.27))}
+            rx="1.5"
+            fill={colours.front}
+            stroke="#8c5a2b"
+            strokeWidth="1"
+          />
+          <circle cx="50" cy={frontY + Math.round(frontH * 0.82)} r="2.2" fill="#facc15" stroke="#92400e" strokeWidth="0.7" />
+          <circle cx="104" cy={frontY + Math.round(frontH * 0.82)} r="2.2" fill="#facc15" stroke="#92400e" strokeWidth="0.7" />
+        </g>
+      )}
       {isPooja && (
         <g>
           <path d="M 52 75 V 58 C 52 46 77 40 77 28 C 77 40 102 46 102 58 V 75" fill="none" stroke="#c59c2d" strokeWidth="2.5" />

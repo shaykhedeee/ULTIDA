@@ -16,6 +16,8 @@ import { inferRoomType } from '../../features/spaces/SpacesWorkspace';
 import WorkingDrawingsDossier from '../drawings/WorkingDrawingsDossier';
 import WallBayEditor from '../spaces/WallBayEditor';
 import FlooringStudio from '../spaces/FlooringStudio';
+import { RoomMoodboardMakerCard } from './RoomMoodboardMakerCard';
+import { UltimateModularIntelligenceBar } from './UltimateModularIntelligenceBar';
 import { type CompositionScheduleV1, type FloorSurfaceV1, type FloorPointV1 } from '@ultida/contracts';
 import {
   generateWallElevationSvg,
@@ -1968,6 +1970,7 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
         </Button>
       </div>
 
+      <UltimateModularIntelligenceBar roomType={room} roomModules={draftModules.filter((m) => m.roomId === spaceId)} />
       {designMode === 'elevations' ? (
         <div className="elevation-dedicated-view" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
           <Card style={{ border: '1px solid #dcd3c5', borderRadius: '12px', background: '#fff', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
@@ -3094,6 +3097,13 @@ export function DesignFlowWorkspace({ stage, focus = 'all', projectId, planAppro
                   ))}
                 </div>
               </div>
+
+              <RoomMoodboardMakerCard
+                roomId={spaceId || 'default-room'}
+                roomName={spaces.find((s) => s.id === spaceId)?.name ?? room.toUpperCase()}
+                roomType={room}
+                roomModules={draftModules.filter((m) => m.roomId === spaceId)}
+              />
 
               {/* 1. Curated Room Furniture Packages */}
               <div style={{ background: '#faf8f5', padding: '12px', borderRadius: '10px', border: '1px solid #ede5d8' }}>

@@ -30,7 +30,27 @@ import { parseRoomDesignInputs } from './room-design-inputs.js';
 import { createProviderGateway } from '@ultida/provider-gateway';
 import { getIkeaResearchStock, parseIkeaStockQuery } from './research-sourcing.js';
 import { SceneV1Schema, type SceneV1 } from '@ultida/scene-core';
-import { listCatalog, validatePlacement, RoomTypeSchema, IndianModularCatalog, listDesignPresets, ModuleFamilySchema, getCatalogVault, CuratedLaminateCatalog, CATALOG_VERSION, getCatalogDigitalTwin } from '@ultida/catalog-core';
+import {
+  listCatalog,
+  validatePlacement,
+  RoomTypeSchema,
+  IndianModularCatalog,
+  listDesignPresets,
+  ModuleFamilySchema,
+  getCatalogVault,
+  CuratedLaminateCatalog,
+  CATALOG_VERSION,
+  getCatalogDigitalTwin,
+  VERIFIED_HARDWARE_REGISTRY,
+  validateHardwareCompatibility,
+  BARE_BONES_FINISH_FAMILIES,
+  VENDOR_APPROVED_LAMINATES,
+  IKEA_INDIA_RETAIL_CATALOG,
+  solveEqualShutterWallFit,
+  proposeModularRuns,
+  runAiManufacturingPreflight,
+  buildUnderCabinetLedDetail,
+} from '@ultida/catalog-core';
 import { CanonicalPlanModelSchema, parsePlanIntake } from '@ultida/plan-core';
 import { validateGeometry } from '@ultida/geometry-core';
 import { analyzePlanWithProvider, isPlanVisionProviderConfigured } from './plan-analyzer.js';
@@ -3130,6 +3150,73 @@ app.post('/api/projects/:projectId/rooms/:roomId/verify', requireProjectUser, as
     space,
     message: `Room ${roomId} marked as ${verificationStatus}.`
   });
+});
+
+app.get('/api/catalog/verified-hardware', (_request, response) => {
+  return response.json({
+    success: true,
+    count: VERIFIED_HARDWARE_REGISTRY.length,
+    fittings: VERIFIED_HARDWARE_REGISTRY,
+  });
+});
+
+app.post('/api/catalog/verified-hardware/validate', (request, response) => {
+  const result = validateHardwareCompatibility(
+    {
+      shutterThicknessMm: Number(request.body?.shutterThicknessMm ?? 18),
+      shutterWidthMm: Number(request.body?.shutterWidthMm ?? 500),
+      shutterHeightMm: Number(request.body?.shutterHeightMm ?? 2100),
+      internalCarcassDepthMm: Number(request.body?.internalCarcassDepthMm ?? 550),
+      expectedDrawerLoadKg:
+        typeof request.body?.expectedDrawerLoadKg === 'number'
+          ? request.body.expectedDrawerLoadKg
+          : undefined,
+    },
+    typeof request.body?.fittingId === 'string'
+      ? request.body.fittingId
+      : 'ebco-esoft-linear-hinge-3d-105',
+  );
+  return response.json({ success: true, ...result });
+});
+
+app.get('/api/catalog/vendor-laminates', (_request, response) => {
+  return response.json({
+    success: true,
+    finishFamilies: BARE_BONES_FINISH_FAMILIES,
+    vendorLaminates: VENDOR_APPROVED_LAMINATES,
+    ikeaRetailCatalog: IKEA_INDIA_RETAIL_CATALOG,
+  });
+});
+
+app.post('/api/catalog/solve-wall-fit', (request, response) => {
+  const wallWidthMm = Number(request.body?.wallWidthMm ?? 2600);
+  const totalHeightMm = Number(request.body?.totalHeightMm ?? 2700);
+  const solution = solveEqualShutterWallFit({
+    wallWidthMm,
+    totalHeightMm,
+    depthMm: Number(request.body?.depthMm ?? 600),
+    leftScribingFillerMm: Number(request.body?.leftScribingFillerMm ?? 50),
+    rightScribingFillerMm: Number(request.body?.rightScribingFillerMm ?? 50),
+    openDisplayEndShelfWidthMm: Number(request.body?.openDisplayEndShelfWidthMm ?? 0),
+  });
+  const proposals = proposeModularRuns({
+    wallWidthMm,
+    wallHeightMm: totalHeightMm,
+    roomType: request.body?.roomType === 'kitchen' ? 'kitchen' : 'wardrobe',
+  });
+  const ledSchedule = buildUnderCabinetLedDetail({ wallRunWidthMm: wallWidthMm });
+  return response.json({
+    success: true,
+    solution,
+    proposals,
+    ledSchedule,
+  });
+});
+
+app.post('/api/catalog/ai-preflight', (request, response) => {
+  const modules = Array.isArray(request.body?.modules) ? request.body.modules : [];
+  const report = runAiManufacturingPreflight(modules);
+  return response.json({ success: true, ...report });
 });
 
 export { app };

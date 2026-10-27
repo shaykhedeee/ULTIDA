@@ -39,7 +39,7 @@ const services = [
 
 const children = services.map(({ name, cwd }) => {
   const child = spawn(npm, ['run', 'dev'], {
-    stdio: 'inherit',
+    stdio: ['pipe', 'inherit', 'inherit'],
     cwd,
     shell: process.platform === 'win32',
     env: {

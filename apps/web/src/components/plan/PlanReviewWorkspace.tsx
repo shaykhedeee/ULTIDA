@@ -19,7 +19,16 @@ import {
   type CalibrationCrossCheckDiscrepancy,
 } from '@ultida/plan-core';
 import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
-import { createFreshPlanCalibrationState, requireConfirmedScale } from './plan-calibration';
+import {
+  createFreshPlanCalibrationState,
+  requireConfirmedScale,
+  COMMON_CALIBRATION_PRESETS_MM,
+  parseCalibrationInputToMm,
+  evaluateSecondDimensionVerification,
+  computeGuidedPlanWorkflowSteps,
+  type CalibrationUnit,
+  type SecondDimensionVerificationResult,
+} from './plan-calibration';
 import './plan-review.css';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -338,7 +347,7 @@ function cleanAndRectifyPlanGeometry(existingElements: PlanElement[], ceilingH =
       thicknessMm: standardThickness,
       dimensionMm: dimMm,
       heightMm: w.heightMm || ceilingH,
-      status: 'accepted' as const,
+      status: w.status === 'accepted' ? ('accepted' as const) : ('needs_review' as const),
       note: boundCheck.warning ? `${w.note ? w.note + '; ' : ''}${boundCheck.warning}` : w.note,
     };
   });
@@ -404,12 +413,13 @@ function cleanAndRectifyPlanGeometry(existingElements: PlanElement[], ceilingH =
           kind: 'wall',
           label: `${room.label} ${isExternal ? 'Exterior' : 'Partition'} Wall`,
           confidence: 0.96,
-          status: 'accepted',
+          status: 'needs_review',
+
           color: isExternal ? '#1d4ed8' : '#2563eb',
           geometry: { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y },
           dimensionMm: mmPerPixel && mmPerPixel > 0 ? Math.round(lengthPx * mmPerPixel) : undefined,
           thicknessMm: isExternal ? 230 : 115,
-          heightMm: ceilingH,
+          heightMm: ceilingH, note: 'Inferred from room boundary; verify against visible source drawing before Final Production.',
         });
       }
     }
@@ -463,7 +473,11 @@ export function PlanReviewWorkspace({
   // Calibration state
   const [calibrating, setCalibrating] = useState(false);
   const [calibPoints, setCalibPoints] = useState<Point[]>([]);
-  const [knownMmInput, setKnownMmInput] = useState('1000');
+  const [knownMmInput, setKnownMmInput] = useState('');
+  const [calibrationUnit, setCalibrationUnit] = useState<CalibrationUnit>('mm');
+  const [secondRefPrintedInput, setSecondRefPrintedInput] = useState('3000');
+  const [secondRefMeasuredInput, setSecondRefMeasuredInput] = useState('3012');
+  const [secondRefVerification, setSecondRefVerification] = useState<SecondDimensionVerificationResult | null>(null);
   const [scale, setScale] = useState<ScaleCalibration | null>(() => createFreshPlanCalibrationState().scale);
   const [ceilingHeightMm, setCeilingHeightMm] = useState<number | null>(2700);
   const [geometryMode, setGeometryMode] = useState<GeometryMode>('initial_design');
@@ -977,7 +991,7 @@ export function PlanReviewWorkspace({
   };
 
   const addCalibrationPoint = (point: Point) => {
-    const realMm = Number.parseFloat(knownMmInput);
+    const realMm = parseCalibrationInputToMm(knownMmInput, calibrationUnit) ?? Number.NaN;
     if (!Number.isFinite(realMm) || realMm <= 0) {
       setContinuationHint('Enter a positive printed dimension in millimetres before selecting endpoints.');
       return;
@@ -1068,7 +1082,7 @@ export function PlanReviewWorkspace({
       return Math.min(direct, reverse) <= 24;
     })).map(({ start, end, room }, index): PlanElement => ({
       id: crypto.randomUUID(), kind: 'wall', label: `Derived wall ${existingWalls.length + index + 1}`,
-      confidence: Math.min(room.confidence, 0.7), status: 'accepted', color: '#2563eb',
+      confidence: Math.min(room.confidence, 0.7), status: 'needs_review', color: '#2563eb',
       geometry: { x1: start.x, y1: start.y, x2: end.x, y2: end.y },
       dimensionMm: scale ? Math.round(Math.hypot(end.x - start.x, end.y - start.y) * scale.mmPerPixel) : undefined,
       thicknessMm: 152.4, heightMm: ceilingHeightMm ?? 2700,
@@ -1220,7 +1234,8 @@ export function PlanReviewWorkspace({
           label: tmpl.label,
           roomType: tmpl.type,
           confidence: 0.96,
-          status: 'accepted',
+          status: 'needs_review',
+
           color: tmpl.color,
           geometry: { x: rx, y: ry, width: rw, height: rh, polygon: poly },
           areaSqm,
@@ -1248,7 +1263,8 @@ export function PlanReviewWorkspace({
           label: tmpl.label,
           roomType: tmpl.type,
           confidence: 0.95,
-          status: 'accepted',
+          status: 'needs_review',
+
           color: tmpl.color,
           geometry: { x: rx, y: ry, width: rw, height: rh, polygon: poly },
           areaSqm,
@@ -1330,7 +1346,8 @@ export function PlanReviewWorkspace({
           kind: 'door',
           label: `${room.label} Door (900mm)`,
           confidence: 0.98,
-          status: 'accepted',
+          status: 'needs_review',
+
           color: '#059669',
           geometry: { x: gx + 20, y: gy + gh, width: 24 },
           widthMm: 900,
@@ -1355,7 +1372,8 @@ export function PlanReviewWorkspace({
             kind: 'window',
             label: `${room.label} Window (${winWidthMm}mm)`,
             confidence: 0.96,
-            status: 'accepted',
+            status: 'needs_review',
+
             color: '#0284c7',
             geometry: { x: winX, y: winY, width: 34 },
             widthMm: winWidthMm,
@@ -2003,6 +2021,94 @@ export function PlanReviewWorkspace({
           </div>
         </div>
 
+        {/* Guided 6-Step Floor Plan Workflow Rail */}
+        <div
+          role="navigation"
+          aria-label="Guided 6-step floor plan workflow"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+            gap: 8,
+            padding: '10px 12px',
+            background: '#131920',
+            border: '1px solid #263241',
+            borderRadius: 9,
+            margin: '10px 0 8px 0',
+          }}
+        >
+          {computeGuidedPlanWorkflowSteps({
+            hasSourceFile: Boolean(fileName || preview || elements.length > 0),
+            isCalibrated: Boolean(scale),
+            secondReferenceVerified: secondRefVerification?.status === 'verified',
+            totalWalls: elements.filter((e) => e.kind === 'wall' && e.status !== 'rejected').length,
+            totalRooms: elements.filter((e) => e.kind === 'room' && e.status !== 'rejected').length,
+            unreviewedCount: elements.filter(
+              (e) => e.status === 'needs_review' || e.status === 'proposed',
+            ).length,
+            isApproved: status === 'approved',
+          }).map((step) => {
+            const statusColor =
+              step.status === 'complete'
+                ? '#10b981'
+                : step.status === 'attention'
+                  ? '#f59e0b'
+                  : step.status === 'active'
+                    ? 'var(--gold, #d4af37)'
+                    : '#64748b';
+            return (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => {
+                  if (step.id === 'import') setPlanWorkspaceMode('extract');
+                  else if (step.id === 'calibrate') beginCalibration();
+                  else if (step.id === 'detect') {
+                    setPlanWorkspaceMode('extract');
+                    if (fileName && !analysisInFlight) handleAiAutoExtractAll();
+                  } else if (step.id === 'review') setPlanWorkspaceMode('clean');
+                  else if (step.id === 'approve') void handleApprovePlan();
+                  else if (step.id === 'furnish') void handleApprovePlan();
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: 3,
+                  padding: '7px 10px',
+                  borderRadius: 7,
+                  border: `1px solid ${step.status === 'active' || step.status === 'attention' ? statusColor : '#263241'}`,
+                  background:
+                    step.status === 'active'
+                      ? 'rgba(212, 175, 55, 0.12)'
+                      : step.status === 'complete'
+                        ? 'rgba(16, 185, 129, 0.08)'
+                        : '#19212b',
+                  color: '#f8fafc',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 800, color: statusColor }}>{step.title}</span>
+                  <span
+                    style={{
+                      fontSize: 9.5,
+                      fontWeight: 700,
+                      padding: '1px 6px',
+                      borderRadius: 99,
+                      background: 'rgba(255,255,255,0.06)',
+                      color: statusColor,
+                    }}
+                  >
+                    {step.badgeText}
+                  </span>
+                </div>
+                <span style={{ fontSize: 10, color: '#94a3b8' }}>{step.subtitle}</span>
+              </button>
+            );
+          })}
+        </div>
+
         {/* Multi-Storey Villa Level Ribbon */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: '#1c242e', border: '1px solid #2a3746', borderRadius: 8, margin: '10px 0 6px 0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2248,6 +2354,75 @@ export function PlanReviewWorkspace({
               <div className="scale-info-box">
                 <div style={{ fontWeight: 700, fontSize: 11, color: 'var(--gold-dim)', marginBottom: 2 }}>SCALE CALIBRATED</div>
                 <div>1 px = <strong>{scale.mmPerPixel} mm</strong> ({scale.realDistanceMm} mm / {Math.round(scale.pixelDistance)} px)</div>
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--line)' }}>
+                  <div style={{ fontWeight: 800, fontSize: 10.5, color: 'var(--text-primary)', marginBottom: 4 }}>
+                    INDEPENDENT 2ND-DIMENSION CHECK (X/Y ASPECT AUDIT)
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 4, alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      min="100"
+                      value={secondRefPrintedInput}
+                      onChange={(e) => setSecondRefPrintedInput(e.target.value)}
+                      placeholder="Printed mm"
+                      aria-label="Second reference printed dimension in mm"
+                      style={{ width: '100%', padding: '3px 6px', fontSize: 11, border: '1px solid var(--line)', borderRadius: 4 }}
+                    />
+                    <input
+                      type="number"
+                      min="100"
+                      value={secondRefMeasuredInput}
+                      onChange={(e) => setSecondRefMeasuredInput(e.target.value)}
+                      placeholder="Measured mm"
+                      aria-label="Second reference measured dimension in mm"
+                      style={{ width: '100%', padding: '3px 6px', fontSize: 11, border: '1px solid var(--line)', borderRadius: 4 }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const printedMm = Number(secondRefPrintedInput);
+                        const measuredMm = Number(secondRefMeasuredInput);
+                        if (printedMm > 0 && measuredMm > 0 && scale.mmPerPixel > 0) {
+                          const res = evaluateSecondDimensionVerification({
+                            printedMm,
+                            measuredPixels: measuredMm / scale.mmPerPixel,
+                            mmPerPixel: scale.mmPerPixel,
+                          });
+                          setSecondRefVerification(res);
+                          setContinuationHint(res.summaryMessage);
+                        }
+                      }}
+                      style={{ padding: '4px 8px', fontSize: 10.5, fontWeight: 800, borderRadius: 4, border: '1px solid var(--gold)', background: '#1c1917', color: '#e8c96a', cursor: 'pointer' }}
+                    >
+                      Verify 2nd Ref
+                    </button>
+                  </div>
+                  {secondRefVerification && (
+                    <div
+                      style={{
+                        marginTop: 5,
+                        padding: '4px 6px',
+                        borderRadius: 4,
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        background:
+                          secondRefVerification.status === 'verified'
+                            ? '#ecfdf5'
+                            : secondRefVerification.status === 'advisory'
+                              ? '#fffbeb'
+                              : '#fef2f2',
+                        color:
+                          secondRefVerification.status === 'verified'
+                            ? '#065f46'
+                            : secondRefVerification.status === 'advisory'
+                              ? '#92400e'
+                              : '#991b1b',
+                      }}
+                    >
+                      {secondRefVerification.summaryMessage}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -2263,6 +2438,41 @@ export function PlanReviewWorkspace({
                   placeholder="Length in mm (e.g. 3800)"
                   style={{ width: '100%', padding: '4px 8px', marginTop: 4, border: '1px solid var(--line)', borderRadius: 4, fontSize: 12 }}
                 />
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
+                  <select
+                    aria-label="Calibration dimension unit"
+                    value={calibrationUnit}
+                    onChange={(e) => setCalibrationUnit(e.target.value as CalibrationUnit)}
+                    style={{ padding: '2px 5px', fontSize: 10.5, borderRadius: 4, border: '1px solid var(--line)' }}
+                  >
+                    <option value="mm">mm</option>
+                    <option value="cm">cm</option>
+                    <option value="m">m</option>
+                    <option value="ft-in">ft / in</option>
+                  </select>
+                  {COMMON_CALIBRATION_PRESETS_MM.slice(0, 5).map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        setCalibrationUnit('mm');
+                        setKnownMmInput(String(preset.lengthMm));
+                      }}
+                      style={{
+                        padding: '2px 6px',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        borderRadius: 4,
+                        border: knownMmInput === String(preset.lengthMm) ? '1px solid var(--gold)' : '1px solid var(--line)',
+                        background: knownMmInput === String(preset.lengthMm) ? '#fef3c7' : '#fff',
+                        color: '#44403c',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {preset.lengthMm}mm
+                    </button>
+                  ))}
+                </div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
                   Points selected: {calibPoints.length} / 2
                 </div>
@@ -3277,7 +3487,42 @@ export function PlanReviewWorkspace({
                     <strong style={{ fontSize: 13 }}>{room.label}</strong>
                     <Badge tone="success">{Math.round(room.confidence * 100)}%</Badge>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
+                  <select
+                    aria-label="Calibration dimension unit"
+                    value={calibrationUnit}
+                    onChange={(e) => setCalibrationUnit(e.target.value as CalibrationUnit)}
+                    style={{ padding: '2px 5px', fontSize: 10.5, borderRadius: 4, border: '1px solid var(--line)' }}
+                  >
+                    <option value="mm">mm</option>
+                    <option value="cm">cm</option>
+                    <option value="m">m</option>
+                    <option value="ft-in">ft / in</option>
+                  </select>
+                  {COMMON_CALIBRATION_PRESETS_MM.slice(0, 5).map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        setCalibrationUnit('mm');
+                        setKnownMmInput(String(preset.lengthMm));
+                      }}
+                      style={{
+                        padding: '2px 6px',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        borderRadius: 4,
+                        border: knownMmInput === String(preset.lengthMm) ? '1px solid var(--gold)' : '1px solid var(--line)',
+                        background: knownMmInput === String(preset.lengthMm) ? '#fef3c7' : '#fff',
+                        color: '#44403c',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {preset.lengthMm}mm
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
                     Area: <strong>{room.areaSqm} m²</strong> • Usable walls: <strong>{room.usableWalls ?? 3}</strong>
                   </div>
                   {room.potentialTvWall && (
