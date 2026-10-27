@@ -1,37 +1,10 @@
 # Migration reconciliation
 
-## Current state
+## Current state (Reconciled 2026-10-27)
 
-The live Supabase project contains 36 recorded migrations. The repository has
-43 historical migration files, but the histories use different timestamps for
-many of the same schema changes. This happened because changes were applied
-directly to the hosted database during the early release cycle.
+The `supabase/migrations/` directory has been reconciled 1-to-1 with the 44 recorded migration versions in `supabase_migrations.schema_migrations` on the canonical hosted Supabase project (`ichnyfuetcucxhxilnre`):
 
-The database schema—not a filename match—is the authority for this release.
-`20260829031924_release_reconciliation_and_job_observability.sql` is the
-forward-only checkpoint for all new changes.
+- `0001_ultida_phase1_foundation.sql` through `20260915060515_scene_design_intent.sql` (38 historical migrations)
+- `20261017223419_room_moodboard_versions.sql` through `20261017223721_production_review_fingerprint.sql` (6 October 2026 release migrations)
 
-## Safe release procedure
-
-1. Apply the checkpoint migration to production.
-2. Verify its policies, indexes, and `job_operational_health` view using the
-   release checklist.
-3. Do not run `supabase db push` against production until a remote schema pull
-   has been committed as the canonical baseline. A migration-history repair
-   only changes records; it does not make missing historical SQL safe to run.
-4. Create every future migration from the checkpoint with the Supabase CLI and
-   apply it once through the online release workflow.
-
-## Historical mapping
-
-The following live migration names correspond to repository changes but have
-different timestamps: foundation/security/storage/reference-library,
-layout-invalidation, live-schema compatibility, quotes/handover, project
-metadata/realtime/id defaults, organization compatibility, jobs/AI approval,
-AURA audit, geometry approval, studio settings/invites, reference vault,
-project operations/material specifications, job-transition metadata, plan job
-claim/recovery, and production snapshot reviews.
-
-The remaining repository-only files must be verified against a pulled remote
-schema before being marked applied. They must not be replayed merely to make
-the migration lists look identical.
+All historical SQL contracts, RLS policies, durable job claim functions, and observability views (`20260829031924_release_reconciliation_and_job_observability.sql`) are preserved in their canonical remote version filenames so that Supabase Preview and `supabase db push` verify cleanly against `ichnyfuetcucxhxilnre`.

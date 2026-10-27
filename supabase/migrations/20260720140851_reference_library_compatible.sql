@@ -23,3 +23,5 @@ grant select, insert, update, delete on public.reference_library_items to authen
 create policy reference_library_member_all on public.reference_library_items for all to authenticated
 using ((select private.is_org_member(organization_id)))
 with check ((select private.is_org_member(organization_id)) and created_by = (select auth.uid()));
+
+ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS delivery_records jsonb not null default '{}'::jsonb;
