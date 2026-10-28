@@ -4,6 +4,7 @@ import sharp from 'sharp';
 type Environment = Record<string, string | undefined>;
 import { getStandardComfyWorkflow, GEOMETRY_LOCKED_RENDER_WORKFLOW, MATERIAL_SWAP_INPAINT_WORKFLOW } from './comfy-workflows.js';
 export { getStandardComfyWorkflow, GEOMETRY_LOCKED_RENDER_WORKFLOW, MATERIAL_SWAP_INPAINT_WORKFLOW };
+export * from './opening-inventory-lock.js';
 
 type ComfyWorkflow = Record<string, unknown>;
 
