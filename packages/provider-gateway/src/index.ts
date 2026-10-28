@@ -2,6 +2,9 @@ import type { ProviderCapabilityStatus, VisualProposalRequest } from '@ultida/co
 import sharp from 'sharp';
 
 type Environment = Record<string, string | undefined>;
+import { getStandardComfyWorkflow, GEOMETRY_LOCKED_RENDER_WORKFLOW, MATERIAL_SWAP_INPAINT_WORKFLOW } from './comfy-workflows.js';
+export { getStandardComfyWorkflow, GEOMETRY_LOCKED_RENDER_WORKFLOW, MATERIAL_SWAP_INPAINT_WORKFLOW };
+
 type ComfyWorkflow = Record<string, unknown>;
 
 /** Providers that may be used when the request does not name a provider. */
@@ -21,14 +24,14 @@ export type ProviderResult =
   | { status: 'provider_not_configured'; code: 'IMAGE_PROVIDER_NOT_CONFIGURED'; message: string; retryable: false; sourceSceneVersionId: string; attemptedProviders: string[] }
   | { status: 'failed'; code: string; message: string; retryable: boolean; sourceSceneVersionId: string; attemptedProviders: string[] };
 
-function readComfyWorkflow(environment: Environment): ComfyWorkflow | null {
-  if (!environment.COMFYUI_WORKFLOW_JSON) return null;
-  try {
-    const parsed = JSON.parse(environment.COMFYUI_WORKFLOW_JSON);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
+function readComfyWorkflow(environment: Environment, operation: VisualProposalRequest['operation'] = 'generate'): ComfyWorkflow | null {
+  if (environment.COMFYUI_WORKFLOW_JSON) {
+    try {
+      const parsed = JSON.parse(environment.COMFYUI_WORKFLOW_JSON);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {}
   }
+  return getStandardComfyWorkflow(operation as any);
 }
 
 function applyPrompt(workflow: ComfyWorkflow, request: VisualProposalRequest) {
@@ -648,7 +651,7 @@ export function createProviderGateway(environment: Environment) {
   }
 
   async function executeComfy(request: VisualProposalRequest, attemptedProviders: string[]): Promise<ProviderResult> {
-    const workflow = readComfyWorkflow(environment);
+    const workflow = readComfyWorkflow(environment, request.operation);
     if (!workflow) {
       return { status: 'failed', code: 'COMFYUI_WORKFLOW_INVALID', message: 'COMFYUI_WORKFLOW_JSON is invalid or missing.', retryable: false, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
     }

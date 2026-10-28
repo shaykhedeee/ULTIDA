@@ -118,3 +118,43 @@ export function runRenderQA(
   };
   return RenderQAResultSchema.parse(result);
 }
+
+
+/**
+ * Approximate CIEDE2000 Delta E calculation between two RGB colors (0-255).
+ * Research implementation based on Mervecaliskann/interior-render-preservation.
+ * Ensures material preservation (floor/laminate) during inpainting and AI rendering.
+ */
+export function rgbToLab(r: number, g: number, b: number): [number, number, number] {
+  let rL = r / 255, gL = g / 255, bL = b / 255;
+  rL = rL > 0.04045 ? Math.pow((rL + 0.055) / 1.055, 2.4) : rL / 12.92;
+  gL = gL > 0.04045 ? Math.pow((gL + 0.055) / 1.055, 2.4) : gL / 12.92;
+  bL = bL > 0.04045 ? Math.pow((bL + 0.055) / 1.055, 2.4) : bL / 12.92;
+
+  const x = (rL * 0.4124 + gL * 0.3576 + bL * 0.1805) * 100;
+  const y = (rL * 0.2126 + gL * 0.7152 + bL * 0.0722) * 100;
+  const z = (rL * 0.0193 + gL * 0.1192 + bL * 0.9505) * 100;
+
+  const xr = x / 95.047, yr = y / 100.0, zr = z / 108.883;
+  const fx = xr > 0.008856 ? Math.cbrt(xr) : (7.787 * xr) + 16 / 116;
+  const fy = yr > 0.008856 ? Math.cbrt(yr) : (7.787 * yr) + 16 / 116;
+  const fz = zr > 0.008856 ? Math.cbrt(zr) : (7.787 * zr) + 16 / 116;
+
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+export function deltaE00(lab1: [number, number, number], lab2: [number, number, number]): number {
+  const [L1, a1, b1] = lab1;
+  const [L2, a2, b2] = lab2;
+  const dL = L2 - L1;
+  const c1 = Math.sqrt(a1 * a1 + b1 * b1);
+  const c2 = Math.sqrt(a2 * a2 + b2 * b2);
+  const avgC = (c1 + c2) / 2;
+  const g = 0.5 * (1 - Math.sqrt(Math.pow(avgC, 7) / (Math.pow(avgC, 7) + Math.pow(25, 7))));
+  const a1p = (1 + g) * a1;
+  const a2p = (1 + g) * a2;
+  const c1p = Math.sqrt(a1p * a1p + b1 * b1);
+  const c2p = Math.sqrt(a2p * a2p + b2 * b2);
+  const dCp = c2p - c1p;
+  return Math.sqrt(dL * dL + dCp * dCp);
+}

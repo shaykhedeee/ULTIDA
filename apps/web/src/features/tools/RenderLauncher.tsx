@@ -1,4 +1,4 @@
-import { ArrowRight, Box, Camera, CheckCircle2, Layers3, Ruler, Route, Sparkles } from 'lucide-react';
+import { ArrowRight, Box, Camera, CheckCircle2, Cpu, ExternalLink, Layers3, Palette, Ruler, Route, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -6,6 +6,7 @@ import './render-launcher.css';
 
 type Project = { id: string; name: string; workflow_stage: string | null };
 type Scene = { id: string; status: string; created_at: string };
+type ProviderInfo = { id: string; name: string; configured: boolean; eligible: boolean; operations: string[]; details: string };
 
 /** Dashboard entry point for an exact persisted scene. It never sends loose text to an image model. */
 export function RenderLauncher() {
@@ -14,6 +15,7 @@ export function RenderLauncher() {
   const [projectId, setProjectId] = useState('');
   const [scene, setScene] = useState<Scene | null>(null);
   const [state, setState] = useState('Loading projects with approved scenes…');
+  const [comfyOnline, setComfyOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -23,6 +25,16 @@ export function RenderLauncher() {
       setProjects((data ?? []) as Project[]);
       setState(data?.length ? 'Choose a project. ULTIDA will check for an approved scene before opening the renderer.' : 'Create a project, approve a plan, and compile a scene before starting a render.');
     })();
+
+    // Check ComfyUI / provider readiness
+    const apiBase = import.meta.env.VITE_API_URL || '/api';
+    fetch(`${apiBase}/providers`)
+      .then((res) => res.json())
+      .then((data) => {
+        const comfy = (data.providers as ProviderInfo[] | undefined)?.find((p) => p.id === 'comfyui');
+        setComfyOnline(Boolean(comfy?.configured));
+      })
+      .catch(() => setComfyOnline(false));
   }, []);
 
   async function selectProject(id: string) {
@@ -47,19 +59,101 @@ export function RenderLauncher() {
 
   return <main className="render-launcher">
     <section className="render-launcher-hero">
-      <div><p><Sparkles size={14} /> GEOMETRY-LOCKED RENDER STUDIO</p><h1>Start a real render from a real scene.</h1><span>ULTIDA starts with approved room geometry, placed furniture and assigned materials—never an ungrounded text prompt.</span></div>
-      <div className="render-launcher-badge"><CheckCircle2 size={18} /><div><strong>Scene first</strong><small>Every image is version-linked</small></div></div>
+      <div>
+        <p><Sparkles size={14} /> GEOMETRY-LOCKED RENDER STUDIO</p>
+        <h1>Start a real render from a real scene.</h1>
+        <span>ULTIDA starts with approved room geometry, placed furniture and assigned materials—never an ungrounded text prompt.</span>
+      </div>
+      <div className="render-launcher-badge">
+        <CheckCircle2 size={18} />
+        <div>
+          <strong>Scene first</strong>
+          <small>Every image is version-linked</small>
+        </div>
+      </div>
     </section>
 
     <section className="render-launcher-grid">
-      <article className="render-start-card"><div className="render-card-heading"><div><small>1. SELECT PROJECT</small><h2>Check rendering readiness</h2></div><Camera size={20} /></div><label>Project<select value={projectId} onChange={(event) => void selectProject(event.target.value)}><option value="">Choose a project…</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><p className={`render-state${scene ? ' ready' : ''}`} role="status">{state}</p><button className="render-primary" disabled={!projectId || !scene} onClick={() => goTo('renders')}><Camera size={17} /> Open Visual Studio <ArrowRight size={16} /></button></article>
+      <article className="render-start-card">
+        <div className="render-card-heading">
+          <div>
+            <small>1. SELECT PROJECT</small>
+            <h2>Check rendering readiness</h2>
+          </div>
+          <Camera size={20} />
+        </div>
+        <label>
+          Project
+          <select value={projectId} onChange={(event) => void selectProject(event.target.value)}>
+            <option value="">Choose a project…</option>
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
+        </label>
+        <p className={`render-state${scene ? ' ready' : ''}`} role="status">{state}</p>
+        <button className="render-primary" disabled={!projectId || !scene} onClick={() => goTo('renders')}>
+          <Camera size={17} /> Open Visual Studio <ArrowRight size={16} />
+        </button>
+      </article>
 
-      <aside className="render-source-card"><small>WHAT IS LOCKED</small><h2>The image follows the scene.</h2><ul><li><Ruler size={16} /> Approved room geometry and openings</li><li><Box size={16} /> Placed modules, shutters, lofts and lighting anchors</li><li><Layers3 size={16} /> Named laminate, edge-band and hardware assignments</li><li><CheckCircle2 size={16} /> Approved references as visual guidance only</li></ul></aside>
+      <aside className="render-source-card">
+        <small>WHAT IS LOCKED</small>
+        <h2>The image follows the scene.</h2>
+        <ul>
+          <li><Ruler size={16} /> Approved room geometry and openings</li>
+          <li><Box size={16} /> Placed modules, shutters, lofts and lighting anchors</li>
+          <li><Layers3 size={16} /> Named laminate, edge-band and hardware assignments</li>
+          <li><Palette size={16} /> CIEDE2000 ΔE &lt; 0.1 material preservation guard</li>
+          <li><CheckCircle2 size={16} /> Approved references as visual guidance only</li>
+        </ul>
+      </aside>
+    </section>
+
+    {/* ComfyUI Local Engine & Presets Card */}
+    <section className="render-comfy-card" style={{ marginTop: 16, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--surface)', padding: 22 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Cpu size={20} style={{ color: comfyOnline ? '#22c55e' : '#f59e0b' }} />
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <strong style={{ fontSize: 14 }}>ComfyUI Studio Engine</strong>
+              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: comfyOnline ? '#dcfce7' : '#fef3c7', color: comfyOnline ? '#15803d' : '#b45309', fontWeight: 700 }}>
+                {comfyOnline === null ? 'Checking…' : comfyOnline ? 'Online (Port 8188)' : 'Standby / Remote'}
+              </span>
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+              Canonical workflows: Depth + Canny ControlNet geometry lock, SegFormer targeted material inpaint, IP-Adapter reference guidance.
+            </p>
+          </div>
+        </div>
+        {comfyOnline && (
+          <a
+            href="http://127.0.0.1:8188"
+            target="_blank"
+            rel="noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--gold-dim)', textDecoration: 'none', padding: '6px 12px', border: '1px solid var(--line)', borderRadius: 8 }}
+          >
+            Open ComfyUI Graph <ExternalLink size={13} />
+          </a>
+        )}
+      </div>
     </section>
 
     <section className="render-path" aria-label="Render workflow">
-      <div><Route size={18} /><div><small>RENDER PATH</small><strong>Spaces → Layout → Modules → Materials → Scene → Render</strong><span>Each stage persists a reviewable version. A geometry change marks the downstream image and drawing outputs stale.</span></div></div>
-      <div className="render-path-actions">{(['spaces','layouts','modules','materials','3d'] as const).map((stage) => <button key={stage} onClick={() => goTo(stage)} disabled={!projectId}>{stage === '3d' ? 'Scene' : stage}</button>)}</div>
+      <div>
+        <Route size={18} />
+        <div>
+          <small>RENDER PATH</small>
+          <strong>Spaces → Layout → Modules → Materials → Scene → Render</strong>
+          <span>Each stage persists a reviewable version. A geometry change marks the downstream image and drawing outputs stale.</span>
+        </div>
+      </div>
+      <div className="render-path-actions">
+        {(['spaces','layouts','modules','materials','3d'] as const).map((stage) => (
+          <button key={stage} onClick={() => goTo(stage)} disabled={!projectId}>
+            {stage === '3d' ? 'Scene' : stage}
+          </button>
+        ))}
+      </div>
     </section>
   </main>;
 }

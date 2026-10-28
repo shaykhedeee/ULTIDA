@@ -25,6 +25,7 @@ const WORKSPACES = {
   '@ultida/plan-core': 'packages/plan-core',
   '@ultida/scene-core': 'packages/scene-core',
   '@ultida/spaces-core': 'packages/spaces-core',
+  '@ultida/commercial-core': 'packages/commercial-core',
 };
 
 function runWorkspace(name, script = 'test', timeoutMs = 240_000) {
@@ -101,7 +102,7 @@ try {
       await runWorkspace('@ultida/render-pipeline', 'test');
       break;
     case 'core':
-      for (const workspace of ['@ultida/catalog-core', '@ultida/design-core', '@ultida/geometry-core', '@ultida/layout-core', '@ultida/plan-core', '@ultida/scene-core', '@ultida/spaces-core']) {
+      for (const workspace of ['@ultida/catalog-core', '@ultida/design-core', '@ultida/geometry-core', '@ultida/layout-core', '@ultida/plan-core', '@ultida/scene-core', '@ultida/spaces-core', '@ultida/commercial-core']) {
         await runWorkspace(workspace, 'test');
       }
       break;
@@ -131,7 +132,7 @@ try {
       await runWorkspace('@ultida/scene-compiler', 'test');
       await runWorkspace('@ultida/module-framework', 'test');
       await runWorkspace('@ultida/catalog-core', 'test');
-      for (const workspace of ['@ultida/design-core', '@ultida/geometry-core', '@ultida/layout-core', '@ultida/plan-core', '@ultida/scene-core', '@ultida/spaces-core']) {
+      for (const workspace of ['@ultida/design-core', '@ultida/geometry-core', '@ultida/layout-core', '@ultida/plan-core', '@ultida/scene-core', '@ultida/spaces-core', '@ultida/commercial-core']) {
         await runWorkspace(workspace, 'test');
       }
       {
