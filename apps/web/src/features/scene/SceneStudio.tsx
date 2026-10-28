@@ -1351,7 +1351,7 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
               </button>
             ))}
           </div>
-          <button type="button" className="scene-assets-library" onClick={() => navigate('/library')}>
+          <button type="button" className="scene-assets-library" onClick={() => navigate(projectId ? `/projects/${projectId}/library` : '/library')}>
             <Layers3 size={14} /> Browse Design Library
           </button>
         </aside>

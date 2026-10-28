@@ -8,6 +8,7 @@
  */
 import { Part, TemplateCompileInput, TemplateCompileResult, type CategoryType } from './types.js';
 import { compileLightingElements } from './lighting-compiler.js';
+import { compileCatalogUnit } from './catalog-unit-compiler.js';
 import {
   DEFAULT_CARCASS_THICKNESS_MM, DEFAULT_BACK_PANEL_THICKNESS_MM, DEFAULT_SHELF_THICKNESS_MM,
   DEFAULT_DRAWER_HEIGHT_MM, DEFAULT_WARDROBE_DEPTH_MM, TARGET_SHUTTER_WIDTH_MM,
@@ -128,6 +129,22 @@ export function compileCrockery(input: TemplateCompileInput): TemplateCompileRes
     meta: { semanticType, parentId: null, materialSlot: { id: materialId, code: materialId, name: name.includes('Glass') ? 'Profile Glass' : 'Assigned Finish' }, drawing: { layer, sortOrder: parts.length + 1 }, bom: { sku, qty: 1, unit: 'pc', lengthMm: widthMm, widthMm: depthMm, heightMm, thicknessMm: depthMm <= 30 ? depthMm : t } },
   });
 
+  if (totalH <= 1200) {
+    const counterH = 25;
+    const bodyH = Math.max(300, totalH - counterH);
+    add('back', 'Credenza Feature Back Panel', 0, totalD - bp, 0, totalW, bp, bodyH, 'back_panel', COMPAT.back, 'A-MOD-BACK', 'CROCKERY-BACK');
+    add('base-bottom', 'Credenza Base Bottom Panel', 0, 0, 0, totalW, totalD, t, 'carcass', COMPAT.carcass, 'A-MOD-CARCASS', 'CROCKERY-BASE-BOTTOM');
+    add('base-top', 'Credenza Base Top Panel', 0, 0, bodyH - t, totalW, totalD, t, 'carcass', COMPAT.carcass, 'A-MOD-CARCASS', 'CROCKERY-BASE-TOP');
+    add('internal-shelf', 'Credenza Internal Shelf', t, 40, Math.round(bodyH * 0.5), totalW - t * 2, Math.max(120, totalD - 80), t, 'shelf', COMPAT.shelf, 'A-MOD-SHELF', 'CROCKERY-SHELF');
+    const doorH = Math.max(180, bodyH - t * 2);
+    for (let index = 0; index < shutterCount; index += 1) {
+      const xMm = index * (shutterW + 3);
+      add(`base-shutter-${index + 1}`, `Credenza Shutter ${index + 1}`, xMm, 0, t, shutterW, t, doorH, 'shutter', COMPAT.shutter, 'A-MOD-SHUTTER', 'CROCKERY-BASE-SHUTTER');
+    }
+    add('display-counter', 'Credenza Countertop Slab', 0, 0, bodyH, totalW, totalD, counterH, 'countertop', COMPAT.counter, 'A-MOD-COUNTER', 'CROCKERY-COUNTER');
+    parts.push(...compileLightingElements(input, { family: 'crockery' }));
+    return { templateVersionId: input.templateVersionId, instanceId, valid: blocking.length === 0, blockingViolations: blocking, warningViolations: warning, parts, elements: parts };
+  }
   add('back', 'Crockery Feature Back Panel', 0, totalD - bp, 0, totalW, bp, totalH, 'back_panel', COMPAT.back, 'A-MOD-BACK', 'CROCKERY-BACK');
   add('base-bottom', 'Crockery Base Bottom Panel', 0, 0, 0, totalW, totalD, t, 'carcass', COMPAT.carcass, 'A-MOD-CARCASS', 'CROCKERY-BASE-BOTTOM');
   add('base-top', 'Crockery Base Top Panel', 0, 0, baseH - t, totalW, totalD, t, 'carcass', COMPAT.carcass, 'A-MOD-CARCASS', 'CROCKERY-BASE-TOP');
@@ -196,6 +213,13 @@ export function compileKitchen(input: TemplateCompileInput): TemplateCompileResu
   if (p?.isIsland || p?.archetype === 'island' || input.templateVersionId?.includes('island')) {
     return compileIsland(input);
   }
+  if (
+    p?.baseHeightMm === undefined &&
+    p?.upperHeightMm === undefined &&
+    /^kit-(base|wall|tall|corner)-/i.test(String(input.templateVersionId ?? ''))
+  ) {
+    return compileCatalogUnit(input);
+  }
   const instanceId = input.instanceId ?? 'kitchen-1';
   const wallW = input.wall.widthMm, wallH = input.wall.heightMm;
   const totalW = p.totalWidthMm, baseH = p.baseHeightMm ?? 900, totalD = p.totalDepthMm ?? 600, upperH = p.upperHeightMm ?? 720;
@@ -224,7 +248,8 @@ export function compileBed(input: TemplateCompileInput): TemplateCompileResult {
   const instanceId = input.instanceId ?? 'bed-1';
   const wallW = input.wall.widthMm, wallH = input.wall.heightMm;
   const totalW = p.totalWidthMm ?? 1600, platformH = Math.max(350, p.platformHeightMm ?? Math.min(450, p.totalHeightMm ?? 450)), totalD = p.totalDepthMm ?? 2100;
-  const headboardH = Math.max(900, p.headboardHeightMm ?? (p.totalHeightMm && p.totalHeightMm > 700 ? p.totalHeightMm : 1100));
+  const declaredH = typeof p.totalHeightMm === 'number' && Number.isFinite(p.totalHeightMm) ? p.totalHeightMm : 1100;
+  const headboardH = Math.max(platformH, Math.min(declaredH, p.headboardHeightMm ?? declaredH));
   const t = DEFAULT_CARCASS_THICKNESS_MM;
   const blocking: string[] = [];
   const warning: string[] = [];
@@ -253,8 +278,8 @@ export function compileBed(input: TemplateCompileInput): TemplateCompileResult {
   addPanel('headboard-panel', 'Bed Headboard Panel', 0, 0, 0, totalW, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-PANEL-18MM');
   if (p.headboardStyle === 'extended' || p.archetype === 'extended_headboard') {
     const wingWidth = Math.min(450, Math.max(300, Math.round(totalW * 0.22)));
-    addPanel('headboard-wing-left', 'Extended Headboard Left Wing', -wingWidth, 0, 0, wingWidth, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-WING-18MM');
-    addPanel('headboard-wing-right', 'Extended Headboard Right Wing', totalW, 0, 0, wingWidth, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-WING-18MM');
+    addPanel('headboard-wing-left', 'Extended Headboard Left Wing', 0, t, 0, wingWidth, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-WING-18MM');
+    addPanel('headboard-wing-right', 'Extended Headboard Right Wing', totalW - wingWidth, t, 0, wingWidth, t, headboardH, 'panel', COMPAT.panel, 'HEADBOARD-WING-18MM');
   }
   parts.push({ id: `${instanceId}-hydraulic-pair`, templateVersionId: input.templateVersionId, instanceId, name: 'Hydraulic Lift Mechanism Pair', transform: { xMm: totalW / 2, yMm: totalD / 2, zMm: platformH - 80, rotationDeg: 0 }, size: { widthMm: 40, depthMm: 420, heightMm: 80 }, anchor: { face: 'center' }, meta: { semanticType: 'hardware', parentId: null, materialSlot: { id: COMPAT.hardware, code: COMPAT.hardware, name: 'Hydraulic hardware' }, drawing: { layer: 'A-ANNO-HARDWARE', sortOrder: parts.length + 1 }, bom: { sku: 'HW-BED-HYDRAULIC-PAIR', qty: 1, unit: 'set' } } });
   parts.push(...compileLightingElements(input, { family: 'bed' }));

@@ -58,6 +58,8 @@ import { supplierMaterialReference } from './supplier-material.js';
 import { sceneMaterialAssignments, sceneDefaultMaterialSlots } from './scene-material-assignments.js';
 import { registerMoodboardRoutes } from './moodboard-routes.js';
 import { validateReferenceImage } from './reference-image-validation.js';
+import { embedNormalizedRenderImage } from './dossier-render-image.js';
+import { isRoomSaveContentIdentical, areDesignInputsIdentical } from './room-save-content.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8800);
@@ -928,7 +930,7 @@ app.get('/api/projects/:projectId/dossier.pdf', requireProjectUser, async (reque
         if (asset.error || !asset.data) throw new Error('DOSSIER_RENDER_DOWNLOAD_FAILED');
         if (asset.data.size > 20 * 1024 * 1024) throw new Error('DOSSIER_RENDER_TOO_LARGE');
         const bytes = new Uint8Array(await asset.data.arrayBuffer());
-        const image = bytes[0] === 137 ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+        const image = await embedNormalizedRenderImage(pdf, bytes);
         const renderPage = pdf.addPage([842, 595]);
         const fit = image.scaleToFit(772, 485);
         renderPage.drawImage(image, { x: (842-fit.width)/2, y: 50, width: fit.width, height: fit.height });
@@ -1009,6 +1011,91 @@ app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/labels.svg',
     return response.send(generateProductionLabelsSvg(snapshot));
   } catch (err: any) {
     return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_LABELS_FAILED', message: err?.message });
+  }
+});
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/labels.html', requireProjectUser, async (request, response) => {
+  try {
+    const snapshot = await readApprovedProductionScene(request);
+    const presetRaw = String(request.query.preset ?? 'a4').toLowerCase();
+    if (!['a4', 'thermal_100x50', '100x50'].includes(presetRaw)) {
+      return response.status(400).json({ success: false, code: 'INVALID_LABEL_PRESET', message: 'Preset must be a4 or thermal_100x50.' });
+    }
+    const isThermal = presetRaw === 'thermal_100x50' || presetRaw === '100x50';
+    const svg = generateProductionLabelsSvg(snapshot);
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ULTIDA Production Labels — ${request.params.sceneVersionId}</title>
+  <style>
+    @page { size: ${isThermal ? '100mm 50mm' : 'A4 portrait'}; margin: ${isThermal ? '2mm' : '8mm'}; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #fff; color: #111827; }
+    .toolbar { padding: 10px 16px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+    @media print { .toolbar { display: none; } }
+    .sheet { width: ${isThermal ? '96mm' : '194mm'}; margin: 0 auto; }
+    svg { width: 100%; height: auto; display: block; }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <span><strong>ULTIDA Panel Stickers</strong> · Scene ${request.params.sceneVersionId} · Preset: ${isThermal ? '100×50 mm Thermal' : 'A4 Sheet'} · Status: ${snapshot.status}</span>
+    <button onclick="window.print()">Print Labels</button>
+  </div>
+  <div class="sheet">${svg}</div>
+</body>
+</html>`;
+    response.setHeader('content-type', 'text/html; charset=utf-8');
+    return response.send(html);
+  } catch (err: any) {
+    return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'PRODUCTION_LABELS_HTML_FAILED', message: err?.message });
+  }
+});
+
+app.get('/api/projects/:projectId/scenes/:sceneVersionId/production/workshop.csv', requireProjectUser, async (request, response) => {
+  try {
+    const snapshot = await readApprovedProductionScene(request);
+    const projectId = String(request.params.projectId);
+    const sceneId = String(request.params.sceneVersionId);
+    const header = 'project_id,scene_id,part_id,expected_length_mm,measured_length_mm,length_tolerance_mm,expected_width_mm,measured_width_mm,width_tolerance_mm,expected_thickness_mm,measured_thickness_mm,thickness_tolerance_mm,face_a_match,face_b_match,grain_match,assembly_pass,qr_payload,operator,evidence_file';
+    const csvCell = (val: unknown) => {
+      const s = String(val ?? '');
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const rows: string[] = [header];
+    for (const part of snapshot.parts) {
+      const qty = Math.max(1, Math.round(Number(part.quantity ?? 1)));
+      for (let copy = 1; copy <= qty; copy += 1) {
+        const physicalId = qty > 1 ? `${part.id}#${copy}` : part.id;
+        const qrPayload = JSON.stringify({ v: 1, project: projectId, scene: sceneId, part: physicalId });
+        rows.push([
+          csvCell(projectId),
+          csvCell(sceneId),
+          csvCell(physicalId),
+          csvCell(part.lengthMm),
+          '',
+          '1.0',
+          csvCell(part.widthMm),
+          '',
+          '1.0',
+          csvCell(part.thicknessMm),
+          '',
+          '0.5',
+          '',
+          '',
+          '',
+          '',
+          csvCell(qrPayload),
+          '',
+          '',
+        ].join(','));
+      }
+    }
+    response.setHeader('content-type', 'text/csv; charset=utf-8');
+    response.setHeader('content-disposition', `attachment; filename="ultida-${sceneId}-workshop-measurements.csv"`);
+    return response.send(rows.join('\n') + '\n');
+  } catch (err: any) {
+    return response.status(err?.status ?? 422).json({ success: false, code: err?.code ?? 'WORKSHOP_CSV_FAILED', message: err?.message });
   }
 });
 
@@ -3060,6 +3147,10 @@ app.put('/api/projects/:projectId/spaces/:spaceId/design-inputs', requireProject
   let parsedInputs: ReturnType<typeof parseRoomDesignInputs>;
   try { parsedInputs = parseRoomDesignInputs(request.body, planRoomId, wallIds); }
   catch (error) { return response.status(422).json({ success: false, code: 'ROOM_DESIGN_INPUTS_INVALID', message: error instanceof Error ? error.message : 'Confirm the room walls and floor measurements before saving.' }); }
+  const existingDesignInputs = (current.data.settings_json as Record<string, unknown> | null)?.designInputs;
+  if (areDesignInputsIdentical(existingDesignInputs, parsedInputs)) {
+    return response.json({ success: true, designInputs: existingDesignInputs ?? parsedInputs, unchanged: true, invalidated: { scenes: false, artifacts: false, quotes: false } });
+  }
   const invalidationError = await invalidateModuleOutputs(client, String(request.params.projectId));
   if (invalidationError) return response.status(503).json({ success: false, code: 'ROOM_DESIGN_INVALIDATION_FAILED', message: invalidationError });
   const designInputs = { ...parsedInputs, savedAt: new Date().toISOString() };
@@ -3078,10 +3169,12 @@ app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (r
   if (!Array.isArray(requiredFurniture) || requiredFurniture.length === 0) fieldErrors.requiredFurniture = 'Select at least one required modular category.';
   if (Object.keys(fieldErrors).length) return response.status(422).json({ success: false, code: 'SPACE_REQUIREMENTS_INVALID', message: 'Complete the required room fields.', fieldErrors });
   const client = getRequestSupabaseClient(request);
-  const current = await client.from('spaces').select('requirements_json,settings_json,status').eq('id', request.params.spaceId).eq('project_id', request.params.projectId).single();
+  const current = await client.from('spaces').select('*').eq('id', request.params.spaceId).eq('project_id', request.params.projectId).single();
   if (current.error) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: current.error.message });
-  const updated = await client.from('spaces').update({
-    name: String(name).trim(), room_type: roomType, ceiling_height_mm: ceilingHeightMm,
+  const nextPayload = {
+    name: String(name).trim(),
+    room_type: roomType,
+    ceiling_height_mm: ceilingHeightMm,
     requirements_json: { ...(current.data.requirements_json ?? {}), requiredFurniture, included: included !== false, budgetInr: budgetInr ?? null, designPriority: designPriority ?? 'balanced', applianceNeeds: applianceNeeds ?? [], constraints: constraints ?? [] },
     settings_json: {
       ...(current.data.settings_json ?? {}),
@@ -3093,6 +3186,12 @@ app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (r
     },
     status: 'configured',
     verification_status: verificationStatus === 'verified' ? 'verified' : 'unverified',
+  };
+  if (isRoomSaveContentIdentical(current.data, nextPayload)) {
+    return response.json({ success: true, space: current.data, unchanged: true, invalidated: { layouts: false, scenes: false, artifacts: false } });
+  }
+  const updated = await client.from('spaces').update({
+    ...nextPayload,
     updated_at: new Date().toISOString()
   }).eq('id', request.params.spaceId).eq('project_id', request.params.projectId).select('*').single();
   if (updated.error) return response.status(500).json({ success: false, code: 'SPACE_SAVE_FAILED', message: updated.error.message });
@@ -3493,12 +3592,14 @@ app.post('/api/catalog/modules/:moduleId/preview', (request, response) => {
       message: compiled.message || 'Unable to compile construction preview for requested dimensions.',
     });
   }
+  const drawerFrontCount = compiled.parts.filter((part) => part.semanticType === 'drawer').length;
   return response.json({
     success: true,
     moduleId: entry.id,
     catalogVersion: CATALOG_VERSION,
     dimensions: { widthMm, depthMm, heightMm },
     componentCount: compiled.parts.length,
+    drawerFrontCount,
     components: compiled.parts,
   });
 });

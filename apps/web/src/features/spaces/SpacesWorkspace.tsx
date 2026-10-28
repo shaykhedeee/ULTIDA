@@ -1,4 +1,6 @@
 import { prepareRoomReview } from './prepare-room-review';
+import { enqueueRoomSave } from './room-save-queue';
+import { readPreparedModule } from '../../lib/prepared-module-plan';
 /* ═══════════════════════════════════════════════
    PHASE 4 — SPACES WORKSPACE
    Consumes the active approved floor-plan version.
@@ -491,6 +493,20 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
 
   useEffect(() => {
     if (!pendingModuleRequested) return;
+    try {
+      const prepared = readPreparedModule(window.localStorage, projectId);
+      const baseCatalog = prepared ? listCatalog().find((candidate) => candidate.id === prepared.templateId) : undefined;
+      if (prepared && baseCatalog) {
+        setDraggingModule({
+          ...baseCatalog,
+          widthMm: prepared.dimensionsMm.width,
+          depthMm: prepared.dimensionsMm.depth,
+          heightMm: prepared.dimensionsMm.height,
+        });
+      }
+    } catch {
+      // ignore storage access issues
+    }
     setShowDesignLibrary(true);
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('pendingModule');
@@ -1920,9 +1936,11 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       const session = (await supabase.auth.getSession()).data.session;
       if (!session?.access_token) throw new Error('Sign in again to save this room.');
       const roomWallIds = new Set(wallsForRoom(room).map(wall => wall.id));
-      const response = await fetch(`${getApiBase()}/projects/${projectId}/spaces/${room.spaceRecordId}/design-inputs`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      const accessToken = session.access_token;
+      const response = await enqueueRoomSave(String(room.spaceRecordId), () => fetch(`${getApiBase()}/projects/${projectId}/spaces/${room.spaceRecordId}/design-inputs`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ compositionSchedules: Object.values(schedules).filter(schedule => roomWallIds.has(schedule.wallId)), floorSurfaces: Object.values(surfaces).filter(surface => surface.roomId === room.id) }) })); if (false) void fetch(`${getApiBase()}/projects/${projectId}/spaces/${room.spaceRecordId}/design-inputs`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ compositionSchedules: Object.values(schedules).filter(schedule => roomWallIds.has(schedule.wallId)), floorSurfaces: Object.values(surfaces).filter(surface => surface.roomId === room.id) }),
+      }); if (false) void Promise.resolve().then(() => {
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.message ?? 'Room could not be saved. Retry after the connection is restored.');
@@ -2057,8 +2075,9 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       setRooms((current) => current.map((candidate) => candidate.id === room.id ? hydratedRoom : candidate));
       return persistRoom(hydratedRoom, verificationStatus);
     }
-    const res = await fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+    const accessToken = session.access_token;
+    const res = await enqueueRoomSave(String(room.spaceRecordId), () => fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', lightingMood: room.lightingMood ?? '', hardwareStyle: room.hardwareStyle ?? '', surfaceDirection: room.surfaceDirection ?? 'vertical-grain', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '', verificationStatus, included: room.included !== false }) })); if (false) void fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', lightingMood: room.lightingMood ?? '', hardwareStyle: room.hardwareStyle ?? '', surfaceDirection: room.surfaceDirection ?? 'vertical-grain', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '', verificationStatus, included: room.included !== false })
     });
     const payload = await res.json().catch(() => null);
@@ -3957,7 +3976,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
 
             <div className="dld-reference-import">
               <div><strong>Need a style reference?</strong><small>Import a client image for inspiration. It never changes measured furniture dimensions.</small></div>
-              <button type="button" className="btn-secondary btn-sm" onClick={() => projectId && navigate(`/library?projectId=${encodeURIComponent(projectId)}`)} disabled={!projectId}>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => projectId && navigate(`/projects/${encodeURIComponent(projectId)}/library?projectId=${encodeURIComponent(projectId)}`)} disabled={!projectId}>
                 <ImageIcon size={13} /> Import image
               </button>
             </div>

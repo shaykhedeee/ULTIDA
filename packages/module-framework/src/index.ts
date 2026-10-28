@@ -2,4 +2,5 @@ export * from './types.js';
 export * from './constants.js';
 export * from './tv-unit-compiler.js';
 export * from './lighting-compiler.js';
+export * from './catalog-unit-compiler.js';
 export * from './compilers.js';

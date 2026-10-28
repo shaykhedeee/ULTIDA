@@ -1518,6 +1518,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         <Route path="modules-legacy" element={<Navigate to="../modules" replace />} />
         <Route path="materials" element={<Navigate to={`/projects/${projectId}/spaces?pendingModule=1`} replace />} />
         <Route path="materials-legacy" element={<Navigate to="../materials" replace />} />
+        <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={projectId ?? null} />} />
         <Route path="renders" element={<RenderedSpacesLibrary />} />
         <Route path="render" element={<Navigate to="renders" replace />} />
         <Route path="visualize" element={<Navigate to="../3d" replace />} />

@@ -133,7 +133,7 @@ export function Shell({
             return (
               <Link
                 key={item.id}
-                to={item.path}
+                to={item.id === 'library' && projectId ? `/projects/${projectId}/library` : item.path}
                 className={`nav-item${isActive ? ' active' : ''}`}
                 onClick={() => setMobileOpen(false)}
                 title={collapsed ? item.label : undefined}
@@ -158,7 +158,7 @@ export function Shell({
                   return (
                     <Link
                       key={item.id}
-                      to={item.path}
+                      to={item.id === 'library' && projectId ? `/projects/${projectId}/library` : item.path}
                       className={`nav-item compact${active ? ' active' : ''}`}
                       onClick={() => setMobileOpen(false)}
                       title={collapsed ? item.label : undefined}

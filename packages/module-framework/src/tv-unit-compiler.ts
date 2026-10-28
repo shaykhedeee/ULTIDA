@@ -335,7 +335,9 @@ function compileTvWallComposition(
   const finalTvFieldWidth = hasDisplayTower || hasStudyBay ? tvFieldWidth - 80 : Math.round(totalWidth * 0.76);
   const tvFieldZ = baseClearance + baseHeight + 100;
   add('tv-recess', 'TV Service and Cable Recess', tvFieldX, totalDepth - 24, tvFieldZ, finalTvFieldWidth, 24, tvFieldHeight, 'back_panel', materials.back, 'A-MOD-SERVICE', 'TV-CABLE-RECESS');
-  add('tv-shelf', 'TV Floating Display Shelf', tvFieldX + 80, totalDepth * 0.38, tvFieldZ - 34, Math.max(720, finalTvFieldWidth - 160), 280, thick, 'shelf', materials.carcass, 'A-MOD-SHELF', 'TV-DISPLAY-SHELF');
+  const shelfDepth = Math.min(280, Math.max(140, totalDepth - 100));
+  const shelfY = Math.max(0, Math.min(Math.round(totalDepth * 0.2), totalDepth - shelfDepth));
+  add('tv-shelf', 'TV Floating Display Shelf', tvFieldX + 80, shelfY, tvFieldZ - 34, Math.max(400, finalTvFieldWidth - 160), shelfDepth, thick, 'shelf', materials.carcass, 'A-MOD-SHELF', 'TV-DISPLAY-SHELF');
 
   if (hasStudyBay) {
     const studyX = totalWidth - featureBayWidth;

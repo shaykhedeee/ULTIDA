@@ -8,7 +8,7 @@ const hermesNpm = process.platform === 'win32' && process.env.LOCALAPPDATA
 const npm = (hermesNpm && existsSync(hermesNpm))
   ? hermesNpm
   : (process.platform === 'win32' ? 'npm.cmd' : 'npm');
-const node = process.execPath;
+const node = process.execPath.includes(' ') ? `"${process.execPath}"` : process.execPath;
 const rootDir = process.cwd();
 
 const WORKSPACES = {
@@ -37,6 +37,7 @@ function runWorkspace(name, script = 'test', timeoutMs = 240_000) {
       shell: process.platform === 'win32',
       cwd,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      shell: process.platform === 'win32',
     });
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
@@ -61,8 +62,11 @@ function runCommand(cmd, args, cwd = rootDir, timeoutMs = 240_000) {
     const child = spawn(cmd, args, {
       stdio: 'inherit',
       shell: process.platform === 'win32',
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
       cwd,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      shell: process.platform === 'win32',
     });
     const timer = setTimeout(() => {
       child.kill('SIGTERM');

@@ -1,5 +1,5 @@
 import { RenderIntentV1Schema } from '@ultida/contracts';
-import { COMPILER_REGISTRY, type CategoryType, type Part } from '@ultida/module-framework';
+import { COMPILER_REGISTRY, compileCatalogUnit, type CategoryType, type Part } from '@ultida/module-framework';
 import type { CompiledModulePart } from '@ultida/scene-compiler';
 import { IndianModularCatalog } from '@ultida/catalog-core';
 
@@ -19,7 +19,7 @@ type CanonicalWall = {
   heightMm?: number;
 };
 
-function compilerCategory(family: string): CategoryType | null {
+function compilerCategory(family: string): CategoryType | 'catalog_unit' | null {
   const normalized = family.toLowerCase().replaceAll('-', '_');
   if (normalized.includes('island')) return 'island';
   if (normalized.includes('tv')) return 'tv_unit';
@@ -31,6 +31,7 @@ function compilerCategory(family: string): CategoryType | null {
   if (normalized.includes('bed')) return 'bed';
   if (normalized.includes('utility')) return 'utility';
   if (normalized.includes('light')) return 'freestanding_lighting';
+  if (normalized.includes('feature_wall') || normalized.includes('storage')) return 'catalog_unit';
   return null;
 }
 
@@ -68,15 +69,27 @@ export function compileStoredModuleForScene(
   const yMm = Number(position.yMm);
   const rotationDeg = Number(position.rotationDeg ?? 0);
   const family = String(config.family ?? module.category);
-  const zMm = Number(position.zMm ?? 0);
+  const defaultZMm = family === 'kitchen-wall' ? 1450 : 0;
+  const zMm = Number(position.zMm ?? defaultZMm);
   if (![widthMm, depthMm, heightMm, xMm, yMm, rotationDeg, zMm].every(Number.isFinite) || Math.min(widthMm, depthMm, heightMm) <= 0 || zMm < 0) {
     return { ok: false, code: 'MODULE_INSTANCE_NOT_SCENE_READY', message: `Module ${module.id} has incomplete millimetre geometry.` };
   }
 
   const catalogModule = IndianModularCatalog.find((candidate) => candidate.id === module.template_id);
   const moduleEnvelope: CompiledModulePart = {
-    id: module.id, templateId: module.template_id, roomId: module.space_id, family, widthMm, depthMm, heightMm,
-    xMm, yMm, zMm: Number(position.zMm ?? 0), rotationDeg, anchor: 'wall', materialId: typeof config.materialId === 'string' ? config.materialId : undefined,
+    id: module.id,
+    templateId: module.template_id,
+    roomId: module.space_id,
+    family,
+    widthMm,
+    depthMm,
+    heightMm,
+    xMm,
+    yMm,
+    zMm,
+    rotationDeg,
+    anchor: 'wall',
+    materialId: typeof config.materialId === 'string' ? config.materialId : undefined,
     // Asset URLs are resolved only from the trusted catalog record, never from
     // browser module config. The renderer falls back to this exact envelope if
     // the optional digital twin cannot load.
@@ -92,7 +105,7 @@ export function compileStoredModuleForScene(
   if (!wall) return { ok: false, code: 'MODULE_WALL_NOT_FOUND', message: `Module ${module.id} references a wall outside the active plan.` };
   if (!Number.isFinite(wall.heightMm) || Number(wall.heightMm) <= 0) return { ok: false, code: 'ROOM_CEILING_UNCONFIRMED', message: 'Confirm the measured wall and ceiling height before compiling this room.' };
   if (zMm + heightMm > Number(wall.heightMm)) return { ok: false, code: 'MODULE_EXCEEDS_HEIGHT', message: `Module ${module.id} reaches ${zMm + heightMm} mm but the measured ceiling is ${wall.heightMm} mm. Reduce its height or mounting level.` };
-  const compiler = COMPILER_REGISTRY[category];
+  const compiler = category === 'catalog_unit' ? compileCatalogUnit : COMPILER_REGISTRY[category];
   const configuration = typeof config.configuration === 'object' && config.configuration ? config.configuration as Record<string, unknown> : {};
   const parameters = typeof config.parameters === 'object' && config.parameters ? config.parameters as Record<string, unknown> : {};
   // Module family remains a placement/category concept. The saved archetype is
@@ -114,6 +127,7 @@ export function compileStoredModuleForScene(
   const compiled = compiler({
     templateVersionId: module.template_id ?? `catalog-${family}`,
     instanceId: module.id,
+    family,
     parameters: {
       ...parameters,
       ...config,
@@ -135,6 +149,36 @@ export function compileStoredModuleForScene(
   });
   if (!compiled.valid) {
     return { ok: false, code: 'MODULE_COMPILATION_BLOCKED', message: compiled.blockingViolations.join(' ') || `Module ${module.id} did not satisfy its construction rules.` };
+  }
+  const envelopeToleranceMm = 1;
+  for (const part of compiled.parts) {
+    const px = Number(part.transform.xMm);
+    const py = Number(part.transform.yMm);
+    const pz = Number(part.transform.zMm);
+    const pw = Number(part.size.widthMm);
+    const pd = Number(part.size.depthMm);
+    const ph = Number(part.size.heightMm);
+    if (![px, py, pz, pw, pd, ph].every(Number.isFinite) || pw <= 0 || pd <= 0 || ph <= 0) {
+      return {
+        ok: false,
+        code: 'MODULE_PART_GEOMETRY_INVALID',
+        message: `Part ${part.id} in module ${module.id} produced non-finite or non-positive geometry.`,
+      };
+    }
+    if (
+      px < -envelopeToleranceMm ||
+      py < -envelopeToleranceMm ||
+      pz < -envelopeToleranceMm ||
+      px + pw > widthMm + envelopeToleranceMm ||
+      py + pd > depthMm + envelopeToleranceMm ||
+      pz + ph > heightMm + envelopeToleranceMm
+    ) {
+      return {
+        ok: false,
+        code: 'MODULE_ENVELOPE_EXCEEDED',
+        message: `Part ${part.id} (${pw}×${pd}×${ph} mm at ${px},${py},${pz}) exceeds module ${module.id} envelope (${widthMm}×${depthMm}×${heightMm} mm).`,
+      };
+    }
   }
   const modulePosition = { xMm, yMm, zMm: moduleEnvelope.zMm ?? 0, rotationDeg };
   return {

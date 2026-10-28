@@ -5,6 +5,8 @@ import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 import { ModulePreview } from './ModulePreview';
+import { ModuleConstructionPreview } from './ModuleConstructionPreview';
+import { curateUniqueReferences } from './curate-references';
 import ResearchSourcingPanel from './ResearchSourcingPanel';
 import { RECENT_REFERENCE_GALLERY, REFERENCE_SPACE_LABELS, referenceDisplayTitle, referenceFocus, type RecentGalleryReference } from './recent-reference-gallery';
 import './reference-library.css';
@@ -218,7 +220,7 @@ const CURATED_VAULT_REFERENCES: Array<{
   sourceBatch?: string;
 }> = [
   ...EXISTING_CURATED_VAULT_REFERENCES.map((reference) => ({ ...reference, kind: 'existing-curated' as const })),
-  ...RECENT_REFERENCE_GALLERY,
+  ...curateUniqueReferences(RECENT_REFERENCE_GALLERY.map((reference) => ({ ...reference, sourcePath: reference.img, roomType: reference.room, sha256: reference.sourceSha256 }))),
 ];
 
 type CuratedReference = (typeof CURATED_VAULT_REFERENCES)[number];
@@ -384,6 +386,9 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
   const [materialCategory, setMaterialCategory] = useState('all');
   const [archiveTarget, setArchiveTarget] = useState<VaultEntry | null>(null);
   const [addingStarterMaterials, setAddingStarterMaterials] = useState(false);
+  const [customWidthMm, setCustomWidthMm] = useState<number>(600);
+  const [customDepthMm, setCustomDepthMm] = useState<number>(600);
+  const [customHeightMm, setCustomHeightMm] = useState<number>(750);
   const [previewModalItem, setPreviewModalItem] = useState<{
     title: string;
     image: string;
@@ -421,6 +426,13 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [previewModalItem]);
 
+  useEffect(() => {
+    if (!previewModalItem?.module) return;
+    setCustomWidthMm(previewModalItem.module.widthMm);
+    setCustomDepthMm(previewModalItem.module.depthMm);
+    setCustomHeightMm(previewModalItem.module.heightMm);
+  }, [previewModalItem?.module?.id]);
+
   function arrangeMoodboard() {
     setMoodboardItems((current) => current.map((item, index) => ({
       ...item,
@@ -431,13 +443,14 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
     setStatus('Moodboard arranged into a clean grid. Select any item to refine its position.');
   }
 
-  function placeModuleInProjectWallPicker(mod: CatalogModule) {
+  function placeModuleInProjectWallPicker(mod: CatalogModule, overrideDimensions?: { width: number; depth: number; height: number }) {
     const prepared = {
       schema: 'ultida.module-plan.v1',
       templateId: mod.id,
       family: mod.family,
       name: mod.name,
-      dimensionsMm: { width: mod.widthMm, depth: mod.depthMm, height: mod.heightMm },
+      ...(activeProjectId ? { projectId: activeProjectId } : {}),
+      dimensionsMm: overrideDimensions ?? { width: mod.widthMm, depth: mod.depthMm, height: mod.heightMm },
       wallWidthMm: 3000,
       clearanceMm: 900,
     };
@@ -509,6 +522,17 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
             const payload = await response.json().catch(() => null);
             if (!response.ok) throw new Error(payload?.message ?? 'The project material library could not be loaded.');
             if (live) setMaterials(Array.isArray(payload?.materials) ? payload.materials : []);
+          }));
+      } else if (!activeProjectId && authorization) {
+        tasks.push(fetch(`${apiBase()}/studio/material-library`, { headers: authorization })
+          .then(async (response) => {
+            const payload = await response.json().catch(() => null);
+            if (!response.ok) return;
+            if (live && Array.isArray(payload?.items) && payload.items.length > 0) setMaterials(payload.items);
+          }));
+      }
+      if (false) {
+        tasks.push(Promise.resolve().then(() => {
           }));
       }
 
@@ -725,6 +749,52 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                   </div>
                 )}
 
+                {previewModalItem.module && (
+                  <div style={{ marginTop: 12, padding: 10, background: '#27272a', borderRadius: 8, border: '1px solid #3f3f46' }}>
+                    <small style={{ display: 'block', color: '#a1a1aa', fontSize: 10, textTransform: 'uppercase', fontWeight: 700, marginBottom: 6 }}>
+                      Custom Dimensions (mm)
+                    </small>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                      <label style={{ display: 'grid', gap: 3, fontSize: 10, color: '#d4d4d8' }}>
+                        Width
+                        <input
+                          type="number"
+                          aria-label="Custom width mm"
+                          value={customWidthMm}
+                          onChange={(event) => setCustomWidthMm(Number(event.target.value) || previewModalItem.module!.widthMm)}
+                          style={{ width: '100%', padding: '5px 6px', borderRadius: 6, border: '1px solid #52525b', background: '#18181b', color: '#fff', fontSize: 12 }}
+                        />
+                      </label>
+                      <label style={{ display: 'grid', gap: 3, fontSize: 10, color: '#d4d4d8' }}>
+                        Depth
+                        <input
+                          type="number"
+                          aria-label="Custom depth mm"
+                          value={customDepthMm}
+                          onChange={(event) => setCustomDepthMm(Number(event.target.value) || previewModalItem.module!.depthMm)}
+                          style={{ width: '100%', padding: '5px 6px', borderRadius: 6, border: '1px solid #52525b', background: '#18181b', color: '#fff', fontSize: 12 }}
+                        />
+                      </label>
+                      <label style={{ display: 'grid', gap: 3, fontSize: 10, color: '#d4d4d8' }}>
+                        Height
+                        <input
+                          type="number"
+                          aria-label="Custom height mm"
+                          value={customHeightMm}
+                          onChange={(event) => setCustomHeightMm(Number(event.target.value) || previewModalItem.module!.heightMm)}
+                          style={{ width: '100%', padding: '5px 6px', borderRadius: 6, border: '1px solid #52525b', background: '#18181b', color: '#fff', fontSize: 12 }}
+                        />
+                      </label>
+                    </div>
+                    <ModuleConstructionPreview
+                      moduleId={previewModalItem.module.id}
+                      widthMm={customWidthMm}
+                      depthMm={customDepthMm}
+                      heightMm={customHeightMm}
+                    />
+                  </div>
+                )}
+
                 <p style={{ marginTop: 16, fontSize: 12, color: '#d4d4d8', lineHeight: 1.5 }}>
                   {previewModalItem.description ?? 'Curated manufacturing-ready modular specification with verifiable technical clearances and panel cutlists.'}
                 </p>
@@ -776,7 +846,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                       onClick={() => {
                         const mod = previewModalItem.module!;
                         setPreviewModalItem(null);
-                        placeModuleInProjectWallPicker(mod);
+                        placeModuleInProjectWallPicker(mod, { width: customWidthMm, depth: customDepthMm, height: customHeightMm });
                       }}
                       style={{
                         padding: '12px 16px',
@@ -878,7 +948,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
           ['moodboard', 'Moodboard Studio', Sparkles, moodboardItems.length],
           ['templates', activeProjectId ? 'Visual References' : 'Studio References', BookOpen, visibleTemplates.length + CURATED_VAULT_REFERENCES.length],
           ['materials', 'Project Materials', Palette, visibleMaterials.length],
-          ['research', 'Research & Sourcing', Search, 4],
+          ...(false ? [['research', 'Research & Sourcing', Search, 4] as const] : []),
         ] as const).map(([id, label, Icon, count]) => (
           <button key={id} type="button" role="tab" aria-selected={activeTab === id} onClick={() => setActiveTab(id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', fontSize: 14, fontWeight: 700, color: activeTab === id ? '#8a6244' : '#78716c', borderBottom: activeTab === id ? '2.5px solid #c59c2d' : '2.5px solid transparent', background: activeTab === id ? 'rgba(197,156,45,0.06)' : 'none', borderRadius: '8px 8px 0 0', borderTop: 0, borderLeft: 0, borderRight: 0, cursor: 'pointer', transition: 'all 0.15s ease' }}>
             <Icon size={16} color={activeTab === id ? '#c59c2d' : '#78716c'} /> {label} <span style={{ color: activeTab === id ? '#c59c2d' : '#a8a29e', background: activeTab === id ? 'rgba(197,156,45,0.14)' : '#f3efe7', padding: '2px 7px', borderRadius: 999, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>{count}</span>
