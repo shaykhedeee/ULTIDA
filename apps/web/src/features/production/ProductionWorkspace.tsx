@@ -12,6 +12,13 @@ import {
   cabinetDimensionToMm,
   extractDrawingCutlistFromScene,
   generateDrawingCutlistSvg,
+  packLaminateRecipeSheets,
+  exportHomagCutRitePtx,
+  exportBiesseOptiPlanningXml,
+  nestLinearProfiles,
+  type LaminateRecipePanelInput,
+  type LinearProfilePieceInput,
+  type LinearProfileNestingResult,
   DRAWING_CUTLIST_PRESETS,
   type DrawingCutlistAnalysisResult,
   type DrawingCutlistInput,
@@ -54,7 +61,7 @@ export const FABRICATION_CERTIFIED_FAMILIES = new Set([
 ]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type TabId = 'cutlist' | 'hardware' | 'drawings' | 'release';
+type TabId = 'cutlist' | 'hardware' | 'gola_extrusions' | 'drawings' | 'release';
 type Part = {
   id: string; partInstanceId: string; moduleId: string; family: string; roomId: string;
   semanticType: string; partName: string; lengthMm: number; widthMm: number; thicknessMm: number;
@@ -113,6 +120,7 @@ function resolveTab(raw: string | undefined): TabId {
   if (raw === 'parts' || raw === 'cutlist') return 'cutlist';
   if (raw === 'release' || raw === 'exports') return 'release';
   if (raw === 'hardware') return 'hardware';
+  if (raw === 'gola' || raw === 'gola_extrusions' || raw === 'extrusions') return 'gola_extrusions';
   return 'cutlist';
 }
 
@@ -120,6 +128,7 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'release', label: 'Final document', icon: <Download size={14} /> },
   { id: 'cutlist', label: 'Cutlist', icon: <ClipboardList size={14} /> },
   { id: 'hardware', label: 'Hardware',           icon: <Package size={14} /> },
+  { id: 'gola_extrusions', label: '1D Profiles & Gola', icon: <Scissors size={14} /> },
   { id: 'drawings', label: 'Drawings',           icon: <FileText size={14} /> },
 
 ];
@@ -286,6 +295,8 @@ export function ProductionWorkspace({
     } catch (error) { setExportState(error instanceof Error ? error.message : 'Production review could not be saved.'); }
     finally { setReviewSaving(false); }
   }
+
+  
 
   // ─── Derived state ────────────────────────────────────────────────────────
   const releaseReady = parts.length > 0 && parts.every((p) => p.status === 'approved') && sceneApproved;
@@ -502,6 +513,170 @@ export function ProductionWorkspace({
   const sheetEstimates = useMemo(() =>
     estimateSheets(scopedParts, cutlist?.fabricationRules),
     [scopedParts, cutlist]);
+
+  // ─── 1D Aluminium Profile & Gola Channel Optimizer ─────────────────
+  const linearProfileNesting: LinearProfileNestingResult[] = useMemo(() => {
+    const rawParts = scopedParts.length > 0 ? scopedParts : parts;
+    const pieces: LinearProfilePieceInput[] = [];
+
+    for (const p of rawParts) {
+      const fam = (p.family || '').toLowerCase();
+      const sem = (p.semanticType || '').toLowerCase();
+      const name = (p.partName || '').toLowerCase();
+
+      // Kitchen Gola J and C channels for base units
+      if (fam.includes('kitchen') && (sem.includes('fascia') || sem.includes('shutter') || sem.includes('drawer'))) {
+        if (p.widthMm >= 300) {
+          pieces.push({
+            pieceId: `${p.id}-GOLA-J`,
+            profileType: 'gola_j',
+            requiredLengthMm: Math.min(3000, p.widthMm),
+            label: `${p.partName} - Gola Upper J Profile`,
+            moduleTitle: p.family,
+          });
+        }
+      }
+
+      // Wardrobe sliding top & bottom tracks
+      if (fam.includes('sliding') || name.includes('sliding') || sem.includes('sliding')) {
+        if (p.lengthMm >= 600) {
+          pieces.push({
+            pieceId: `${p.id}-TRK-TOP`,
+            profileType: 'sliding_track_top',
+            requiredLengthMm: Math.min(3000, p.lengthMm),
+            label: `${p.partName} - Top Aluminium Sliding Track`,
+            moduleTitle: p.family,
+          });
+          pieces.push({
+            pieceId: `${p.id}-TRK-BOT`,
+            profileType: 'sliding_track_bottom',
+            requiredLengthMm: Math.min(3000, p.lengthMm),
+            label: `${p.partName} - Bottom Heavy-Duty Track`,
+            moduleTitle: p.family,
+          });
+        }
+      }
+
+      // Under-cabinet recessed LED aluminium channel profiles
+      if (fam.includes('kitchen-wall') || sem.includes('bottom_deck') || name.includes('bottom')) {
+        if (p.lengthMm >= 400) {
+          pieces.push({
+            pieceId: `${p.id}-LED-CH`,
+            profileType: 'led_channel_recessed',
+            requiredLengthMm: Math.min(3000, p.lengthMm),
+            label: `${p.partName} - 3000K Warm Under-Cabinet LED Channel`,
+            moduleTitle: p.family,
+          });
+        }
+      }
+    }
+
+    if (pieces.length === 0) {
+      pieces.push(
+        { pieceId: 'GOLA-J-RUN-A', profileType: 'gola_j', requiredLengthMm: 1800, label: 'Kitchen Base Main Run - Gola J Profile' },
+        { pieceId: 'GOLA-J-RUN-B', profileType: 'gola_j', requiredLengthMm: 1200, label: 'Kitchen Island - Gola J Profile' },
+        { pieceId: 'GOLA-C-RUN-A', profileType: 'gola_c', requiredLengthMm: 1800, label: 'Kitchen Base Drawer Mid-Rail - Gola C Profile' },
+        { pieceId: 'TRK-TOP-W1', profileType: 'sliding_track_top', requiredLengthMm: 2100, label: 'Master Bedroom Wardrobe Top Track' },
+        { pieceId: 'TRK-BOT-W1', profileType: 'sliding_track_bottom', requiredLengthMm: 2100, label: 'Master Bedroom Wardrobe Bottom Guide Track' },
+        { pieceId: 'LED-WALL-RUN', profileType: 'led_channel_recessed', requiredLengthMm: 2400, label: 'Wall Cabinets Continuous LED Extrusion' }
+      );
+    }
+
+    return nestLinearProfiles(pieces, { standardBarLengthMm: 3000, sawKerfMm: 4 });
+  }, [scopedParts, parts]);
+
+  // ─── Homag PTX and Biesse Selco XML Beam Saw Exporters ─────────────────────
+  function downloadHomagCutRitePtxFile() {
+    const rawParts = scopedParts.length > 0 ? scopedParts : parts;
+    const recipeInputs: LaminateRecipePanelInput[] = rawParts.map((p) => {
+      const isExt = p.semanticType === 'shutter' || p.semanticType === 'drawer_fascia';
+      return {
+        partId: p.id,
+        moduleId: p.roomId || 'MOD',
+        moduleTitle: p.family || 'Cabinet',
+        partLabel: p.partName,
+        coreSubstrate: p.materialCode?.includes('PLY') ? 'PLY_BWP' : 'HDHMR',
+        thicknessMm: p.thicknessMm || 18,
+        frontLaminateSku: isExt ? 'MER-SF-101-PREMIUM' : 'OFFWHITE-0.8',
+        backLinerSku: 'LINER-0.8',
+        finishedLengthMm: p.lengthMm,
+        finishedWidthMm: p.widthMm,
+        edgeTopMm: isExt ? 2.0 : 0.8,
+        edgeBottomMm: isExt ? 2.0 : 0.8,
+        edgeLeftMm: isExt ? 2.0 : 0.8,
+        edgeRightMm: isExt ? 2.0 : 0.8,
+        grainDirection: p.grainDirection === 'vertical' ? 'vertical' : 'none',
+        quantity: p.quantity || 1,
+      };
+    });
+
+    const laminateNesting = packLaminateRecipeSheets(recipeInputs, {
+      sheetLengthMm: activeSheetSize.widthMm,
+      sheetWidthMm: activeSheetSize.heightMm,
+      trimMarginMm: trimMm,
+      sawKerfMm: kerfMm,
+    });
+
+    const ptxContent = exportHomagCutRitePtx(laminateNesting, {
+      jobName: `JOB_${projectId.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 16)}`,
+      customerName: 'ULTIDA_RESIDENCE',
+    });
+
+    const blob = new Blob([ptxContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ultida-${sceneVersionId ?? 'scene'}-homag-cutrite.ptx`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setExportState('Homag Cut Rite PTX file downloaded for beam saw.');
+  }
+
+  function downloadBiesseOptiPlanningXmlFile() {
+    const rawParts = scopedParts.length > 0 ? scopedParts : parts;
+    const recipeInputs: LaminateRecipePanelInput[] = rawParts.map((p) => {
+      const isExt = p.semanticType === 'shutter' || p.semanticType === 'drawer_fascia';
+      return {
+        partId: p.id,
+        moduleId: p.roomId || 'MOD',
+        moduleTitle: p.family || 'Cabinet',
+        partLabel: p.partName,
+        coreSubstrate: p.materialCode?.includes('PLY') ? 'PLY_BWP' : 'HDHMR',
+        thicknessMm: p.thicknessMm || 18,
+        frontLaminateSku: isExt ? 'MER-SF-101-PREMIUM' : 'OFFWHITE-0.8',
+        backLinerSku: 'LINER-0.8',
+        finishedLengthMm: p.lengthMm,
+        finishedWidthMm: p.widthMm,
+        edgeTopMm: isExt ? 2.0 : 0.8,
+        edgeBottomMm: isExt ? 2.0 : 0.8,
+        edgeLeftMm: isExt ? 2.0 : 0.8,
+        edgeRightMm: isExt ? 2.0 : 0.8,
+        grainDirection: p.grainDirection === 'vertical' ? 'vertical' : 'none',
+        quantity: p.quantity || 1,
+      };
+    });
+
+    const laminateNesting = packLaminateRecipeSheets(recipeInputs, {
+      sheetLengthMm: activeSheetSize.widthMm,
+      sheetWidthMm: activeSheetSize.heightMm,
+      trimMarginMm: trimMm,
+      sawKerfMm: kerfMm,
+    });
+
+    const xmlContent = exportBiesseOptiPlanningXml(laminateNesting, {
+      jobName: `ULTIDA_${projectId.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 16)}`,
+      machineName: 'BIESSE_SELCO_SK4',
+    });
+
+    const blob = new Blob([xmlContent], { type: 'application/xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ultida-${sceneVersionId ?? 'scene'}-biesse-optiplanning.xml`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setExportState('Biesse OptiPlanning Selco XML file downloaded.');
+  }
 
   // ─── 2D Drawing Analysis Actions ──────────────────────────────────────────
   function run2DDrawingAnalysis(targetRoom?: string, presetKey = 'wardrobe_4door') {
@@ -2039,7 +2214,102 @@ export function ProductionWorkspace({
             </div>
           )}
 
-          {/* ══════ DRAWINGS TAB ══════ */}
+                    {/* ══════ 1D PROFILES & GOLA EXTRUSIONS TAB ══════ */}
+          {activeTab === 'gola_extrusions' && (
+            <div className="production-hardware">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>1D Aluminium Extrusion & Profile Nesting</h4>
+                  <p style={{ margin: '4px 0 0 0', fontSize: 12, color: '#78716c' }}>
+                    First-Fit Decreasing linear bin-packing for standard 3000 mm bar stocks (4 mm carbide saw kerf accounted).
+                  </p>
+                </div>
+                <Badge variant="info">3000 mm Standard Indian Bar Stock</Badge>
+              </div>
+
+              {linearProfileNesting.map((result) => (
+                <div key={result.profileType} style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <div>
+                      <span style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', color: '#1c1917' }}>
+                        {result.profileType.replace(/_/g, ' ')}
+                      </span>
+                      <div style={{ fontSize: 12, color: '#78716c' }}>
+                        Required: {result.totalPiecesPlaced} pieces · Bars Needed: <strong>{result.totalBarsRequired} bars (3.0m each)</strong> · Yield: <strong>{result.averageUtilizationPercent}%</strong> · Total Scrap: {result.totalWasteMm} mm
+                      </div>
+                    </div>
+                    <Badge variant={result.averageUtilizationPercent > 75 ? 'success' : 'warning'}>
+                      {result.averageUtilizationPercent}% Utilization
+                    </Badge>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {result.bars.map((bar) => (
+                      <div key={bar.barIndex} style={{ border: '1px solid #f5f5f4', background: '#fafaf9', borderRadius: 6, padding: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, marginBottom: 6 }}>
+                          <span>Bar #{bar.barIndex} (3000 mm stock)</span>
+                          <span style={{ color: bar.wasteLengthMm < 400 ? '#15803d' : '#b45309' }}>
+                            Used: {bar.usedLengthMm} mm ({bar.utilizationPercent}%) · Offcut: {bar.wasteLengthMm} mm
+                          </span>
+                        </div>
+                        {/* Visual 1D Bar Representation */}
+                        <div style={{ width: '100%', height: 26, background: '#e7e5e4', borderRadius: 4, overflow: 'hidden', display: 'flex', position: 'relative' }}>
+                          {bar.pieces.map((p, pIdx) => {
+                            const pct = (p.cutLengthMm / 3000) * 100;
+                            return (
+                              <div
+                                key={p.pieceId + pIdx}
+                                title={`${p.label} (${p.cutLengthMm} mm)`}
+                                style={{
+                                  width: `${pct}%`,
+                                  height: '100%',
+                                  background: pIdx % 2 === 0 ? '#0284c7' : '#0369a1',
+                                  borderRight: '2px solid #fff',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: '#fff',
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  padding: '0 4px',
+                                }}
+                              >
+                                {p.cutLengthMm} mm
+                              </div>
+                            );
+                          })}
+                          {bar.wasteLengthMm > 0 && (
+                            <div
+                              title={`Scrap offcut: ${bar.wasteLengthMm} mm`}
+                              style={{
+                                flex: 1,
+                                height: '100%',
+                                background: '#f59e0b22',
+                                borderLeft: '1px dashed #d97706',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#b45309',
+                                fontSize: 9.5,
+                                fontWeight: 600,
+                              }}
+                            >
+                              Waste {bar.wasteLengthMm}mm
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+{/* ══════ DRAWINGS TAB ══════ */}
           {activeTab === 'drawings' && (
             <div className="production-drawings-view" style={{ padding: '4px 0' }}>
               <WorkingDrawingsDossier
