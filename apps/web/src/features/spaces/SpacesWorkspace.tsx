@@ -1,3 +1,7 @@
+import { retainedStudioDraft, type RetainedStudioDraft } from './retained-studio-drafts';
+import { placementRequestId, completePlacementRequest } from './placement-request';
+import { ModuleTransformHandles } from './ModuleTransformHandles';
+import { ModuleEditSession, type ModuleDraft, type ModuleRow } from './module-edit-session';
 import { prepareRoomReview } from './prepare-room-review';
 import { enqueueRoomSave } from './room-save-queue';
 import { readPreparedModule } from '../../lib/prepared-module-plan';
@@ -15,7 +19,7 @@ import {
   Boxes, Minus, Rotate3d, Filter, Zap
 } from 'lucide-react';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Badge, Button } from '../../components/ui/primitives';
 import { supabase } from '../../lib/supabase';
@@ -40,6 +44,9 @@ import { roomBuilderGeometryIssues, roomDraftToPlanGeometry } from '../tools/roo
 import { type CompositionScheduleV1, type FloorSurfaceV1 } from '@ultida/contracts';
 import { getApiBase } from '../../lib/api-base';
 import './spaces.css';
+
+const emptySubscribe = () => () => {};
+const emptySnapshot = () => null;
 
 type Pt = { xMm: number; yMm: number };
 
@@ -481,6 +488,9 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
   // Design Library rail state. The library is a docked rail rather than a
   // modal so the plan canvas stays visible while modules are chosen.
   const [showDesignLibrary, setShowDesignLibrary] = useState(false);
+  const placementRequests = useRef(new Map<string, string>());
+  const placementInFlight = useRef(new Set<string>());
+  const activeRoomRef = useRef<string | null>(null);
   // Module currently being dragged from the rail, or "armed" by click for
   // keyboard/pointer placement. Both paths feed the same drop preview.
   const [draggingModule, setDraggingModule] = useState<CatalogModule | null>(null);
@@ -519,6 +529,18 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
   const [finishLibrary, setFinishLibrary] = useState<any[]>([]);
   const [finishAssignments, setFinishAssignments] = useState<any[]>([]);
   const [finishBusy, setFinishBusy] = useState(false);
+  type FinishDraft = { requestId: string; slot: 'carcass' | 'shutter' | 'back_panel'; materialId: string; moduleId?: string; expectedRevision: number; conflict?: boolean; error?: string };
+  const [pendingFinish, setPendingFinish] = useState<FinishDraft | null>(null);
+  const pendingFinishRef = useRef<FinishDraft | null>(null);
+  const finishInFlight = useRef(false);
+  const finishContextRef = useRef('');
+  function retainFinish(draft: FinishDraft | null) {
+    const scope = `${editorUserId}/${projectId}/${activeSpaceId}`;
+    if (finishContextRef.current === scope) {pendingFinishRef.current = draft; setPendingFinish(draft);}
+    try { const key = `ultida.finish-draft.v1:${editorUserId}/${projectId}/${activeSpaceId}`; if (draft) window.localStorage.setItem(key, JSON.stringify(draft)); else window.localStorage.removeItem(key); }
+    catch { setSaveState('This browser cannot retain the finish selection. Keep the page open until saving succeeds.'); }
+  }
+
   const [finishReload, setFinishReload] = useState(0);
   useEffect(() => {
     let live = true;
@@ -552,27 +574,83 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
     const matches = finishAssignments.filter(item => item.semantic_slot === slot && (moduleId ? item.module_instance_id === moduleId || (item.target_kind === 'module' && item.target_id === moduleId) : item.target_kind === 'semantic_slot' && item.target_id === projectId));
     return matches.sort((a, b) => Number(b.revision) - Number(a.revision))[0]?.material_id ?? '';
   }
-  async function assignFinish(slot: 'carcass' | 'shutter' | 'back_panel', materialId: string, moduleId?: string) {
-    if (!projectId || !supabase || !materialId || finishBusy) return;
-    setFinishBusy(true);
+  async function saveFinishDraft(draft: FinishDraft) {
+    if (!projectId || !supabase || finishInFlight.current || draft.conflict) return;
+    finishInFlight.current = true; setFinishBusy(true);
     try {
-      const session = (await supabase.auth.getSession()).data.session; if (!session) throw new Error('Sign in again to save finishes.');
-      const response = await fetch(`${getApiBase()}/projects/${projectId}/material-assignments`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ projectId, materialId, moduleInstanceId: moduleId ?? null, targetKind: moduleId ? 'module' : 'semantic_slot', targetId: moduleId ?? projectId, semanticSlot: slot, revision: 1, status: 'draft' }) });
-      const payload = await response.json().catch(() => null); if (!response.ok) throw new Error(payload?.message ?? 'Finish could not be saved.');
-      setFinishReload(value => value + 1);
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session || session.user.id !== editorUserId) throw new Error('Sign in with the original account to save this finish.');
+      const response = await enqueueRoomSave(`${projectId}/${activeSpaceId}`, () => fetch(`${getApiBase()}/projects/${projectId}/material-assignments`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ projectId, requestId: draft.requestId, expectedRevision: draft.expectedRevision, materialId: draft.materialId, moduleInstanceId: draft.moduleId ?? null, targetKind: draft.moduleId ? 'module' : 'semantic_slot', targetId: draft.moduleId ?? projectId, semanticSlot: draft.slot, revision: 1, status: 'draft' }),
+      }));
+      const payload = await response.json().catch(() => null);
+      if (response.status === 409) { retainFinish({ ...draft, conflict: true, error: 'The saved finish changed. Compare both selections before continuing.' }); setFinishReload(value => value + 1); return; }
+      if (!response.ok || !payload?.assignment) throw new Error(payload?.message ?? 'Finish could not be saved.');
+      if (finishContextRef.current === `${editorUserId}/${projectId}/${activeSpaceId}`) setFinishAssignments(current => [...current.filter(item => item.id !== payload.assignment.id), payload.assignment]);
+      retainFinish(null);
       window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
-      setSaveState('Finish saved. Review the updated 3D scene before approving it again.');
-    } catch (error) { setSaveState(error instanceof Error ? error.message : 'Finish save failed.'); }
-    finally { setFinishBusy(false); }
+      setSaveState('Finish saved. Review the updated design before exporting.');
+    } catch (error) { retainFinish({ ...draft, error: error instanceof Error ? error.message : 'Finish save failed.' }); }
+    finally { finishInFlight.current = false; setFinishBusy(false); }
+  }
+  async function assignFinish(slot: 'carcass' | 'shutter' | 'back_panel', materialId: string, moduleId?: string) {
+    if (!materialId || finishBusy || pendingFinish) return;
+    const revisions = finishAssignments.filter(item => item.semantic_slot === slot && item.target_kind === (moduleId ? 'module' : 'semantic_slot') && item.target_id === (moduleId ?? projectId)).map(item => Number(item.revision));
+    const draft = { requestId: crypto.randomUUID(), slot, materialId, moduleId, expectedRevision: Math.max(0,...revisions) };
+    retainFinish(draft); await saveFinishDraft(draft);
   }
   const [kitchenStyle, setKitchenStyle] = useState('Warm oak');
   const [kitchenBusy, setKitchenBusy] = useState(false);
   const [selectedSavedModuleId, setSelectedSavedModuleId] = useState<string | null>(null);
-  const [moduleDraft, setModuleDraft] = useState<{ widthMm: string; depthMm: string; heightMm: string; offsetMm: string } | null>(null);
-  const [savingModule, setSavingModule] = useState(false);
+  const [preparingReview, setPreparingReview] = useState(false);
+  const preparingReviewRef = useRef(false);
+  const [advancedInspector, setAdvancedInspector] = useState(false);
+  const [editingRoom, setEditingRoom] = useState(false);
+  const [modulePointerActive, setModulePointerActive] = useState(false);
+  const [finishQuery, setFinishQuery] = useState('');
+  const [reviewRecovery, setReviewRecovery] = useState<RetainedStudioDraft | null>(null);
+  const [moduleEditor, setModuleEditor] = useState<ModuleEditSession | null>(null);
+  const moduleEditors = useRef(new Map<string, ModuleEditSession>());
+  const [editorUserId, setEditorUserId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!supabase) return;
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setEditorUserId(session?.user.id ?? null);
+      if (!session) { setModuleEditor(null); setSelectedSavedModuleId(null); moduleEditors.current.clear(); }
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+  const moduleEdit = useSyncExternalStore(moduleEditor?.subscribe ?? emptySubscribe, moduleEditor?.snapshot ?? emptySnapshot);
+  const moduleDraft = moduleEdit?.draft ?? null;
+  const savingModule = moduleEdit?.status === 'saving';
+  useEffect(() => {
+    if (moduleEdit?.status !== 'unsaved' || !moduleEditor || modulePointerActive) return;
+    const timer = window.setTimeout(() => void moduleEditor.save(), 750);
+    return () => window.clearTimeout(timer);
+  }, [moduleEdit, moduleEditor, modulePointerActive]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if ([...moduleEditors.current.values()].some(editor => editor.snapshot().status !== 'saved')) { event.preventDefault(); event.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, []);
   const [showAdvancedCanvasTools, setShowAdvancedCanvasTools] = useState(false);
   const [showRoomList, setShowRoomList] = useState(false);
   const activeSpaceId = rooms.find(room => room.id === selectedRoom)?.spaceRecordId;
+  activeRoomRef.current = `${editorUserId}/${projectId}/${selectedRoom}/${activeSpaceId}`;
+  finishContextRef.current = `${editorUserId}/${projectId}/${activeSpaceId}`;
+  useEffect(() => {
+    pendingFinishRef.current = null; setPendingFinish(null);
+    if (!editorUserId || !projectId || !activeSpaceId) return;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(`ultida.finish-draft.v1:${editorUserId}/${projectId}/${activeSpaceId}`) ?? 'null');
+      if (saved && typeof saved.requestId === 'string' && typeof saved.materialId === 'string' && ['carcass','shutter','back_panel'].includes(saved.slot) && Number.isSafeInteger(saved.expectedRevision)) {
+        pendingFinishRef.current = saved; setPendingFinish(saved);
+      }
+    } catch { setSaveState('The browser could not recover a finish draft.'); }
+  }, [editorUserId, projectId, activeSpaceId]);
   useEffect(() => {
     let live = true;
     setSavedModules([]);
@@ -580,6 +658,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
     void (async () => {
       const session = (await supabase!.auth.getSession()).data.session;
       if (!session) return;
+      setEditorUserId(session.user.id);
       const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances?spaceId=${encodeURIComponent(activeSpaceId)}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => null);
       if (!live) return;
@@ -588,32 +667,75 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
     })().catch(() => { if (live) setSaveState('Could not load saved furniture. Check your connection.'); });
     return () => { live = false; };
   }, [projectId, activeSpaceId, moduleReload]);
-  useEffect(() => { setSelectedSavedModuleId(null); setModuleDraft(null); }, [activeSpaceId]);
-  function selectSavedModule(item: any) {
+  useEffect(() => { setSelectedSavedModuleId(null); setModuleEditor(null); setModulePointerActive(false); }, [activeSpaceId, projectId, editorUserId]);
+  function selectSavedModule(item: ModuleRow) {
+    if (moduleEditor && moduleEditor.snapshot().base.id !== item.id && moduleEditor.snapshot().status === 'unsaved') {const previous = moduleEditor;void previous.save().then(() => {if(previous.snapshot().status === 'unsaved')void previous.save();});}
+    if (!editorUserId || !projectId || !activeSpaceId) return;
+    const scope = [editorUserId, projectId, activeSpaceId, item.id].join('/');
+    let editor = moduleEditors.current.get(scope);
+    if (!editor) {
+      let storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+      try { storage = window.localStorage; } catch { storage = { getItem: () => { throw Error('Storage unavailable'); }, setItem: () => { throw Error('Storage unavailable'); }, removeItem: () => {} }; }
+      editor = new ModuleEditSession(item, scope, storage, async (base, draft) => {
+        const session = (await supabase!.auth.getSession()).data.session;
+        if (!session || session.user.id !== editorUserId) throw new Error('Sign in with the original account to save this draft.');
+        const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances/${base.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ expectedUpdatedAt: base.updated_at, reason: 'Adjusted furniture in room studio', config: { widthMm: Number(draft.widthMm), depthMm: Number(draft.depthMm), heightMm: Number(draft.heightMm) }, position: { wallId: base.position_json.wallId, offsetMm: Number(draft.offsetMm) } }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (response.status === 409 && payload?.code === 'MODULE_EDIT_STALE') {
+          const latest = await fetch(`${getApiBase()}/projects/${projectId}/module-instances?spaceId=${encodeURIComponent(activeSpaceId)}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+          const data = await latest.json().catch(() => null);
+          const current = latest.ok && data?.modules?.find((row: ModuleRow) => row.id === base.id);
+          if (current) return { conflict: current };
+        }
+        if (!response.ok || !payload?.module) throw new Error(payload?.message ?? 'Furniture could not be saved. Your draft is retained.');
+        if (finishContextRef.current === `${editorUserId}/${projectId}/${activeSpaceId}`) setSavedModules(current => current.map(entry => entry.id === base.id ? payload.module : entry));
+        window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
+        return payload.module;
+      });
+      moduleEditors.current.set(scope, editor);
+    }
+    setModuleEditor(editor);
+    setAdvancedInspector(false);
     setSelectedSavedModuleId(item.id);
     setSelectedWall(item.position_json.wallId);
     setSpacePanel('modules');
-    setModuleDraft({ widthMm: String(item.config_json.widthMm), depthMm: String(item.config_json.depthMm), heightMm: String(item.config_json.heightMm), offsetMm: String(item.position_json.offsetMm) });
   }
-  async function saveSelectedModule() {
-    const item = savedModules.find(entry => entry.id === selectedSavedModuleId);
-    if (!item || !moduleDraft || !projectId || !supabase || savingModule) return;
-    const values = Object.fromEntries(Object.entries(moduleDraft).map(([key, value]) => [key, value.trim() ? Number(value) : NaN]));
-    if (![values.widthMm, values.depthMm, values.heightMm].every(value => Number.isFinite(value) && value > 0) || !Number.isFinite(values.offsetMm) || values.offsetMm < 0) {
-      setSaveState('Enter positive width, depth and height, and an offset of zero or more. All values are millimetres.'); return;
+  async function saveSelectedModule() { return await moduleEditor?.save(); }
+  async function flushFurnitureEdits() {
+    if (placementInFlight.current.size) {setSaveState('Wait for furniture placement to finish before reviewing.');return false;}
+    if (pendingFinishRef.current) {setSaveState('Save or resolve the pending finish selection before reviewing.');return false;}
+    const prefix = [editorUserId,projectId].join('/') + '/';
+    for (const [scope, editor] of moduleEditors.current) {
+      if (scope.startsWith(prefix) && (!await editor.save() || editor.snapshot().status !== 'saved')) { setSaveState('Resolve unsaved furniture changes before reviewing or exporting.'); return false; }
     }
-    setSavingModule(true);
     try {
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session) throw new Error('Sign in again before saving furniture.');
-      const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances/${item.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ expectedUpdatedAt: item.updated_at, reason: 'Adjusted furniture in room studio', config: { widthMm: values.widthMm, depthMm: values.depthMm, heightMm: values.heightMm }, position: { wallId: item.position_json.wallId, offsetMm: values.offsetMm } }) });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.module) throw new Error(payload?.message ?? 'Furniture could not be saved. Your draft is retained.');
-      setSavedModules(current => current.map(entry => entry.id === item.id ? payload.module : entry));
-      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
-      setSaveState(`${item.label} saved. Review the updated design in 3D before approving new outputs.`);
-    } catch (error) { setSaveState(error instanceof Error ? error.message : 'Furniture save failed. Retry when connected.'); }
-    finally { setSavingModule(false); }
+      const retained = retainedStudioDraft(window.localStorage, editorUserId ?? '', projectId ?? '');
+      if (retained) {setReviewRecovery(retained);setSaveState('Recover or resolve retained furniture, finish, or placement changes before reviewing.');return false;}
+    } catch {setSaveState('Browser drafts could not be checked. Restore storage access before reviewing.');return false;}
+    setReviewRecovery(null);
+    return true;
+  }
+  async function openSavedRoomReview(destination: '3d' | 'drawings') {
+    if (preparingReviewRef.current) return;
+    const room = rooms.find(item => item.id === selectedRoom);
+    if (!room) return;
+    const sourceContext = activeRoomRef.current;
+    preparingReviewRef.current = true;setPreparingReview(true);
+    try {
+      if (!await flushFurnitureEdits()) return;
+      const sceneId = await prepareRoomReview({ save: () => persistRoom(room), approve: ensureApprovedRoomLayout, compile: async saved => {
+        if (activeRoomRef.current !== sourceContext) return;
+        setSaveState('Preparing the saved design…'); return await onReviewSavedRoom?.(saved.id);
+      } });
+      if (activeRoomRef.current !== sourceContext) return;
+      if (!sceneId) {setSaveState('The saved scene could not be prepared. Resolve room measurements and furniture issues, then retry.');return;}
+      if (!await flushFurnitureEdits()) return;
+      navigate(`/projects/${projectId}/${destination}?roomId=${encodeURIComponent(room.id)}`);
+    } catch(error) {if(activeRoomRef.current === sourceContext)setSaveState(error instanceof Error ? error.message : 'Design review could not be prepared. Retry when connected.');}
+    finally {preparingReviewRef.current=false;setPreparingReview(false);}
   }
   useEffect(() => {
     if (!projectId || !aiProposalRoomId || !aiProposals.length) return;
@@ -1913,6 +2035,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
   }
 
   function activateCanvasTool(nextTool: string) {
+    if (!['select','measure','annotate','cancel_tool'].includes(nextTool)) setEditingRoom(true);
     if (nextTool === 'cancel_tool') {
       setTool('select'); setRoomDraftStart(null); setRoomDraftCurrent(null); setLineDraftStart(null); setMeasureFrom(null); setMeasureTo(null); setSaveState('Canvas tool cancelled.');
       return;
@@ -1937,11 +2060,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       if (!session?.access_token) throw new Error('Sign in again to save this room.');
       const roomWallIds = new Set(wallsForRoom(room).map(wall => wall.id));
       const accessToken = session.access_token;
-      const response = await enqueueRoomSave(String(room.spaceRecordId), () => fetch(`${getApiBase()}/projects/${projectId}/spaces/${room.spaceRecordId}/design-inputs`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ compositionSchedules: Object.values(schedules).filter(schedule => roomWallIds.has(schedule.wallId)), floorSurfaces: Object.values(surfaces).filter(surface => surface.roomId === room.id) }) })); if (false) void fetch(`${getApiBase()}/projects/${projectId}/spaces/${room.spaceRecordId}/design-inputs`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ compositionSchedules: Object.values(schedules).filter(schedule => roomWallIds.has(schedule.wallId)), floorSurfaces: Object.values(surfaces).filter(surface => surface.roomId === room.id) }),
-      }); if (false) void Promise.resolve().then(() => {
-      });
+      const response = await enqueueRoomSave(`${projectId}/${room.spaceRecordId}`, () => fetch(`${getApiBase()}/projects/${projectId}/spaces/${room.spaceRecordId}/design-inputs`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ compositionSchedules: Object.values(schedules).filter(schedule => roomWallIds.has(schedule.wallId)), floorSurfaces: Object.values(surfaces).filter(surface => surface.roomId === room.id) }) }));
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.message ?? 'Room could not be saved. Retry after the connection is restored.');
       setSaveState(`${room.name} saved to the project. Previous approvals and downloads need review after this change.`);
@@ -2051,6 +2170,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
   }
 
   async function persistRoom(room: PlanRoom, verificationStatus = room.verificationStatus): Promise<PlanRoom | null> {
+    const sourceContext = activeRoomRef.current;
     const bounds = bbox(room.polygon);
     if (verificationStatus === 'verified' && (!scaleVerified || needsScaleReview(room, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY))) {
       setSaveState('Confirm scale and review this room boundary in Floor Plan before approving its measurements.');
@@ -2066,6 +2186,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
         : candidate);
       setRooms(roomsToCommit);
       const committed = await saveGeometryVersion(roomsToCommit);
+      if (activeRoomRef.current !== sourceContext) return null;
       const spaceRecordId = committed?.spaces.find((space) => space.space_id === room.id)?.id;
       if (!spaceRecordId) {
         setSaveState('The geometry version was saved, but this room could not be attached to it. Retry Save geometry before verifying the room.');
@@ -2076,17 +2197,16 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       return persistRoom(hydratedRoom, verificationStatus);
     }
     const accessToken = session.access_token;
-    const res = await enqueueRoomSave(String(room.spaceRecordId), () => fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', lightingMood: room.lightingMood ?? '', hardwareStyle: room.hardwareStyle ?? '', surfaceDirection: room.surfaceDirection ?? 'vertical-grain', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '', verificationStatus, included: room.included !== false }) })); if (false) void fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', lightingMood: room.lightingMood ?? '', hardwareStyle: room.hardwareStyle ?? '', surfaceDirection: room.surfaceDirection ?? 'vertical-grain', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '', verificationStatus, included: room.included !== false })
-    });
+    const res = await enqueueRoomSave(`${projectId}/${room.spaceRecordId}`, () => fetch(`${apiBase}/projects/${projectId}/spaces/${room.spaceRecordId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ name: room.name, roomType: room.roomType, ceilingHeightMm: room.ceilingHeightMm ?? ceilingHeightMm, requiredFurniture: room.requiredFurniture, budgetInr: room.budgetInr ?? null, designPriority: room.designPriority ?? 'balanced', applianceNeeds: room.applianceNeeds ?? [], constraints: room.constraints ?? [], floorFinish: room.floorFinish ?? '', falseCeiling: room.falseCeiling ?? '', styleDirection: room.styleDirection ?? '', paletteDirection: room.paletteDirection ?? '', lightingMood: room.lightingMood ?? '', hardwareStyle: room.hardwareStyle ?? '', surfaceDirection: room.surfaceDirection ?? 'vertical-grain', retainedElements: room.retainedElements ?? [], wallRoles: room.wallRoles ?? {}, preferredCamera: room.preferredCamera ?? '', verificationStatus, included: room.included !== false }) }));
     const payload = await res.json().catch(() => null);
+    if (activeRoomRef.current !== sourceContext) return null;
     if (!res.ok) {
       setSaveState(payload?.message ?? 'Save failed.');
       return null;
     }
     const persisted = { ...room, verificationStatus: verificationStatus === 'verified' ? 'verified' : 'unverified' };
     if (!await saveRoomDesignInputs(persisted, compositionSchedules, floorSurfaces)) return null;
+    if (activeRoomRef.current !== sourceContext) return null;
     setRooms(current => current.map(candidate => candidate.id === room.id ? persisted : candidate));
     setSaveState(verificationStatus === 'verified' ? `${room.name} measurements and requirements verified.` : 'Room saved.');
     return persisted;
@@ -2203,7 +2323,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
    * persistence and invalidation, so neither can bypass measured fit rules.
    */
   async function placeCatalogModuleOnWall(module: CatalogModule, targetWall: CatalogWallContext, requestedOffsetMm?: number) {
-    if (!sel || !projectId || !supabase) return;
+    if (!sel || !projectId || !supabase || preparingReviewRef.current) return;
     const fit = reconcileCatalogModuleFit(targetWall, module);
     if (!fit?.fits || fit.suggestedOffsetMm === undefined) {
       setSaveState(fit?.issues[0] ?? 'This module does not fit the selected measured wall. Choose another wall or adjust the module in the bay editor.');
@@ -2231,38 +2351,34 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
     }
     const activeCatalogWall = targetWall;
 
-    const categoryKey = module.family.includes('kitchen') ? 'kitchen_base' : module.family === 'tv-unit' ? 'tv_unit' : module.family === 'wardrobe' ? 'wardrobe' : module.family === 'crockery' ? 'crockery_unit' : module.family === 'study' ? 'study_unit' : module.family === 'pooja' ? 'pooja_unit' : module.family === 'bed' ? 'bed' : module.family === 'utility' ? 'utility_unit' : 'storage_unit';
-    const roomWithRequirement = sel.room.requiredFurniture.includes(categoryKey)
-      ? sel.room
-      : { ...sel.room, styleDirection: module.family.includes('kitchen') ? kitchenStyle : sel.room.styleDirection, requiredFurniture: [...sel.room.requiredFurniture, categoryKey] };
-
-    // A production module needs its persisted space id. Persisting here keeps
-    // canvas selection and the compiler anchored to the same approved room.
-    const persistedRoom = roomWithRequirement.spaceRecordId && roomWithRequirement === sel.room
-      ? roomWithRequirement
-      : await persistRoom(roomWithRequirement, roomWithRequirement.verificationStatus ?? 'unverified');
-    if (!persistedRoom?.spaceRecordId) {
-      setSaveState('Save this room’s measured geometry before placing a production module.');
+    // Placement coordinates required categories and internal layout records server-side.
+    // A room must already have saved measured geometry; placement never approves geometry.
+    const persistedRoom = sel.room;
+    if (!persistedRoom.spaceRecordId) {
+      setSaveState('Save this room’s measured geometry before adding furniture.');
       return;
     }
-    if (!await ensureApprovedRoomLayout(persistedRoom)) return;
-    if (!roomWithRequirement.spaceRecordId) {
-      setRooms((current) => current.map((room) => room.id === persistedRoom.id ? persistedRoom : room));
-    } else if (roomWithRequirement !== sel.room) {
-      setRooms((current) => current.map((room) => room.id === roomWithRequirement.id ? roomWithRequirement : room));
-    }
-
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) {
       setSaveState('Sign in again before placing a module.');
       return;
     }
+    const placementKey = JSON.stringify([session.user.id, projectId, persistedRoom.spaceRecordId, module.id, module.widthMm, module.depthMm, module.heightMm, activeCatalogWall.id, placementOffsetMm, moduleStyleRefs[module.id] ?? null]);
+    if (placementInFlight.current.has(placementKey)) return;
+    let requestId = placementRequests.current.get(placementKey);
+    if (!requestId) {
+      try { requestId = placementRequestId(window.localStorage, placementKey); }
+      catch { setSaveState('The browser cannot retain this placement request. Enable browser storage before placing furniture so retries stay safe.'); return; }
+    }
+    placementRequests.current.set(placementKey, requestId);
+    placementInFlight.current.add(placementKey);
     setSaveState(`Placing ${module.name} on the measured wall…`);
     try {
       const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
+          requestId, prepareRoom: true,
           spaceId: persistedRoom.spaceRecordId,
           templateId: module.id,
           category: module.family,
@@ -2284,42 +2400,21 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
         setSaveState(payload?.message ?? 'The module could not be placed. Check the approved room layout and measured wall clearance.');
         return;
       }
+      placementRequests.current.delete(placementKey);
+      try { completePlacementRequest(window.localStorage, placementKey); } catch { /* A repeated request still replays the same saved module. */ }
+      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
+      if (activeRoomRef.current !== `${session.user.id}/${projectId}/${persistedRoom.id}/${persistedRoom.spaceRecordId}`) return true;
+      const categoryKey = module.family.includes('kitchen') ? 'kitchen_base' : ({ 'tv-unit':'tv_unit', wardrobe:'wardrobe', crockery:'crockery_unit', study:'study_unit', pooja:'pooja_unit', bed:'bed', utility:'utility_unit' } as Record<string,string>)[module.family] ?? 'storage_unit';
+      setRooms(current => current.map(room => room.id === persistedRoom.id ? { ...room, requiredFurniture: [...new Set([...room.requiredFurniture, categoryKey])] } : room));
       setSavedModules(current => [...current.filter(item => item.id !== payload.module.id), payload.module]);
       setModuleReload(current => current + 1);
-      // The API has invalidated downstream artifacts. Mirror that durable
-      // change in the app shell so no screen can keep presenting an older
-      // scene version as if it still represented this room.
-      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
-      const wall = walls.find((candidate) => candidate.id === activeCatalogWall.id);
-      const length = wall ? wallLen(wall) : activeCatalogWall.lengthMm;
-      const direction = wall && length > 0
-        ? { xMm: (wall.end.xMm - wall.start.xMm) / length, yMm: (wall.end.yMm - wall.start.yMm) / length }
-        : { xMm: 1, yMm: 0 };
-      const start = wall?.start ?? { xMm: 0, yMm: 0 };
-      const offset = placementOffsetMm;
-      setAiProposalRoomId(persistedRoom.id);
-      setAiProposals((current) => [
-        ...current,
-        {
-          id: String(payload?.module?.id ?? `${module.id}-${Date.now()}`),
-          category: module.family,
-          moduleId: module.id,
-          name: module.name,
-          wallId: activeCatalogWall.id,
-          wallLabel: `Wall ${activeCatalogWall.id.replace(/^.*?:/, '').replace('wall-', '').toUpperCase() || activeCatalogWall.id}`,
-          rationale: `Placed at ${Math.round(offset)} mm on the selected measured wall; door and window keep-outs checked.`,
-          dimensionsMm: { width: module.widthMm, depth: module.depthMm, height: module.heightMm },
-          position: { xMm: start.xMm + direction.xMm * offset, yMm: start.yMm + direction.yMm * offset },
-          rotationDeg: Math.atan2(direction.yMm, direction.xMm) * 180 / Math.PI,
-          confidence: 1,
-        },
-      ]);
+      selectSavedModule(payload.module);
       setSpacePanel('modules');
-      setSaveState(`${module.name} is placed on the measured wall. Adjust bays, fillers, shutters, and finishes below; the scene must be recompiled before 3D or renders update.`);
+      setSaveState(`${module.name} added. Adjust its size and finish, or continue adding furniture.`);
       return true;
     } catch {
-      setSaveState('The module placement request could not reach the project service. Nothing was added to the scene.');
-    }
+      setSaveState('Placement could not be confirmed. Retry the same position to recover it safely.');
+    } finally { placementInFlight.current.delete(placementKey); }
   }
 
   /** Recompute the ghost from a pointer or drag event over the canvas. */
@@ -2772,18 +2867,21 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
   }, [catalogQuery, catalogFilterFamily, catalogFitFilter, sel?.room.roomType, activeCatalogWall]);
 
   return (
-    <div className={`spaces-workspace phase4${showDesignLibrary ? ' spaces-workspace--library-open' : ''}${showRoomList ? '' : ' spaces-workspace--focused'}`} style={{ paddingBottom: 48 }}>
+    <>
+    {preparingReview && <div role="status" className="studio-preparing">Preparing the saved design…</div>}
+    <div inert={preparingReview || undefined} aria-busy={preparingReview} className={`spaces-workspace phase4${showDesignLibrary ? ' spaces-workspace--library-open' : ''}${showRoomList ? '' : ' spaces-workspace--focused'}`} style={{ paddingBottom: 48 }}>
       {/* Header */}
       <div className="page-header">
         <div className="page-header-text">
           <small>ROOM DESIGN</small>
-          <h1>Design your rooms ({rooms.filter(r => r.included !== false).length})</h1>
-          <p>Choose a room, place furniture on its measured walls, adjust the details, then review the same saved design in 3D.</p>
+          <h1>{sel?.room.name ?? 'Rooms & Spaces'}</h1>
+          <p>Measure · Furnish · Review · Export</p>
         </div>
         <div className="page-header-actions">
+          <span className={`studio-save-status studio-save-status--${moduleEdit?.status ?? 'saved'}`} role="status">{finishBusy ? 'Saving…' : pendingFinish ? 'Needs attention' : moduleEdit ? ({ saved: 'Saved', saving: 'Saving…', unsaved: 'Unsaved changes', attention: 'Needs attention', conflict: 'Needs attention' })[moduleEdit.status] : 'Room studio'}</span>
           <div className="history-btns">
-            <button className="icon-btn" onClick={undo} type="button" aria-label="Undo"><Undo2 size={15} /></button>
-            <button className="icon-btn" onClick={redo} type="button" aria-label="Redo"><Redo2 size={15} /></button>
+            <button className="icon-btn" onClick={() => moduleEditor ? moduleEditor.undo() : undo()} disabled={moduleEditor ? !moduleEdit?.canUndo || savingModule : !history.length} type="button" aria-label="Undo"><Undo2 size={15} /></button>
+            <button className="icon-btn" onClick={() => moduleEditor ? moduleEditor.redo() : redo()} disabled={moduleEditor ? !moduleEdit?.canRedo || savingModule : !future.length} type="button" aria-label="Redo"><Redo2 size={15} /></button>
           </div>
           {showAdvancedCanvasTools && <button
             type="button"
@@ -2803,16 +2901,28 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
               <Zap size={14} className="text-gold" /> ⚡ 1-Click Furnish
             </button>
           )}
-          <button type="button" className="btn-primary workspace-action" disabled={!sel || loadState !== 'ready'} onClick={() => setShowDesignLibrary(current => !current)} title="Browse furniture that fits the selected room"><BookOpen size={14} /> {showDesignLibrary ? 'Close furniture library' : 'Add furniture'}</button>
+          <button type="button" className="btn-primary workspace-action" disabled={!sel || loadState !== 'ready'} onClick={() => setShowDesignLibrary(current => { if (!current) setShowRoomList(false); return !current; })} title="Browse furniture that fits the selected room"><BookOpen size={14} /> {showDesignLibrary ? 'Close furniture library' : 'Add furniture'}</button>
           <button type="button" className="btn-secondary workspace-action" aria-expanded={showAdvancedCanvasTools} onClick={() => setShowAdvancedCanvasTools(current => !current)}>{showAdvancedCanvasTools ? 'Fewer tools' : 'More tools'}</button>
-          <button type="button" className="btn-secondary workspace-action" aria-expanded={showRoomList} onClick={() => setShowRoomList(current => !current)}>{showRoomList ? 'Hide room list' : 'Room list'}</button>
+          <button type="button" className="btn-secondary workspace-action" aria-expanded={showRoomList} onClick={() => setShowRoomList(current => { if (!current) setShowDesignLibrary(false); return !current; })}>{showRoomList ? 'Hide room list' : 'Room list'}</button>
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
           <button className="btn-secondary workspace-action" disabled={!sel} onClick={() => sel && void persistRoom(sel.room).catch(() => setSaveState('Room save failed. Your draft remains available.'))} title="Save this room’s settings, bays and floor finishes"><Save size={14} /> Save room</button>
-          <button className="btn-secondary proceed-header-action workspace-action" disabled={!sel?.room.spaceRecordId} onClick={async () => { if (!sel) return; try { const roomId = sel.room.id; const sceneId = await prepareRoomReview({ save: () => persistRoom(sel.room), approve: ensureApprovedRoomLayout, compile: async saved => { setSaveState('Preparing this room’s saved 3D scene…'); return await onReviewSavedRoom?.(saved.id); } }); if (!sceneId) { setSaveState('The room is saved, but its scene could not be prepared. Check the scene error above and confirm wall bays and saved furniture.'); return; } navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(roomId)}`); } catch (error) { setSaveState(error instanceof Error ? error.message : 'Room review could not be prepared. Your saved room is unchanged.'); } }} title="Save and prepare this room’s design before opening 3D"><Rotate3d size={15} /> Review in 3D <ArrowRight size={14} /></button>
+          <button className="btn-secondary proceed-header-action workspace-action" disabled={!sel?.room.spaceRecordId} onClick={() => void openSavedRoomReview('3d')} title="Save and prepare this room’s design before opening 3D"><Rotate3d size={15} /> Review in 3D <ArrowRight size={14} /></button>
         </div>
       </div>
 
       {saveState && <p role="status" className="save-state">{saveState}</p>}
+      {reviewRecovery && <div className="studio-conflict" role="alert">
+        <strong>Retained {reviewRecovery.kind} changes</strong>
+        <p>Room: {rooms.find(room => room.spaceRecordId === reviewRecovery.roomId)?.name ?? reviewRecovery.roomId}. Open this room to recover the draft. For an unconfirmed placement, check its saved furniture and retry the same position.</p>
+        {rooms.some(room => room.spaceRecordId === reviewRecovery.roomId) && <button type="button" onClick={() => {setSelectedRoom(rooms.find(room => room.spaceRecordId === reviewRecovery.roomId)!.id);setReviewRecovery(null);}}>Open room to recover</button>}
+        <button type="button" onClick={() => {try {window.localStorage.removeItem(reviewRecovery.key);setReviewRecovery(null);}catch {setSaveState('The retained draft could not be removed.');}}}>Discard this retained draft</button>
+      </div>}
+      <nav className="studio-view-nav" aria-label="Design views">
+        <button type="button" aria-pressed={canvasRenderMode === '2d' && !showWallElevationModal} onClick={() => {setCanvasRenderMode('2d');setShowWallElevationModal(false);}}>Plan</button>
+        <button type="button" disabled={!selectedWall} onClick={() => setShowWallElevationModal(true)}>Elevation</button>
+        <button type="button" aria-pressed={canvasRenderMode === '3d_isometric'} onClick={() => setCanvasRenderMode('3d_isometric')}>3D preview</button>
+        <button type="button" disabled={!sel} onClick={() => void openSavedRoomReview('drawings')}>Review &amp; export documents</button>
+      </nav>
 
       {/* ── Active Scope Strip (Pick Only What is Needed) ── */}
       <div className="spaces-active-scope-strip" role="region" aria-label="Room and wall focus selector">
@@ -3278,7 +3388,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                   🚪 Detect Doors &amp; Windows
                 </button>
                 </>}
-                <div className="canvas-mode-toggle" role="group" aria-label="Floor plan view mode">
+                {showAdvancedCanvasTools && <div className="canvas-mode-toggle" role="group" aria-label="Floor plan view mode">
                   <button type="button" className={`canvas-mode-btn ${canvasRenderMode === '2d' ? 'active' : ''}`} onClick={() => setCanvasRenderMode('2d')}>
                     2D CAD
                   </button>
@@ -3288,7 +3398,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                   <button type="button" className={`canvas-mode-btn ${canvasRenderMode === 'stager' ? 'active' : ''}`} onClick={() => setCanvasRenderMode('stager')}>
                     Top-View Stager
                   </button>
-                </div>
+                </div>}
                 <button type="button" className="btn-primary btn-sm" onClick={() => setShowFloorPlanRenderModal(true)}>
                   <Sparkles size={13} /> 3D Plan Render
                 </button>
@@ -3310,11 +3420,12 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
               </div>
             </div>
             <div className="toolbar" aria-label="Canvas tools">
+              <button type="button" aria-pressed={editingRoom} onClick={() => {setEditingRoom(current => !current);setTool('select');}}>{editingRoom ? 'Done editing room' : 'Edit room'}</button>
               {[
                 { label: 'Navigation & Notes', tools: ['select', 'measure', 'annotate'] },
                 { label: 'Room & Partitions', tools: ['draw_room', 'wall', 'split', 'merge'] },
                 { label: 'Openings & Structural', tools: ['door', 'window', 'column', 'beam', 'service'] },
-              ].map((group) => (
+              ].filter(group => editingRoom || group.label === 'Navigation & Notes').map((group) => (
                 <div className="tool-group" key={group.label}>
                   <span className="tool-group-label">{group.label}</span>
                   <div className="tool-group-buttons">
@@ -3469,12 +3580,12 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                   initialItems={stagerItems}
                   onItemsChange={(items) => {
                     if (sel?.room.id) {
-                      setRoomFurnitureMap((prev) => ({ ...prev, [sel.room.id]: items }));
+                      setRoomFurnitureMap((prev) => prev[sel.room.id] === items ? prev : ({ ...prev, [sel.room.id]: items }));
                     }
                   }}
                   onVastuChange={(analysis) => {
                     if (sel?.room.id) {
-                      setRoomVastuMap((prev) => ({ ...prev, [sel.room.id]: analysis }));
+                      setRoomVastuMap((prev) => prev[sel.room.id] === analysis ? prev : ({ ...prev, [sel.room.id]: analysis }));
                     }
                   }}
                   onGenerateRender={(payload) => {
@@ -3597,7 +3708,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                     )}
 
                     {/* Architectural 2D Furniture for this Room */}
-                    <Room2DArchitecturalLayout room={r} toPx={toPx} scale={view.scale} />
+                    {/* Measured view shows saved modules and explicit proposals only. */}
 
                     {/* Room Identification Pill Badge */}
                     <g transform={`translate(${center.x}, ${center.y})`} style={{ pointerEvents: 'none' }}>
@@ -3748,7 +3859,9 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                 const length = wallLen(wall);
                 if (!length) return null;
                 const p = toPx({ xMm: wall.start.xMm + (wall.end.xMm - wall.start.xMm) * offset / length, yMm: wall.start.yMm + (wall.end.yMm - wall.start.yMm) * offset / length });
-                return <g pointerEvents="none" transform={`rotate(${item.position_json.rotationDeg ?? 0} ${p.x} ${p.y})`}><rect x={p.x} y={p.y} width={width * view.scale} height={depth * view.scale} fill="#d5eafa" fillOpacity="0.35" stroke="#17669c" strokeWidth="2" strokeDasharray="6 4" /><text x={p.x + 4} y={p.y - 6} fontSize="11" fill="#17669c">Unsaved preview · checked when saved</text></g>;
+                return <g transform={`rotate(${item.position_json.rotationDeg ?? 0} ${p.x} ${p.y})`}><rect pointerEvents="none" x={p.x} y={p.y} width={width * view.scale} height={depth * view.scale} fill="#d5eafa" fillOpacity="0.35" stroke="#17669c" strokeWidth="2" strokeDasharray="6 4" /><text pointerEvents="none" x={p.x + 4} y={p.y - 6} fontSize="11" fill="#17669c">{moduleEdit?.status === 'saved' ? 'Selected furniture' : 'Proposed changes · checked when saved'}</text>
+                  {!savingModule && moduleEdit?.status !== 'conflict' && <g transform={`translate(${p.x} ${p.y})`}><ModuleTransformHandles draft={moduleDraft} scale={view.scale} rotationDeg={item.position_json.rotationDeg ?? 0} wallLengthMm={length} toWorld={svgPoint} onEdit={draft => moduleEditor?.edit(draft)} onActive={setModulePointerActive} onCommit={() => void saveSelectedModule()} /></g>}
+                </g>;
               })()}
               {layers.aiOverlay && showAiProposalsOnCanvas && aiProposals.filter(prop => !savedModules.some(item => item.id === prop.id)).map((prop) => {
                 const pos = toPx(prop.position);
@@ -4151,24 +4264,48 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
 
 
           {/* Region: Properties (room / wall) */}
-          <aside className="region props-region">
+          <aside className={`region props-region${selectedSavedModuleId ? ' props-region--unit-selected' : ''}${advancedInspector ? ' props-region--advanced' : ''}`}>
             <div className="region-title"><Edit3 size={14} /> Room &amp; furniture details</div>
             {sel && <section className="saved-furniture-inspector" aria-label="Saved room furniture">
               <strong>{savedModules.length ? `Saved furniture in ${sel.room.name}` : 'Start furnishing this room'}</strong>
               <p>{savedModules.length ? 'Select an item on the plan or below to adjust its size and wall position.' : 'Choose Add furniture, pick a unit, then click a clear measured wall. Green means the preview passes the available geometry checks; saving checks the current project again.'}</p>
-              <div className="saved-furniture-list">{savedModules.map(item => <button type="button" key={item.id} aria-pressed={selectedSavedModuleId === item.id} onClick={() => selectSavedModule(item)}>{item.label}</button>)}</div>
+              <div className="saved-furniture-list">{savedModules.map(item => {
+                let retained = false;
+                try { retained = !!window.localStorage.getItem(`ultida.module-draft.v1:${[editorUserId,projectId,activeSpaceId,item.id].join('/')}`); } catch { /* The editor reports storage failures. */ }
+                return <button type="button" key={item.id} aria-pressed={selectedSavedModuleId === item.id} onClick={() => selectSavedModule(item)}>{item.label}{retained ? ' · recover draft' : ''}</button>;
+              })}</div>
+              {pendingFinish && <div role="alert" className="studio-conflict">
+                <strong>{pendingFinish.conflict ? 'Finish conflict' : 'Unsaved finish selection'}</strong>
+                <p>Proposed: {finishLibrary.find(item => item.id === pendingFinish.materialId)?.name ?? pendingFinish.materialId} · {pendingFinish.moduleId ? 'Selected unit' : 'Project internal laminate'}</p>
+                {pendingFinish.error && <p>{pendingFinish.error}</p>}
+                {pendingFinish.conflict ? <>
+                  <p>Saved: {finishLibrary.find(item => item.id === savedFinish(pendingFinish.slot, pendingFinish.moduleId))?.name ?? 'No saved finish'}</p>
+                  <button type="button" disabled={finishBusy} onClick={() => retainFinish(null)}>Use saved finish</button>
+                  <button type="button" disabled={finishBusy} onClick={() => {const revisions = finishAssignments.filter(item => item.semantic_slot === pendingFinish.slot && item.target_kind === (pendingFinish.moduleId ? 'module' : 'semantic_slot') && item.target_id === (pendingFinish.moduleId ?? projectId)).map(item => Number(item.revision)); const next = {...pendingFinish,conflict:false,error:'',expectedRevision:Math.max(0,...revisions)};retainFinish(next);void saveFinishDraft(next);}}>Keep proposed finish and retry</button>
+                </> : <button type="button" disabled={finishBusy} onClick={() => void saveFinishDraft(pendingFinish)}>{finishBusy ? 'Saving finish…' : 'Retry finish save'}</button>}
+              </div>}
               <div className="saved-furniture-fields">
-                <label>Standard internal laminate<select disabled={finishBusy} value={savedFinish('carcass')} onChange={event => void assignFinish('carcass', event.target.value)}><option value="">Select approved library material</option>{finishLibrary.filter(material => /laminate|liner/i.test(`${material.category} ${material.name}`)).map(material => <option key={material.id} value={material.id}>{material.name} · {material.code}</option>)}</select></label>
-                {selectedSavedModuleId && <label>This unit’s external finish<select disabled={finishBusy} value={savedFinish('shutter', selectedSavedModuleId)} onChange={event => void assignFinish('shutter', event.target.value, selectedSavedModuleId)}><option value="">Select external finish</option>{finishLibrary.filter(material => /laminate|veneer|acrylic/i.test(`${material.category} ${material.name}`)).map(material => <option key={material.id} value={material.id}>{material.name} · {material.code}</option>)}</select></label>}
+                <label className="finish-search">Find a finish<input type="search" placeholder="Search name or manufacturer code" value={finishQuery} onChange={event => setFinishQuery(event.target.value)} /></label>
+                <label>Project internal laminate · inherited<select disabled={finishBusy || !!pendingFinish} value={savedFinish('carcass')} onChange={event => void assignFinish('carcass', event.target.value)}><option value="">Select approved library material</option>{finishLibrary.filter(material => /laminate|liner/i.test(`${material.category} ${material.name}`) && `${material.name} ${material.code}`.toLowerCase().includes(finishQuery.toLowerCase())).map(material => <option key={material.id} value={material.id}>{material.name} · {material.code}</option>)}</select></label>
+                {selectedSavedModuleId && <label>This unit’s external finish<select disabled={finishBusy || !!pendingFinish} value={savedFinish('shutter', selectedSavedModuleId)} onChange={event => void assignFinish('shutter', event.target.value, selectedSavedModuleId)}><option value="">Select external finish</option>{finishLibrary.filter(material => /laminate|veneer|acrylic/i.test(`${material.category} ${material.name}`) && `${material.name} ${material.code}`.toLowerCase().includes(finishQuery.toLowerCase())).map(material => <option key={material.id} value={material.id}>{material.name} · {material.code}</option>)}</select></label>}
               </div>
               <small>Internal standard applies across this project. External finish belongs to the selected unit. Board and backing thickness remain construction specifications.</small>
               {!finishLibrary.length && <button type="button" disabled={finishBusy} onClick={() => void addStarterFinishes()}>Add starter finishes · supplier confirmation required</button>}
               {selectedSavedModuleId && moduleDraft && <>
-                <div className="saved-furniture-fields">{(['widthMm', 'depthMm', 'heightMm', 'offsetMm'] as const).map(key => <label key={key}>{({ widthMm: 'Width', depthMm: 'Depth', heightMm: 'Height', offsetMm: 'Wall offset' })[key]} (mm)<input type="number" min={key === 'offsetMm' ? 0 : 0.1} step="any" value={moduleDraft[key]} onChange={event => setModuleDraft(current => current ? { ...current, [key]: event.target.value } : current)} /></label>)}</div>
-                <button type="button" disabled={savingModule} onClick={() => void saveSelectedModule()}>{savingModule ? 'Saving furniture…' : 'Save furniture changes'}</button>
-                <button type="button" disabled={savingModule} onClick={() => { setSelectedSavedModuleId(null); setModuleDraft(null); }}>Cancel edit</button>
+                {moduleEdit?.storageWarning && <p role="alert">{moduleEdit.storageWarning}</p>}
+                {moduleEdit?.error && <p role="alert">{moduleEdit.error}</p>}
+                {moduleEdit?.conflict && <div className="studio-conflict" role="region" aria-label="Resolve furniture conflict">
+                  <strong>Saved version and your proposed changes</strong>
+                  <table><thead><tr><th>Dimension</th><th>Saved</th><th>Yours</th></tr></thead><tbody>{(['widthMm','depthMm','heightMm','offsetMm'] as const).map(key => <tr key={key}><th>{key === 'offsetMm' ? 'Offset' : key.replace('Mm','')} (mm)</th><td>{key === 'offsetMm' ? moduleEdit.conflict!.position_json.offsetMm : moduleEdit.conflict!.config_json[key]}</td><td>{moduleDraft[key]}</td></tr>)}</tbody></table>
+                  <button type="button" onClick={() => { const current = moduleEdit.conflict!; setSavedModules(rows => rows.map(row => row.id === current.id ? current : row)); moduleEditor?.resolve('saved'); }}>Use saved version</button>
+                  <button type="button" onClick={() => { const current = moduleEdit.conflict!; setSavedModules(rows => rows.map(row => row.id === current.id ? current : row)); moduleEditor?.resolve('proposed'); }}>Keep my changes and retry</button>
+                </div>}
+                <div className="saved-furniture-fields">{(['widthMm', 'depthMm', 'heightMm', 'offsetMm'] as const).map(key => <label key={key}>{({ widthMm: 'Width', depthMm: 'Depth', heightMm: 'Height', offsetMm: 'Wall offset' })[key]} (mm)<input type="number" min={key === 'offsetMm' ? 0 : 0.1} step="any" value={moduleDraft[key]} onChange={event => moduleEditor?.edit({ [key]: event.target.value })} onBlur={() => void saveSelectedModule()} /></label>)}</div>
+                <button type="button" disabled={savingModule} onClick={() => void saveSelectedModule()}>{savingModule ? 'Saving furniture…' : moduleEdit?.status === 'attention' ? 'Retry save' : 'Save furniture changes'}</button>
+                <button type="button" disabled={savingModule} onClick={() => { setSelectedSavedModuleId(null); setModuleEditor(null); }}>Close inspector</button>
               </>}
             </section>}
+            {selectedSavedModuleId && <button type="button" className="btn-secondary" aria-expanded={advancedInspector} onClick={() => setAdvancedInspector(value => !value)}>{advancedInspector ? 'Hide room and construction settings' : 'Room and construction settings'}</button>}
             {sel ? (
               <div className="props-body">
                 <div className="room-workflow-summary">
@@ -4712,6 +4849,8 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                           initialSchedule={compositionSchedules[activeWall.id] || null}
                           onScheduleChange={(newSchedule) => {
                             setCompositionSchedules((prev) => {
+                              const prior = prev[activeWall.id];
+                              if (prior && JSON.stringify({ ...prior, confirmedAt: undefined }) === JSON.stringify({ ...newSchedule, confirmedAt: undefined })) return prev;
                               const next = { ...prev, [activeWall.id]: newSchedule };
                               if (projectId) {
                                 try { window.localStorage.setItem(`ultida.compositionSchedules.${projectId}`, JSON.stringify(next)); } catch {}
@@ -4775,6 +4914,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                       initialSurface={floorSurfaces[sel.room.id] || null}
                       onSurfaceChange={(surface) => {
                         setFloorSurfaces((prev) => {
+                          if (JSON.stringify(prev[sel.room.id]) === JSON.stringify(surface)) return prev;
                           const next = { ...prev, [sel.room.id]: surface };
                           if (projectId) {
                             try { window.localStorage.setItem(`ultida.floorSurfaces.${projectId}`, JSON.stringify(next)); } catch {}
@@ -4784,6 +4924,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                       }}
                       onSave={(surface, quantity) => {
                         setFloorSurfaces((prev) => {
+                          if (JSON.stringify(prev[sel.room.id]) === JSON.stringify(surface)) return prev;
                           const next = { ...prev, [sel.room.id]: surface };
                           if (projectId) {
                             try { window.localStorage.setItem(`ultida.floorSurfaces.${projectId}`, JSON.stringify(next)); } catch {}
@@ -5804,6 +5945,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
         </div>
       )}
     </div>
+    </>
   );
 }
 

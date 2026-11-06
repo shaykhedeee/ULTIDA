@@ -1,3 +1,4 @@
+import { computeRoomLayoutCandidates } from './room-layout-candidates.js';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { selectProjectDossierScenes } from './project-dossier-manifest.js';
 import { nestLaminateFaces, generateNestingSheetsSvg } from '@ultida/drawing-core';
@@ -48,7 +49,7 @@ import { resolveModuleWallAnchor } from './module-anchor.js';
 import { ModuleEditSchema, prepareModuleEdit, prepareModulePlacement, validateModuleClearance } from './module-edit.js';
 import { compileStoredModuleForScene } from './scene-module-parts.js';
 import { invalidateModuleOutputs } from './module-output-invalidation.js';
-import { evaluateVastuCompliance, generateCandidates } from '@ultida/layout-core';
+import { evaluateVastuCompliance } from '@ultida/layout-core';
 import { compileReferenceContext, retrieveReferences, type ReferenceVaultRecord } from './reference-retrieval.js';
 import { getDeploymentIdentity, isPreviewWriteAllowed } from './deployment-identity.js';
 import { resolveKitchenAiSelection } from './kitchen-ai-selection.js';
@@ -2265,7 +2266,8 @@ app.get('/api/projects/:projectId/module-instances', requireProjectUser, async (
 
 app.post('/api/projects/:projectId/module-instances', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
-  const { spaceId, layoutId, templateId, category, label, config, position } = request.body ?? {};
+  const { spaceId, layoutId, templateId, category, label, config, position, requestId, prepareRoom } = request.body ?? {};
+  if (requestId !== undefined && (typeof requestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId))) return response.status(400).json({ success: false, code: 'INVALID_REQUEST_ID', message: 'Use a UUID for the placement request.' });
   if (typeof spaceId !== 'string' || typeof templateId !== 'string' || typeof category !== 'string' || !config || !position) {
     return response.status(400).json({ success: false, code: 'INVALID_MODULE_INSTANCE', message: 'spaceId, templateId, category, config and an anchored position are required.' });
   }
@@ -2273,7 +2275,7 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
     return response.status(422).json({ success: false, code: 'MODULE_DIMENSIONS_INVALID', message: 'Module width, depth, and height must be positive millimetre values.' });
   }
   const client = getRequestSupabaseClient(request);
-  const space = await client.from('spaces').select('id,space_id,project_id,organization_id,floor_plan_version_id').eq('id', spaceId).eq('project_id', request.params.projectId).single();
+  const space = await client.from('spaces').select('*').eq('id', spaceId).eq('project_id', request.params.projectId).single();
   if (space.error || !space.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected room does not belong to this project.' });
   const activePlan = await client.from('floor_plan_versions').select('id,canonical_model').eq('project_id', request.params.projectId).eq('active_version', true).eq('status', 'approved').maybeSingle();
   if (activePlan.error || !activePlan.data) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'Approve the plan before placing modules.' });
@@ -2284,8 +2286,14 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
   if (!resolvedAnchor.ok) return response.status(422).json({ success: false, code: resolvedAnchor.code, message: resolvedAnchor.message });
   const existingOnWall = await client.from('module_instances').select('*').eq('project_id', request.params.projectId).eq('space_id', spaceId).in('status', ['validated', 'approved']);
   if (existingOnWall.error) return response.status(500).json({ success: false, code: 'MODULE_COLLISION_LOOKUP_FAILED', message: existingOnWall.error.message });
-  const clearance = prepareModulePlacement({ id: crypto.randomUUID(), space_id: spaceId, template_id: templateId, category, config_json: config, position_json: resolvedAnchor.anchor }, plan.data, space.data.space_id, existingOnWall.data ?? []);
+  const clearance = prepareModulePlacement({ id: requestId ?? crypto.randomUUID(), space_id: spaceId, template_id: templateId, category, config_json: config, position_json: resolvedAnchor.anchor }, plan.data, space.data.space_id, existingOnWall.data ?? []);
   if (!clearance.ok) return response.status(422).json({ success: false, code: clearance.code, message: clearance.message });
+  let placementSetup: any = null;
+  if (prepareRoom === true) {
+    if (space.data.requirements_json?.included === false || space.data.status !== 'configured') return response.status(409).json({ success: false, code: 'SPACE_CONFIGURATION_REQUIRED', message: 'Save this room’s measurements and requirements before furnishing it.' });
+    const key = category.includes('kitchen') ? 'kitchen_base' : ({ 'tv-unit':'tv_unit', wardrobe:'wardrobe', crockery:'crockery_unit', study:'study_unit', pooja:'pooja_unit', bed:'bed', utility:'utility_unit' } as Record<string,string>)[category] ?? 'storage_unit';
+    placementSetup = { requirements: { ...space.data.requirements_json, requiredFurniture: [...new Set([...(space.data.requirements_json?.requiredFurniture ?? []), key])] } };
+  }
   let resolvedLayoutId = typeof layoutId === 'string' ? layoutId : null;
   if (resolvedLayoutId) {
     const layout = await client.from('layouts').select('id,status').eq('id', resolvedLayoutId).eq('project_id', request.params.projectId).eq('space_id', spaceId).maybeSingle();
@@ -2294,8 +2302,14 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
   } else {
     const layout = await client.from('layouts').select('id').eq('project_id', request.params.projectId).eq('space_id', spaceId).eq('status', 'approved').order('approved_at', { ascending: false }).limit(1).maybeSingle();
     if (layout.error) return response.status(500).json({ success: false, code: 'LAYOUT_LOOKUP_FAILED', message: layout.error.message });
-    if (!layout.data) return response.status(409).json({ success: false, code: 'APPROVED_LAYOUT_REQUIRED', message: 'Generate and approve a layout for this room before placing modules.' });
-    resolvedLayoutId = layout.data.id;
+    if (!layout.data) {
+      if (!placementSetup) return response.status(409).json({ success: false, code: 'APPROVED_LAYOUT_REQUIRED', message: 'Generate and approve a layout for this room before placing modules.' });
+      const generated = await computeRoomLayoutCandidates(client, String(request.params.projectId), { spaceId, roomCategory: space.data.room_type, requirements: placementSetup.requirements, candidateTypes: ['balanced'], shape: space.data.requirements_json?.designPriority ?? 'balanced' });
+      const candidate = generated.body?.candidates?.find((item: any) => item.validation?.valid === true);
+      if (generated.status !== 200 || !candidate || generated.body.floorPlanVersionId !== activePlan.data.id) return response.status(422).json({ success: false, code: 'ROOM_LAYOUT_INVALID', message: generated.body?.message ?? 'Review this room’s measured walls and openings before placing furniture.' });
+      placementSetup.candidate = { ...candidate, floorPlanVersionId: activePlan.data.id, spaceId };
+      resolvedLayoutId = crypto.randomUUID();
+    } else resolvedLayoutId = layout.data.id;
   }
   const row = {
     id: clearance.candidate.id,
@@ -2309,13 +2323,15 @@ app.post('/api/projects/:projectId/module-instances', requireProjectUser, async 
     config_json: { ...config, spaceId, floorPlanVersionId: activePlan.data.id },
     position_json: resolvedAnchor.anchor,
     status: 'validated',
-    validation_json: { partCount: clearance.partCount, sceneRecompileRequired: true },
+    validation_json: { partCount: clearance.partCount, sceneRecompileRequired: true, ...(requestId ? { requestId, request: request.body } : {}) },
     created_by: authReq.ultidaUser!.id,
   };
-  const invalidationError = await invalidateModuleOutputs(client, String(request.params.projectId));
-  if (invalidationError) return response.status(503).json({ success: false, code: 'MODULE_OUTPUT_INVALIDATION_FAILED', message: invalidationError });
-  const created = await client.from('module_instances').insert(row).select('*').single();
-  if (created.error) return response.status(500).json({ success: false, code: 'MODULE_INSTANCE_CREATE_FAILED', message: created.error.message });
+  const created = await client.rpc('save_room_module_atomic', {
+    p_project_id: String(request.params.projectId), p_room_id: spaceId,
+    p_room_updated_at: space.data.updated_at, p_plan: activePlan.data.canonical_model,
+    p_expected_modules: (existingOnWall.data ?? []).map((item: any) => ({ id: item.id, updated_at: item.updated_at })), p_module: row, p_setup: placementSetup,
+  });
+  if (created.error) return response.status(created.error.code === '40001' ? 409 : 503).json({ success: false, code: created.error.code === '40001' ? 'ROOM_PLACEMENT_STALE' : 'MODULE_INSTANCE_CREATE_FAILED', message: created.error.code === '40001' ? 'This room changed while placing furniture. Review its saved furniture and retry.' : 'Furniture could not be saved. Your placement can be retried safely.' });
   return response.status(201).json({ success: true, module: created.data, sceneRecompileRequired: true });
 });
 
@@ -2328,7 +2344,7 @@ app.patch('/api/projects/:projectId/module-instances/:moduleId', requireProjectU
   if (current.error) return response.status(500).json({ success: false, code: 'MODULE_READ_FAILED', message: 'Unable to load the module.' });
   if (!current.data) return response.status(404).json({ success: false, code: 'MODULE_NOT_FOUND', message: 'Module not found in this project.' });
   if (Date.parse(current.data.updated_at) !== Date.parse(parsed.data.expectedUpdatedAt)) return response.status(409).json({ success: false, code: 'MODULE_EDIT_STALE', message: 'This module changed. Reload it before saving another edit.' });
-  const space = await client.from('spaces').select('id,space_id,floor_plan_version_id').eq('id', current.data.space_id).eq('project_id', projectId).maybeSingle();
+  const space = await client.from('spaces').select('id,space_id,floor_plan_version_id,updated_at').eq('id', current.data.space_id).eq('project_id', projectId).maybeSingle();
   const activePlan = await client.from('floor_plan_versions').select('id,canonical_model').eq('project_id', projectId).eq('active_version', true).eq('status', 'approved').maybeSingle();
   if (space.error || activePlan.error) return response.status(500).json({ success: false, code: 'MODULE_LINEAGE_READ_FAILED', message: 'Unable to verify the current room and plan.' });
   if (!space.data || !activePlan.data || space.data.floor_plan_version_id !== activePlan.data.id || current.data.config_json?.floorPlanVersionId !== activePlan.data.id) return response.status(409).json({ success: false, code: 'SPACE_PLAN_VERSION_STALE', message: 'The module must belong to the active approved plan and room.' });
@@ -2347,15 +2363,15 @@ app.patch('/api/projects/:projectId/module-instances/:moduleId', requireProjectU
   if (!edit.ok) return response.status(422).json({ success: false, code: edit.code, message: edit.message });
   const actorId = (request as import('./api-auth.js').AuthenticatedRequest).ultidaUser!.id;
   const updatedAt = new Date(Math.max(Date.now(), Date.parse(current.data.updated_at) + 1)).toISOString();
-  const invalidationError = await invalidateModuleOutputs(client, projectId);
-  if (invalidationError) return response.status(503).json({ success: false, code: 'MODULE_OUTPUT_INVALIDATION_FAILED', message: invalidationError });
-  const updated = await client.from('module_instances').update({
-    config_json: edit.candidate.config_json, position_json: edit.candidate.position_json,
-    status: 'validated', updated_at: updatedAt,
-    validation_json: { ...current.data.validation_json, lastEdit: { actorId, reason: parsed.data.reason, sourceUpdatedAt: current.data.updated_at, updatedAt, floorPlanVersionId: activePlan.data.id }, partCount: edit.partCount, sceneRecompileRequired: true },
-  }).eq('id', current.data.id).eq('project_id', projectId).eq('updated_at', current.data.updated_at).select('*').maybeSingle();
-  if (updated.error) return response.status(500).json({ success: false, code: 'MODULE_EDIT_FAILED', message: 'The module could not be saved.' });
-  if (!updated.data) return response.status(409).json({ success: false, code: 'MODULE_EDIT_STALE', message: 'Another edit was saved first. Reload the module.' });
+  const updated = await client.rpc('save_room_module_atomic', {
+    p_project_id: projectId, p_room_id: current.data.space_id, p_room_updated_at: space.data.updated_at,
+    p_plan: activePlan.data.canonical_model,
+    p_expected_modules: (neighbours.data ?? []).map((item: any) => ({ id: item.id, updated_at: item.updated_at })),
+    p_expected_updated_at: current.data.updated_at,
+    p_module: { ...current.data, config_json: edit.candidate.config_json, position_json: edit.candidate.position_json,
+      validation_json: { ...current.data.validation_json, lastEdit: { actorId, reason: parsed.data.reason, sourceUpdatedAt: current.data.updated_at, updatedAt, floorPlanVersionId: activePlan.data.id }, partCount: edit.partCount, sceneRecompileRequired: true } },
+  });
+  if (updated.error) return response.status(updated.error.code === '40001' ? 409 : 503).json({ success: false, code: updated.error.code === '40001' ? 'MODULE_EDIT_STALE' : 'MODULE_EDIT_FAILED', message: updated.error.code === '40001' ? 'This room changed. Compare the latest saved furniture before retrying.' : 'Furniture could not be saved. Your draft is retained.' });
   return response.json({ success: true, module: updated.data, sceneRecompileRequired: true });
 });
 
@@ -2626,35 +2642,17 @@ app.post('/api/projects/:projectId/material-assignments', requireProjectUser, as
     const module = await client.from('module_instances').select('id').eq('id', parsed.data.moduleInstanceId).eq('project_id', projectId).single();
     if (module.error || !module.data) return response.status(422).json({ success: false, code: 'MATERIAL_MODULE_NOT_FOUND', message: 'The material target module does not belong to this project.' });
   }
-  const latestRevision = await client.from('material_assignments')
-    .select('revision')
-    .eq('project_id', projectId)
-    .eq('target_kind', parsed.data.targetKind)
-    .eq('target_id', parsed.data.targetId)
-    .eq('semantic_slot', parsed.data.semanticSlot)
-    .order('revision', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (latestRevision.error) return response.status(500).json({ success: false, code: 'MATERIAL_REVISION_LOOKUP_FAILED', message: latestRevision.error.message });
-  const nextRevision = Math.max(parsed.data.revision, Number(latestRevision.data?.revision ?? 0) + 1);
-  // Finish invalidating prior scene approvals and dependent output before the
-  // new assignment becomes the material source for compilation. A failed
-  // invalidation must never leave an approved scene representing the old finish.
-  const invalidationError = await invalidateModuleOutputs(client, projectId);
-  if (invalidationError) return response.status(503).json({ success: false, code: 'MATERIAL_OUTPUT_INVALIDATION_FAILED', message: invalidationError });
-  const assignment = await client.from('material_assignments').insert({
-    organization_id: project.data.organization_id,
-    project_id: projectId,
-    material_id: parsed.data.materialId,
-    module_instance_id: parsed.data.moduleInstanceId ?? null,
-    target_kind: parsed.data.targetKind,
-    target_id: parsed.data.targetId,
-    semantic_slot: parsed.data.semanticSlot,
-    revision: nextRevision,
-    status: parsed.data.status,
-    created_by: authReq.ultidaUser!.id,
-  }).select('*').single();
-  if (assignment.error) return response.status(500).json({ success: false, code: 'MATERIAL_ASSIGNMENT_CREATE_FAILED', message: assignment.error.message });
+  const expectedRevision = request.body?.expectedRevision;
+  if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) return response.status(400).json({ success: false, code: 'INVALID_FINISH_REVISION' });
+  const requestId = request.body?.requestId;
+  if (requestId !== undefined && (typeof requestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId))) return response.status(400).json({ success: false, code: 'INVALID_REQUEST_ID' });
+  const assignment = await client.rpc('save_studio_finish_atomic', {
+    p_project_id: projectId, p_expected_revision: expectedRevision ?? null,
+    p_assignment: { id: requestId ?? crypto.randomUUID(), material_id: parsed.data.materialId,
+      module_instance_id: parsed.data.moduleInstanceId ?? null, target_kind: parsed.data.targetKind,
+      target_id: parsed.data.targetId, semantic_slot: parsed.data.semanticSlot, status: parsed.data.status },
+  });
+  if (assignment.error) return response.status(assignment.error.code === '40001' ? 409 : 503).json({ success: false, code: assignment.error.code === '40001' ? 'MATERIAL_ASSIGNMENT_STALE' : 'MATERIAL_ASSIGNMENT_CREATE_FAILED', message: assignment.error.code === '40001' ? 'This finish changed. Compare the saved finish with your proposed selection before retrying.' : 'The finish could not be saved. Your selection can be retried safely.' });
   return response.status(201).json({ success: true, assignment: assignment.data, invalidated: { scenes: true, artifacts: true, quotes: true } });
 });
 
@@ -3321,89 +3319,8 @@ app.get('/api/projects/:projectId/layouts', requireProjectUser, async (request, 
 });
 
 app.post('/api/projects/:projectId/layout-candidates', requireProjectUser, async (request, response) => {
-  const { spaceId, roomCategory, candidateTypes, requirements, shape } = request.body ?? {};
-  if (typeof spaceId !== 'string' || typeof roomCategory !== 'string') {
-    return response.status(400).json({ success: false, code: 'INVALID_LAYOUT_INPUT', message: 'spaceId and roomCategory are required.' });
-  }
-  const client = getRequestSupabaseClient(request);
-  const project = await client.from('projects').select('active_floor_plan_version_id').eq('id', request.params.projectId).single();
-  if (project.error || !project.data?.active_floor_plan_version_id) return response.status(409).json({ success: false, code: 'APPROVED_PLAN_REQUIRED', message: 'An active approved floor plan is required.' });
-  const [spaceResult, planResult] = await Promise.all([
-    client.from('spaces').select('*').eq('id', spaceId).eq('project_id', request.params.projectId).eq('floor_plan_version_id', project.data.active_floor_plan_version_id).single(),
-    client.from('floor_plan_versions').select('id,canonical_model').eq('id', project.data.active_floor_plan_version_id).single(),
-  ]);
-  if (spaceResult.error || !spaceResult.data) return response.status(404).json({ success: false, code: 'SPACE_NOT_FOUND', message: 'The selected room is not part of the active approved plan.' });
-  if (spaceResult.data.requirements_json?.included === false) return response.status(409).json({ success: false, code: 'SPACE_OUT_OF_SCOPE', message: 'Include this room in Spaces before generating a layout.' });
-  if (spaceResult.data.status !== 'configured') return response.status(409).json({ success: false, code: 'SPACE_CONFIGURATION_REQUIRED', message: 'Save this room’s requirements and scene setup before generating layouts.' });
-  if (planResult.error || !planResult.data) return response.status(404).json({ success: false, code: 'PLAN_NOT_FOUND', message: 'The active approved plan could not be loaded.' });
-  const plan = (planResult.data.canonical_model ?? {}) as any;
-  const rooms = Array.isArray(plan.rooms) ? plan.rooms : Array.isArray(plan.spaces) ? plan.spaces : [];
-  const normalizeRoomLabel = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ');
-  const plannedRoomName = spaceResult.data.name ?? spaceResult.data.room_type ?? spaceId;
-  const plannedRoomWords = new Set(normalizeRoomLabel(`${plannedRoomName} ${spaceResult.data.room_type ?? ''}`).split(' ').filter(word => word.length > 2 && word !== 'room'));
-  const matchingByName = rooms.filter((item: any) => normalizeRoomLabel(item.name ?? item.roomType ?? item.type) === normalizeRoomLabel(plannedRoomName));
-  const matchingByType = rooms.filter((item: any) => normalizeRoomLabel(item.roomType ?? item.type) === normalizeRoomLabel(spaceResult.data.room_type));
-  const matchingByDistinctWord = rooms.filter((item: any) => normalizeRoomLabel(`${item.id ?? ''} ${item.name ?? ''} ${item.roomType ?? item.type ?? ''}`).split(' ').some(word => plannedRoomWords.has(word)));
-  const room = rooms.find((item: any) => item.id === spaceResult.data.space_id)
-    ?? rooms.find((item: any) => item.id === spaceId)
-    ?? (matchingByName.length === 1 ? matchingByName[0] : null)
-    ?? (matchingByType.length === 1 ? matchingByType[0] : null)
-    ?? (matchingByDistinctWord.length === 1 ? matchingByDistinctWord[0] : null);
-  const polygon = room?.worldPolygon ?? room?.worldGeometry?.polygon ?? room?.polygon ?? spaceResult.data.geometry_json?.polygon ?? [];
-  const points = Array.isArray(polygon) ? polygon.map((point: any) => ({ x: Number(point.xMm ?? point.x ?? point[0]), y: Number(point.yMm ?? point.y ?? point[1]) })).filter((point: any) => Number.isFinite(point.x) && Number.isFinite(point.y)) : [];
-  if (points.length < 3) return response.status(422).json({ success: false, code: 'ROOM_GEOMETRY_UNAVAILABLE', message: 'The approved room has no valid canonical polygon.' });
-  const minX = Math.min(...points.map((point: any) => point.x));
-  const maxX = Math.max(...points.map((point: any) => point.x));
-  const minY = Math.min(...points.map((point: any) => point.y));
-  const maxY = Math.max(...points.map((point: any) => point.y));
-  const walls = Array.isArray(plan.walls) ? plan.walls : [];
-  let usableWalls = walls.map((wall: any) => {
-    const start = wall.worldStart ?? wall.worldGeometry?.start ?? wall.start;
-    const end = wall.worldEnd ?? wall.worldGeometry?.end ?? wall.end;
-    if (!start || !end) return null;
-    return { id: String(wall.id), minX: Math.min(Number(start.xMm ?? start.x), Number(end.xMm ?? end.x)), minY: Math.min(Number(start.yMm ?? start.y), Number(end.yMm ?? end.y)), maxX: Math.max(Number(start.xMm ?? start.x), Number(end.xMm ?? end.x)), maxY: Math.max(Number(start.yMm ?? start.y), Number(end.yMm ?? end.y)), orientation: Math.abs(Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x)) >= Math.abs(Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) ? 'north' : 'east' };
-  }).filter((wall: any) => wall && wall.maxX >= minX - 250 && wall.minX <= maxX + 250 && wall.maxY >= minY - 250 && wall.minY <= maxY + 250);
-  // AI plans can contain valid room loops before every shared wall is fully
-  // reconciled. Layout still needs stable, measured wall anchors, so derive
-  // missing boundary edges from the accepted room polygon.
-  if (usableWalls.length < 3) {
-    usableWalls = points.map((point: any, index: number) => {
-      const next = points[(index + 1) % points.length];
-      const horizontal = Math.abs(next.x - point.x) >= Math.abs(next.y - point.y);
-      return {
-        id: `room-boundary-${spaceId}-${index + 1}`,
-        minX: Math.min(point.x, next.x), minY: Math.min(point.y, next.y),
-        maxX: Math.max(point.x, next.x), maxY: Math.max(point.y, next.y),
-        orientation: horizontal ? (point.y <= (minY + maxY) / 2 ? 'north' : 'south') : (point.x <= (minX + maxX) / 2 ? 'west' : 'east'),
-      };
-    }).filter((wall: any) => Math.hypot(wall.maxX - wall.minX, wall.maxY - wall.minY) >= 300);
-  }
-  const usableWallIds = new Set(usableWalls.map((wall: any) => String(wall.id)));
-  const openings = (Array.isArray(plan.openings) ? plan.openings : []).map((opening: any) => {
-    const wall = walls.find((candidate: any) => String(candidate.id) === String(opening.wallId));
-    const start = wall?.worldStart ?? wall?.worldGeometry?.start ?? wall?.start;
-    const end = wall?.worldEnd ?? wall?.worldGeometry?.end ?? wall?.end;
-    const offset = Number(opening.offsetMm ?? opening.offsetAlongWallMm ?? 0);
-    const length = start && end ? Math.hypot(Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x), Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) : 0;
-    const t = length > 0 ? Math.max(0, Math.min(1, offset / length)) : 0;
-    const xMm = Number(opening.worldPosition?.xMm ?? opening.xMm ?? (start ? Number(start.xMm ?? start.x) + (Number(end.xMm ?? end.x) - Number(start.xMm ?? start.x)) * t : offset));
-    const yMm = Number(opening.worldPosition?.yMm ?? opening.yMm ?? (start ? Number(start.yMm ?? start.y) + (Number(end.yMm ?? end.y) - Number(start.yMm ?? start.y)) * t : 0));
-    return { id: String(opening.id), wallId: opening.wallId ? String(opening.wallId) : undefined, type: opening.kind === 'window' ? 'window' : 'door', xMm, yMm, widthMm: Math.max(300, Number(opening.widthMm ?? 900)), heightMm: Math.max(300, Number(opening.heightMm ?? (opening.kind === 'window' ? 1200 : 2100))), swingDeg: opening.swingDeg == null ? undefined : Number(opening.swingDeg) };
-  }).filter((opening: any) => (opening.wallId && usableWallIds.has(opening.wallId)) || (opening.xMm >= minX - 250 && opening.xMm <= maxX + 250 && opening.yMm >= minY - 250 && opening.yMm <= maxY + 250));
-  const servicePoints = (Array.isArray(plan.servicePoints) ? plan.servicePoints : []).map((point: any) => ({ id: String(point.id), xMm: Number(point.position?.xMm ?? point.xMm ?? 0), yMm: Number(point.position?.yMm ?? point.yMm ?? 0), type: String(point.kind ?? point.type ?? 'service') })).filter((point: any) => point.xMm >= minX && point.xMm <= maxX && point.yMm >= minY && point.yMm <= maxY);
-  const structuralElements = [
-    ...(Array.isArray(plan.columns) ? plan.columns : []),
-    ...(Array.isArray(plan.beams) ? plan.beams : []),
-  ].map((item: any) => ({ id: String(item.id), type: String(item.kind ?? item.type ?? 'structure'), xMm: Number(item.position?.xMm ?? item.start?.xMm ?? item.xMm ?? 0), yMm: Number(item.position?.yMm ?? item.start?.yMm ?? item.yMm ?? 0), widthMm: Math.max(1, Number(item.widthMm ?? item.sizeMm ?? 300)), depthMm: Math.max(1, Number(item.depthMm ?? item.sizeMm ?? 300)) })).filter((item: any) => item.xMm >= minX - 250 && item.xMm <= maxX + 250 && item.yMm >= minY - 250 && item.yMm <= maxY + 250);
-  try {
-    const savedRequirements = spaceResult.data.requirements_json && typeof spaceResult.data.requirements_json === 'object' ? spaceResult.data.requirements_json : {};
-    const generated = generateCandidates({ projectId: request.params.projectId, spaceId, roomCategory, floorPlanVersionId: project.data.active_floor_plan_version_id, shape: String(shape ?? 'balanced'), candidateTypes: Array.isArray(candidateTypes) ? candidateTypes : ['maximum_storage', 'best_circulation', 'balanced', 'cost_efficient'], requirements: { ...savedRequirements, ...(requirements && typeof requirements === 'object' ? requirements : {}) }, roomBoundingBoxMm: { minX, minY, maxX, maxY }, usableWalls, openings, servicePoints, structuralElements, companyRules: {} } as any);
-    const previewContext = { roomPolygon: points.map((point: any) => ({ xMm: point.x, yMm: point.y })), walls: usableWalls, openings, servicePoints, structuralElements };
-    const candidates = generated.map((candidate) => ({ ...candidate, previewContext }));
-    return response.json({ success: true, floorPlanVersionId: project.data.active_floor_plan_version_id, spaceId, previewContext, candidates });
-  } catch (error) {
-    return response.status(422).json({ success: false, code: 'LAYOUT_CANDIDATE_GENERATION_FAILED', message: error instanceof Error ? error.message : 'The canonical room geometry could not generate candidates.' });
-  }
+  const result = await computeRoomLayoutCandidates(getRequestSupabaseClient(request), String(request.params.projectId), request.body);
+  return response.status(result.status).json(result.body);
 });
 
 app.post('/api/projects/:projectId/layouts', requireProjectUser, async (request, response) => {
