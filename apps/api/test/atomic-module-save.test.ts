@@ -103,3 +103,21 @@ test('finish assignment checks revision, replays requests, and invalidates in th
  assert.equal((await db.query<any>('select status from scene_versions')).rows[0].status,'approved');
  }finally{await db.close();}
 });
+test('collaborator transaction rejects creator-restricted downstream updates and rolls back',async()=>{
+ const db=await database();try{
+ await db.exec(`
+  grant usage on schema public,auth,private to authenticated;
+  grant select,insert,update on all tables in schema public to authenticated;
+  alter table scene_versions add column created_by uuid;
+  alter table scene_versions add column organization_id uuid;
+  update scene_versions set created_by='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',organization_id='${org}';
+  alter table scene_versions enable row level security;
+  create policy scenes_member_all on scene_versions for all to authenticated using (private.is_org_member(organization_id)) with check (private.is_org_member(organization_id) and (created_by is null or created_by=auth.uid()));
+  set role authenticated;
+ `);
+ await assert.rejects(call(db,candidate()),/row.level security/i);
+ await db.exec('reset role');
+ assert.equal((await db.query<any>('select count(*)::int n from module_instances')).rows[0].n,0);
+ assert.equal((await db.query<any>('select status from scene_versions')).rows[0].status,'approved');
+ }finally{await db.close();}
+});
