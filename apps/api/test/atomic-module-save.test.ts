@@ -95,6 +95,7 @@ test('finish assignment checks revision, replays requests, and invalidates in th
  const save=(a:any,revision:number)=>db.query<any>('select save_studio_finish_atomic($1,$2,$3) saved',['p',JSON.stringify(a),revision]);
  const first=await save(assignment,0);assert.equal(first.rows[0].saved.revision,1);
  const replay=await save(assignment,0);assert.equal(replay.rows[0].saved.id,id);
+ await assert.rejects(save({...assignment,status:'approved'},0),/changed/i);
  await assert.rejects(save({...assignment,id:'66666666-6666-4666-8666-666666666666'},0),/changed/i);
  await db.exec("update scene_versions set status='approved';update quotes set stale=false;alter table quotes add constraint refuse_stale check(not stale) not valid;");
  await assert.rejects(save({...assignment,id:'77777777-7777-4777-8777-777777777777'},1));

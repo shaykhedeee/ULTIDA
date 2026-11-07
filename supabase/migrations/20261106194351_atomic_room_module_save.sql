@@ -75,7 +75,7 @@ begin
  perform pg_advisory_xact_lock(hashtextextended('module-save:'||p_project_id,0));
  select * into prior from public.material_assignments where id=assignment_id;
  if found then
-   if prior.project_id::text=p_project_id and prior.material_id::text=p_assignment->>'material_id' and prior.target_kind=p_assignment->>'target_kind' and prior.target_id=p_assignment->>'target_id' and prior.semantic_slot=p_assignment->>'semantic_slot' then return to_jsonb(prior); end if;
+   if prior.project_id::text=p_project_id and prior.material_id::text=p_assignment->>'material_id' and prior.target_kind=p_assignment->>'target_kind' and prior.target_id=p_assignment->>'target_id' and prior.semantic_slot=p_assignment->>'semantic_slot' and prior.status=p_assignment->>'status' and prior.module_instance_id::text is not distinct from nullif(p_assignment->>'module_instance_id','') then return to_jsonb(prior); end if;
    raise exception 'Finish request changed' using errcode='40001';
  end if;
  perform 1 from public.material_library_items where id=(p_assignment->>'material_id')::uuid and organization_id=org for share;
