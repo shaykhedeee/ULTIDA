@@ -103,7 +103,7 @@ test('finish assignment checks revision, replays requests, and invalidates in th
  assert.equal((await db.query<any>('select status from scene_versions')).rows[0].status,'approved');
  }finally{await db.close();}
 });
-test('collaborator transaction rejects creator-restricted downstream updates and rolls back',async()=>{
+test('collaborator transaction invalidates another member’s outputs within their project',async()=>{
  const db=await database();try{
  await db.exec(`
   grant usage on schema public,auth,private to authenticated;
@@ -115,9 +115,33 @@ test('collaborator transaction rejects creator-restricted downstream updates and
   create policy scenes_member_all on scene_versions for all to authenticated using (private.is_org_member(organization_id)) with check (private.is_org_member(organization_id) and (created_by is null or created_by=auth.uid()));
   set role authenticated;
  `);
- await assert.rejects(call(db,candidate()),/row.level security/i);
+ await call(db,candidate());
  await db.exec('reset role');
- assert.equal((await db.query<any>('select count(*)::int n from module_instances')).rows[0].n,0);
- assert.equal((await db.query<any>('select status from scene_versions')).rows[0].status,'approved');
+ assert.equal((await db.query<any>('select count(*)::int n from module_instances')).rows[0].n,1);
+ assert.equal((await db.query<any>('select status from scene_versions')).rows[0].status,'stale');
+ }finally{await db.close();}
+});
+
+test('output invalidation helper rejects projects outside the actor organization',async()=>{
+ const db=await database();try{
+ await db.exec("insert into projects values('outside','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');insert into scene_versions values('outside','approved');");
+ await assert.rejects(db.query("select private.invalidate_studio_outputs('outside')"),/denied/i);
+ assert.equal((await db.query<any>("select status from scene_versions where project_id='outside'")).rows[0].status,'approved');
+ }finally{await db.close();}
+});
+test('creator-restricted furniture edit fails without modifying another member’s unit',async()=>{
+ const db=await database();try{
+ const initial=(await call(db,candidate())).rows[0].saved;
+ const collaborator='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+ await db.exec(`grant usage on schema public,auth,private to authenticated; grant select,insert,update on all tables in schema public to authenticated;
+ create or replace function auth.uid() returns uuid language sql as $$select '${collaborator}'::uuid$$;
+ alter table module_instances enable row level security;
+ create policy modules_member_all on module_instances for all to authenticated using (private.is_org_member(organization_id)) with check (private.is_org_member(organization_id) and created_by=auth.uid());
+ set role authenticated;`);
+ await assert.rejects(call(db,{...initial,config_json:{widthMm:800}},[{id,updated_at:initial.updated_at}],initial.updated_at),/scope denied/i);
+ await db.exec('reset role');
+ const result=await db.query<any>('select config_json,created_by from module_instances where id=$1',[id]);
+ assert.equal(result.rows[0].config_json.widthMm,600);
+ assert.equal(result.rows[0].created_by,user);
  }finally{await db.close();}
 });

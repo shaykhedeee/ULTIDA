@@ -1,3 +1,21 @@
+-- A narrowly scoped privileged operation is needed because existing UPDATE
+-- policies require each output's creator to be the caller. This function can
+-- only mark outputs stale for a project in the caller's organization.
+create function private.invalidate_studio_outputs(p_project_id text)
+returns void language plpgsql security definer set search_path=public,pg_temp as $$
+declare project_org uuid;
+begin
+ select organization_id into project_org from public.projects where id::text=p_project_id;
+ if auth.uid() is null or project_org is null or not private.is_org_member(project_org) then
+   raise exception 'Access denied' using errcode='42501';
+ end if;
+ update public.scene_versions set status='stale' where project_id::text=p_project_id and status in ('draft','approved','locked');
+ update public.artifacts set stale=true where project_id::text=p_project_id and stale=false;
+ update public.quotes set stale=true where project_id::text=p_project_id and stale=false;
+end $$;
+revoke all on function private.invalidate_studio_outputs(text) from public,anon;
+grant execute on function private.invalidate_studio_outputs(text) to authenticated;
+
 -- Invoker rights retain existing organization RLS; API validation remains mandatory.
 -- No grants are revoked from legacy clients during this additive rollout.
 create function public.save_room_module_atomic(
@@ -56,9 +74,7 @@ begin
    where id=module_id and project_id::text=p_project_id and space_id=p_room_id and updated_at=p_expected_updated_at returning * into saved;
    if not found then raise exception 'Module changed' using errcode='40001'; end if;
  end if;
- update public.scene_versions set status='stale' where project_id::text=p_project_id and status in ('draft','approved','locked');
- update public.artifacts set stale=true where project_id::text=p_project_id and stale=false;
- update public.quotes set stale=true where project_id::text=p_project_id and stale=false;
+ perform private.invalidate_studio_outputs(p_project_id);
  return to_jsonb(saved);
 end $$;
 revoke all on function public.save_room_module_atomic(text,uuid,timestamptz,jsonb,jsonb,jsonb,timestamptz,jsonb) from public,anon;
@@ -97,9 +113,7 @@ begin
  if p_expected_revision is not null and latest<>p_expected_revision then raise exception 'Saved finish changed' using errcode='40001'; end if;
  insert into public.material_assignments(id,organization_id,project_id,material_id,module_instance_id,target_kind,target_id,semantic_slot,revision,status,created_by)
  values(assignment_id,org,p_project_id,(p_assignment->>'material_id')::uuid,nullif(p_assignment->>'module_instance_id','')::uuid,p_assignment->>'target_kind',p_assignment->>'target_id',p_assignment->>'semantic_slot',latest+1,p_assignment->>'status',auth.uid()) returning * into saved;
- update public.scene_versions set status='stale' where project_id::text=p_project_id and status in ('draft','approved','locked');
- update public.artifacts set stale=true where project_id::text=p_project_id and stale=false;
- update public.quotes set stale=true where project_id::text=p_project_id and stale=false;
+ perform private.invalidate_studio_outputs(p_project_id);
  return to_jsonb(saved);
 end $$;
 revoke all on function public.save_studio_finish_atomic(text,jsonb,integer) from public,anon;
