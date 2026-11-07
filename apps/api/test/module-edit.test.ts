@@ -5,6 +5,7 @@ import type { CanonicalPlanModel } from '@ultida/plan-core';
 import { ModuleEditSchema, prepareModuleEdit, type EditableModule } from '../src/module-edit.js';
 
 const plan = {
+  scale: { verified: true },
   ceilingHeightMm: 2700,
   walls: [{ id: 'wall-a', worldStart: { xMm: 100, yMm: 200 }, worldEnd: { xMm: 4100, yMm: 200 }, heightMm: 2700 }],
   openings: [],
@@ -70,4 +71,12 @@ test('excludes the edited module, rejects neighbours and permits separate vertic
   assert.equal(prepareModuleEdit(module, edit({ config: { widthMm: 1800 } }), plan, [module, neighbour]).ok, false);
   neighbour.position_json.zMm = 1000;
   assert.equal(prepareModuleEdit(module, edit({ config: { widthMm: 1800 } }), plan, [module, neighbour]).ok, true);
+});
+
+test('furniture edits require confirmed measurement scale, including legacy plans',()=>{
+ for (const scale of [undefined,{verified:false}]) {
+ const result=prepareModuleEdit(module,edit({config:{widthMm:1600}}),{...plan,scale} as CanonicalPlanModel,[]);
+ assert.equal(result.ok,false);
+ if(!result.ok)assert.equal(result.code,'PLAN_SCALE_NOT_CONFIRMED');
+ }
 });

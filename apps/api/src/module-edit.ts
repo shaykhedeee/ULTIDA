@@ -74,6 +74,7 @@ export function validateModuleClearance(
 }
 
 export function prepareModuleEdit(module: EditableModule, edit: z.infer<typeof ModuleEditSchema>, plan: CanonicalPlanModel, neighbours: EditableModule[]) {
+  if (!plan.scale?.verified) return { ok: false as const, code: 'PLAN_SCALE_NOT_CONFIRMED', message: 'Confirm the plan calibration before saving furniture changes.' };
   const config = { ...module.config_json, ...edit.config, configuration: { ...(module.config_json.configuration ?? {}), ...(edit.config?.configuration ?? {}) } };
   const position: Record<string, any> = { ...module.position_json, ...edit.position };
   const anchor = resolveModuleWallAnchor(plan.walls, { wallId: position.wallId, offsetMm: position.offsetMm, zMm: position.zMm }, Number(config.widthMm));
