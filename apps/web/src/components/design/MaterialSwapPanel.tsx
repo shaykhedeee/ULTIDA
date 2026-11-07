@@ -80,6 +80,7 @@ export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, seman
   const applyCatalogSwap = async (preview = false) => {
     if (!projectId || !selected || !moduleInstanceId) { setMessage('Select a placed module and saved laminate before continuing.'); return; }
     setPending(true); setMessage('Saving the versioned component material assignment…');
+    let assignmentSaved = false;
     try {
       const session = await supabase?.auth.getSession();
       const token = session?.data.session?.access_token;
@@ -89,12 +90,14 @@ export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, seman
       });
       const payload = await response.json();
       if (!response.ok) { setMessage(payload.message ?? 'Material assignment was not saved.'); return; }
+      assignmentSaved = true;
       onConfirmCatalogSwap?.({ entityId, laminate: selected.name, materialId: selected.id, semanticSlot: targetSlot });
       if (preview) {
         setMessage(`${selected.name} saved. Compiling a scene-locked preview for the selected ${targetSlot.replace('_', ' ')}…`);
         await onPreviewCatalogSwap?.({ entityId, materialId: selected.id, laminate: selected.name, semanticSlot: targetSlot });
+        setMessage(`${selected.name} saved. Preview preparation completed; review the result before approval.`);
       } else setMessage(`${selected.name} saved on ${targetSlot.replace('_', ' ')}. Preview is ready when the scene is compiled.`);
-    } catch { setMessage('Material assignment request failed. No material was changed.'); }
+    } catch { setMessage(assignmentSaved ? `${selected.name} saved. The preview could not be prepared. Your saved material is retained; retry the preview when the renderer is available.` : 'The material save could not be confirmed. Check the saved selection before retrying.'); }
     finally { setPending(false); }
   };
 
@@ -114,7 +117,7 @@ export function MaterialSwapPanel({ entityId, projectId, moduleInstanceId, seman
       {selected && <div className="laminate-spec"><CheckCircle2 size={14} /><span><strong>{selected.name}</strong> · {selected.finish ?? 'finish to confirm'} · {selected.thickness_mm ?? '—'} mm laminate · {selected.metadata?.edgeBand?.thicknessMm ?? '—'} mm {selected.metadata?.edgeBand?.material ?? 'edge band'} · grain {selected.grain_direction ?? 'none'}</span></div>}
       <div className="material-swap-actions">
         <button type="button" disabled={pending || loading || !projectId || !selected || !moduleInstanceId} onClick={() => void applyCatalogSwap()}><RefreshCcw size={14} /> {pending ? 'Saving…' : 'Save component material'}</button>
-        <button type="button" className="primary" disabled={pending || loading || !projectId || !selected || !moduleInstanceId} onClick={() => void applyCatalogSwap(true)}><Wand2 size={14} /> {pending ? 'Preparing…' : 'Generate QA-reviewed preview'}</button>
+        <button type="button" className="primary" disabled={pending || loading || !projectId || !selected || !moduleInstanceId || !onPreviewCatalogSwap} onClick={() => void applyCatalogSwap(true)}><Wand2 size={14} /> {pending ? 'Preparing…' : 'Generate QA-reviewed preview'}</button>
       </div>
       <p role="status">{message || `Current visual label: ${currentLaminate}`}</p>
     </div>
