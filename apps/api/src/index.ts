@@ -60,7 +60,7 @@ import { sceneMaterialAssignments, sceneDefaultMaterialSlots } from './scene-mat
 import { registerMoodboardRoutes } from './moodboard-routes.js';
 import { validateReferenceImage } from './reference-image-validation.js';
 import { embedNormalizedRenderImage } from './dossier-render-image.js';
-import { isRoomSaveContentIdentical, areDesignInputsIdentical } from './room-save-content.js';
+import { isRoomSaveContentIdentical, areDesignInputsIdentical, updateRoomAtRevision } from './room-save-content.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8800);
@@ -3188,11 +3188,12 @@ app.put('/api/projects/:projectId/spaces/:spaceId', requireProjectUser, async (r
   if (isRoomSaveContentIdentical(current.data, nextPayload)) {
     return response.json({ success: true, space: current.data, unchanged: true, invalidated: { layouts: false, scenes: false, artifacts: false } });
   }
-  const updated = await client.from('spaces').update({
+  const updated = await updateRoomAtRevision(client, String(request.params.projectId), String(request.params.spaceId), current.data.updated_at, {
     ...nextPayload,
-    updated_at: new Date().toISOString()
-  }).eq('id', request.params.spaceId).eq('project_id', request.params.projectId).select('*').single();
+    updated_at: new Date(Math.max(Date.now(), Date.parse(current.data.updated_at) + 1)).toISOString()
+  });
   if (updated.error) return response.status(500).json({ success: false, code: 'SPACE_SAVE_FAILED', message: updated.error.message });
+  if (!updated.data) return response.status(409).json({ success: false, code: 'SPACE_EDIT_CONFLICT', message: 'This room changed while saving. Your proposed changes remain a draft; compare the saved room before retrying.' });
   // Requirements and scene setup are layout inputs. A later change must make
   // prior candidates visibly stale instead of letting old furniture continue
   // into a new scene as if nothing changed.

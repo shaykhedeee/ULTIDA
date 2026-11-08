@@ -61,3 +61,9 @@ export function areDesignInputsIdentical(existingInputs: unknown, incomingInputs
     return false;
   }
 }
+
+/** Compare the persisted revision at the write boundary, not just at read time. */
+export async function updateRoomAtRevision(client: any, projectId: string, roomId: string, expectedUpdatedAt: string, patch: Record<string, unknown>) {
+  return await client.from('spaces').update(patch).eq('id', roomId).eq('project_id', projectId)
+    .eq('updated_at', expectedUpdatedAt).select('*').maybeSingle();
+}
