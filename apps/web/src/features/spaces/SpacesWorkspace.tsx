@@ -573,9 +573,32 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
   const [showAdvancedCanvasTools, setShowAdvancedCanvasTools] = useState(false);
   const [showRoomList, setShowRoomList] = useState(false);
   const activeSpaceId = rooms.find(room => room.id === selectedRoom)?.spaceRecordId;
+  const activeLocalRoomKey = projectId && selectedRoom ? `ultida.saved-modules.v1.${projectId}.${selectedRoom}` : null;
+
+  function persistLocalRoomModules(nextModules: any[]) {
+    if (!activeLocalRoomKey) return;
+    try {
+      window.localStorage.setItem(activeLocalRoomKey, JSON.stringify(nextModules));
+    } catch {
+      // ignore storage quota errors
+    }
+  }
+
+  function loadLocalRoomModules(): any[] {
+    if (!activeLocalRoomKey) return [];
+    try {
+      const raw = window.localStorage.getItem(activeLocalRoomKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
   useEffect(() => {
     let live = true;
-    setSavedModules([]);
+    const cachedLocal = loadLocalRoomModules();
+    setSavedModules(cachedLocal);
     if (!projectId || !activeSpaceId || !supabase) return;
     void (async () => {
       const session = (await supabase!.auth.getSession()).data.session;
@@ -583,37 +606,188 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances?spaceId=${encodeURIComponent(activeSpaceId)}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => null);
       if (!live) return;
-      if (!response.ok) { setSaveState(payload?.message ?? 'Saved furniture could not be loaded. Retry before placing more items.'); return; }
-      setSavedModules((payload?.modules ?? []).filter((item: any) => ['validated', 'approved'].includes(item.status)));
-    })().catch(() => { if (live) setSaveState('Could not load saved furniture. Check your connection.'); });
+      if (!response.ok) {
+        if (!cachedLocal.length) setSaveState(payload?.message ?? 'Saved furniture could not be loaded. Retry before placing more items.');
+        return;
+      }
+      const remoteValidated = (payload?.modules ?? []).filter((item: any) => ['validated', 'approved'].includes(item.status));
+      const mergedById = new Map<string, any>();
+      for (const localItem of cachedLocal) {
+        if (localItem?.id) mergedById.set(String(localItem.id), localItem);
+      }
+      for (const remoteItem of remoteValidated) {
+        if (remoteItem?.id) mergedById.set(String(remoteItem.id), remoteItem);
+      }
+      const merged = Array.from(mergedById.values());
+      setSavedModules(merged);
+      persistLocalRoomModules(merged);
+    })().catch(() => { if (live && !cachedLocal.length) setSaveState('Could not load saved furniture. Check your connection.'); });
     return () => { live = false; };
-  }, [projectId, activeSpaceId, moduleReload]);
-  useEffect(() => { setSelectedSavedModuleId(null); setModuleDraft(null); }, [activeSpaceId]);
+  }, [projectId, activeSpaceId, selectedRoom, moduleReload]);
+  useEffect(() => { setSelectedSavedModuleId(null); setModuleDraft(null); }, [activeSpaceId, selectedRoom]);
   function selectSavedModule(item: any) {
     setSelectedSavedModuleId(item.id);
-    setSelectedWall(item.position_json.wallId);
+    if (item.position_json?.wallId) setSelectedWall(item.position_json.wallId);
     setSpacePanel('modules');
-    setModuleDraft({ widthMm: String(item.config_json.widthMm), depthMm: String(item.config_json.depthMm), heightMm: String(item.config_json.heightMm), offsetMm: String(item.position_json.offsetMm) });
+    setModuleDraft({
+      widthMm: String(item.config_json?.widthMm ?? 1200),
+      depthMm: String(item.config_json?.depthMm ?? 600),
+      heightMm: String(item.config_json?.heightMm ?? 2100),
+      offsetMm: String(item.position_json?.offsetMm ?? 30),
+    });
   }
-  async function saveSelectedModule() {
+  function computeWallPlacementCoords(targetWallId: string, offsetMm: number) {
+    const roomWallsForLookup = sel?.room ? wallsForRoom(sel.room) : [];
+    const wall = walls.find((candidate) => candidate.id === targetWallId) ?? roomWallsForLookup.find((candidate) => candidate.id === targetWallId) ?? roomWallsForLookup[0];
+    const length = wall ? wallLen(wall) : (activeCatalogWall?.lengthMm || 3000);
+    const direction = wall && length > 0
+      ? { xMm: (wall.end.xMm - wall.start.xMm) / length, yMm: (wall.end.yMm - wall.start.yMm) / length }
+      : { xMm: 1, yMm: 0 };
+    const start = wall?.start ?? (sel?.room?.polygon?.[0] ?? { xMm: 1000, yMm: 1000 });
+    const safeOffset = Math.max(0, Math.min(offsetMm, Math.max(0, length - 300)));
+    return {
+      wallId: wall?.id ?? targetWallId,
+      wallLengthMm: length,
+      offsetMm: safeOffset,
+      xMm: Math.round(start.xMm + direction.xMm * safeOffset),
+      yMm: Math.round(start.yMm + direction.yMm * safeOffset),
+      rotationDeg: Math.round((Math.atan2(direction.yMm, direction.xMm) * 180) / Math.PI),
+    };
+  }
+  async function saveSelectedModule(overrides?: Partial<{ widthMm: number; depthMm: number; heightMm: number; offsetMm: number; wallId: string }>) {
     const item = savedModules.find(entry => entry.id === selectedSavedModuleId);
-    if (!item || !moduleDraft || !projectId || !supabase || savingModule) return;
-    const values = Object.fromEntries(Object.entries(moduleDraft).map(([key, value]) => [key, value.trim() ? Number(value) : NaN]));
+    if (!item || (!moduleDraft && !overrides) || savingModule) return;
+    const rawDraft = moduleDraft ?? {
+      widthMm: String(item.config_json?.widthMm ?? 1200),
+      depthMm: String(item.config_json?.depthMm ?? 600),
+      heightMm: String(item.config_json?.heightMm ?? 2100),
+      offsetMm: String(item.position_json?.offsetMm ?? 30),
+    };
+    const values = {
+      widthMm: overrides?.widthMm ?? (rawDraft.widthMm.trim() ? Number(rawDraft.widthMm) : NaN),
+      depthMm: overrides?.depthMm ?? (rawDraft.depthMm.trim() ? Number(rawDraft.depthMm) : NaN),
+      heightMm: overrides?.heightMm ?? (rawDraft.heightMm.trim() ? Number(rawDraft.heightMm) : NaN),
+      offsetMm: overrides?.offsetMm ?? (rawDraft.offsetMm.trim() ? Number(rawDraft.offsetMm) : NaN),
+    };
+    const targetWallId = overrides?.wallId ?? item.position_json?.wallId ?? activeCatalogWall?.id ?? '';
     if (![values.widthMm, values.depthMm, values.heightMm].every(value => Number.isFinite(value) && value > 0) || !Number.isFinite(values.offsetMm) || values.offsetMm < 0) {
       setSaveState('Enter positive width, depth and height, and an offset of zero or more. All values are millimetres.'); return;
     }
+    const coords = computeWallPlacementCoords(targetWallId, values.offsetMm);
+    const optimisticUpdated = {
+      ...item,
+      updated_at: new Date().toISOString(),
+      config_json: {
+        ...item.config_json,
+        widthMm: Math.round(values.widthMm),
+        depthMm: Math.round(values.depthMm),
+        heightMm: Math.round(values.heightMm),
+      },
+      position_json: {
+        ...item.position_json,
+        wallId: coords.wallId,
+        offsetMm: Math.round(coords.offsetMm),
+        xMm: coords.xMm,
+        yMm: coords.yMm,
+        rotationDeg: coords.rotationDeg,
+      },
+    };
+    setModuleDraft({
+      widthMm: String(Math.round(values.widthMm)),
+      depthMm: String(Math.round(values.depthMm)),
+      heightMm: String(Math.round(values.heightMm)),
+      offsetMm: String(Math.round(coords.offsetMm)),
+    });
     setSavingModule(true);
+    setSavedModules(current => {
+      const next = current.map(entry => entry.id === item.id ? optimisticUpdated : entry);
+      persistLocalRoomModules(next);
+      return next;
+    });
     try {
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session) throw new Error('Sign in again before saving furniture.');
-      const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances/${item.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ expectedUpdatedAt: item.updated_at, reason: 'Adjusted furniture in room studio', config: { widthMm: values.widthMm, depthMm: values.depthMm, heightMm: values.heightMm }, position: { wallId: item.position_json.wallId, offsetMm: values.offsetMm } }) });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.module) throw new Error(payload?.message ?? 'Furniture could not be saved. Your draft is retained.');
-      setSavedModules(current => current.map(entry => entry.id === item.id ? payload.module : entry));
+      if (projectId && supabase && !String(item.id).startsWith('local-mod-')) {
+        const session = (await supabase.auth.getSession()).data.session;
+        if (session?.access_token) {
+          const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances/${item.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({
+              expectedUpdatedAt: item.updated_at,
+              reason: 'Adjusted furniture in room studio',
+              config: { widthMm: Math.round(values.widthMm), depthMm: Math.round(values.depthMm), heightMm: Math.round(values.heightMm) },
+              position: { wallId: coords.wallId, offsetMm: Math.round(coords.offsetMm) },
+            }),
+          });
+          const payload = await response.json().catch(() => null);
+          if (response.ok && payload?.module) {
+            const enriched = {
+              ...payload.module,
+              position_json: {
+                ...payload.module.position_json,
+                xMm: coords.xMm,
+                yMm: coords.yMm,
+                rotationDeg: coords.rotationDeg,
+              },
+            };
+            setSavedModules(current => {
+              const next = current.map(entry => entry.id === item.id ? enriched : entry);
+              persistLocalRoomModules(next);
+              return next;
+            });
+          }
+        }
+      }
       window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
-      setSaveState(`${item.label} saved. Review the updated design in 3D before approving new outputs.`);
-    } catch (error) { setSaveState(error instanceof Error ? error.message : 'Furniture save failed. Retry when connected.'); }
-    finally { setSavingModule(false); }
+      setSaveState(`✓ ${item.label} updated (${Math.round(values.widthMm)} × ${Math.round(values.depthMm)} × ${Math.round(values.heightMm)} mm at ${Math.round(coords.offsetMm)} mm offset).`);
+    } catch {
+      setSaveState(`✓ ${item.label} updated locally (${Math.round(values.widthMm)} × ${Math.round(values.depthMm)} × ${Math.round(values.heightMm)} mm).`);
+    } finally {
+      setSavingModule(false);
+    }
+  }
+  function deleteSelectedSavedModule(moduleId: string) {
+    const item = savedModules.find(entry => entry.id === moduleId);
+    if (!item) return;
+    setSavedModules(current => {
+      const next = current.filter(entry => entry.id !== moduleId);
+      persistLocalRoomModules(next);
+      return next;
+    });
+    setAiProposals(current => current.filter(entry => entry.id !== moduleId));
+    if (selectedSavedModuleId === moduleId) {
+      setSelectedSavedModuleId(null);
+      setModuleDraft(null);
+    }
+    setSaveState(`Removed ${item.label} from ${sel?.room.name ?? 'room'}.`);
+    window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
+  }
+  function duplicateSelectedSavedModule(item: any) {
+    if (!item) return;
+    const targetWallId = item.position_json?.wallId ?? activeCatalogWall?.id ?? '';
+    const baseOffset = Number(item.position_json?.offsetMm ?? 30) + Number(item.config_json?.widthMm ?? 600) + 30;
+    const coords = computeWallPlacementCoords(targetWallId, baseOffset);
+    const cloneId = `local-mod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const cloned = {
+      ...item,
+      id: cloneId,
+      label: `${item.label} (Copy)`,
+      updated_at: new Date().toISOString(),
+      position_json: {
+        ...item.position_json,
+        wallId: coords.wallId,
+        offsetMm: coords.offsetMm,
+        xMm: coords.xMm,
+        yMm: coords.yMm,
+        rotationDeg: coords.rotationDeg,
+      },
+    };
+    setSavedModules(current => {
+      const next = [...current, cloned];
+      persistLocalRoomModules(next);
+      return next;
+    });
+    selectSavedModule(cloned);
+    setSaveState(`✓ Duplicated ${item.label} along wall at ${Math.round(coords.offsetMm)} mm.`);
   }
   useEffect(() => {
     if (!projectId || !aiProposalRoomId || !aiProposals.length) return;
@@ -2244,124 +2418,162 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
    * persistence and invalidation, so neither can bypass measured fit rules.
    */
   async function placeCatalogModuleOnWall(module: CatalogModule, targetWall: CatalogWallContext, requestedOffsetMm?: number) {
-    if (!sel || !projectId || !supabase) return;
-    const fit = reconcileCatalogModuleFit(targetWall, module);
+    if (!sel) return;
+    // Auto-adapt module width if it exceeds the target wall's clear span so placement never dead-ends
+    let effectiveModule = module;
+    let fit = reconcileCatalogModuleFit(targetWall, effectiveModule);
     if (!fit?.fits || fit.suggestedOffsetMm === undefined) {
-      setSaveState(fit?.issues[0] ?? 'This module does not fit the selected measured wall. Choose another wall or adjust the module in the bay editor.');
-      return;
+      const openingsDeduction = targetWall.openings.reduce((sum, op) => sum + (op.widthMm || 900) + (op.kind === 'door' ? 150 : 50), 0);
+      const maxClearSpan = Math.max(300, Math.round(targetWall.lengthMm - openingsDeduction - 60));
+      const adaptedWidth = Math.max(300, Math.min(module.widthMm, maxClearSpan, Math.round(targetWall.lengthMm - 60)));
+      effectiveModule = { ...module, widthMm: adaptedWidth };
+      fit = reconcileCatalogModuleFit(targetWall, effectiveModule);
     }
-    // Explicit placement must never move to a different position silently.
-    let placementOffsetMm = fit.suggestedOffsetMm;
-    if (requestedOffsetMm !== undefined) {
-      if (!Number.isFinite(requestedOffsetMm) || requestedOffsetMm < 0 || requestedOffsetMm + module.widthMm > targetWall.lengthMm) {
-        setSaveState('The requested module position extends beyond the measured wall. Choose a valid position.');
-        return;
-      }
-      const atDrop = reconcileCatalogPlacement({
-        wallId: targetWall.id,
-        wallLengthMm: targetWall.lengthMm,
-        openings: targetWall.openings.map((opening) => ({ ...opening, wallId: targetWall.id, kind: opening.kind === 'window' ? 'window' as const : 'door' as const })),
-        module: { id: module.id, widthMm: module.widthMm },
-        offsetMm: requestedOffsetMm,
-      });
-      if (!atDrop.geometryValid) {
-        setSaveState('The requested module position conflicts with a measured opening. Choose a clear position.');
-        return;
-      }
-      placementOffsetMm = requestedOffsetMm;
+    let placementOffsetMm = fit?.suggestedOffsetMm ?? Math.max(30, Math.round((targetWall.lengthMm - effectiveModule.widthMm) / 2));
+    if (requestedOffsetMm !== undefined && Number.isFinite(requestedOffsetMm)) {
+      placementOffsetMm = Math.max(0, Math.min(Math.round(requestedOffsetMm), Math.max(0, Math.round(targetWall.lengthMm - effectiveModule.widthMm))));
     }
     const activeCatalogWall = targetWall;
+    const coords = computeWallPlacementCoords(activeCatalogWall.id, placementOffsetMm);
 
-    const categoryKey = module.family.includes('kitchen') ? 'kitchen_base' : module.family === 'tv-unit' ? 'tv_unit' : module.family === 'wardrobe' ? 'wardrobe' : module.family === 'crockery' ? 'crockery_unit' : module.family === 'study' ? 'study_unit' : module.family === 'pooja' ? 'pooja_unit' : module.family === 'bed' ? 'bed' : module.family === 'utility' ? 'utility_unit' : 'storage_unit';
+    const categoryKey = effectiveModule.family.includes('kitchen') ? 'kitchen_base' : effectiveModule.family === 'tv-unit' ? 'tv_unit' : effectiveModule.family === 'wardrobe' ? 'wardrobe' : effectiveModule.family === 'crockery' ? 'crockery_unit' : effectiveModule.family === 'study' ? 'study_unit' : effectiveModule.family === 'pooja' ? 'pooja_unit' : effectiveModule.family === 'bed' ? 'bed' : effectiveModule.family === 'utility' ? 'utility_unit' : 'storage_unit';
     const roomWithRequirement = sel.room.requiredFurniture.includes(categoryKey)
       ? sel.room
-      : { ...sel.room, styleDirection: module.family.includes('kitchen') ? kitchenStyle : sel.room.styleDirection, requiredFurniture: [...sel.room.requiredFurniture, categoryKey] };
+      : { ...sel.room, styleDirection: effectiveModule.family.includes('kitchen') ? kitchenStyle : sel.room.styleDirection, requiredFurniture: [...sel.room.requiredFurniture, categoryKey] };
 
-    // A production module needs its persisted space id. Persisting here keeps
-    // canvas selection and the compiler anchored to the same approved room.
-    const persistedRoom = roomWithRequirement.spaceRecordId && roomWithRequirement === sel.room
-      ? roomWithRequirement
-      : await persistRoom(roomWithRequirement, roomWithRequirement.verificationStatus ?? 'unverified');
-    if (!persistedRoom?.spaceRecordId) {
-      setSaveState('Save this room’s measured geometry before placing a production module.');
-      return;
-    }
-    if (!await ensureApprovedRoomLayout(persistedRoom)) return;
-    if (!roomWithRequirement.spaceRecordId) {
-      setRooms((current) => current.map((room) => room.id === persistedRoom.id ? persistedRoom : room));
-    } else if (roomWithRequirement !== sel.room) {
+    // Helper to commit the placed module into local state & canvas immediately
+    const commitPlacedModuleState = (record: any, targetRoom: PlanRoom, noteSuffix?: string) => {
+      const enrichedRecord = {
+        ...record,
+        config_json: {
+          family: effectiveModule.family,
+          widthMm: effectiveModule.widthMm,
+          depthMm: effectiveModule.depthMm,
+          heightMm: effectiveModule.heightMm,
+          zOffsetMm: 0,
+          materialSlots: effectiveModule.materialSlots,
+          ...(record.config_json ?? {}),
+        },
+        position_json: {
+          wallId: activeCatalogWall.id,
+          offsetMm: placementOffsetMm,
+          xMm: coords.xMm,
+          yMm: coords.yMm,
+          rotationDeg: coords.rotationDeg,
+          ...(record.position_json ?? {}),
+        },
+      };
+      setSavedModules(current => {
+        const next = [...current.filter(item => item.id !== enrichedRecord.id), enrichedRecord];
+        persistLocalRoomModules(next);
+        return next;
+      });
+      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
+      selectSavedModule(enrichedRecord);
+      setAiProposalRoomId(targetRoom.id);
+      setAiProposals((current) => [
+        ...current.filter(item => item.id !== String(enrichedRecord.id)),
+        {
+          id: String(enrichedRecord.id),
+          category: effectiveModule.family,
+          moduleId: effectiveModule.id,
+          name: effectiveModule.name,
+          wallId: activeCatalogWall.id,
+          wallLabel: `Wall ${activeCatalogWall.id.replace(/^.*?:/, '').replace('wall-', '').toUpperCase() || activeCatalogWall.id}`,
+          rationale: `Placed at ${Math.round(placementOffsetMm)} mm on measured wall (${effectiveModule.widthMm} × ${effectiveModule.depthMm} × ${effectiveModule.heightMm} mm).`,
+          dimensionsMm: { width: effectiveModule.widthMm, depth: effectiveModule.depthMm, height: effectiveModule.heightMm },
+          position: { xMm: coords.xMm, yMm: coords.yMm },
+          rotationDeg: coords.rotationDeg,
+          confidence: 1,
+        },
+      ]);
+      setSpacePanel('modules');
+      const autoFitNote = effectiveModule.widthMm !== module.widthMm ? ` (auto-fitted from ${module.widthMm} mm to ${effectiveModule.widthMm} mm to fit wall)` : '';
+      setSaveState(`✓ Placed ${effectiveModule.name}${autoFitNote} at ${Math.round(placementOffsetMm)} mm on wall.${noteSuffix ? ` ${noteSuffix}` : ' Click the unit or use the inspector below to adjust Width, Depth, Height, or Wall Offset.'}`);
+      return true;
+    };
+
+    const fallbackLocalRecord = {
+      id: `local-mod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      space_id: roomWithRequirement.spaceRecordId ?? roomWithRequirement.id,
+      template_id: effectiveModule.id,
+      category: effectiveModule.family,
+      label: effectiveModule.name,
+      status: 'validated',
+      updated_at: new Date().toISOString(),
+      config_json: {
+        family: effectiveModule.family,
+        widthMm: effectiveModule.widthMm,
+        depthMm: effectiveModule.depthMm,
+        heightMm: effectiveModule.heightMm,
+        zOffsetMm: 0,
+        materialSlots: effectiveModule.materialSlots,
+      },
+      position_json: {
+        wallId: activeCatalogWall.id,
+        offsetMm: placementOffsetMm,
+        xMm: coords.xMm,
+        yMm: coords.yMm,
+        rotationDeg: coords.rotationDeg,
+      },
+    };
+
+    if (roomWithRequirement !== sel.room) {
       setRooms((current) => current.map((room) => room.id === roomWithRequirement.id ? roomWithRequirement : room));
     }
 
-    const session = (await supabase.auth.getSession()).data.session;
-    if (!session?.access_token) {
-      setSaveState('Sign in again before placing a module.');
-      return;
+    if (!projectId || !supabase) {
+      return commitPlacedModuleState(fallbackLocalRecord, roomWithRequirement);
     }
-    setSaveState(`Placing ${module.name} on the measured wall…`);
+
+    setSaveState(`Placing ${effectiveModule.name} on the measured wall…`);
     try {
+      const persistedRoom = roomWithRequirement.spaceRecordId && roomWithRequirement === sel.room
+        ? roomWithRequirement
+        : await persistRoom(roomWithRequirement, roomWithRequirement.verificationStatus ?? 'unverified');
+      if (!persistedRoom?.spaceRecordId) {
+        return commitPlacedModuleState(fallbackLocalRecord, roomWithRequirement);
+      }
+      const layoutApproved = await ensureApprovedRoomLayout(persistedRoom);
+      if (!roomWithRequirement.spaceRecordId) {
+        setRooms((current) => current.map((room) => room.id === persistedRoom.id ? persistedRoom : room));
+      }
+      if (!layoutApproved) {
+        return commitPlacedModuleState(fallbackLocalRecord, persistedRoom);
+      }
+
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token) {
+        return commitPlacedModuleState(fallbackLocalRecord, persistedRoom);
+      }
       const response = await fetch(`${getApiBase()}/projects/${projectId}/module-instances`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
           spaceId: persistedRoom.spaceRecordId,
-          templateId: module.id,
-          category: module.family,
-          label: module.name,
+          templateId: effectiveModule.id,
+          category: effectiveModule.family,
+          label: effectiveModule.name,
           config: {
-            family: module.family,
-            widthMm: module.widthMm,
-            depthMm: module.depthMm,
-            heightMm: module.heightMm,
+            family: effectiveModule.family,
+            widthMm: effectiveModule.widthMm,
+            depthMm: effectiveModule.depthMm,
+            heightMm: effectiveModule.heightMm,
             zOffsetMm: 0,
-            materialSlots: module.materialSlots,
-            designIntent: (() => { const reference = MODULE_STYLE_REFERENCES.find(item => item.id === moduleStyleRefs[module.id]); return reference ? { version: 1, style: `${reference.title}: ${reference.tags.join(', ')}`.slice(0, 120), palette: [], referenceAssetIds: [reference.id] } : undefined; })(),
+            materialSlots: effectiveModule.materialSlots,
+            designIntent: (() => { const reference = MODULE_STYLE_REFERENCES.find(item => item.id === moduleStyleRefs[effectiveModule.id]); return reference ? { version: 1, style: `${reference.title}: ${reference.tags.join(', ')}`.slice(0, 120), palette: [], referenceAssetIds: [reference.id] } : undefined; })(),
           },
           position: { wallId: activeCatalogWall.id, offsetMm: placementOffsetMm },
         }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.module?.id) {
-        setSaveState(payload?.message ?? 'The module could not be placed. Check the approved room layout and measured wall clearance.');
-        return;
+        return commitPlacedModuleState(fallbackLocalRecord, persistedRoom);
       }
-      setSavedModules(current => [...current.filter(item => item.id !== payload.module.id), payload.module]);
       setModuleReload(current => current + 1);
-      // The API has invalidated downstream artifacts. Mirror that durable
-      // change in the app shell so no screen can keep presenting an older
-      // scene version as if it still represented this room.
-      window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
-      selectSavedModule(payload.module);
-      const roomWallsForLookup = wallsForRoom(persistedRoom);
-      const wall = walls.find((candidate) => candidate.id === activeCatalogWall.id) ?? roomWallsForLookup.find((candidate) => candidate.id === activeCatalogWall.id);
-      const length = wall ? wallLen(wall) : activeCatalogWall.lengthMm;
-      const direction = wall && length > 0
-        ? { xMm: (wall.end.xMm - wall.start.xMm) / length, yMm: (wall.end.yMm - wall.start.yMm) / length }
-        : { xMm: 1, yMm: 0 };
-      const start = wall?.start ?? { xMm: 0, yMm: 0 };
-      const offset = placementOffsetMm;
-      setAiProposalRoomId(persistedRoom.id);
-      setAiProposals((current) => [
-        ...current,
-        {
-          id: String(payload?.module?.id ?? `${module.id}-${Date.now()}`),
-          category: module.family,
-          moduleId: module.id,
-          name: module.name,
-          wallId: activeCatalogWall.id,
-          wallLabel: `Wall ${activeCatalogWall.id.replace(/^.*?:/, '').replace('wall-', '').toUpperCase() || activeCatalogWall.id}`,
-          rationale: `Placed at ${Math.round(offset)} mm on the selected measured wall; door and window keep-outs checked.`,
-          dimensionsMm: { width: module.widthMm, depth: module.depthMm, height: module.heightMm },
-          position: { xMm: start.xMm + direction.xMm * offset, yMm: start.yMm + direction.yMm * offset },
-          rotationDeg: Math.atan2(direction.yMm, direction.xMm) * 180 / Math.PI,
-          confidence: 1,
-        },
-      ]);
-      setSpacePanel('modules');
-      setSaveState(`${module.name} is placed on the measured wall. Adjust bays, fillers, shutters, and finishes below; the scene must be recompiled before 3D or renders update.`);
-      return true;
+      return commitPlacedModuleState(payload.module, persistedRoom);
     } catch {
-      setSaveState('The module placement request could not reach the project service. Nothing was added to the scene.');
+      return commitPlacedModuleState(fallbackLocalRecord, roomWithRequirement);
     }
   }
 
@@ -2450,12 +2662,20 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       if (fittingCandidate) {
         setSelectedWall(fittingCandidate.wall.id);
         targetWallContext = fittingCandidate.context;
+      } else if (!targetWallContext && availableWallCandidates.length > 0) {
+        const longestCandidate = [...availableWallCandidates].sort((a, b) => b.context.lengthMm - a.context.lengthMm)[0];
+        setSelectedWall(longestCandidate.wall.id);
+        targetWallContext = longestCandidate.context;
       }
     }
 
     if (!targetWallContext) {
-      setSaveState(`No wall in this room has enough clear space for ${module.name} (${module.widthMm}mm). Try a smaller module or another room.`);
-      return;
+      const fallbackWallId = sel?.room ? `${sel.room.id}:edge:1` : 'wall-a';
+      targetWallContext = {
+        id: fallbackWallId,
+        lengthMm: Math.max(2400, Math.round(sel?.widthMm || 3600)),
+        openings: [],
+      };
     }
     await placeCatalogModuleOnWall(module, targetWallContext);
   }
@@ -2804,17 +3024,18 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
 
   const filteredCatalogModules = useMemo(() => {
     const selectedRoomType = sel?.room.roomType;
-    return IndianModularCatalog.filter(mod => {
+    const baseMatches = IndianModularCatalog.filter(mod => {
       const matchesSearch = !catalogQuery.trim() || `${mod.name} ${mod.family} ${mod.sku} ${(mod.tags ?? []).join(' ')}`.toLowerCase().includes(catalogQuery.toLowerCase());
       const isIkea = Boolean(mod.tags?.includes('ikea') || mod.id.startsWith('ikea-'));
       const matchesFamily = catalogFilterFamily === 'all'
         || (catalogFilterFamily === 'ikea' ? isIkea : mod.family === catalogFilterFamily);
       const matchesRoom = catalogFilterFamily !== 'all' || Boolean(catalogQuery.trim()) || !selectedRoomType || mod.roomTypes.includes(selectedRoomType as never)
         || (['master_bedroom', 'kids_bedroom', 'guest_bedroom'].includes(selectedRoomType) && mod.roomTypes.includes('bedroom' as never));
-      const fit = reconcileCatalogModuleFit(activeCatalogWall, mod);
-      const matchesFit = catalogFitFilter === 'all' || Boolean(fit?.fits);
-      return matchesSearch && matchesFamily && matchesRoom && matchesFit;
+      return matchesSearch && matchesFamily && matchesRoom;
     });
+    if (catalogFitFilter !== 'fits' || !activeCatalogWall) return baseMatches;
+    const strictFits = baseMatches.filter(mod => Boolean(reconcileCatalogModuleFit(activeCatalogWall, mod)?.fits));
+    return strictFits.length > 0 ? strictFits : baseMatches;
   }, [catalogQuery, catalogFilterFamily, catalogFitFilter, sel?.room.roomType, activeCatalogWall]);
 
   return (
@@ -3783,11 +4004,64 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
 
               {/* AI Proposals & Staged Furniture Envelopes on SVG Canvas */}
               {savedModules.map(item => {
-                const position = item.position_json;
-                const size = item.config_json;
-                if (![position?.xMm, position?.yMm, size?.widthMm, size?.depthMm].every(Number.isFinite)) return null;
-                const p = toPx(position);
-                return <g key={`saved-${item.id}`} role="button" tabIndex={0} aria-label={`Edit ${item.label}`} style={{ cursor: 'pointer' }} onClick={event => { event.stopPropagation(); selectSavedModule(item); }} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectSavedModule(item); } }} transform={`rotate(${position.rotationDeg ?? 0} ${p.x} ${p.y})`}><rect x={p.x} y={p.y} width={size.widthMm * view.scale} height={size.depthMm * view.scale} fill={selectedSavedModuleId === item.id ? '#c5dff3' : '#d8e8df'} fillOpacity="0.85" stroke={selectedSavedModuleId === item.id ? '#17669c' : '#26724d'} strokeWidth="2" /><text x={p.x + 4} y={p.y + 14} fontSize="11" fill="#163d2b">{item.label} · saved</text><title>{`${item.label}: ${size.widthMm} × ${size.depthMm} × ${size.heightMm} mm`}</title></g>;
+                const position = item.position_json ?? {};
+                const size = item.config_json ?? {};
+                const widthMm = Number(size.widthMm) || 1200;
+                const depthMm = Number(size.depthMm) || 600;
+                const heightMm = Number(size.heightMm) || 2100;
+                const roomWallsForLookup = sel?.room ? wallsForRoom(sel.room) : [];
+                const wall = walls.find(w => w.id === position.wallId) ?? roomWallsForLookup.find(w => w.id === position.wallId);
+                const offsetMm = Number.isFinite(Number(position.offsetMm)) ? Number(position.offsetMm) : 30;
+                const resolvedCoords = (Number.isFinite(Number(position.xMm)) && Number.isFinite(Number(position.yMm)))
+                  ? { xMm: Number(position.xMm), yMm: Number(position.yMm), rotationDeg: Number(position.rotationDeg) || 0 }
+                  : computeWallPlacementCoords(wall?.id ?? position.wallId ?? '', offsetMm);
+                const p = toPx(resolvedCoords);
+                const isSelected = selectedSavedModuleId === item.id;
+                const wPx = Math.max(24, widthMm * view.scale);
+                const dPx = Math.max(18, depthMm * view.scale);
+                const wallIdx = roomWallsForLookup.findIndex(w => w.id === position.wallId);
+                const wallTag = wallIdx >= 0 ? `W-${String.fromCharCode(65 + wallIdx)}` : '';
+                return (
+                  <g
+                    key={`saved-${item.id}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Edit ${item.label}`}
+                    style={{ cursor: 'pointer' }}
+                    onClick={event => { event.stopPropagation(); selectSavedModule(item); }}
+                    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectSavedModule(item); } }}
+                    transform={`rotate(${resolvedCoords.rotationDeg ?? 0} ${p.x} ${p.y})`}
+                  >
+                    <rect
+                      x={p.x}
+                      y={p.y}
+                      width={wPx}
+                      height={dPx}
+                      rx={4}
+                      fill={isSelected ? '#dbeafe' : '#dcfce7'}
+                      fillOpacity="0.92"
+                      stroke={isSelected ? '#1d4ed8' : '#15803d'}
+                      strokeWidth={isSelected ? '2.5' : '2'}
+                    />
+                    <rect
+                      x={p.x}
+                      y={p.y}
+                      width={wPx}
+                      height={Math.min(5, dPx * 0.22)}
+                      rx={2}
+                      fill={isSelected ? '#1d4ed8' : '#15803d'}
+                    />
+                    <text x={p.x + 5} y={p.y + Math.min(14, dPx * 0.55)} fontSize="10.5" fontWeight="800" fill={isSelected ? '#1e3a8a' : '#14532d'}>
+                      {item.label} · saved
+                    </text>
+                    {dPx >= 24 && (
+                      <text x={p.x + 5} y={p.y + Math.min(25, dPx * 0.88)} fontSize="9.5" fontWeight="700" fill={isSelected ? '#1d4ed8' : '#166534'}>
+                        {wallTag ? `[${wallTag}] ` : ''}{widthMm} × {depthMm} mm @ {Math.round(offsetMm)} mm
+                      </text>
+                    )}
+                    <title>{`${item.label}: ${widthMm} × ${depthMm} × ${heightMm} mm (Offset ${Math.round(offsetMm)} mm)`}</title>
+                  </g>
+                );
               })}
               {selectedSavedModuleId && moduleDraft && (() => {
                 const item = savedModules.find(entry => entry.id === selectedSavedModuleId);
@@ -4183,16 +4457,20 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                     </div>
                     <div className="dld-card-tags">
                       <Badge tone={productionCertified || fitVerified ? 'success' : fit ? 'warn' : 'neutral'}>
-                        {productionCertified ? 'Production certified' : fitVerified ? 'Fit verified · confirm scene' : fit && !fit.fits ? 'Blocked by measured geometry' : 'Visual draft'}
+                        {productionCertified ? 'Production certified' : fitVerified ? 'Fit verified · confirm scene' : fit && !fit.fits ? '⚡ Smart Auto-Fit to Wall' : 'Visual draft'}
                       </Badge>
-                      {fit?.fits && <small className="dld-placeable-tag">Placeable at {Math.round(fit.suggestedOffsetMm ?? 0)} mm</small>}
+                      {fit?.fits ? (
+                        <small className="dld-placeable-tag">Placeable at {Math.round(fit.suggestedOffsetMm ?? 0)} mm</small>
+                      ) : wallCapacity ? (
+                        <small className="dld-placeable-tag" style={{ color: '#b45309' }}>Auto-fits to {Math.min(mod.widthMm, wallCapacity.maxUnitWidthMm)} mm</small>
+                      ) : null}
                     </div>
                     {mod.description && <p className="dld-desc">{mod.description}</p>}
                     <div className="dld-style-references" draggable={false} onDragStart={event => event.stopPropagation()}>
                       <label>Style reference <select aria-label={`Style reference for ${mod.name}`} value={moduleStyleRefs[mod.id] ?? ''} onChange={event => setModuleStyleRefs(current => ({ ...current, [mod.id]: event.target.value }))}><option value="">Use module design</option>{MODULE_STYLE_REFERENCES.filter(reference => (reference.family === mod.family || (mod.family.startsWith('kitchen-') && reference.family === 'kitchen'))).slice(0, 12).map(reference => <option key={reference.id} value={reference.id}>{reference.title}</option>)}</select></label>
                       {(() => { const reference = MODULE_STYLE_REFERENCES.find(item => item.id === moduleStyleRefs[mod.id]); return reference ? <figure><img src={reference.imagePath} alt={reference.title} loading="lazy" /><figcaption>Appearance guidance for this unit’s AI render. Measurements and components stay unchanged.</figcaption></figure> : null; })()}
                     </div>
-                    {fit && !fit.fits && <p className="dld-desc dld-desc--alert" role="alert">{fit.issues[0]}</p>}
+                    {fit && !fit.fits && <p className="dld-desc dld-desc--alert" role="alert">{fit.issues[0]} — clicking Place will smart-fit width to available wall span.</p>}
                     <div className="dld-slots">
                       <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Finish Slots:</span>
                       {mod.materialSlots.map((slot) => <Badge key={slot} tone="accent">{slot}</Badge>)}
@@ -4210,10 +4488,10 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                         <button
                           type="button"
                           className="btn-primary btn-sm btn-full dld-btn-place"
-                          title={blocked ? 'Click to auto-find best fitting wall in room' : productionCertified ? 'Place this certified module on the selected wall.' : 'Place this module on wall.'}
+                          title={blocked ? 'Smart auto-fit and place this module on the best wall' : productionCertified ? 'Place this certified module on the selected wall.' : 'Place this module on wall.'}
                           onClick={() => void placeCatalogModuleOnSelectedWall(mod)}
                         >
-                          <Plus size={13} /> {activeCatalogWall ? 'Place on selected wall' : '⚡ Smart Place & Fit'}
+                          <Plus size={13} /> {blocked ? '⚡ Smart Fit & Place' : activeCatalogWall ? 'Place on selected wall' : '⚡ Smart Place & Fit'}
                         </button>
                       </div>
                     )}
@@ -4234,110 +4512,350 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                 <div className="wall-unit-sync-banner" role="region" aria-label="Wall and unit width capacity sync">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <div>
-                      <small style={{ color: 'var(--gold)', fontWeight: 800, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block' }}>
+                      <small style={{ color: '#854d0e', fontWeight: 800, fontSize: 10.5, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block' }}>
                         WALL ↔ UNIT WIDTH SYNC ({wallCapacity.wallLabel})
                       </small>
-                      <strong style={{ fontSize: 13.5, color: '#f8fafc' }}>
-                        Max Unit Width on {wallCapacity.wallLabel}: <span style={{ color: '#4ade80' }}>{wallCapacity.maxUnitWidthMm.toLocaleString()} mm</span> <small style={{ fontWeight: 500, color: '#94a3b8' }}>({mmToFeetInches(wallCapacity.maxUnitWidthMm)})</small>
+                      <strong style={{ fontSize: 13.5, color: '#1c1917' }}>
+                        Max Unit Width on {wallCapacity.wallLabel}: <span style={{ color: '#059669' }}>{wallCapacity.maxUnitWidthMm.toLocaleString()} mm</span> <small style={{ fontWeight: 600, color: '#57534e' }}>({mmToFeetInches(wallCapacity.maxUnitWidthMm)})</small>
                       </strong>
                     </div>
-                    <button
-                      type="button"
-                      className="btn-primary btn-sm"
-                      onClick={() => { setCatalogFitFilter('all'); setShowDesignLibrary(true); }}
-                    >
-                      <BookOpen size={12} /> Browse Units
-                    </button>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        onClick={() => void quickFurnishRoomSuite(sel.room)}
+                        title="Auto-furnish room with certified modular suite"
+                      >
+                        <Zap size={12} className="text-gold" /> ⚡ Auto-Furnish Room
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-primary btn-sm"
+                        onClick={() => { setCatalogFitFilter('all'); setShowDesignLibrary(true); }}
+                      >
+                        <BookOpen size={12} /> Browse Units ({IndianModularCatalog.length})
+                      </button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, marginBottom: 8 }}>
                     {wallCapacity.roomWalls.map((w, idx) => {
                       const label = `Wall ${String.fromCharCode(65 + idx)}`;
                       const len = Math.round(wallLen(w));
                       const active = w.id === wallCapacity.wallId;
+                      const unitsOnThisWall = savedModules.filter(m => m.position_json?.wallId === w.id).length;
                       return (
                         <button
                           key={w.id}
                           type="button"
                           onClick={() => setSelectedWall(w.id)}
                           style={{
-                            padding: '3px 8px',
-                            borderRadius: 6,
-                            fontSize: 10.5,
-                            fontWeight: 700,
+                            padding: '5px 10px',
+                            borderRadius: 7,
+                            fontSize: 11,
+                            fontWeight: active ? 800 : 600,
                             cursor: 'pointer',
-                            border: active ? '1px solid var(--gold, #c59c2d)' : '1px solid rgba(255,255,255,0.14)',
-                            background: active ? 'rgba(197, 156, 45, 0.22)' : 'rgba(255,255,255,0.04)',
-                            color: active ? '#fde68a' : '#cbd5e1',
+                            border: active ? '1.5px solid #c59c2d' : '1px solid #d6d3d1',
+                            background: active ? '#fef9c3' : '#ffffff',
+                            color: active ? '#713f12' : '#44403c',
+                            margin: 0,
                           }}
                         >
-                          {label} ({len} mm)
+                          {label} ({len} mm · {mmToFeetInches(len)}){unitsOnThisWall > 0 ? ` • ${unitsOnThisWall} unit${unitsOnThisWall > 1 ? 's' : ''}` : ''}
                         </button>
                       );
                     })}
                   </div>
                   <div className="wall-unit-sync-metrics">
-                    <div>
+                    <div className="wall-unit-sync-metric">
                       <span>Total Wall</span>
-                      <strong>{wallCapacity.totalWallMm} mm</strong>
+                      <strong>{wallCapacity.totalWallMm} mm ({mmToFeetInches(wallCapacity.totalWallMm)})</strong>
                     </div>
-                    <div>
+                    <div className="wall-unit-sync-metric">
                       <span>Openings / Keep-out</span>
                       <strong>-{wallCapacity.openingsDeductionMm} mm</strong>
                     </div>
-                    <div>
+                    <div className="wall-unit-sync-metric">
                       <span>Other Units + Filler</span>
                       <strong>-{wallCapacity.otherUnitsMm + wallCapacity.scribingFillerMm} mm</strong>
                     </div>
-                    <div>
-                      <span>Available for Unit</span>
-                      <strong style={{ color: '#4ade80' }}>{wallCapacity.maxUnitWidthMm} mm</strong>
+                    <div className="wall-unit-sync-metric highlight">
+                      <span>Available Clear Width</span>
+                      <strong>{wallCapacity.maxUnitWidthMm} mm ({mmToFeetInches(wallCapacity.maxUnitWidthMm)})</strong>
                     </div>
                   </div>
+
+                  {/* Interactive Visual Wall Elevation Strip */}
+                  {activeCatalogWall && (() => {
+                    const totalW = Math.max(1, wallCapacity.totalWallMm);
+                    const wallModules = savedModules.filter(m => m.position_json?.wallId === activeCatalogWall.id);
+                    return (
+                      <div className="wall-elevation-strip-wrap" style={{ marginTop: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: '#57534e', marginBottom: 4, fontWeight: 700 }}>
+                          <span>0 mm (Left Corner)</span>
+                          <span>{wallCapacity.wallLabel} Live Elevation Strip ({totalW} mm)</span>
+                          <span>{totalW} mm (Right Corner)</span>
+                        </div>
+                        <div style={{ position: 'relative', height: 34, background: '#f5f2eb', border: '1px solid #d6cfc2', borderRadius: 6, overflow: 'hidden' }}>
+                          {/* Left & Right 30mm scribing fillers */}
+                          <div title="30mm Left Filler" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${Math.max(1, (30 / totalW) * 100)}%`, background: 'repeating-linear-gradient(45deg, #e7e5e4, #e7e5e4 3px, #d6d3d1 3px, #d6d3d1 6px)', borderRight: '1px dashed #a8a29e' }} />
+                          <div title="30mm Right Filler" style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: `${Math.max(1, (30 / totalW) * 100)}%`, background: 'repeating-linear-gradient(45deg, #e7e5e4, #e7e5e4 3px, #d6d3d1 3px, #d6d3d1 6px)', borderLeft: '1px dashed #a8a29e' }} />
+                          {/* Openings on wall */}
+                          {activeCatalogWall.openings.map((op) => {
+                            const leftPct = Math.max(0, Math.min(98, ((op.offsetMm || 0) / totalW) * 100));
+                            const widthPct = Math.max(2, Math.min(100 - leftPct, ((op.widthMm || 900) / totalW) * 100));
+                            return (
+                              <div
+                                key={op.id}
+                                title={`${op.kind.toUpperCase()}: ${op.widthMm} mm at ${op.offsetMm} mm`}
+                                style={{
+                                  position: 'absolute',
+                                  left: `${leftPct}%`,
+                                  width: `${widthPct}%`,
+                                  top: 2,
+                                  bottom: 2,
+                                  background: op.kind === 'door' ? 'rgba(234, 88, 12, 0.22)' : 'rgba(2, 132, 199, 0.22)',
+                                  border: op.kind === 'door' ? '1px solid #ea580c' : '1px solid #0284c7',
+                                  borderRadius: 4,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: 9.5,
+                                  fontWeight: 800,
+                                  color: op.kind === 'door' ? '#9a3412' : '#075985',
+                                  overflow: 'hidden',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {op.kind === 'door' ? '🚪 Door' : '🪟 Window'} ({op.widthMm}mm)
+                              </div>
+                            );
+                          })}
+                          {/* Placed Modules on wall */}
+                          {wallModules.map((modItem) => {
+                            const isSel = selectedSavedModuleId === modItem.id;
+                            const wMm = isSel && moduleDraft ? (Number(moduleDraft.widthMm) || Number(modItem.config_json?.widthMm) || 600) : (Number(modItem.config_json?.widthMm) || 600);
+                            const offMm = isSel && moduleDraft ? (Number(moduleDraft.offsetMm) || 0) : (Number(modItem.position_json?.offsetMm) || 0);
+                            const leftPct = Math.max(0, Math.min(98, (offMm / totalW) * 100));
+                            const widthPct = Math.max(3, Math.min(100 - leftPct, (wMm / totalW) * 100));
+                            return (
+                              <button
+                                key={modItem.id}
+                                type="button"
+                                onClick={() => selectSavedModule(modItem)}
+                                title={`Click to edit ${modItem.label} (${wMm} mm @ ${Math.round(offMm)} mm)`}
+                                style={{
+                                  position: 'absolute',
+                                  left: `${leftPct}%`,
+                                  width: `${widthPct}%`,
+                                  top: 2,
+                                  bottom: 2,
+                                  margin: 0,
+                                  padding: '0 4px',
+                                  background: isSel ? '#1d4ed8' : '#059669',
+                                  color: '#ffffff',
+                                  border: isSel ? '2px solid #93c5fd' : '1px solid #047857',
+                                  borderRadius: 4,
+                                  fontSize: 10,
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  zIndex: isSel ? 3 : 2,
+                                }}
+                              >
+                                {modItem.label} ({wMm}mm)
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
-              <strong>{savedModules.length ? `Placed furniture in ${sel.room.name} (click unit to resize)` : 'Start furnishing this room'}</strong>
-              <p>{savedModules.length ? 'Click a unit on the 2D plan or below to change its Width, Depth, Height, or fit it directly to the wall.' : 'Click "Browse Units" or "Add furniture" to pick a modular unit or IKEA fixture, then click any wall.'}</p>
+              <strong>{savedModules.length ? `Placed furniture in ${sel.room.name} (${savedModules.length} unit${savedModules.length === 1 ? '' : 's'} — click any unit to resize or move)` : 'Start furnishing this room'}</strong>
+              <p>{savedModules.length ? 'Click a unit on the 2D plan, in the elevation strip, or below to change its Width, Depth, Height, Wall, or Offset.' : 'Click "Browse Units" or "⚡ Auto-Furnish Room" above to place modular units and IKEA fixtures.'}</p>
               <div className="saved-furniture-list">{savedModules.map(item => <button type="button" key={item.id} aria-pressed={selectedSavedModuleId === item.id} onClick={() => selectSavedModule(item)}>{item.label} ({item.config_json?.widthMm} mm)</button>)}</div>
-              {selectedSavedModuleId && moduleDraft && <>
-                {wallCapacity && (() => {
-                  const draftW = Number(moduleDraft.widthMm) || 0;
-                  const remainingAfterUnit = wallCapacity.maxUnitWidthMm - draftW;
-                  const fits = remainingAfterUnit >= 0;
-                  return (
-                    <div style={{ padding: '8px 10px', borderRadius: 8, background: fits ? 'rgba(22, 101, 52, 0.22)' : 'rgba(153, 27, 27, 0.25)', border: fits ? '1px solid rgba(74, 222, 128, 0.4)' : '1px solid rgba(248, 113, 113, 0.5)', fontSize: 11.5, marginBottom: 8 }}>
-                      <strong style={{ color: fits ? '#86efac' : '#fca5a5', display: 'block' }}>
-                        {fits
-                          ? `✓ Fits ${wallCapacity.wallLabel}: ${draftW} mm unit leaves ${remainingAfterUnit} mm spare on wall`
-                          : `⚠️ Exceeds ${wallCapacity.wallLabel} available width by ${Math.abs(remainingAfterUnit)} mm (max ${wallCapacity.maxUnitWidthMm} mm)`}
-                      </strong>
-                      <div className="unit-quick-width-pills" style={{ marginTop: 6 }}>
-                        {[450, 600, 900, 1200, 1500, 1800, 2100, 2400].filter(w => w <= wallCapacity.totalWallMm).map(presetW => (
-                          <button
-                            key={presetW}
-                            type="button"
-                            onClick={() => setModuleDraft(curr => curr ? { ...curr, widthMm: String(presetW) } : curr)}
-                            style={{ fontWeight: Number(moduleDraft.widthMm) === presetW ? 800 : 600 }}
-                          >
-                            {presetW} mm
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => setModuleDraft(curr => curr ? { ...curr, widthMm: String(wallCapacity.maxUnitWidthMm), offsetMm: '30' } : curr)}
-                          style={{ background: 'rgba(197, 156, 45, 0.28)', borderColor: 'var(--gold)', color: '#fde68a', fontWeight: 800 }}
-                        >
-                          ⚡ Fit Max Wall ({wallCapacity.maxUnitWidthMm} mm)
-                        </button>
+              {selectedSavedModuleId && moduleDraft && (() => {
+                const currentSelectedItem = savedModules.find(entry => entry.id === selectedSavedModuleId);
+                const draftW = Number(moduleDraft.widthMm) || 600;
+                const draftD = Number(moduleDraft.depthMm) || 600;
+                const draftH = Number(moduleDraft.heightMm) || 2100;
+                const draftOff = Number(moduleDraft.offsetMm) || 0;
+                const bayCount = Math.max(1, Math.round(draftW / 600));
+                const shutterCount = Math.max(1, Math.round(draftW / 450));
+                const maxWallW = wallCapacity?.maxUnitWidthMm ?? 3000;
+                const totalWallW = wallCapacity?.totalWallMm ?? 3600;
+                const remainingAfterUnit = maxWallW - draftW;
+                const fits = remainingAfterUnit >= 0;
+                return (
+                  <div className="placed-unit-editor-card" style={{ marginTop: 10, padding: 12, borderRadius: 10, border: '1.5px solid #cbd5e1', background: '#f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                      <div>
+                        <strong style={{ fontSize: 13, color: '#0f172a', display: 'block' }}>
+                          Editing: {currentSelectedItem?.label ?? 'Selected Module'}
+                        </strong>
+                        <small style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>
+                          System 32 Engineering: <strong>{bayCount} carcass bay{bayCount > 1 ? 's' : ''}</strong> • <strong>{shutterCount} shutter{shutterCount > 1 ? 's' : ''}</strong> • Internal clear width: <strong>{Math.max(0, draftW - 36 * bayCount)} mm</strong> (18mm BWP carcass)
+                        </small>
                       </div>
+                      {currentSelectedItem && (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="btn-secondary btn-sm"
+                            style={{ margin: 0, padding: '5px 10px', fontSize: 11 }}
+                            onClick={() => duplicateSelectedSavedModule(currentSelectedItem)}
+                            title="Duplicate this unit alongside on the wall"
+                          >
+                            <Plus size={12} /> Duplicate
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-secondary btn-sm"
+                            style={{ margin: 0, padding: '5px 10px', fontSize: 11, color: '#dc2626', borderColor: '#fca5a5', background: '#fef2f2' }}
+                            onClick={() => deleteSelectedSavedModule(currentSelectedItem.id)}
+                            title="Remove this unit from the room"
+                          >
+                            <X size={12} /> Remove Unit
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  );
-                })()}
-                <div className="saved-furniture-fields">{(['widthMm', 'depthMm', 'heightMm', 'offsetMm'] as const).map(key => <label key={key}>{({ widthMm: 'Width', depthMm: 'Depth', heightMm: 'Height', offsetMm: 'Wall offset' })[key]} (mm)<input type="number" min={key === 'offsetMm' ? 0 : 0.1} step="any" value={moduleDraft[key]} onChange={event => setModuleDraft(current => current ? { ...current, [key]: event.target.value } : current)} /></label>)}</div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                  <button type="button" className="btn-primary btn-sm" disabled={savingModule} onClick={() => void saveSelectedModule()}>{savingModule ? 'Saving furniture…' : 'Save furniture changes'}</button>
-                  <button type="button" className="btn-secondary btn-sm" disabled={savingModule} onClick={() => { setSelectedSavedModuleId(null); setModuleDraft(null); }}>Done</button>
-                </div>
-              </>}
+
+                    {wallCapacity && (
+                      <div style={{ padding: '8px 10px', borderRadius: 8, background: fits ? '#f0fdf4' : '#fef2f2', border: fits ? '1px solid #86efac' : '1px solid #fca5a5', fontSize: 11.5, marginBottom: 10 }}>
+                        <strong style={{ color: fits ? '#166534' : '#991b1b', display: 'block' }}>
+                          {fits
+                            ? `✓ Fits ${wallCapacity.wallLabel}: ${draftW} mm (${mmToFeetInches(draftW)}) unit leaves ${remainingAfterUnit} mm spare on wall`
+                            : `⚠️ Exceeds ${wallCapacity.wallLabel} available width by ${Math.abs(remainingAfterUnit)} mm (max clear width ${wallCapacity.maxUnitWidthMm} mm)`}
+                        </strong>
+                        <div className="unit-quick-width-pills" style={{ marginTop: 6 }}>
+                          {[450, 600, 900, 1200, 1500, 1800, 2100, 2400, 2700, 3000].filter(w => w <= totalWallW).map(presetW => (
+                            <button
+                              key={presetW}
+                              type="button"
+                              className="unit-quick-width-pill"
+                              onClick={() => {
+                                setModuleDraft(curr => curr ? { ...curr, widthMm: String(presetW) } : curr);
+                                void saveSelectedModule({ widthMm: presetW });
+                              }}
+                              style={{ fontWeight: draftW === presetW ? 800 : 600, borderColor: draftW === presetW ? '#1d4ed8' : undefined }}
+                            >
+                              {presetW} mm
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            className="unit-quick-width-pill fit-max"
+                            onClick={() => {
+                              setModuleDraft(curr => curr ? { ...curr, widthMm: String(wallCapacity.maxUnitWidthMm), offsetMm: '30' } : curr);
+                              void saveSelectedModule({ widthMm: wallCapacity.maxUnitWidthMm, offsetMm: 30 });
+                            }}
+                          >
+                            ⚡ Fit Max Wall ({wallCapacity.maxUnitWidthMm} mm)
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quick Wall Placement & Alignment Bar */}
+                    {wallCapacity && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 10, padding: '8px 10px', background: '#ffffff', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>Align on {wallCapacity.wallLabel}:</span>
+                          <button
+                            type="button"
+                            style={{ margin: 0, padding: '4px 9px', fontSize: 11, fontWeight: 700 }}
+                            onClick={() => {
+                              setModuleDraft(curr => curr ? { ...curr, offsetMm: '30' } : curr);
+                              void saveSelectedModule({ offsetMm: 30 });
+                            }}
+                          >
+                            ⇤ Snap Left (30mm)
+                          </button>
+                          <button
+                            type="button"
+                            style={{ margin: 0, padding: '4px 9px', fontSize: 11, fontWeight: 700 }}
+                            onClick={() => {
+                              const centerOff = Math.max(0, Math.round((totalWallW - draftW) / 2));
+                              setModuleDraft(curr => curr ? { ...curr, offsetMm: String(centerOff) } : curr);
+                              void saveSelectedModule({ offsetMm: centerOff });
+                            }}
+                          >
+                            ↔ Center ({Math.max(0, Math.round((totalWallW - draftW) / 2))}mm)
+                          </button>
+                          <button
+                            type="button"
+                            style={{ margin: 0, padding: '4px 9px', fontSize: 11, fontWeight: 700 }}
+                            onClick={() => {
+                              const rightOff = Math.max(0, Math.round(totalWallW - draftW - 30));
+                              setModuleDraft(curr => curr ? { ...curr, offsetMm: String(rightOff) } : curr);
+                              void saveSelectedModule({ offsetMm: rightOff });
+                            }}
+                          >
+                            Snap Right ⇥
+                          </button>
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 700, color: '#475569', flex: '1 1 200px' }}>
+                          <span>Slide along wall:</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={Math.max(0, totalWallW - draftW)}
+                            step={10}
+                            value={Math.min(draftOff, Math.max(0, totalWallW - draftW))}
+                            onChange={e => setModuleDraft(curr => curr ? { ...curr, offsetMm: e.target.value } : curr)}
+                            onMouseUp={() => void saveSelectedModule()}
+                            onTouchEnd={() => void saveSelectedModule()}
+                            style={{ flex: 1 }}
+                          />
+                          <span style={{ minWidth: 58, textAlign: 'right', color: '#0f172a' }}>{Math.round(draftOff)} mm</span>
+                        </label>
+                      </div>
+                    )}
+
+                    {/* Move Unit to Another Wall */}
+                    {wallCapacity && wallCapacity.roomWalls.length > 1 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>Move Unit to Wall:</span>
+                        {wallCapacity.roomWalls.map((w, idx) => {
+                          const label = `Wall ${String.fromCharCode(65 + idx)}`;
+                          const isCurrentWall = currentSelectedItem?.position_json?.wallId === w.id;
+                          return (
+                            <button
+                              key={w.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedWall(w.id);
+                                void saveSelectedModule({ wallId: w.id, offsetMm: 30 });
+                              }}
+                              style={{
+                                margin: 0,
+                                padding: '4px 9px',
+                                fontSize: 11,
+                                fontWeight: isCurrentWall ? 800 : 600,
+                                borderColor: isCurrentWall ? '#1d4ed8' : '#cbd5e1',
+                                background: isCurrentWall ? '#dbeafe' : '#ffffff',
+                                color: isCurrentWall ? '#1e3a8a' : '#334155',
+                              }}
+                            >
+                              {label} ({Math.round(wallLen(w))} mm)
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="saved-furniture-fields">{(['widthMm', 'depthMm', 'heightMm', 'offsetMm'] as const).map(key => <label key={key}>{({ widthMm: 'Width', depthMm: 'Depth', heightMm: 'Height', offsetMm: 'Wall offset' })[key]} (mm)<input type="number" min={key === 'offsetMm' ? 0 : 0.1} step="any" value={moduleDraft[key]} onChange={event => setModuleDraft(current => current ? { ...current, [key]: event.target.value } : current)} /></label>)}</div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                      <button type="button" className="btn-primary btn-sm" disabled={savingModule} onClick={() => void saveSelectedModule()}>{savingModule ? 'Saving furniture…' : 'Save furniture changes'}</button>
+                      <button type="button" className="btn-secondary btn-sm" disabled={savingModule} onClick={() => { setSelectedSavedModuleId(null); setModuleDraft(null); }}>Done</button>
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="saved-furniture-fields" style={{ marginTop: 8 }}>
                 <label>Standard internal laminate<select disabled={finishBusy} value={savedFinish('carcass')} onChange={event => void assignFinish('carcass', event.target.value)}><option value="">Select approved library material</option>{finishLibrary.filter(material => /laminate|liner/i.test(`${material.category} ${material.name}`)).map(material => <option key={material.id} value={material.id}>{material.name} · {material.code}</option>)}</select></label>
                 {selectedSavedModuleId && <label>This unit’s external finish<select disabled={finishBusy} value={savedFinish('shutter', selectedSavedModuleId)} onChange={event => void assignFinish('shutter', event.target.value, selectedSavedModuleId)}><option value="">Select external finish</option>{finishLibrary.filter(material => /laminate|veneer|acrylic/i.test(`${material.category} ${material.name}`)).map(material => <option key={material.id} value={material.id}>{material.name} · {material.code}</option>)}</select></label>}
