@@ -48,6 +48,7 @@ const RulesWorkspace = lazy(() => import('./features/studio/StudioAdminScreens')
 const SettingsWorkspace = lazy(() => import('./features/studio/StudioAdminScreens').then((module) => ({ default: module.SettingsWorkspace })));
 const RenderedSpacesLibrary = lazy(() => import('./features/library/RenderedSpacesLibrary').then((module) => ({ default: module.RenderedSpacesLibrary })));
 const CutlistStudio = lazy(() => import('./features/tools/CutlistStudio').then((module) => ({ default: module.CutlistStudio })));
+const PipelineWorkspace = lazy(() => import('./features/pipeline/PipelineWorkspace').then((module) => ({ default: module.PipelineWorkspace })));
 
 import './intake.css';
 
@@ -1355,93 +1356,13 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         return undefined;
       }
 
-      // Ensure room configuration and design inputs exist so /scenes/compile never 409s
-      const reqFurn = Array.isArray(selectedRoom.requiredFurniture) && selectedRoom.requiredFurniture.length > 0
-        ? selectedRoom.requiredFurniture
-        : ['storage_unit'];
-      await fetch(`${apiBase}/projects/${projectId}/spaces/${selectedRoom.spaceRecordId}`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
-          name: selectedRoom.name || 'Room',
-          roomType: selectedRoom.roomType || 'living',
-          ceilingHeightMm: selectedRoom.ceilingHeightMm ?? planPayload?.ceilingHeightMm ?? 2700,
-          requiredFurniture: reqFurn,
-          designPriority: selectedRoom.designPriority ?? 'balanced',
-          verificationStatus: selectedRoom.verificationStatus ?? 'verified',
-          included: selectedRoom.included !== false,
-        }),
-      }).catch(() => null);
-      await fetch(`${apiBase}/projects/${projectId}/spaces/${selectedRoom.spaceRecordId}/design-inputs`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
-          compositionSchedules: Array.isArray(planPayload?.sceneDesignInputs?.compositionSchedules) ? planPayload.sceneDesignInputs.compositionSchedules : [],
-          floorSurfaces: Array.isArray(planPayload?.sceneDesignInputs?.floorSurfaces) ? planPayload.sceneDesignInputs.floorSurfaces : [],
-        }),
-      }).catch(() => null);
-
-      let modulesResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances?spaceId=${encodeURIComponent(selectedRoom.spaceRecordId)}`, { headers });
-      let modulesPayload = await modulesResponse.json().catch(() => null);
-      let savedModules = Array.isArray(modulesPayload?.modules) ? modulesPayload.modules : [];
-      if (!modulesResponse.ok || savedModules.length === 0) {
-        // Ensure approved layout and place a default fitting module so 3D compilation succeeds
-        const layoutsRes = await fetch(`${apiBase}/projects/${projectId}/layouts`, { headers }).then(r => r.json()).catch(() => null);
-        const hasApprovedLayout = Array.isArray(layoutsRes?.layouts) && layoutsRes.layouts.some((l: any) => l.space_id === selectedRoom.spaceRecordId && l.status === 'approved');
-        if (!hasApprovedLayout) {
-          const candRes = await fetch(`${apiBase}/projects/${projectId}/layout-candidates`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              spaceId: selectedRoom.spaceRecordId,
-              roomCategory: selectedRoom.roomType || 'living',
-              shape: 'balanced',
-              candidateTypes: ['balanced'],
-              requirements: { requiredFurniture: reqFurn, designPriority: 'balanced' },
-            }),
-          }).then(r => r.json()).catch(() => null);
-          const validCand = candRes?.candidates?.find((c: any) => c?.validation?.valid) ?? candRes?.candidates?.[0];
-          if (validCand) {
-            const savedLay = await fetch(`${apiBase}/projects/${projectId}/layouts`, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({ spaceId: selectedRoom.spaceRecordId, layoutShape: 'balanced', label: 'Balanced', candidate: validCand, score: validCand.score }),
-            }).then(r => r.json()).catch(() => null);
-            if (savedLay?.layout?.id) {
-              await fetch(`${apiBase}/projects/${projectId}/layouts/${savedLay.layout.id}/approve`, { method: 'POST', headers, body: '{}' }).catch(() => null);
-            }
-          }
-        }
-        const roomWallId = selectedRoom.wallRefs?.[0] ?? planPayload?.walls?.[0]?.id;
-        if (roomWallId) {
-          const rType = String(selectedRoom.roomType || 'living');
-          const defaultTemplate = rType.includes('bed')
-            ? { id: 'wardrobe-1800-three-shutter', family: 'wardrobe', label: '1800 Three-Shutter Hinged Wardrobe', widthMm: 1800, depthMm: 600, heightMm: 2100 }
-            : rType === 'kitchen'
-              ? { id: 'kit-base-600', family: 'kitchen-base', label: '600 Kitchen Base Tandem Unit', widthMm: 600, depthMm: 600, heightMm: 860 }
-              : { id: 'tv-unit-1800-floating', family: 'tv-unit', label: '1800 Floating Media Console', widthMm: 1800, depthMm: 400, heightMm: 450 };
-          await fetch(`${apiBase}/projects/${projectId}/module-instances`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              spaceId: selectedRoom.spaceRecordId,
-              templateId: defaultTemplate.id,
-              category: defaultTemplate.family,
-              label: defaultTemplate.label,
-              config: { family: defaultTemplate.family, widthMm: defaultTemplate.widthMm, depthMm: defaultTemplate.depthMm, heightMm: defaultTemplate.heightMm, zOffsetMm: 0 },
-              position: { wallId: roomWallId, offsetMm: 100 },
-            }),
-          }).catch(() => null);
-          modulesResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances?spaceId=${encodeURIComponent(selectedRoom.spaceRecordId)}`, { headers });
-          modulesPayload = await modulesResponse.json().catch(() => null);
-          savedModules = Array.isArray(modulesPayload?.modules) ? modulesPayload.modules : [];
-        }
-      }
+      const modulesResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances?spaceId=${encodeURIComponent(selectedRoom.spaceRecordId)}`, { headers });
+      const modulesPayload = await modulesResponse.json().catch(() => null);
+      const savedModules = Array.isArray(modulesPayload?.modules) ? modulesPayload.modules : [];
       if (!modulesResponse.ok || savedModules.length === 0) {
         setPlanStatus(modulesPayload?.message ?? 'Save at least one furniture module in this room before compiling its 3D scene.');
         return undefined;
       }
-
       const readLocalRecord = (key: string): Record<string, any> | null => {
         try {
           const value = JSON.parse(window.localStorage.getItem(key) ?? 'null');
@@ -1669,6 +1590,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
           />
         } />
         {/* /presentation → redirect to estimate (Estimate & Delivery) */}
+        <Route path="pipeline" element={<PipelineWorkspace />} />
         <Route path="presentation" element={<Navigate to={`/projects/${projectId}/estimate`} replace />} />
         {/* Default: redirect to brief */}
         <Route index element={<Navigate to="brief" replace />} />
@@ -1716,6 +1638,7 @@ function DashboardShell({ sessionEmail, orgName, onStudioIdentitySaved }: { sess
       <Suspense fallback={<RouteLoading label="Loading studio…" />}><Routes>
         <Route index element={<StudioDashboard orgName={orgName} />} />
         <Route path="projects" element={<ProjectDashboard sessionEmail={sessionEmail} orgName={orgName} />} />
+        <Route path="pipeline" element={<PipelineWorkspace />} />
         <Route path="tools/cnc" element={<CncPatternStudio />} />
         <Route path="tools/cutlist" element={<CutlistStudio />} />
         <Route path="tools/cutlist-studio" element={<CutlistStudio />} />

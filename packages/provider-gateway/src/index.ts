@@ -134,6 +134,10 @@ function localAiBaseUrl(environment: Environment) {
   return environment.LOCALAI_BASE_URL?.replace(/\/$/, '');
 }
 
+function comfyBaseUrl(environment: Environment) {
+  return (environment.COMFYUI_BASE_URL || environment.COMFYUI_URL)?.replace(/\/$/, '');
+}
+
 function localAiHeaders(environment: Environment) {
   return {
     'content-type': 'application/json',
@@ -193,7 +197,7 @@ export function createProviderGateway(environment: Environment) {
       { id: 'openai-dall-e-3', name: 'OpenAI DALL-E 3', configured: Boolean(env.OPENAI_API_KEY), optedIn: optedIntoProvider(env, 'openai-dall-e-3'), operations: ['generate'], details: 'Never automatic fallback. Explicit provider selection only; OPENAI_DALL_E_3_OPT_IN=true can be used as an additional studio policy gate.' },
       { id: 'openai-gpt-image-1', name: 'OpenAI GPT Image 1', configured: Boolean(env.OPENAI_API_KEY && env.OPENAI_IMAGE_MODEL === 'gpt-image-1'), optedIn: optedIntoProvider(env, 'openai-gpt-image-1'), operations: ['generate'], details: 'Never automatic fallback. Explicit provider selection only; OPENAI_GPT_IMAGE_1_OPT_IN=true can be used as an additional studio policy gate.' },
       { id: 'localai', name: 'LocalAI self-hosted image generation', configured: Boolean(localAiBaseUrl(env) && env.LOCALAI_IMAGE_MODEL), optedIn: true, operations: ['generate'], details: 'Optional private, OpenAI-compatible endpoint. It is used only for new renders; geometry-locked revisions stay on ComfyUI or Cloudflare.' },
-      { id: 'comfyui', name: 'ComfyUI', configured: Boolean(env.COMFYUI_BASE_URL && readComfyWorkflow(env)), optedIn: true, operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'], details: 'Optional studio-local workflow. Image-conditioned operations require a {{sourceImage}} loader in the approved workflow.' }
+      { id: 'comfyui', name: 'ComfyUI', configured: Boolean(comfyBaseUrl(env) && readComfyWorkflow(env)), optedIn: true, operations: ['generate', 'restage', 'material-swap', 'remove-object', 'relight', 'enhance'], details: comfyBaseUrl(env) ? `Configured at ${comfyBaseUrl(env)} (${env.COMFYUI_WORKFLOW_JSON ? 'custom workflow JSON' : 'built-in geometry-locked workflow'}). Live server reachability and installed SDXL/ControlNet checkpoints are verified at job execution.` : 'Optional studio-local workflow. Set COMFYUI_BASE_URL (or COMFYUI_URL) and ensure required checkpoint/ControlNet models are installed.' }
     ];
     return providers.map((provider) => ({ ...provider, eligible: provider.configured && DEFAULT_ELIGIBLE_PROVIDERS.has(provider.id) }));
   };
@@ -656,7 +660,7 @@ export function createProviderGateway(environment: Environment) {
     if (!workflow) {
       return { status: 'failed', code: 'COMFYUI_WORKFLOW_INVALID', message: 'COMFYUI_WORKFLOW_JSON is invalid or missing.', retryable: false, sourceSceneVersionId: request.sceneVersionId, attemptedProviders };
     }
-    const baseUrl = environment.COMFYUI_BASE_URL!.replace(/\/$/, '');
+    const baseUrl = comfyBaseUrl(environment)!;
     try {
       const uploads: ComfyUploads = {};
       if (comfyTemplateNeeds(workflow, 'sourceImage')) {
@@ -714,7 +718,7 @@ export function createProviderGateway(environment: Environment) {
 
     async pollTaskStatus(provider: string, taskId: string) {
       if (provider !== 'comfyui') return { status: 'failed' as const, reason: `Polling is not supported for ${provider}.` };
-      const baseUrl = environment.COMFYUI_BASE_URL?.replace(/\/$/, '');
+      const baseUrl = comfyBaseUrl(environment);
       if (!baseUrl) return { status: 'failed' as const, reason: 'ComfyUI is not configured.' };
       try {
         const response = await fetch(`${baseUrl}/history/${encodeURIComponent(taskId)}`, { headers: environment.COMFYUI_API_KEY ? { authorization: `Bearer ${environment.COMFYUI_API_KEY}` } : {} });

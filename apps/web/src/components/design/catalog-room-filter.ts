@@ -13,6 +13,7 @@ const roomFamilyAllowlist: Record<string, Set<string>> = {
   pooja: new Set(['pooja', 'storage', 'lighting', 'freestanding-lighting']),
   foyer: new Set(['storage', 'lighting', 'freestanding-lighting', 'feature-wall', 'rug', 'utility']),
   utility: new Set(['utility', 'storage', 'kitchen-base', 'lighting']),
+  bathroom: new Set(['utility', 'storage', 'lighting']),
   balcony: new Set(['storage', 'lighting', 'freestanding-lighting']),
 };
 

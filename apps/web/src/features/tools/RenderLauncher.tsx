@@ -1,4 +1,4 @@
-import { ArrowRight, Box, Camera, CheckCircle2, Cpu, ExternalLink, Layers3, Palette, Ruler, Route, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowRight, Box, Camera, CheckCircle2, Cpu, ExternalLink, Layers3, Palette, RefreshCw, Ruler, Route, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -8,6 +8,7 @@ import './render-launcher.css';
 type Project = { id: string; name: string; workflow_stage: string | null };
 type Scene = { id: string; status: string; created_at: string };
 type ProviderInfo = { id: string; name: string; configured: boolean; eligible: boolean; operations: string[]; details: string };
+type ComfyProbeStatus = 'unchecked' | 'checking' | 'reachable' | 'missing_models' | 'unreachable';
 
 /** Dashboard entry point for an exact persisted scene. It never sends loose text to an image model. */
 export function RenderLauncher() {
@@ -16,9 +17,40 @@ export function RenderLauncher() {
   const [projectId, setProjectId] = useState('');
   const [scene, setScene] = useState<Scene | null>(null);
   const [state, setState] = useState('Loading projects with approved scenes…');
+  const [comfyProvider, setComfyProvider] = useState<ProviderInfo | null>(null);
+  const [allProviders, setAllProviders] = useState<ProviderInfo[]>([]);
   const [comfyConfigured, setComfyConfigured] = useState<boolean | null>(null);
+  const [comfyProbe, setComfyProbe] = useState<ComfyProbeStatus>('unchecked');
+  const [comfyProbeMessage, setComfyProbeMessage] = useState('');
   const [providerError, setProviderError] = useState('');
   const sceneRequest = useRef(0);
+
+  const isLocalOrigin = typeof window !== 'undefined' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(window.location.origin);
+
+  async function verifyLocalComfyReachability() {
+    setComfyProbe('checking');
+    setComfyProbeMessage('Checking local ComfyUI reachability and checkpoint availability…');
+    try {
+      const res = await fetch('http://127.0.0.1:8188/object_info/CheckpointLoaderSimple', { method: 'GET' });
+      if (!res.ok) {
+        setComfyProbe('unreachable');
+        setComfyProbeMessage(`ComfyUI responded with HTTP ${res.status}. Verify the server and custom nodes.`);
+        return;
+      }
+      const payload = await res.json().catch(() => null) as Record<string, any> | null;
+      const checkpoints: string[] = payload?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] ?? [];
+      if (Array.isArray(checkpoints) && checkpoints.length === 0) {
+        setComfyProbe('missing_models');
+        setComfyProbeMessage('ComfyUI server is reachable on 127.0.0.1:8188, but no SDXL/Flux checkpoint models are installed in models/checkpoints.');
+      } else {
+        setComfyProbe('reachable');
+        setComfyProbeMessage(`ComfyUI server reachable (${checkpoints.length || 'verified'} checkpoint${checkpoints.length === 1 ? '' : 's'} available). Ready to queue geometry-locked jobs.`);
+      }
+    } catch {
+      setComfyProbe('unreachable');
+      setComfyProbeMessage('Local ComfyUI server on 127.0.0.1:8188 could not be reached from the browser. Ensure ComfyUI is running or use a configured cloud provider.');
+    }
+  }
 
   useEffect(() => {
     void (async () => {
@@ -36,7 +68,10 @@ export function RenderLauncher() {
         return res.json();
       })
       .then((data) => {
-        const comfy = (data.providers as ProviderInfo[] | undefined)?.find((p) => p.id === 'comfyui');
+        const list = (data.providers as ProviderInfo[] | undefined) ?? [];
+        setAllProviders(list);
+        const comfy = list.find((p) => p.id === 'comfyui') ?? null;
+        setComfyProvider(comfy);
         setComfyConfigured(Boolean(comfy?.configured));
       })
       .catch((error) => {
@@ -66,6 +101,23 @@ export function RenderLauncher() {
       navigate(`/projects/${projectId}/${stage}`);
     }
   };
+
+  const activeFallbacks = allProviders.filter((p) => p.id !== 'comfyui' && p.configured);
+  const badgeLabel = providerError
+    ? 'Status unavailable'
+    : comfyConfigured === null
+      ? 'Checking settings…'
+      : comfyProbe === 'reachable'
+        ? 'Reachable & models verified'
+        : comfyProbe === 'missing_models'
+          ? 'Missing checkpoint models'
+          : comfyProbe === 'unreachable'
+            ? 'Server unreachable'
+            : comfyConfigured
+              ? 'Env configured (verify live reachability)'
+              : 'Not configured';
+
+  const badgeSuccess = comfyProbe === 'reachable' || (comfyConfigured && comfyProbe === 'unchecked');
 
   return <main className="render-launcher">
     <section className="render-launcher-hero">
@@ -118,33 +170,59 @@ export function RenderLauncher() {
       </aside>
     </section>
 
-    {/* ComfyUI Local Engine & Presets Card */}
+    {/* ComfyUI Local Engine & Provider Diagnostics Card */}
     <section className="render-comfy-card" style={{ marginTop: 16, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--surface)', padding: 22 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Cpu size={20} style={{ color: comfyConfigured ? '#22c55e' : '#f59e0b' }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: '1 1 420px' }}>
+          <Cpu size={20} style={{ color: badgeSuccess ? '#22c55e' : '#f59e0b', marginTop: 2 }} />
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <strong style={{ fontSize: 14 }}>ComfyUI Studio Engine</strong>
-              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: comfyConfigured ? '#dcfce7' : '#fef3c7', color: comfyConfigured ? '#15803d' : '#b45309', fontWeight: 700 }}>
-                {providerError ? 'Status unavailable' : comfyConfigured === null ? 'Checking settings…' : comfyConfigured ? 'Configured' : 'Setup required'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: 14 }}>ComfyUI & Render Provider Diagnostics</strong>
+              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: badgeSuccess ? '#dcfce7' : '#fef3c7', color: badgeSuccess ? '#15803d' : '#b45309', fontWeight: 700 }}>
+                {badgeLabel}
               </span>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
-              {providerError || 'Rendering requires a running ComfyUI server, installed model files and a compatible workflow. The hosted Ultida app needs a render service it can reach.'}
+              {providerError
+                || comfyProbeMessage
+                || comfyProvider?.details
+                || 'Rendering requires a running ComfyUI server (COMFYUI_BASE_URL / COMFYUI_URL), installed checkpoint/ControlNet models, and a compatible workflow.'}
             </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, fontSize: 11, color: 'var(--text-secondary)' }}>
+              <span><strong>Lifecycle states:</strong> Configured → Live Reachability → Checkpoint/ControlNet Models → Queued → Running → Complete / Failed</span>
+              {activeFallbacks.length > 0 && (
+                <span>• <strong>Configured cloud providers:</strong> {activeFallbacks.map((p) => p.name).join(', ')}</span>
+              )}
+            </div>
           </div>
         </div>
-        {/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(window.location.origin) && (
-          <a
-            href="http://127.0.0.1:8188"
-            target="_blank"
-            rel="noreferrer"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--gold-dim)', textDecoration: 'none', padding: '6px 12px', border: '1px solid var(--line)', borderRadius: 8 }}
-          >
-            Open local ComfyUI <ExternalLink size={13} />
-          </a>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {isLocalOrigin && (
+            <button
+              type="button"
+              onClick={() => void verifyLocalComfyReachability()}
+              disabled={comfyProbe === 'checking'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--text)', background: 'var(--surface-2)', cursor: 'pointer', padding: '6px 12px', border: '1px solid var(--line)', borderRadius: 8 }}
+            >
+              <RefreshCw size={13} /> {comfyProbe === 'checking' ? 'Probing 127.0.0.1:8188…' : 'Probe Live ComfyUI & Models'}
+            </button>
+          )}
+          {isLocalOrigin && (
+            <a
+              href="http://127.0.0.1:8188"
+              target="_blank"
+              rel="noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--gold-dim)', textDecoration: 'none', padding: '6px 12px', border: '1px solid var(--line)', borderRadius: 8 }}
+            >
+              Open local ComfyUI <ExternalLink size={13} />
+            </a>
+          )}
+          {!isLocalOrigin && !comfyConfigured && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#b45309' }}>
+              <AlertCircle size={13} /> Set COMFYUI_BASE_URL on the API server for remote ComfyUI
+            </span>
+          )}
+        </div>
       </div>
     </section>
 

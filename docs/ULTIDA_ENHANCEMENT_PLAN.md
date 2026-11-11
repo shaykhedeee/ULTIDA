@@ -112,5 +112,30 @@ The report's claims of 100% reliable compilation and complete launch readiness s
 
 ## Implementation record
 
-Changes and verification from this enhancement pass will be recorded here after review. Runtime installation, model downloads, real user sign-in and machine acceptance will be reported according to observed results.
+Updated 12 November 2026:
 
+1. **Explicit Approvals & Removal of Silent Layout/Module Creation (`Section 3`)**:
+   - **`apps/web/src/App.tsx` (`saveScene`)**: Removed the fallback block that automatically created spaces, design inputs, layout candidates, approved layouts (`POST /layouts/:id/approve`), and inserted default furniture modules (`wardrobe-1800-three-shutter`, `kit-base-600`, `tv-unit-1800-floating`) when `savedModules.length === 0`. Compiling a 3D scene now strictly requires saved room furniture and an explicitly approved layout.
+   - **`apps/web/src/features/spaces/SpacesWorkspace.tsx` (`Review in 3D`)**: Removed the silent `quickFurnishRoomSuite` and direct `onReviewSavedRoom` bypass inside the 3D review handler so `prepareRoomReview` governs saving, layout approval, and scene compilation explicitly.
+
+2. **Furniture Library & Washroom/Bathroom Filtering Fixes (`Section 2`)**:
+   - **`apps/web/src/components/design/catalog-room-filter.ts`**: Added `bathroom: new Set(['utility', 'storage', 'lighting'])` to `roomFamilyAllowlist`.
+   - **`apps/web/src/components/library/ReferenceLibraryWorkspace.tsx`**: Updated `moduleSupportsRoom` to normalize `'washroom'` / `'toilet'` to `'bathroom'` and match vanity/washroom modules without conflating laundry utility units. Added `'bathroom'` to `washroom-shutter-vanity-900` in `DEFAULT_MODULAR_CATALOG`. Enhanced module cards to display SKU, catalog source (`ULTIDA Modular Catalog` vs `IKEA India Retail Reference (BOQ only)`), compatible rooms, and explicit `cutlistSupported` fabrication badges.
+
+3. **ComfyUI Environment Alignment & Live Readiness Diagnostics (`Section 4`)**:
+   - **`apps/api/src/env-config.ts`** and **`packages/provider-gateway/src/index.ts`**: Unified environment variable handling so both `COMFYUI_BASE_URL` and `COMFYUI_URL` are recognized across server validation, `getProviders()`, `executeComfy()`, and `pollTaskStatus()`.
+   - **`apps/web/src/features/tools/RenderLauncher.tsx`**: Updated the ComfyUI & Render Provider Diagnostics card to distinguish environment configuration (`Env configured (verify live reachability)`), live browser probe status (`Probe Live ComfyUI & Models` against `127.0.0.1:8188/object_info/CheckpointLoaderSimple`), missing checkpoint models (`Missing checkpoint models`), and configured cloud fallback providers.
+
+4. **Native Project Pipeline, Revision History, Drive Links & 120-Minute Daily Session Planner (`Sections 1, 5, 6`)**:
+   - **`apps/api/src/pipeline-routes.ts`** and **`apps/api/src/index.ts`**: Added authenticated studio and project pipeline endpoints (`GET /api/studio/pipeline`, `GET /api/projects/:projectId/pipeline`, `PUT /api/projects/:projectId/pipeline`) backed by `projects.delivery_records` and reusing `projects` and `spaces` identifiers. Enforces optimistic concurrency (`expectedVersion` -> `409 PIPELINE_VERSION_CONFLICT` on concurrent edits), validates `https://` URLs on external Google Drive/document links, signs private uploaded assets from `project-assets`, and guarantees that saving tasks or files never mutates or approves geometry or production records.
+   - **`apps/web/src/features/pipeline/PipelineWorkspace.tsx`**, **`apps/web/src/Shell.tsx`**, and **`apps/web/src/App.tsx`**: Added the native **Pipeline & Files** workspace at `/pipeline` and `/projects/:projectId/pipeline`. Includes:
+     - Studio overview counters derived from saved records (Overdue Work, Waiting for Client, Missing Site Info, Draft Revisions, Upcoming Handovers).
+     - Configurable **Daily Session Planner** (default `120` minutes, owner filter, priority and due-date sorting, automatic exclusion of `Waiting for client` and unresolved dependencies, missing-estimate warnings, and 1-click `Mark Complete`).
+     - Stage deliverables & tasks (new tasks default to `Pending`, with stage, room, owner, next action, dependencies, assumptions, missing site information, priority, estimated minutes, and due date).
+     - Revision-preserved files & Google Drive links (`External Drive / HTTPS Link` vs `Uploaded Studio Asset`, revision tags `REV-1`/`REV-2`, and explicit `Draft` / `Pending Review` / `Approved` / `Superseded` status tracking).
+
+5. **Verification Executed**:
+   - `npm run build:packages` & `npm run check`: Passed across all 18 packages and 5 apps (`@ultida/api`, `@ultida/web`, `@ultida/worker`, `@ultida/cloudflare-ai-worker`, `@ultida/aura-tools`).
+   - `npm run test:core`: Passed (`@ultida/catalog-core`, `@ultida/design-core`, `@ultida/geometry-core`, `@ultida/layout-core`, `@ultida/material-core`, `@ultida/module-framework`, `@ultida/plan-core`, `@ultida/provider-gateway`, `@ultida/render-pipeline`, `@ultida/rule-core`, `@ultida/scene-compiler`, `@ultida/scene-core`, `@ultida/spaces-core`, `@ultida/commercial-core`, `@ultida/drawing-core`).
+   - `npm run test:api`: Passed (including new `apps/api/test/pipeline-routes.test.ts` covering default `Pending` task generation, revision preservation, and `COMFYUI_BASE_URL` / `COMFYUI_URL` alignment).
+   - `npm run test:rooms`, `npm run validate:reliability`, `npm run preflight`, and `npm run build`: All passed.

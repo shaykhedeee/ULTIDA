@@ -33,11 +33,12 @@ type Props = {
 
 // ─── Primary navigation items ─────────────────────────────────────
 const PRIMARY_NAV = [
-  { id: 'dashboard', label: 'Dashboard',      path: '/',            icon: LayoutDashboard },
-  { id: 'projects',  label: 'Projects',       path: '/projects',    icon: FolderKanban },
-  { id: 'library',   label: 'Design Library', path: '/library',     icon: Library },
-  { id: 'team',      label: 'Team',           path: '/team',        icon: Users },
-  { id: 'settings',  label: 'Settings & Rules', path: '/settings',   icon: Settings },
+  { id: 'dashboard', label: 'Dashboard',        path: '/',          icon: LayoutDashboard },
+  { id: 'projects',  label: 'Projects',         path: '/projects',  icon: FolderKanban },
+  { id: 'pipeline',  label: 'Pipeline & Files', path: '/pipeline',  icon: ClipboardList },
+  { id: 'library',   label: 'Design Library',   path: '/library',   icon: Library },
+  { id: 'team',      label: 'Team',             path: '/team',      icon: Users },
+  { id: 'settings',  label: 'Settings & Rules', path: '/settings',  icon: Settings },
 ];
 
 const STUDIO_WORKSPACE_URL = 'https://ultida-design-workspace.zebbroka.chatgpt.site';
@@ -145,7 +146,7 @@ export function Shell({
             return (
               <Link
                 key={item.id}
-                to={item.id === 'library' && projectId ? `/projects/${projectId}/library` : item.path}
+                to={item.id === 'library' && projectId ? `/projects/${projectId}/library` : item.id === 'pipeline' && projectId ? `/projects/${projectId}/pipeline` : item.path}
                 className={`nav-item${isActive ? ' active' : ''}`}
                 onClick={() => setMobileOpen(false)}
                 title={collapsed ? item.label : undefined}

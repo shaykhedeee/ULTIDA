@@ -288,8 +288,12 @@ function stableImageForModule(module: CatalogModule) {
 }
 
 function moduleSupportsRoom(module: CatalogModule, room: string) {
-  if (module.roomTypes.includes(room)) return true;
-  if (room === 'master_bedroom' || room === 'kids_bedroom') return module.roomTypes.includes('bedroom');
+  const normalizedRoom = room === 'washroom' || room === 'toilet' ? 'bathroom' : room;
+  if (module.roomTypes.includes(normalizedRoom)) return true;
+  if (normalizedRoom === 'bathroom') {
+    return /vanity|washroom|cistern|bathroom/i.test(`${module.id} ${module.name} ${module.tags.join(' ')}`);
+  }
+  if (normalizedRoom === 'master_bedroom' || normalizedRoom === 'kids_bedroom') return module.roomTypes.includes('bedroom');
   return false;
 }
 
@@ -344,7 +348,7 @@ const DEFAULT_MODULAR_CATALOG: CatalogModule[] = [
   // STUDY, FOYER & WASHROOM
   { id: 'study-1500', family: 'study', name: '1500 Floating Wall-Mounted Study Desk & Shelf', roomTypes: ['study', 'bedroom'], widthMm: 1500, depthMm: 600, heightMm: 2400, sku: 'ULT-ST-FLT-1500', tags: ['study', 'desk', 'floating'], description: 'Heavy-duty wall mounted study workstation with wire grommets and pinboard niche.', production: { cutlistSupported: true } },
   { id: 'foyer-shoe-1200', family: 'storage', name: '1200 Foyer Shoe Storage Bench with Cushion', roomTypes: ['foyer', 'living'], widthMm: 1200, depthMm: 400, heightMm: 1800, sku: 'ULT-ST-FOY-1200', tags: ['storage', 'shoe-rack', 'foyer'], description: 'Entryway console with 16-pair ventilated shoe cabinet and coat hooks.', production: { cutlistSupported: true } },
-  { id: 'washroom-shutter-vanity-900', family: 'utility', name: '900 Washroom Concealed Cistern Vanity & Overhead Shutter Unit', roomTypes: ['utility', 'master_bedroom'], widthMm: 900, depthMm: 450, heightMm: 2100, sku: 'ULT-WR-VS-900', tags: ['washroom', 'vanity', 'overhead-shutter', 'toilet'], description: 'Washroom composition with wall-hung vanity washbasin counter, concealed cistern ledge, open niche, and top 2-door overhead shutter cabinet.', production: { cutlistSupported: true } },
+  { id: 'washroom-shutter-vanity-900', family: 'utility', name: '900 Washroom Concealed Cistern Vanity & Overhead Shutter Unit', roomTypes: ['bathroom', 'utility', 'master_bedroom'], widthMm: 900, depthMm: 450, heightMm: 2100, sku: 'ULT-WR-VS-900', tags: ['washroom', 'vanity', 'overhead-shutter', 'toilet'], description: 'Washroom composition with wall-hung vanity washbasin counter, concealed cistern ledge, open niche, and top 2-door overhead shutter cabinet.', production: { cutlistSupported: true } },
 ];
 
 export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { organizationId?: string | null; projectId?: string | null }) {
@@ -1130,7 +1134,7 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
                          <span>{module.family.replaceAll('-', ' ')} {module.digitalTwin ? `· ${module.digitalTwin.catalogVersion}` : ''}</span>
                         <p>{module.description ?? 'Configurable modular assembly with editable dimensions and component-level finishes.'}</p>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-                          <small>{module.sku} · {module.roomTypes.join(', ')}</small>
+                          <small>{module.sku} · {module.tags.includes('ikea') ? 'IKEA India Retail Reference (BOQ only)' : 'ULTIDA Modular Catalog'} · {module.roomTypes.map((r) => r.replaceAll('_', ' ')).join(', ')}</small>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             <button
                               type="button"

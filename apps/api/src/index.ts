@@ -57,6 +57,7 @@ import { previewKitchenQuote, KitchenQuoteError } from './kitchen-quote.js';
 import { supplierMaterialReference } from './supplier-material.js';
 import { sceneMaterialAssignments, sceneDefaultMaterialSlots } from './scene-material-assignments.js';
 import { registerMoodboardRoutes } from './moodboard-routes.js';
+import { registerPipelineRoutes } from './pipeline-routes.js';
 import { validateReferenceImage } from './reference-image-validation.js';
 import { embedNormalizedRenderImage } from './dossier-render-image.js';
 import { isRoomSaveContentIdentical, areDesignInputsIdentical } from './room-save-content.js';
@@ -266,6 +267,7 @@ app.get('/api/research/ikea-stock', requireStudioUser, async (request, response)
 });
 
 registerMoodboardRoutes(app, getRequestSupabaseClient);
+registerPipelineRoutes(app, getRequestSupabaseClient);
 
 app.get('/api/catalog/verified-suppliers', (request, response) => {
   const kind = String(request.query.kind ?? 'all');

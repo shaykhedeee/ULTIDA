@@ -14,7 +14,7 @@ export function validateServerEnvironment(): ServerEnvConfig {
   const supabaseServiceRoleKeyConfigured = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
   const databaseUrlConfigured = Boolean(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL);
   const openAiKeyConfigured = Boolean(process.env.OPENAI_API_KEY);
-  const comfyUiUrlConfigured = Boolean(process.env.COMFYUI_BASE_URL);
+  const comfyUiUrlConfigured = Boolean(process.env.COMFYUI_BASE_URL || process.env.COMFYUI_URL);
   const isProduction = process.env.NODE_ENV === 'production';
 
   return {
