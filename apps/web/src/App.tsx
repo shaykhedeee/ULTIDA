@@ -1630,7 +1630,7 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
         <Route path="materials-legacy" element={<Navigate to="../materials" replace />} />
         <Route path="library" element={<ReferenceLibraryWorkspace organizationId={null} projectId={projectId ?? null} />} />
         <Route path="renders" element={<RenderedSpacesLibrary />} />
-        <Route path="render" element={<Navigate to="renders" replace />} />
+        <Route path="render" element={<Navigate to="../renders" replace />} />
         <Route path="visualize" element={<Navigate to="../3d" replace />} />
         <Route path="visual" element={<Navigate to="../3d" replace />} />
         <Route path="3d" element={
@@ -1710,8 +1710,9 @@ function SandboxToolWrapper({ title, stageRecommendation, children }: { title: s
 
 // ─── Dashboard shell (non-project routes) ─────────────────────────
 function DashboardShell({ sessionEmail, orgName, onStudioIdentitySaved }: { sessionEmail: string; orgName: string; onStudioIdentitySaved?: (name: string) => void }) {
+  const navigate = useNavigate();
   return (
-    <Shell sessionEmail={sessionEmail} orgName={orgName}>
+    <Shell sessionEmail={sessionEmail} orgName={orgName} onNewProject={() => navigate('/projects')}>
       <Suspense fallback={<RouteLoading label="Loading studio…" />}><Routes>
         <Route index element={<StudioDashboard orgName={orgName} />} />
         <Route path="projects" element={<ProjectDashboard sessionEmail={sessionEmail} orgName={orgName} />} />

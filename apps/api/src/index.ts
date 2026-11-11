@@ -1255,16 +1255,6 @@ app.post('/api/projects/:projectId/drawings/plan.dxf', requireProjectUser, (requ
   }
 });
 
-app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
-  const err = error as { status?: number; code?: string; message?: string };
-  const status = typeof err?.status === 'number' ? err.status : 500;
-  return response.status(status).json({
-    success: false,
-    code: err?.code ?? 'INTERNAL_SERVER_ERROR',
-    message: err?.message ?? 'An unexpected error occurred.'
-  });
-});
-
 app.get('/api/projects/:projectId/renders', requireProjectUser, async (request, response) => {
   const result = await listProjectRenders(process.env, String(request.params.projectId), getRequestSupabaseClient(request));
   if (result.status === 'failed') return response.status(500).json({ success: false, code: 'RENDER_LIST_FAILED', message: result.reason });
@@ -3692,6 +3682,16 @@ app.post('/api/catalog/ai-preflight', (request, response) => {
   const modules = Array.isArray(request.body?.modules) ? request.body.modules : [];
   const report = runAiManufacturingPreflight(modules);
   return response.json({ success: true, ...report });
+});
+
+app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+  const err = error as { status?: number; code?: string; message?: string };
+  const status = typeof err?.status === 'number' ? err.status : 500;
+  return response.status(status).json({
+    success: false,
+    code: err?.code ?? 'INTERNAL_SERVER_ERROR',
+    message: err?.message ?? 'An unexpected error occurred.'
+  });
 });
 
 export { app };

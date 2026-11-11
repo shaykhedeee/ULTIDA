@@ -380,9 +380,14 @@ export function Shell({
               {nextStage ? (
                 <button
                   type="button"
-                  onClick={() => navigate(`/projects/${projectId}/${nextStage.path}`)}
-                  className="stage-nav-btn next"
-                  title={`Proceed to next stage: ${nextStage.label}`}
+                  disabled={nextStage.status === 'locked'}
+                  onClick={() => {
+                    if (nextStage.status !== 'locked' && projectId) {
+                      navigate(`/projects/${projectId}/${nextStage.path}`);
+                    }
+                  }}
+                  className={`stage-nav-btn next ${nextStage.status === 'locked' ? 'locked' : ''}`}
+                  title={nextStage.status === 'locked' ? (nextStage.lockReason ?? 'Complete current stage to unlock') : `Proceed to next stage: ${nextStage.label}`}
                 >
                   <span className="stage-nav-btn-text">Next: {nextStage.label}</span>
                   <ArrowRight size={13} />

@@ -1,5 +1,6 @@
 import { Calculator, ChevronRight, CircleAlert, FileText, LockKeyhole, ArrowLeft, ArrowRight } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { calculateIndianGstBoq, exportTallyPrimeSalesVoucherXml } from '@ultida/commercial-core';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
 import { getSupabaseBrowserClient } from '../../lib/supabase';
@@ -129,6 +130,47 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  }
+
+  const gstBoqSummary = useMemo(() => {
+    const effectiveModules = Math.max(1, moduleCount);
+    const mRate = Number(unitRate) || (presetMode === 'villa' ? 38500 : 24500);
+    const lRate = Number(labour) || (presetMode === 'villa' ? 6500 : 4200);
+    const mMargin = 1 + (Number(marginRate) || (presetMode === 'villa' ? 0.15 : 0.12));
+    const items = presetMode === 'villa'
+      ? [
+          { id: 'tv-wall', description: '5,030mm TV Media Wall Suite', taxableAmountInr: 167000 * mMargin, hsnKey: '94036000' },
+          { id: 'wardrobe', description: '2,977mm Master Wardrobe Suite', taxableAmountInr: 213000 * mMargin, hsnKey: '94035000' },
+          { id: 'mandir', description: '1,775mm Sacred Walk-In Mandir', taxableAmountInr: 113000 * mMargin, hsnKey: '94036000' },
+          { id: 'kitchen', description: '6,669mm Gourmet Show Kitchen', taxableAmountInr: 300000 * mMargin, hsnKey: '94034000' },
+          { id: 'hardware', description: `System 32 Hardware (${effectiveModules} sets)`, taxableAmountInr: effectiveModules * 15000 * mMargin, hsnKey: '83024200' },
+          { id: 'finishes', description: 'Architectural Finishes & Services', taxableAmountInr: 160000 * mMargin, hsnKey: '995476' },
+        ]
+      : [
+          { id: 'cabinetry', description: `Approved Modular Cabinetry (${effectiveModules} units)`, taxableAmountInr: effectiveModules * (mRate + lRate) * mMargin, hsnKey: '94034000' },
+          { id: 'hardware', description: `Architectural Hardware (${effectiveModules} sets)`, taxableAmountInr: effectiveModules * 8000 * mMargin, hsnKey: '83024200' },
+          { id: 'services', description: 'Turnkey Finishes & Site Erection', taxableAmountInr: 86000 * mMargin, hsnKey: '995476' },
+        ];
+    return calculateIndianGstBoq(items);
+  }, [moduleCount, unitRate, labour, marginRate, presetMode]);
+
+  function downloadTallyXml() {
+    const todayIso = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const xml = exportTallyPrimeSalesVoucherXml(gstBoqSummary, {
+      voucherNo: `ULT-${(projectId ?? 'PRJ').slice(0, 6).toUpperCase()}`,
+      dateIso: todayIso,
+      partyName: presetMode === 'villa' ? 'Singhania Residence' : 'Client Project Account',
+      studioName: 'ULTIDA Interior Studio',
+    });
+    const blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ULTIDA_TallyPrime_Voucher_${projectId ?? 'Project'}.xml`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -263,6 +305,23 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
                   </button>
                   <button
                     type="button"
+                    onClick={downloadTallyXml}
+                    title="Export Accounting Voucher XML"
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: 8,
+                      border: '1px solid #d6d3d1',
+                      background: '#fafaf9',
+                      color: '#44403c',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                    }}
+                  >
+                    📄 Accounting XML
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => navigate('/tools/invoices?tab=proposals')}
                     style={{
                       padding: '10px 14px',
@@ -378,7 +437,7 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', marginTop: 6, fontWeight: 700, color: 'var(--text-primary)' }}>
                 <span>Estimated Turnkey Cost:</span>
-                <span>INR {quote ? quote.grandTotalInr.toLocaleString('en-IN') : (presetMode === 'villa' ? '11,24,540 (Est.)' : 'Click Calculate')}</span>
+                <span>INR {quote ? quote.grandTotalInr.toLocaleString('en-IN') : gstBoqSummary.grandTotalWithGstInr.toLocaleString('en-IN')}</span>
               </div>
             </div>
           </CardContent>
