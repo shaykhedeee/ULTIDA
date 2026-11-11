@@ -2,7 +2,7 @@ import {
   LayoutDashboard, FolderKanban, Library, BookOpen,
   Settings, Users, Ruler, ChevronRight, Home, Wand2, CalendarDays, Receipt, Compass,
   PanelLeftClose, PanelLeftOpen, Menu, Plus, LogOut, Sparkles, Layers,
-  Check, CheckCircle2, AlertTriangle, ArrowLeft, ArrowRight, Eye, Scissors
+  Check, CheckCircle2, AlertTriangle, ArrowLeft, ArrowRight, Eye, Scissors, ClipboardList
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -39,6 +39,18 @@ const PRIMARY_NAV = [
   { id: 'team',      label: 'Team',           path: '/team',        icon: Users },
   { id: 'settings',  label: 'Settings & Rules', path: '/settings',   icon: Settings },
 ];
+
+const STUDIO_WORKSPACE_URL = 'https://ultida-design-workspace.zebbroka.chatgpt.site';
+
+function studioWorkspaceLink(projectId?: string | null, projectName?: string | null) {
+  if (!projectId || !projectName || projectName === 'Loading…') return STUDIO_WORKSPACE_URL;
+  const handoff = new URLSearchParams({
+    ultidaId: projectId,
+    project: projectName,
+    return: new URL(`/projects/${encodeURIComponent(projectId)}/brief`, window.location.origin).href,
+  });
+  return `${STUDIO_WORKSPACE_URL}/#${handoff}`;
+}
 
 const TOOL_NAV = [
   { label: 'Design Tools', items: [
@@ -145,6 +157,18 @@ export function Shell({
               </Link>
             );
           })}
+          <a
+            className="nav-item"
+            href={studioWorkspaceLink(projectId, projectName)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setMobileOpen(false)}
+            title={collapsed ? 'Studio Workspace' : undefined}
+            data-tooltip="Studio Workspace"
+          >
+            <span className="nav-icon"><ClipboardList size={16} /></span>
+            <span className="nav-label-text">Studio Workspace</span>
+          </a>
         </div>
 
         {!inProject && (
