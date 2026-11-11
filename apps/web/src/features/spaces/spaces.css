@@ -1361,7 +1361,8 @@
 .design-library-rail {
   position: relative;
   width: 100%;
-  max-height: 360px;
+  min-height: 580px;
+  max-height: 820px;
   background: var(--surface);
   border-left: 1px solid var(--line);
   box-shadow: -10px 0 30px rgba(0, 0, 0, 0.12);
@@ -1558,11 +1559,14 @@
 }
 .dld-grid {
   flex: 1;
+  min-height: 440px;
+  max-height: 640px;
   overflow-y: auto;
   padding: 16px;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(265px, 1fr));
   gap: 16px;
+  align-content: start;
 }
 .dld-card {
   border: 1.5px solid var(--line);
@@ -3610,7 +3614,7 @@
 .spaces-workspace .props-region { position: static; max-height: none; min-width: 0; }
 .spaces-workspace .plan-canvas { min-height: 620px; }
 .spaces-workspace .design-library-rail { border: 1px solid var(--line); border-radius: 12px; margin-top: 12px; box-shadow: none; animation: none; }
-.spaces-workspace .dld-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.spaces-workspace .dld-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(265px, 1fr)); min-height: 440px; max-height: 640px; }
 .kitchen-layout-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 10px; }
 .kitchen-layout-bar label { display: flex; gap: 8px; align-items: center; }
 .kitchen-layout-bar button, .kitchen-layout-bar select { padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text-primary); }
@@ -3618,12 +3622,12 @@
 @media (max-width: 760px) {
  .spaces-workspace .spaces-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "rooms" "canvas" "props" "context"; }
  .spaces-workspace .plan-canvas { min-height: 440px; }
- .spaces-workspace .design-library-rail { max-height: 420px; }
+ .spaces-workspace .design-library-rail { max-height: 680px; }
 }
 
 /* Catalog and selected furniture belong next to the room, before deep settings. */
 .spaces-workspace .spaces-layout { grid-template-areas: "rooms canvas" "rooms library" "rooms props" "rooms context"; }
-.spaces-layout > .design-library-rail { grid-area: library; max-height: 320px; margin-top: 0; }
+.spaces-layout > .design-library-rail { grid-area: library; min-height: 580px; max-height: 820px; margin-top: 0; }
 .saved-furniture-inspector { padding: 14px; border-bottom: 1px solid var(--line); }
 .saved-furniture-inspector p { font-size: 12px; color: var(--text-muted); margin: 6px 0 10px; }
 .saved-furniture-list { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -3640,3 +3644,80 @@
 .spaces-workspace--focused .room-list { display: none; }
 .spaces-workspace .saved-furniture-inspector button:focus-visible, .spaces-workspace svg [role="button"]:focus-visible { outline: 3px solid #17669c; outline-offset: 3px; }
 .dld-style-references label{display:grid;gap:5px;font-size:12px}.dld-style-references select{width:100%;min-width:0}.dld-style-references figure{margin:8px 0}.dld-style-references img{width:100%;height:150px;object-fit:contain;border-radius:8px;background:#f5f3ee}.dld-style-references figcaption{font-size:11px;line-height:1.5;color:var(--text-secondary)}
+
+/* ── Wall-to-Unit Sync & Capacity Calculator Banner ── */
+.wall-unit-sync-banner {
+  background: linear-gradient(135deg, #fffdf7 0%, #f7f2e7 100%);
+  border: 1.5px solid #dcc894;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(197, 156, 45, 0.08);
+}
+.wall-unit-sync-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.wall-unit-sync-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+  border: 1px solid #e7dfd3;
+  border-radius: 8px;
+}
+.wall-unit-sync-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wall-unit-sync-metric span {
+  font-size: 10.5px;
+  color: #78716c;
+  font-weight: 600;
+}
+.wall-unit-sync-metric strong {
+  font-size: 13px;
+  color: #1c1917;
+  font-weight: 800;
+}
+.wall-unit-sync-metric.highlight strong {
+  color: #059669;
+  font-size: 14px;
+}
+.unit-quick-width-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 10px;
+}
+.unit-quick-width-pill {
+  padding: 5px 10px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  border-radius: 6px !important;
+  border: 1px solid #d6c7b2 !important;
+  background: #fffdf9 !important;
+  color: #292524 !important;
+  cursor: pointer;
+  margin: 0 !important;
+}
+.unit-quick-width-pill:hover {
+  border-color: #c59c2d !important;
+  background: #fef9c3 !important;
+}
+.unit-quick-width-pill.fit-max {
+  background: #059669 !important;
+  color: #ffffff !important;
+  border-color: #047857 !important;
+}
+@media (max-width: 760px) {
+  .wall-unit-sync-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

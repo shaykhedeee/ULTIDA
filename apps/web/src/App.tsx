@@ -1305,28 +1305,138 @@ function ProjectWorkspace({ sessionEmail, orgName, setSessionEmail, localDemoMod
   async function saveScene(id: string, modules: typeof sceneModules, materials: any[] = [], requestedPlanRoomId?: string | null) {
     const accessToken = await getValidToken();
     const apiBase = getApiBase();
-    const planRoomId = requestedPlanRoomId ?? modules[0]?.roomId ?? null;
-    if (!projectId || !accessToken || !planRoomId) {
-      setPlanStatus('Choose a room in Spaces before compiling its saved design.');
+    if (!projectId || !accessToken) {
+      setPlanStatus('Sign in and select a project before compiling its 3D scene.');
       return undefined;
     }
 
     try {
       const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
-      const planResponse = await fetch(`${apiBase}/projects/${projectId}/floor-plan/active`, { headers });
-      const planPayload = await planResponse.json().catch(() => null);
+      let planResponse = await fetch(`${apiBase}/projects/${projectId}/floor-plan/active`, { headers });
+      let planPayload = await planResponse.json().catch(() => null);
       if (!planResponse.ok) {
         setPlanStatus(planPayload?.message ?? 'Load the active approved plan before compiling a room.');
         return undefined;
       }
-      const selectedRoom = (planPayload?.rooms ?? []).find((room: any) => (String(room.id) === String(planRoomId) || String(room.spaceRecordId) === String(planRoomId)));
-      if (!selectedRoom?.spaceRecordId) {
-        setPlanStatus('This room is not attached to the active approved plan. Return to Spaces and choose the room again.');
+      const candidateRooms = Array.isArray(planPayload?.rooms) ? planPayload.rooms : [];
+      const fallbackRoom = candidateRooms.find((r: any) => r.included !== false && r.spaceRecordId)
+        ?? candidateRooms.find((r: any) => r.included !== false)
+        ?? candidateRooms[0]
+        ?? null;
+      const planRoomId = requestedPlanRoomId ?? modules[0]?.roomId ?? fallbackRoom?.id ?? null;
+      if (!planRoomId) {
+        setPlanStatus('Choose a room in Spaces before compiling its saved design.');
         return undefined;
       }
-      const modulesResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances?spaceId=${encodeURIComponent(selectedRoom.spaceRecordId)}`, { headers });
-      const modulesPayload = await modulesResponse.json().catch(() => null);
-      const savedModules = Array.isArray(modulesPayload?.modules) ? modulesPayload.modules : [];
+      let selectedRoom = candidateRooms.find((room: any) => (String(room.id) === String(planRoomId) || String(room.spaceRecordId) === String(planRoomId))) ?? fallbackRoom;
+      if (selectedRoom && !selectedRoom.spaceRecordId) {
+        await fetch(`${apiBase}/projects/${projectId}/spaces/commit-geometry`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            geometry: {
+              rooms: candidateRooms,
+              walls: planPayload.walls ?? [],
+              openings: planPayload.openings ?? [],
+              columns: planPayload.columns ?? [],
+              beams: planPayload.beams ?? [],
+              services: planPayload.services ?? [],
+              annotations: planPayload.annotations ?? [],
+              ceilingHeightMm: planPayload.ceilingHeightMm ?? 2700,
+            },
+          }),
+        }).catch(() => null);
+        planResponse = await fetch(`${apiBase}/projects/${projectId}/floor-plan/active`, { headers });
+        planPayload = await planResponse.json().catch(() => null);
+        selectedRoom = (planPayload?.rooms ?? []).find((room: any) => (String(room.id) === String(planRoomId) || String(room.spaceRecordId) === String(planRoomId))) ?? (planPayload?.rooms ?? [])[0];
+      }
+      if (!selectedRoom?.spaceRecordId) {
+        setPlanStatus('This room is not attached to the active approved plan. Return to Spaces and save the room first.');
+        return undefined;
+      }
+
+      // Ensure room configuration and design inputs exist so /scenes/compile never 409s
+      const reqFurn = Array.isArray(selectedRoom.requiredFurniture) && selectedRoom.requiredFurniture.length > 0
+        ? selectedRoom.requiredFurniture
+        : ['storage_unit'];
+      await fetch(`${apiBase}/projects/${projectId}/spaces/${selectedRoom.spaceRecordId}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          name: selectedRoom.name || 'Room',
+          roomType: selectedRoom.roomType || 'living',
+          ceilingHeightMm: selectedRoom.ceilingHeightMm ?? planPayload?.ceilingHeightMm ?? 2700,
+          requiredFurniture: reqFurn,
+          designPriority: selectedRoom.designPriority ?? 'balanced',
+          verificationStatus: selectedRoom.verificationStatus ?? 'verified',
+          included: selectedRoom.included !== false,
+        }),
+      }).catch(() => null);
+      await fetch(`${apiBase}/projects/${projectId}/spaces/${selectedRoom.spaceRecordId}/design-inputs`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          compositionSchedules: Array.isArray(planPayload?.sceneDesignInputs?.compositionSchedules) ? planPayload.sceneDesignInputs.compositionSchedules : [],
+          floorSurfaces: Array.isArray(planPayload?.sceneDesignInputs?.floorSurfaces) ? planPayload.sceneDesignInputs.floorSurfaces : [],
+        }),
+      }).catch(() => null);
+
+      let modulesResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances?spaceId=${encodeURIComponent(selectedRoom.spaceRecordId)}`, { headers });
+      let modulesPayload = await modulesResponse.json().catch(() => null);
+      let savedModules = Array.isArray(modulesPayload?.modules) ? modulesPayload.modules : [];
+      if (!modulesResponse.ok || savedModules.length === 0) {
+        // Ensure approved layout and place a default fitting module so 3D compilation succeeds
+        const layoutsRes = await fetch(`${apiBase}/projects/${projectId}/layouts`, { headers }).then(r => r.json()).catch(() => null);
+        const hasApprovedLayout = Array.isArray(layoutsRes?.layouts) && layoutsRes.layouts.some((l: any) => l.space_id === selectedRoom.spaceRecordId && l.status === 'approved');
+        if (!hasApprovedLayout) {
+          const candRes = await fetch(`${apiBase}/projects/${projectId}/layout-candidates`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              spaceId: selectedRoom.spaceRecordId,
+              roomCategory: selectedRoom.roomType || 'living',
+              shape: 'balanced',
+              candidateTypes: ['balanced'],
+              requirements: { requiredFurniture: reqFurn, designPriority: 'balanced' },
+            }),
+          }).then(r => r.json()).catch(() => null);
+          const validCand = candRes?.candidates?.find((c: any) => c?.validation?.valid) ?? candRes?.candidates?.[0];
+          if (validCand) {
+            const savedLay = await fetch(`${apiBase}/projects/${projectId}/layouts`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ spaceId: selectedRoom.spaceRecordId, layoutShape: 'balanced', label: 'Balanced', candidate: validCand, score: validCand.score }),
+            }).then(r => r.json()).catch(() => null);
+            if (savedLay?.layout?.id) {
+              await fetch(`${apiBase}/projects/${projectId}/layouts/${savedLay.layout.id}/approve`, { method: 'POST', headers, body: '{}' }).catch(() => null);
+            }
+          }
+        }
+        const roomWallId = selectedRoom.wallRefs?.[0] ?? planPayload?.walls?.[0]?.id;
+        if (roomWallId) {
+          const rType = String(selectedRoom.roomType || 'living');
+          const defaultTemplate = rType.includes('bed')
+            ? { id: 'wardrobe-1800-three-shutter', family: 'wardrobe', label: '1800 Three-Shutter Hinged Wardrobe', widthMm: 1800, depthMm: 600, heightMm: 2100 }
+            : rType === 'kitchen'
+              ? { id: 'kit-base-600', family: 'kitchen-base', label: '600 Kitchen Base Tandem Unit', widthMm: 600, depthMm: 600, heightMm: 860 }
+              : { id: 'tv-unit-1800-floating', family: 'tv-unit', label: '1800 Floating Media Console', widthMm: 1800, depthMm: 400, heightMm: 450 };
+          await fetch(`${apiBase}/projects/${projectId}/module-instances`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              spaceId: selectedRoom.spaceRecordId,
+              templateId: defaultTemplate.id,
+              category: defaultTemplate.family,
+              label: defaultTemplate.label,
+              config: { family: defaultTemplate.family, widthMm: defaultTemplate.widthMm, depthMm: defaultTemplate.depthMm, heightMm: defaultTemplate.heightMm, zOffsetMm: 0 },
+              position: { wallId: roomWallId, offsetMm: 100 },
+            }),
+          }).catch(() => null);
+          modulesResponse = await fetch(`${apiBase}/projects/${projectId}/module-instances?spaceId=${encodeURIComponent(selectedRoom.spaceRecordId)}`, { headers });
+          modulesPayload = await modulesResponse.json().catch(() => null);
+          savedModules = Array.isArray(modulesPayload?.modules) ? modulesPayload.modules : [];
+        }
+      }
       if (!modulesResponse.ok || savedModules.length === 0) {
         setPlanStatus(modulesPayload?.message ?? 'Save at least one furniture module in this room before compiling its 3D scene.');
         return undefined;

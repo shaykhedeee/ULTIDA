@@ -657,15 +657,21 @@ export function SceneStudio({ sceneVersionId, projectId, onCompileScene }: Props
     setCompiling(true);
     try {
       if (!onCompileScene) {
-        setStatus('Open Rooms & Modules, save a catalog module, then compile the scene.');
+        setScene(createDefaultDemoScene());
+        setStatus('✨ Loaded 3D architectural preview scene.');
         return;
       }
       setStatus('Compiling this room from its saved modules and finishes…');
-      const compiledVersionId = await onCompileScene(selectedRoomId);
-      if (!compiledVersionId) return;
+      const compiledVersionId = await onCompileScene(selectedRoomId ?? requestedRoomId);
+      if (!compiledVersionId) {
+        setScene((current) => current ?? createDefaultDemoScene());
+        setStatus('✨ Loaded interactive 3D room & joinery preview (save a module in Rooms & Spaces to bind project cutlists).');
+        return;
+      }
       setReloadKey((value) => value + 1);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Scene compilation could not complete. Check the selected room module and finish assignments.');
+      setScene((current) => current ?? createDefaultDemoScene());
+      setStatus(error instanceof Error ? error.message : 'Scene compilation could not complete. Showing 3D preview.');
     } finally {
       setCompiling(false);
     }

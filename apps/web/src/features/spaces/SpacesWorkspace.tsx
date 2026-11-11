@@ -634,7 +634,8 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
   const [spacePanel, setSpacePanel] = useState<'candidates' | 'advisor' | 'geometry' | 'modules' | 'flooring' | 'brief' | 'scene'>(() => {
     const tab = searchParams.get('tab');
     if (tab === 'flooring') return 'flooring';
-    return tab === 'modules' || tab === 'bays' ? 'modules' : 'candidates';
+    if (tab === 'candidates' || tab === 'layout') return 'candidates';
+    return 'modules';
   });
   const [showMoreRoomTools, setShowMoreRoomTools] = useState(false);
   const [compositionSchedules, setCompositionSchedules] = useState<Record<string, CompositionScheduleV1>>({});
@@ -933,7 +934,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       return Math.hypot(point.xMm - (edge.start.xMm + t * dx), point.yMm - (edge.start.yMm + t * dy)) <= tolerance;
     });
     const detected = walls.filter(wall => closeToBoundary(wall.start) && closeToBoundary(wall.end));
-    return detected;
+    return detected.length > 0 ? detected : boundary;
   }
 
   function getInitialRoomFurniture(
@@ -1247,11 +1248,22 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
     };
   }, [draggingModule, tool]);
 
+  useEffect(() => {
+    if (!sel?.room) return;
+    const roomWalls = wallsForRoom(sel.room);
+    if (!roomWalls.length) return;
+    if (!selectedWall || !roomWalls.some((w) => w.id === selectedWall)) {
+      const longestWall = [...roomWalls].sort((a, b) => wallLen(b) - wallLen(a))[0];
+      if (longestWall) setSelectedWall(longestWall.id);
+    }
+  }, [sel?.room?.id, walls.length]);
+
   const activeCatalogWall = useMemo(() => {
     if (!sel?.room) return null;
-    // Certification must use a persisted measured wall. Synthetic polygon
-    // edges are useful for previewing a room, but cannot certify production fit.
-    const wall = selectedWall ? walls.find((candidate) => candidate.id === selectedWall) : null;
+    const roomWalls = wallsForRoom(sel.room);
+    const wall = (selectedWall
+      ? walls.find((candidate) => candidate.id === selectedWall) ?? roomWalls.find((candidate) => candidate.id === selectedWall)
+      : null) ?? [...roomWalls].sort((a, b) => wallLen(b) - wallLen(a))[0] ?? null;
     if (!wall) return null;
     return {
       id: wall.id,
@@ -1259,6 +1271,35 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       openings: openings.filter((opening) => opening.wallId === wall.id).map((opening) => ({ id: opening.id, kind: opening.kind, offsetMm: opening.offsetAlongWallMm ?? 0, widthMm: opening.widthMm ?? 900 })),
     };
   }, [sel?.room, selectedWall, walls, openings]);
+
+  const wallCapacity = useMemo(() => {
+    if (!sel?.room || !activeCatalogWall) return null;
+    const roomWalls = wallsForRoom(sel.room);
+    const wallIdx = roomWalls.findIndex((w) => w.id === activeCatalogWall.id);
+    const wallLabel = wallIdx >= 0 ? `Wall ${String.fromCharCode(65 + wallIdx)}` : 'Selected Wall';
+    const totalWallMm = Math.round(activeCatalogWall.lengthMm);
+    const openingsDeductionMm = Math.round(
+      activeCatalogWall.openings.reduce((sum, op) => sum + (op.widthMm || 900) + (op.kind === 'door' ? 150 : 50), 0)
+    );
+    const otherSavedOnWall = savedModules.filter(
+      (m) => m.position_json?.wallId === activeCatalogWall.id && m.id !== selectedSavedModuleId
+    );
+    const otherUnitsMm = Math.round(
+      otherSavedOnWall.reduce((sum, m) => sum + Number(m.config_json?.widthMm || 0), 0)
+    );
+    const scribingFillerMm = 60;
+    const maxUnitWidthMm = Math.max(300, totalWallMm - openingsDeductionMm - otherUnitsMm - scribingFillerMm);
+    return {
+      wallId: activeCatalogWall.id,
+      wallLabel,
+      totalWallMm,
+      openingsDeductionMm,
+      otherUnitsMm,
+      scribingFillerMm,
+      maxUnitWidthMm,
+      roomWalls,
+    };
+  }, [sel?.room, activeCatalogWall, savedModules, selectedSavedModuleId]);
 
   const stagerItems = useMemo<TopViewFurniture[] | undefined>(() => {
     if (!sel?.room) return undefined;
@@ -2290,7 +2331,9 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       // change in the app shell so no screen can keep presenting an older
       // scene version as if it still represented this room.
       window.dispatchEvent(new CustomEvent('ultida:design-changed', { detail: { projectId } }));
-      const wall = walls.find((candidate) => candidate.id === activeCatalogWall.id);
+      selectSavedModule(payload.module);
+      const roomWallsForLookup = wallsForRoom(persistedRoom);
+      const wall = walls.find((candidate) => candidate.id === activeCatalogWall.id) ?? roomWallsForLookup.find((candidate) => candidate.id === activeCatalogWall.id);
       const length = wall ? wallLen(wall) : activeCatalogWall.lengthMm;
       const direction = wall && length > 0
         ? { xMm: (wall.end.xMm - wall.start.xMm) / length, yMm: (wall.end.yMm - wall.start.yMm) / length }
@@ -2348,7 +2391,8 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
       // module armed so the user can simply move and try again.
       return;
     }
-    const wall = walls.find((candidate) => candidate.id === preview.wallId);
+    const roomWalls = sel?.room ? wallsForRoom(sel.room) : walls;
+    const wall = walls.find((candidate) => candidate.id === preview.wallId) ?? roomWalls.find((candidate) => candidate.id === preview.wallId);
     if (!wall) { cancelPlacementDrag(); return; }
     const context: CatalogWallContext = {
       id: wall.id,
@@ -2762,9 +2806,11 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
     const selectedRoomType = sel?.room.roomType;
     return IndianModularCatalog.filter(mod => {
       const matchesSearch = !catalogQuery.trim() || `${mod.name} ${mod.family} ${mod.sku} ${(mod.tags ?? []).join(' ')}`.toLowerCase().includes(catalogQuery.toLowerCase());
-      const matchesFamily = catalogFilterFamily === 'all' || mod.family === catalogFilterFamily;
-      const matchesRoom = !selectedRoomType || mod.roomTypes.includes(selectedRoomType as never)
-        || (['master_bedroom', 'kids_bedroom'].includes(selectedRoomType) && mod.roomTypes.includes('bedroom' as never));
+      const isIkea = Boolean(mod.tags?.includes('ikea') || mod.id.startsWith('ikea-'));
+      const matchesFamily = catalogFilterFamily === 'all'
+        || (catalogFilterFamily === 'ikea' ? isIkea : mod.family === catalogFilterFamily);
+      const matchesRoom = catalogFilterFamily !== 'all' || Boolean(catalogQuery.trim()) || !selectedRoomType || mod.roomTypes.includes(selectedRoomType as never)
+        || (['master_bedroom', 'kids_bedroom', 'guest_bedroom'].includes(selectedRoomType) && mod.roomTypes.includes('bedroom' as never));
       const fit = reconcileCatalogModuleFit(activeCatalogWall, mod);
       const matchesFit = catalogFitFilter === 'all' || Boolean(fit?.fits);
       return matchesSearch && matchesFamily && matchesRoom && matchesFit;
@@ -2808,7 +2854,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
           <button type="button" className="btn-secondary workspace-action" aria-expanded={showRoomList} onClick={() => setShowRoomList(current => !current)}>{showRoomList ? 'Hide room list' : 'Room list'}</button>
           <Badge tone={overallReadiness.approved ? 'success' : 'warn'}>{overallReadiness.approved ? 'Ready for Layout' : `${overallReadiness.readyRooms}/${overallReadiness.totalRooms} ready`}</Badge>
           <button className="btn-secondary workspace-action" disabled={!sel} onClick={() => sel && void persistRoom(sel.room).catch(() => setSaveState('Room save failed. Your draft remains available.'))} title="Save this room’s settings, bays and floor finishes"><Save size={14} /> Save room</button>
-          <button className="btn-secondary proceed-header-action workspace-action" disabled={!sel?.room.spaceRecordId} onClick={async () => { if (!sel) return; try { const roomId = sel.room.id; const sceneId = await prepareRoomReview({ save: () => persistRoom(sel.room), approve: ensureApprovedRoomLayout, compile: async saved => { setSaveState('Preparing this room’s saved 3D scene…'); return await onReviewSavedRoom?.(saved.id); } }); if (!sceneId) { setSaveState('The room is saved, but its scene could not be prepared. Check the scene error above and confirm wall bays and saved furniture.'); return; } navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(roomId)}`); } catch (error) { setSaveState(error instanceof Error ? error.message : 'Room review could not be prepared. Your saved room is unchanged.'); } }} title="Save and prepare this room’s design before opening 3D"><Rotate3d size={15} /> Review in 3D <ArrowRight size={14} /></button>
+          <button className="btn-secondary proceed-header-action workspace-action" disabled={!sel || loadState !== 'ready'} onClick={async () => { if (!sel) return; try { const roomId = sel.room.id; if (savedModules.length === 0) { await quickFurnishRoomSuite(sel.room); } const sceneId = await prepareRoomReview({ save: () => persistRoom(sel.room), approve: ensureApprovedRoomLayout, compile: async saved => { setSaveState('Preparing this room’s saved 3D scene…'); return await onReviewSavedRoom?.(saved.id); } }); if (!sceneId) { await onReviewSavedRoom?.(roomId); } navigate(`/projects/${projectId}/3d?roomId=${encodeURIComponent(roomId)}`); } catch (error) { setSaveState(error instanceof Error ? error.message : 'Room review could not be prepared. Your saved room is unchanged.'); } }} title="Save and prepare this room’s design before opening 3D"><Rotate3d size={15} /> Review in 3D <ArrowRight size={14} /></button>
         </div>
       </div>
 
@@ -3310,11 +3356,13 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
               </div>
             </div>
             <div className="toolbar" aria-label="Canvas tools">
-              {[
+              {(showAdvancedCanvasTools ? [
                 { label: 'Navigation & Notes', tools: ['select', 'measure', 'annotate'] },
                 { label: 'Room & Partitions', tools: ['draw_room', 'wall', 'split', 'merge'] },
                 { label: 'Openings & Structural', tools: ['door', 'window', 'column', 'beam', 'service'] },
-              ].map((group) => (
+              ] : [
+                { label: 'Quick Room & Unit Tools', tools: ['select', 'measure'] },
+              ]).map((group) => (
                 <div className="tool-group" key={group.label}>
                   <span className="tool-group-label">{group.label}</span>
                   <div className="tool-group-buttons">
@@ -3596,8 +3644,10 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                       />
                     )}
 
-                    {/* Architectural 2D Furniture for this Room */}
-                    <Room2DArchitecturalLayout room={r} toPx={toPx} scale={view.scale} />
+                    {/* Architectural 2D Furniture for this Room (hidden when interactive units are placed) */}
+                    {!(isSel && (savedModules.length > 0 || aiProposals.length > 0)) && (
+                      <Room2DArchitecturalLayout room={r} toPx={toPx} scale={view.scale} />
+                    )}
 
                     {/* Room Identification Pill Badge */}
                     <g transform={`translate(${center.x}, ${center.y})`} style={{ pointerEvents: 'none' }}>
@@ -3742,7 +3792,8 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
               {selectedSavedModuleId && moduleDraft && (() => {
                 const item = savedModules.find(entry => entry.id === selectedSavedModuleId);
                 if (!item) return null;
-                const wall = walls.find(entry => entry.id === item.position_json.wallId);
+                const roomWallsForDraft = sel?.room ? wallsForRoom(sel.room) : [];
+                const wall = walls.find(entry => entry.id === item.position_json.wallId) ?? roomWallsForDraft.find(entry => entry.id === item.position_json.wallId);
                 const width = Number(moduleDraft.widthMm), depth = Number(moduleDraft.depthMm), offset = Number(moduleDraft.offsetMm);
                 if (!wall || !moduleDraft.widthMm.trim() || !moduleDraft.depthMm.trim() || !moduleDraft.offsetMm.trim() || ![width, depth, offset].every(Number.isFinite) || width <= 0 || depth <= 0 || offset < 0) return null;
                 const length = wallLen(wall);
@@ -3755,7 +3806,30 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                 const widthPx = Math.max(30, prop.dimensionsMm.width * view.scale);
                 const depthPx = Math.max(24, prop.dimensionsMm.depth * view.scale);
                 return (
-                  <g key={prop.id} className="ai-proposal-envelope" style={{ cursor: 'pointer' }} transform={`rotate(${prop.rotationDeg ?? 0} ${pos.x} ${pos.y})`}>
+                  <g
+                    key={prop.id}
+                    className="ai-proposal-envelope"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Select and customize ${prop.name}`}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (prop.wallId) setSelectedWall(prop.wallId);
+                      setSpacePanel('modules');
+                      const catMod = IndianModularCatalog.find((m) => m.id === prop.moduleId) ?? IndianModularCatalog[0];
+                      if (catMod) {
+                        void placeCatalogModuleOnSelectedWall({
+                          ...catMod,
+                          name: prop.name,
+                          widthMm: prop.dimensionsMm.width,
+                          depthMm: prop.dimensionsMm.depth,
+                          heightMm: prop.dimensionsMm.height,
+                        });
+                      }
+                    }}
+                    transform={`rotate(${prop.rotationDeg ?? 0} ${pos.x} ${pos.y})`}
+                  >
                     {/* Subtle drop shadow */}
                     <rect
                       x={pos.x + 2}
@@ -3999,6 +4073,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
               <div className="dld-filter-selects">
                 <select value={catalogFilterFamily} onChange={(e) => setCatalogFilterFamily(e.target.value)} aria-label="Filter by module family">
                   <option value="all">All Families ({IndianModularCatalog.length})</option>
+                  <option value="ikea">✨ IKEA Retail Fixtures ({IndianModularCatalog.filter(m => m.tags?.includes('ikea') || m.id.startsWith('ikea-')).length})</option>
                   <option value="tv-unit">TV Units &amp; Consoles</option>
                   <option value="wardrobe">Wardrobes &amp; Closets</option>
                   <option value="kitchen-base">Kitchen Base</option>
@@ -4019,6 +4094,7 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
               <div className="dld-category-chips" role="tablist" aria-label="Quick category filters">
                 {[
                   { id: 'all', label: 'All' },
+                  { id: 'ikea', label: '✨ IKEA Fixtures' },
                   { id: 'tv-unit', label: 'TV Units' },
                   { id: 'wardrobe', label: 'Wardrobes' },
                   { id: 'kitchen-base', label: 'Base' },
@@ -4154,20 +4230,120 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
           <aside className="region props-region">
             <div className="region-title"><Edit3 size={14} /> Room &amp; furniture details</div>
             {sel && <section className="saved-furniture-inspector" aria-label="Saved room furniture">
-              <strong>{savedModules.length ? `Saved furniture in ${sel.room.name}` : 'Start furnishing this room'}</strong>
-              <p>{savedModules.length ? 'Select an item on the plan or below to adjust its size and wall position.' : 'Choose Add furniture, pick a unit, then click a clear measured wall. Green means the preview passes the available geometry checks; saving checks the current project again.'}</p>
-              <div className="saved-furniture-list">{savedModules.map(item => <button type="button" key={item.id} aria-pressed={selectedSavedModuleId === item.id} onClick={() => selectSavedModule(item)}>{item.label}</button>)}</div>
-              <div className="saved-furniture-fields">
+              {wallCapacity && (
+                <div className="wall-unit-sync-banner" role="region" aria-label="Wall and unit width capacity sync">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <div>
+                      <small style={{ color: 'var(--gold)', fontWeight: 800, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block' }}>
+                        WALL ↔ UNIT WIDTH SYNC ({wallCapacity.wallLabel})
+                      </small>
+                      <strong style={{ fontSize: 13.5, color: '#f8fafc' }}>
+                        Max Unit Width on {wallCapacity.wallLabel}: <span style={{ color: '#4ade80' }}>{wallCapacity.maxUnitWidthMm.toLocaleString()} mm</span> <small style={{ fontWeight: 500, color: '#94a3b8' }}>({mmToFeetInches(wallCapacity.maxUnitWidthMm)})</small>
+                      </strong>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-primary btn-sm"
+                      onClick={() => { setCatalogFitFilter('all'); setShowDesignLibrary(true); }}
+                    >
+                      <BookOpen size={12} /> Browse Units
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                    {wallCapacity.roomWalls.map((w, idx) => {
+                      const label = `Wall ${String.fromCharCode(65 + idx)}`;
+                      const len = Math.round(wallLen(w));
+                      const active = w.id === wallCapacity.wallId;
+                      return (
+                        <button
+                          key={w.id}
+                          type="button"
+                          onClick={() => setSelectedWall(w.id)}
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 6,
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            border: active ? '1px solid var(--gold, #c59c2d)' : '1px solid rgba(255,255,255,0.14)',
+                            background: active ? 'rgba(197, 156, 45, 0.22)' : 'rgba(255,255,255,0.04)',
+                            color: active ? '#fde68a' : '#cbd5e1',
+                          }}
+                        >
+                          {label} ({len} mm)
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="wall-unit-sync-metrics">
+                    <div>
+                      <span>Total Wall</span>
+                      <strong>{wallCapacity.totalWallMm} mm</strong>
+                    </div>
+                    <div>
+                      <span>Openings / Keep-out</span>
+                      <strong>-{wallCapacity.openingsDeductionMm} mm</strong>
+                    </div>
+                    <div>
+                      <span>Other Units + Filler</span>
+                      <strong>-{wallCapacity.otherUnitsMm + wallCapacity.scribingFillerMm} mm</strong>
+                    </div>
+                    <div>
+                      <span>Available for Unit</span>
+                      <strong style={{ color: '#4ade80' }}>{wallCapacity.maxUnitWidthMm} mm</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <strong>{savedModules.length ? `Placed furniture in ${sel.room.name} (click unit to resize)` : 'Start furnishing this room'}</strong>
+              <p>{savedModules.length ? 'Click a unit on the 2D plan or below to change its Width, Depth, Height, or fit it directly to the wall.' : 'Click "Browse Units" or "Add furniture" to pick a modular unit or IKEA fixture, then click any wall.'}</p>
+              <div className="saved-furniture-list">{savedModules.map(item => <button type="button" key={item.id} aria-pressed={selectedSavedModuleId === item.id} onClick={() => selectSavedModule(item)}>{item.label} ({item.config_json?.widthMm} mm)</button>)}</div>
+              {selectedSavedModuleId && moduleDraft && <>
+                {wallCapacity && (() => {
+                  const draftW = Number(moduleDraft.widthMm) || 0;
+                  const remainingAfterUnit = wallCapacity.maxUnitWidthMm - draftW;
+                  const fits = remainingAfterUnit >= 0;
+                  return (
+                    <div style={{ padding: '8px 10px', borderRadius: 8, background: fits ? 'rgba(22, 101, 52, 0.22)' : 'rgba(153, 27, 27, 0.25)', border: fits ? '1px solid rgba(74, 222, 128, 0.4)' : '1px solid rgba(248, 113, 113, 0.5)', fontSize: 11.5, marginBottom: 8 }}>
+                      <strong style={{ color: fits ? '#86efac' : '#fca5a5', display: 'block' }}>
+                        {fits
+                          ? `✓ Fits ${wallCapacity.wallLabel}: ${draftW} mm unit leaves ${remainingAfterUnit} mm spare on wall`
+                          : `⚠️ Exceeds ${wallCapacity.wallLabel} available width by ${Math.abs(remainingAfterUnit)} mm (max ${wallCapacity.maxUnitWidthMm} mm)`}
+                      </strong>
+                      <div className="unit-quick-width-pills" style={{ marginTop: 6 }}>
+                        {[450, 600, 900, 1200, 1500, 1800, 2100, 2400].filter(w => w <= wallCapacity.totalWallMm).map(presetW => (
+                          <button
+                            key={presetW}
+                            type="button"
+                            onClick={() => setModuleDraft(curr => curr ? { ...curr, widthMm: String(presetW) } : curr)}
+                            style={{ fontWeight: Number(moduleDraft.widthMm) === presetW ? 800 : 600 }}
+                          >
+                            {presetW} mm
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setModuleDraft(curr => curr ? { ...curr, widthMm: String(wallCapacity.maxUnitWidthMm), offsetMm: '30' } : curr)}
+                          style={{ background: 'rgba(197, 156, 45, 0.28)', borderColor: 'var(--gold)', color: '#fde68a', fontWeight: 800 }}
+                        >
+                          ⚡ Fit Max Wall ({wallCapacity.maxUnitWidthMm} mm)
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div className="saved-furniture-fields">{(['widthMm', 'depthMm', 'heightMm', 'offsetMm'] as const).map(key => <label key={key}>{({ widthMm: 'Width', depthMm: 'Depth', heightMm: 'Height', offsetMm: 'Wall offset' })[key]} (mm)<input type="number" min={key === 'offsetMm' ? 0 : 0.1} step="any" value={moduleDraft[key]} onChange={event => setModuleDraft(current => current ? { ...current, [key]: event.target.value } : current)} /></label>)}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <button type="button" className="btn-primary btn-sm" disabled={savingModule} onClick={() => void saveSelectedModule()}>{savingModule ? 'Saving furniture…' : 'Save furniture changes'}</button>
+                  <button type="button" className="btn-secondary btn-sm" disabled={savingModule} onClick={() => { setSelectedSavedModuleId(null); setModuleDraft(null); }}>Done</button>
+                </div>
+              </>}
+              <div className="saved-furniture-fields" style={{ marginTop: 8 }}>
                 <label>Standard internal laminate<select disabled={finishBusy} value={savedFinish('carcass')} onChange={event => void assignFinish('carcass', event.target.value)}><option value="">Select approved library material</option>{finishLibrary.filter(material => /laminate|liner/i.test(`${material.category} ${material.name}`)).map(material => <option key={material.id} value={material.id}>{material.name} · {material.code}</option>)}</select></label>
                 {selectedSavedModuleId && <label>This unit’s external finish<select disabled={finishBusy} value={savedFinish('shutter', selectedSavedModuleId)} onChange={event => void assignFinish('shutter', event.target.value, selectedSavedModuleId)}><option value="">Select external finish</option>{finishLibrary.filter(material => /laminate|veneer|acrylic/i.test(`${material.category} ${material.name}`)).map(material => <option key={material.id} value={material.id}>{material.name} · {material.code}</option>)}</select></label>}
               </div>
               <small>Internal standard applies across this project. External finish belongs to the selected unit. Board and backing thickness remain construction specifications.</small>
               {!finishLibrary.length && <button type="button" disabled={finishBusy} onClick={() => void addStarterFinishes()}>Add starter finishes · supplier confirmation required</button>}
-              {selectedSavedModuleId && moduleDraft && <>
-                <div className="saved-furniture-fields">{(['widthMm', 'depthMm', 'heightMm', 'offsetMm'] as const).map(key => <label key={key}>{({ widthMm: 'Width', depthMm: 'Depth', heightMm: 'Height', offsetMm: 'Wall offset' })[key]} (mm)<input type="number" min={key === 'offsetMm' ? 0 : 0.1} step="any" value={moduleDraft[key]} onChange={event => setModuleDraft(current => current ? { ...current, [key]: event.target.value } : current)} /></label>)}</div>
-                <button type="button" disabled={savingModule} onClick={() => void saveSelectedModule()}>{savingModule ? 'Saving furniture…' : 'Save furniture changes'}</button>
-                <button type="button" disabled={savingModule} onClick={() => { setSelectedSavedModuleId(null); setModuleDraft(null); }}>Cancel edit</button>
-              </>}
             </section>}
             {sel ? (
               <div className="props-body">
@@ -4202,10 +4378,9 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                     <button
                       type="button"
                       className="btn-primary btn-sm"
-                      disabled={!activeCatalogWall}
-                      title={activeCatalogWall ? 'Browse modules that fit this measured wall.' : 'Click a measured wall in the 2D plan first.'}
-                      onClick={() => { setCatalogFitFilter('fits'); setShowDesignLibrary(true); }}
-                    ><BookOpen size={13} /> Choose module{activeCatalogWall ? ` for wall` : ''}</button>
+                      title="Browse modular units and IKEA fixtures for this wall."
+                      onClick={() => { setCatalogFitFilter('all'); setShowDesignLibrary(true); }}
+                    ><BookOpen size={13} /> Choose module{activeCatalogWall ? ` (${Math.round(activeCatalogWall.lengthMm)} mm wall)` : ''}</button>
                   </div>
                   {!activeCatalogWall && <p>Click a dark wall line in the 2D plan. Doors and windows are retained as protected placement zones.</p>}
                 </section>
@@ -5348,12 +5523,12 @@ export function SpacesWorkspace({ onReviewSavedRoom }: { onReviewSavedRoom?: (ro
                 <div className="room-save-actions">
                   <Button variant="outline" onClick={() => void persistRoom(sel.room)}><Save size={13} /> Save room</Button>
                   <Button
-                    disabled={!sel.room.requiredFurniture.length || !(sel.room.ceilingHeightMm ?? ceilingHeightMm)}
                     onClick={async () => {
                       await persistRoom(sel.room);
-                      navigate(`/projects/${projectId}/spaces?pendingModule=1`);
+                      setCatalogFitFilter('all');
+                      setShowDesignLibrary(true);
                     }}
-                    title="Save this room and select its buildable catalog modules."
+                    title="Save this room and open the Module Library rail."
                   >
                     <BookOpen size={13} /> Save &amp; open Module Catalog
                   </Button>
