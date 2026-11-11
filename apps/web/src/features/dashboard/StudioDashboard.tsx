@@ -372,10 +372,10 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
         <div className="studio-hero-content">
           <div className="studio-hero-badge">
             <Crown size={13} className="hero-crown-icon" />
-            <span>LUXURY 5BHK VILLA INTERIOR OS & CAD ENGINE</span>
+            <span>ARCHITECTURAL INTERIOR OS &amp; SYSTEM 32 CAD ENGINE</span>
           </div>
           <h1>Welcome back, {studio}.</h1>
-          <p>Architectural precision, System 32 parametric joinery, traceable site elevations, and photorealistic visualization orchestrated across your active estates.</p>
+          <p>Measured floor plans, System 32 parametric cabinetry, verified site elevations, and photorealistic visualization orchestrated in one connected studio workflow.</p>
         </div>
         <div className="studio-hero-actions">
           <button
@@ -384,7 +384,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
             disabled={loadingDemo !== null}
             title="1-Click Launch: 5BHK Royal Villa with Double-Height Foyer, 5030mm TV Wall, Mandir & Kitchen Suites"
           >
-            <Crown size={15} /> {loadingDemo === '5bhk' ? 'Preparing 5BHK Villa…' : 'Launch 5BHK Royal Villa'}
+            <Crown size={15} /> {loadingDemo === '5bhk' ? 'Preparing 5BHK Villa…' : 'Launch 5BHK Sample'}
           </button>
           <button
             className="studio-secondary"
@@ -406,7 +406,7 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
       {/* Studio Portfolio Metrics */}
       <section className="studio-metrics" aria-label="Studio status">
         <div>
-          <span>Active Estates</span>
+          <span>Active Projects</span>
           <strong>{loading ? '—' : active}</strong>
           <small>in current active design cycle</small>
         </div>
@@ -416,14 +416,14 @@ export function StudioDashboard({ orgName }: { orgName?: string | null }) {
           <small>engineering &amp; client sign-offs</small>
         </div>
         <div>
-          <span>Floor Area Monitored</span>
-          <strong>12,850 <small style={{ display: 'inline', fontSize: 13, color: 'var(--gold-dim)' }}>sq.ft</small></strong>
-          <small>1,194 m² calibrated CAD envelope</small>
+          <span>Engineering Standard</span>
+          <strong>System 32 <small style={{ display: 'inline', fontSize: 13, color: 'var(--gold-dim)' }}>mm</small></strong>
+          <small>calibrated 18mm HDHMR / BWP joinery</small>
         </div>
         <div>
           <span>2D Production Sheets</span>
-          <strong className="status-ready">4 DXF / SVG</strong>
-          <small>zero-hallucination verified</small>
+          <strong className="status-ready">{ELEVATION_SHOWCASE.length} DXF / SVG</strong>
+          <small>verified architectural elevations</small>
         </div>
       </section>
 

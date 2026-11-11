@@ -383,7 +383,7 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
 
   const handleSaveRates = () => {
     savePricingRates(rates);
-    setPricingSavedToast('✨ Pricing rate card saved! Invoices and BOM estimates now use your custom rates.');
+    setPricingSavedToast('Pricing rate card saved. Invoices and BOM estimates now use your custom rates.');
     setTimeout(() => setPricingSavedToast(''), 4000);
   };
 
@@ -435,7 +435,7 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
       }
 
       onStudioIdentitySaved?.(name);
-      setStatus('✨ Studio identity & workspace standards successfully saved and updated across all studio screens!');
+      setStatus('Studio identity & workspace standards saved across all studio screens.');
     } catch (error: any) {
       setStatus(error?.message ?? 'Settings saved locally.');
     } finally {
@@ -506,13 +506,13 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 6, borderBottom: '1px solid #eadfd2', marginBottom: 22, overflowX: 'auto' }}>
         {[
-          ['workspace', '🏢 Studio Identity & Branding'],
-          ['standards', '📐 Modular & Material Standards'],
-          ['rules', '📋 Company Rules'],
-          ['rendering', '✨ AI Rendering & 3D Optics'],
-          ['pricing', '💰 Rates & Pricing Card'],
-          ['providers', '🔌 Infrastructure Readiness'],
-          ['account', '🔒 Security & Access'],
+          ['workspace', 'Studio Identity & Branding'],
+          ['standards', 'Modular & Material Standards'],
+          ['rules', 'Company Rules'],
+          ['rendering', 'AI Rendering & 3D Optics'],
+          ['pricing', 'Rates & Pricing Card'],
+          ['providers', 'Infrastructure Readiness'],
+          ['account', 'Security & Access'],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -759,7 +759,7 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
           <section style={card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div>
-                <h3 style={{ fontSize: 16, margin: 0, color: '#1c1917' }}>🪵 Core Carcass Board Materials (₹ per sq.ft)</h3>
+                <h3 style={{ fontSize: 16, margin: 0, color: '#1c1917' }}>Core Carcass Board Materials (₹ per sq.ft)</h3>
                 <p style={{ fontSize: 12.5, color: '#78716c', margin: '3px 0 0' }}>
                   Base rates applied for cabinet carcasses, internal gables, partitions, and bottom plinths.
                 </p>
@@ -835,7 +835,7 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
           {/* Section 2: Shutter Finishes */}
           <section style={card}>
             <div style={{ marginBottom: 12 }}>
-              <h3 style={{ fontSize: 16, margin: 0, color: '#1c1917' }}>✨ Shutter &amp; Facia Finishes (₹ per sq.ft)</h3>
+              <h3 style={{ fontSize: 16, margin: 0, color: '#1c1917' }}>Shutter &amp; Facia Finishes (₹ per sq.ft)</h3>
               <p style={{ fontSize: 12.5, color: '#78716c', margin: '3px 0 0' }}>
                 Surface cladding and external shutter finish applied across wardrobes, kitchens, and consoles.
               </p>
@@ -926,7 +926,7 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
           {/* Section 3: Hardware & Motion Units */}
           <section style={card}>
             <div style={{ marginBottom: 12 }}>
-              <h3 style={{ fontSize: 16, margin: 0, color: '#1c1917' }}>🔩 Hardware &amp; Motion Fittings (₹ per unit)</h3>
+              <h3 style={{ fontSize: 16, margin: 0, color: '#1c1917' }}>Hardware &amp; Motion Fittings (₹ per unit)</h3>
               <p style={{ fontSize: 12.5, color: '#78716c', margin: '3px 0 0' }}>
                 System 32 compatible premium architectural hardware rates.
               </p>
@@ -1033,7 +1033,7 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
           {/* Section 4: Labor, Installation & Margins */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
             <section style={card}>
-              <h3 style={{ fontSize: 16, marginBottom: 12, color: '#1c1917' }}>🔨 Fabrication &amp; Erection Labor</h3>
+              <h3 style={{ fontSize: 16, marginBottom: 12, color: '#1c1917' }}>Fabrication &amp; Erection Labor</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
                   Factory Millwork Fabrication
@@ -1086,7 +1086,7 @@ export function SettingsWorkspace({ organizationId, orgName, onStudioIdentitySav
             </section>
 
             <section style={card}>
-              <h3 style={{ fontSize: 16, marginBottom: 12, color: '#1c1917' }}>📈 Commercial Markup &amp; GST</h3>
+              <h3 style={{ fontSize: 16, marginBottom: 12, color: '#1c1917' }}>Commercial Markup &amp; GST</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <label style={{ fontSize: 12, fontWeight: 700, color: '#44403c' }}>
                   Studio Overhead &amp; Operational Margin (%)

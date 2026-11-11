@@ -153,7 +153,6 @@ export function Shell({
               >
                 <span className="nav-icon"><Icon size={16} /></span>
                 <span className="nav-label-text">{item.label}</span>
-                {item.id === 'projects' && <span className="nav-badge">•</span>}
               </Link>
             );
           })}
@@ -171,36 +170,9 @@ export function Shell({
           </a>
         </div>
 
-        {!inProject && (
-          <div className="sidebar-tool-groups">
-            {TOOL_NAV.map(group => (
-              <div className="sidebar-tool-group" key={group.label}>
-                <span className="nav-label">{group.label}</span>
-                {group.items.map(item => {
-                  const Icon = item.icon;
-                  const active = location.pathname === item.path;
-                  return (
-                    <Link
-                      key={item.id}
-                      to={item.id === 'library' && projectId ? `/projects/${projectId}/library` : item.path}
-                      className={`nav-item compact${active ? ' active' : ''}`}
-                      onClick={() => setMobileOpen(false)}
-                      title={collapsed ? item.label : undefined}
-                      data-tooltip={item.label}
-                    >
-                      <span className="nav-icon"><Icon size={15} /></span>
-                      <span className="nav-label-text">{item.label}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Project workflow nav */}
+        {/* Active project summary card */}
         {inProject && (
-          <div className="workflow-nav">
+          <div className="workflow-nav-summary">
             <div className="workflow-nav-header">
               <span className="workflow-nav-title">
                 {projectName || 'Current Project'}
@@ -209,9 +181,40 @@ export function Shell({
                 {doneStagesCount}/{totalStagesCount}
               </span>
             </div>
-            <p className="workflow-nav-hint">Your project steps are shown in the guide above.</p>
+            <div className="workflow-progress-track">
+              <div
+                className="workflow-progress-bar"
+                style={{ width: `${Math.max(12, Math.round((doneStagesCount / Math.max(1, totalStagesCount)) * 100))}%` }}
+              />
+            </div>
           </div>
         )}
+
+        {/* Studio tools & operations (always accessible) */}
+        <div className="sidebar-tool-groups">
+          {TOOL_NAV.map(group => (
+            <div className="sidebar-tool-group" key={group.label}>
+              <span className="nav-label">{group.label}</span>
+              {group.items.map(item => {
+                const Icon = item.icon;
+                const active = location.pathname === item.path;
+                return (
+                  <Link
+                    key={item.id}
+                    to={item.id === 'library' && projectId ? `/projects/${projectId}/library` : item.path}
+                    className={`nav-item compact${active ? ' active' : ''}`}
+                    onClick={() => setMobileOpen(false)}
+                    title={collapsed ? item.label : undefined}
+                    data-tooltip={item.label}
+                  >
+                    <span className="nav-icon"><Icon size={15} /></span>
+                    <span className="nav-label-text">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
+        </div>
 
         {/* Footer */}
         <div className="sidebar-footer">
@@ -293,19 +296,7 @@ export function Shell({
                 <button
                   type="button"
                   onClick={() => navigate(`/projects/${projectId}/renders`)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    padding: '5px 11px',
-                    background: '#fff',
-                    color: '#92400e',
-                    border: '1px solid #c59c2d',
-                    borderRadius: 7,
-                    fontSize: '12px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
+                  className="command-bar-secondary-btn"
                   title="Client Render Showcase & Attached References"
                 >
                   <Eye size={13} />
@@ -314,20 +305,7 @@ export function Shell({
                 <button
                   type="button"
                   onClick={() => navigate(`/projects/${projectId}/3d?tab=render`)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '5px 12px',
-                    background: 'linear-gradient(135deg, #c59c2d, #a88220)',
-                    color: '#1c1917',
-                    border: 0,
-                    borderRadius: 7,
-                    fontSize: '12px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 8px rgba(197, 156, 45, 0.3)',
-                  }}
+                  className="command-bar-gold-btn"
                   title="Jump directly to 3D Scene & AI Render"
                 >
                   <Sparkles size={13} />

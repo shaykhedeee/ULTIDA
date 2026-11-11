@@ -960,54 +960,24 @@ export function UnifiedDesignLibraryWorkspace({ organizationId, projectId }: { o
       {activeTab === 'research' && <ResearchSourcingPanel />}
       {activeTab === 'modules' && (
         <Card className="workflow">
-          {/* Quick Filter Category Chips */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 16px', background: '#faf8f5', borderBottom: '1px solid #ebdccb' }}>
-            {[
-              ['all', '✨ All Categories', null, null],
-              ['living', '🛋️ Living & Lounges', null, 'living'],
-              ['bedroom', '🛏️ Bedrooms & Beds', null, 'bedroom'],
-              ['wardrobe', '🚪 Wardrobes', 'wardrobe', null],
-              ['tv-unit', '📺 TV & Media Walls', 'tv-unit', null],
-              ['kitchen', '🍳 Modular Kitchens', null, 'kitchen'],
-              ['dining', '🍽️ Dining & Bars', null, 'dining'],
-              ['pooja', '🪔 Sacred Mandirs', 'pooja', null],
-              ['study', '💼 Study & Desks', 'study', null],
-              ['lighting', '💡 Lighting & Decor', 'lighting', null],
-              ['washroom', '🚿 Washrooms & Vanity', 'utility', 'utility'],
-            ].map(([k, label, fFam, fRoom]) => {
-              const isActive = (fFam ? moduleFamily === fFam : moduleRoom === (fRoom ?? 'all'));
-              return (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => {
-                    if (fFam) {
-                      setModuleFamily(moduleFamily === fFam ? 'all' : fFam);
-                      setModuleRoom('all');
-                    } else if (fRoom) {
-                      setModuleRoom(moduleRoom === fRoom ? 'all' : fRoom);
-                      setModuleFamily('all');
-                    } else {
-                      setModuleFamily('all');
-                      setModuleRoom('all');
-                    }
-                  }}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: 999,
-                    border: isActive ? '1.5px solid var(--gold)' : '1px solid #d6d3d1',
-                    background: isActive ? 'rgba(197,156,45,0.12)' : '#fff',
-                    color: isActive ? 'var(--gold-dim)' : '#57534e',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  {label}
-                </button>
-              );
-            })}
+          <div className="library-catalog-facets">
+            <label>Room
+              <select value={moduleRoom} onChange={(event) => setModuleRoom(event.target.value)}>
+                <option value="all">All rooms</option>
+                {[...new Set(modules.flatMap((module) => module.roomTypes))].sort().map((room) => (
+                  <option key={room} value={room}>{room.replaceAll('-', ' ')} ({modules.filter((module) => moduleSupportsRoom(module, room)).length})</option>
+                ))}
+              </select>
+            </label>
+            <label>Furniture category
+              <select value={moduleFamily} onChange={(event) => setModuleFamily(event.target.value)}>
+                <option value="all">All furniture categories</option>
+                {[...new Set(modules.map((module) => module.family))].sort().map((family) => (
+                  <option key={family} value={family}>{family.replaceAll('-', ' ')} ({modules.filter((module) => module.family === family && (moduleRoom === 'all' || moduleSupportsRoom(module, moduleRoom))).length})</option>
+                ))}
+              </select>
+            </label>
+            <button type="button" onClick={() => { setModuleFamily('all'); setModuleRoom('all'); setModuleCapability('all'); setQuery(''); }}>Clear filters</button>
           </div>
 
           <div aria-label="Module production filter" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 16px', borderBottom: '1px solid #ebdccb' }}>

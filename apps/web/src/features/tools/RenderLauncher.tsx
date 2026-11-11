@@ -1,7 +1,8 @@
 import { ArrowRight, Box, Camera, CheckCircle2, Cpu, ExternalLink, Layers3, Palette, Ruler, Route, Sparkles } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { getApiBase } from '../../lib/api-base';
 import './render-launcher.css';
 
 type Project = { id: string; name: string; workflow_stage: string | null };
@@ -15,7 +16,9 @@ export function RenderLauncher() {
   const [projectId, setProjectId] = useState('');
   const [scene, setScene] = useState<Scene | null>(null);
   const [state, setState] = useState('Loading projects with approved scenes…');
-  const [comfyOnline, setComfyOnline] = useState<boolean | null>(null);
+  const [comfyConfigured, setComfyConfigured] = useState<boolean | null>(null);
+  const [providerError, setProviderError] = useState('');
+  const sceneRequest = useRef(0);
 
   useEffect(() => {
     void (async () => {
@@ -26,22 +29,29 @@ export function RenderLauncher() {
       setState(data?.length ? 'Choose a project. ULTIDA will check for an approved scene before opening the renderer.' : 'Create a project, approve a plan, and compile a scene before starting a render.');
     })();
 
-    // Check ComfyUI / provider readiness
-    const apiBase = import.meta.env.VITE_API_URL || '/api';
-    fetch(`${apiBase}/providers`)
-      .then((res) => res.json())
+    const controller = new AbortController();
+    fetch(`${getApiBase()}/providers`, { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error('Provider settings could not be loaded.');
+        return res.json();
+      })
       .then((data) => {
         const comfy = (data.providers as ProviderInfo[] | undefined)?.find((p) => p.id === 'comfyui');
-        setComfyOnline(Boolean(comfy?.configured));
+        setComfyConfigured(Boolean(comfy?.configured));
       })
-      .catch(() => setComfyOnline(false));
+      .catch((error) => {
+        if (!controller.signal.aborted) setProviderError(error instanceof Error ? error.message : 'Provider settings could not be loaded.');
+      });
+    return () => controller.abort();
   }, []);
 
   async function selectProject(id: string) {
+    const request = ++sceneRequest.current;
     setProjectId(id); setScene(null);
-    if (!id || !supabase) return;
+    if (!id || !supabase) { setState('Choose a project to check its approved scene.'); return; }
     setState('Checking persisted scene readiness…');
     const { data, error } = await supabase.from('scene_versions').select('id,status,created_at').eq('project_id', id).in('status', ['approved', 'locked']).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (request !== sceneRequest.current) return;
     if (error) { setState(error.message); return; }
     if (!data) { setState('No approved scene yet. Continue through Spaces, Layouts, Modules, Materials, and Scene before requesting an image.'); return; }
     setScene(data as Scene);
@@ -112,27 +122,27 @@ export function RenderLauncher() {
     <section className="render-comfy-card" style={{ marginTop: 16, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--surface)', padding: 22 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Cpu size={20} style={{ color: comfyOnline ? '#22c55e' : '#f59e0b' }} />
+          <Cpu size={20} style={{ color: comfyConfigured ? '#22c55e' : '#f59e0b' }} />
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <strong style={{ fontSize: 14 }}>ComfyUI Studio Engine</strong>
-              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: comfyOnline ? '#dcfce7' : '#fef3c7', color: comfyOnline ? '#15803d' : '#b45309', fontWeight: 700 }}>
-                {comfyOnline === null ? 'Checking…' : comfyOnline ? 'Online (Port 8188)' : 'Standby / Remote'}
+              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: comfyConfigured ? '#dcfce7' : '#fef3c7', color: comfyConfigured ? '#15803d' : '#b45309', fontWeight: 700 }}>
+                {providerError ? 'Status unavailable' : comfyConfigured === null ? 'Checking settings…' : comfyConfigured ? 'Configured' : 'Setup required'}
               </span>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
-              Canonical workflows: Depth + Canny ControlNet geometry lock, SegFormer targeted material inpaint, IP-Adapter reference guidance.
+              {providerError || 'Rendering requires a running ComfyUI server, installed model files and a compatible workflow. The hosted Ultida app needs a render service it can reach.'}
             </p>
           </div>
         </div>
-        {comfyOnline && (
+        {/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(window.location.origin) && (
           <a
             href="http://127.0.0.1:8188"
             target="_blank"
             rel="noreferrer"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--gold-dim)', textDecoration: 'none', padding: '6px 12px', border: '1px solid var(--line)', borderRadius: 8 }}
           >
-            Open ComfyUI Graph <ExternalLink size={13} />
+            Open local ComfyUI <ExternalLink size={13} />
           </a>
         )}
       </div>

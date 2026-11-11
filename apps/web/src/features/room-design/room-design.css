@@ -1,8 +1,8 @@
-.room-design-studio { width:100%; min-width:0; display:flex; flex-direction:column; gap:20px; padding-bottom:40px; margin-bottom:40px; }
-.room-design-hero { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:22px 26px; border:1px solid #e8decb; border-radius:16px; background:linear-gradient(135deg,#fffefc,#f9f4ea); box-shadow:0 4px 20px -2px rgba(197,156,45,0.06); }
-.room-design-hero small { color:var(--gold-dim); font-size:10px; font-weight:900; letter-spacing:.14em; text-transform:uppercase; }
-.room-design-hero h1 { margin:6px 0 8px; color:var(--text-primary); font-size:clamp(20px,2.5vw,28px); font-weight:800; line-height:1.2; letter-spacing:-0.01em; }
-.room-design-hero p { max-width:760px; margin:0; color:var(--text-secondary); font-size:13.5px; line-height:1.55; }
+.room-design-studio { width:100%; min-width:0; display:flex; flex-direction:column; gap:14px; padding-bottom:28px; }
+.room-design-hero { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; padding:14px 20px; border:1px solid #e8decb; border-radius:12px; background:linear-gradient(135deg,#fffefc,#f9f4ea); box-shadow:0 2px 12px -2px rgba(197,156,45,0.06); }
+.room-design-hero small { color:var(--gold-dim); font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.room-design-hero h1 { margin:2px 0 0; color:var(--text-primary); font-size:clamp(18px,2vw,22px); font-weight:800; line-height:1.2; letter-spacing:-0.01em; }
+.room-design-hero p { max-width:760px; margin:0; color:var(--text-secondary); font-size:13px; line-height:1.5; }
 .room-design-authority { display:flex; flex:0 0 auto; align-items:center; gap:12px; padding:12px 16px; border:1px solid #badcc4; border-radius:12px; background:#f2fbf5; color:var(--success); box-shadow:0 2px 10px rgba(5,150,105,0.08); }
 .room-design-authority span,.room-design-authority strong,.room-design-authority small { display:block; }
 .room-design-authority strong { font-size:12.5px; font-weight:700; }.room-design-authority small { margin-top:2px; color:#5d7f67; font-size:10.5px; letter-spacing:0; }

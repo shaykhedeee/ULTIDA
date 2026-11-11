@@ -175,9 +175,9 @@ body { margin: 0; }
 }
 .ui-button-gold {
   background: linear-gradient(135deg, var(--gold), var(--gold-dim));
-  color: #fff;
-  border: 0;
-  font-weight: 700;
+  color: #1a1208;
+  border: 1px solid rgba(197, 156, 45, 0.5);
+  font-weight: 750;
 }
 .ui-button-gold:hover:not(:disabled) {
   background: linear-gradient(135deg, #d4ab3a, var(--gold));
@@ -189,11 +189,11 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.28);
+  box-shadow: 0 0 0 3px rgba(197, 156, 45, 0.25);
   border-color: var(--gold) !important;
 }
 
-/* ─── Workspace Section Padding Safety ─────────── */
+/* ─── Workspace Section Spacing ────────────────── */
 section.brief-workspace,
 section.plan-workspace,
 section.spaces-workspace,
@@ -201,11 +201,30 @@ section.visualize-workspace,
 section.production-section,
 section.commercial-section,
 section.delivery-workspace {
-  padding-bottom: 96px;
+  padding-bottom: 32px;
 }
 
+.workspace-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.workspace-heading h2 {
+  margin: 4px 0;
+  font-size: 22px;
+}
+.workspace-heading p {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
 
-/* ─── App Shell ─────────────────────────────────── */
+/* ─── Legacy App Shell (Scoped to .app-shell) ───── */
 .app-shell {
   min-height: 100vh;
   display: grid;
@@ -216,8 +235,7 @@ section.delivery-workspace {
 
 .nav-collapsed { grid-template-columns: 68px 1fr; }
 
-/* ─── Sidebar ───────────────────────────────────── */
-aside {
+.app-shell > aside {
   background: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-line);
   padding: 20px 14px;
@@ -284,8 +302,8 @@ aside {
 }
 .rail-toggle:hover { color: var(--gold); background: rgba(197,156,45,.1); }
 
-/* Nav */
-nav { display: flex; flex-direction: column; gap: 2px; }
+/* Scoped Legacy Nav */
+.app-shell > aside nav { display: flex; flex-direction: column; gap: 2px; }
 
 .nav-label {
   font-size: 9px;
@@ -296,7 +314,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   text-transform: uppercase;
 }
 
-nav button {
+.app-shell > aside nav button {
   border: 0;
   background: transparent;
   color: var(--sidebar-text);
@@ -313,12 +331,12 @@ nav button {
   white-space: nowrap;
   overflow: hidden;
 }
-nav button:hover { background: var(--sidebar-hover); color: #d4ccba; }
-nav button.stage-active, nav button.active {
+.app-shell > aside nav button:hover { background: var(--sidebar-hover); color: #d4ccba; }
+.app-shell > aside nav button.stage-active, .app-shell > aside nav button.active {
   background: rgba(197,156,45,.14);
   color: var(--gold-light);
 }
-nav button span { font-size: 10px; color: #3e4259; font-weight: 700; flex-shrink: 0; }
+.app-shell > aside nav button span { font-size: 10px; color: #3e4259; font-weight: 700; flex-shrink: 0; }
 
 /* System badge */
 .system {
@@ -347,8 +365,8 @@ nav button span { font-size: 10px; color: #3e4259; font-weight: 700; flex-shrink
   border-radius: 5px;
 }
 
-/* ─── Main Content ──────────────────────────────── */
-main {
+/* ─── Legacy Main Content ───────────────────────── */
+.app-shell > main {
   padding: 28px 36px;
   overflow-x: clip;
   overflow-y: auto;
@@ -1053,7 +1071,7 @@ p {
 @media (max-width: 850px) {
   .app-shell,
   .nav-collapsed { grid-template-columns: 1fr; }
-  aside {
+  .app-shell > aside {
     position: fixed;
     z-index: 50;
     inset: 0 auto 0 0;
@@ -1061,8 +1079,8 @@ p {
     transform: translateX(-100%);
     transition: transform .25s ease;
   }
-  .app-shell:not(.nav-collapsed) aside { transform: translateX(0); }
-  .app-shell:not(.nav-collapsed) main { filter: brightness(.85); pointer-events: none; }
+  .app-shell:not(.nav-collapsed) > aside { transform: translateX(0); }
+  .app-shell:not(.nav-collapsed) > main { filter: brightness(.85); pointer-events: none; }
   .nav-collapsed .brand div,
   .nav-collapsed nav button > *:not(:first-child),
   .nav-collapsed .nav-label,
@@ -1070,7 +1088,7 @@ p {
   .nav-collapsed nav button { justify-content: flex-start; padding: 9px 10px; }
   .rail-toggle { display: none; }
   .mobile-menu { display: grid; }
-  main { padding: 20px 16px; }
+  .app-shell > main { padding: 20px 16px; }
   .content-grid { grid-template-columns: 1fr; }
   .project-band { flex-direction: column; align-items: flex-start; }
   h1 { font-size: 26px; }

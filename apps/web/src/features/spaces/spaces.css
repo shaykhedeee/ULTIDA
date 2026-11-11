@@ -76,10 +76,10 @@
   border-color: #bfae98;
 }
 .btn-scope-pill.active {
-  background: #2d5a27;
-  color: #ffffff;
-  border-color: #2d5a27;
-  box-shadow: 0 2px 6px rgba(45, 90, 39, 0.25);
+  background: #1a1208;
+  color: #f8e7be;
+  border-color: #c59c2d;
+  box-shadow: 0 2px 6px rgba(26, 18, 8, 0.2);
 }
 .scope-strip-right {
   display: flex;

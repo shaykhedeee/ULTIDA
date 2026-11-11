@@ -1,8 +1,8 @@
-import { Calculator, ChevronRight, CircleAlert, FileText, LockKeyhole, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Calculator, Download, FileCode2, FileText, LockKeyhole, ArrowLeft, ArrowRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { calculateIndianGstBoq, exportTallyPrimeSalesVoucherXml } from '@ultida/commercial-core';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Card, CardContent, CardHeader } from '../ui/primitives';
+import { Badge, Button, Card, CardContent, CardHeader } from '../ui/primitives';
 import { getSupabaseBrowserClient } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
 
@@ -18,7 +18,7 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
   const [gstRate, setGstRate] = useState('0.18');
   const [marginRate, setMarginRate] = useState('0.12');
   const [quote, setQuote] = useState<Totals | null>(null);
-  const [quoteState, setQuoteState] = useState('✨ 5BHK Singhania Royal Villa preset loaded: HDHMR + Acrylic + Fluted PU + Blum soft-close.');
+  const [quoteState, setQuoteState] = useState('5BHK Royal Villa specification loaded: HDHMR carcass, acrylic & fluted PU finishes, System 32 soft-close hardware.');
 
   function switchPreset(mode: 'apartment' | 'villa') {
     setPresetMode(mode);
@@ -26,12 +26,12 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
       setUnitRate('38500');
       setLabour('6500');
       setMarginRate('0.15');
-      setQuoteState('✨ 5BHK Royal Villa preset loaded: German CNC joinery, acrylic & fluted PU finishes.');
+      setQuoteState('5BHK Royal Villa specification loaded: CNC joinery, acrylic & fluted PU finishes.');
     } else {
       setUnitRate('24500');
       setLabour('4200');
       setMarginRate('0.12');
-      setQuoteState('Standard 3BHK apartment preset loaded: 18mm HDHMR carcass + standard laminates.');
+      setQuoteState('Standard 3BHK apartment specification loaded: 18mm HDHMR carcass + matte laminates.');
     }
     setQuote(null);
   }
@@ -78,7 +78,7 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
       const payload = await response.json();
       if (!response.ok) return setQuoteState(payload.message ?? 'Estimate could not be calculated.');
       setQuote(payload.estimate.totals);
-      setQuoteState('✨ Verified turnkey BOM and commercial estimate calculated successfully.');
+      setQuoteState('Verified turnkey BOM and commercial estimate calculated.');
     } catch {
       setQuoteState('Commercial service unavailable. The scene is unchanged.');
     }
@@ -183,22 +183,14 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {projectId && (
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => navigate(`/projects/${projectId}/drawings`)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 6,
-                border: '1px solid #d6d3d1',
-                background: '#fff',
-                color: '#44403c',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              icon={<ArrowLeft size={14} />}
             >
-              ← Production Cutlist &amp; Drawings
-            </button>
+              Production Cutlist &amp; Drawings
+            </Button>
           )}
           <Badge tone={ready ? 'success' : 'accent'}>{ready ? 'Ready for pricing' : 'Blocked'}</Badge>
         </div>
@@ -210,46 +202,26 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
               <small>QUOTE &amp; BOM CONFIGURATION</small>
               <h3>Turnkey INR Rates</h3>
             </div>
-            <Calculator size={20} />
+            <Calculator size={20} style={{ color: 'var(--gold-dim)' }} />
           </CardHeader>
           <CardContent>
             {/* Preset Toggle */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 14, background: '#f5eee3', padding: 4, borderRadius: 8 }}>
+            <div className="ui-tabs-track" style={{ width: '100%', marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
               <button
                 type="button"
                 onClick={() => switchPreset('villa')}
-                style={{
-                  flex: 1,
-                  padding: '7px 10px',
-                  borderRadius: 6,
-                  border: 'none',
-                  background: presetMode === 'villa' ? '#1c1917' : 'transparent',
-                  color: presetMode === 'villa' ? '#fdfbf7' : '#57534e',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                }}
+                className={`ui-tab-btn ${presetMode === 'villa' ? 'active' : ''}`}
+                style={{ justifyContent: 'center' }}
               >
-                👑 5BHK Singhania Villa
+                5BHK Luxury Villa Tier
               </button>
               <button
                 type="button"
                 onClick={() => switchPreset('apartment')}
-                style={{
-                  flex: 1,
-                  padding: '7px 10px',
-                  borderRadius: 6,
-                  border: 'none',
-                  background: presetMode === 'apartment' ? '#1c1917' : 'transparent',
-                  color: presetMode === 'apartment' ? '#fdfbf7' : '#57534e',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                }}
+                className={`ui-tab-btn ${presetMode === 'apartment' ? 'active' : ''}`}
+                style={{ justifyContent: 'center' }}
               >
-                🏢 Standard 3BHK
+                Standard 3BHK Tier
               </button>
             </div>
 
@@ -266,112 +238,64 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
               <span className={moduleCount ? 'commercial-ready' : 'commercial-blocked'}>{moduleCount} modular units</span>
             </div>
             {ready && (
-              <div className="quote-inputs" style={{ marginTop: 16 }}>
-                <label>
-                  Avg Module Rate (INR)
-                  <input type="number" min="0" value={unitRate} onChange={(event) => setUnitRate(event.target.value)} />
-                </label>
-                <label>
-                  Installation Labour / Unit (INR)
-                  <input type="number" min="0" value={labour} onChange={(event) => setLabour(event.target.value)} />
-                </label>
-                <label>
-                  GST Rate (0.18 = 18%)
-                  <input type="number" min="0" step="0.01" value={gstRate} onChange={(event) => setGstRate(event.target.value)} />
-                </label>
-                <label>
-                  Studio Margin (0.12 = 12%)
-                  <input type="number" min="0" step="0.01" value={marginRate} onChange={(event) => setMarginRate(event.target.value)} />
-                </label>
-                <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-                  <button className="primary" onClick={() => void calculateEstimate()} style={{ flex: 1 }}>
-                    ✨ Calculate Turnkey BOM
-                  </button>
-                  <button
-                    type="button"
-                    onClick={downloadBomCsv}
-                    style={{
-                      padding: '10px 14px',
-                      borderRadius: 8,
-                      border: '1px solid #c59c2d',
-                      background: 'rgba(197,156,45,0.1)',
-                      color: 'var(--gold-dim)',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      fontSize: 12,
-                    }}
-                  >
-                    📥 Export CSV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={downloadTallyXml}
-                    title="Export Accounting Voucher XML"
-                    style={{
-                      padding: '10px 14px',
-                      borderRadius: 8,
-                      border: '1px solid #d6d3d1',
-                      background: '#fafaf9',
-                      color: '#44403c',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      fontSize: 12,
-                    }}
-                  >
-                    📄 Accounting XML
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/tools/invoices?tab=proposals')}
-                    style={{
-                      padding: '10px 14px',
-                      borderRadius: 8,
-                      border: '1px solid #16a34a',
-                      background: '#16a34a',
-                      color: '#ffffff',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      fontSize: 12,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    ✨ Client Proposal &amp; Invoice &rarr;
-                  </button>
+              <div className="quote-inputs" style={{ marginTop: 18, display: 'grid', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                  <label className="brief-field">
+                    <span>Avg Module Rate (INR)</span>
+                    <input type="number" min="0" value={unitRate} onChange={(event) => setUnitRate(event.target.value)} />
+                  </label>
+                  <label className="brief-field">
+                    <span>Installation Labour / Unit (INR)</span>
+                    <input type="number" min="0" value={labour} onChange={(event) => setLabour(event.target.value)} />
+                  </label>
+                  <label className="brief-field">
+                    <span>GST Rate (0.18 = 18%)</span>
+                    <input type="number" min="0" step="0.01" value={gstRate} onChange={(event) => setGstRate(event.target.value)} />
+                  </label>
+                  <label className="brief-field">
+                    <span>Studio Margin (0.12 = 12%)</span>
+                    <input type="number" min="0" step="0.01" value={marginRate} onChange={(event) => setMarginRate(event.target.value)} />
+                  </label>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
+                  <Button variant="gold" onClick={() => void calculateEstimate()} icon={<Calculator size={15} />}>
+                    Calculate Turnkey BOM
+                  </Button>
+                  <Button variant="outline" onClick={downloadBomCsv} icon={<Download size={15} />}>
+                    Export CSV
+                  </Button>
+                  <Button variant="outline" onClick={downloadTallyXml} title="Export Accounting Voucher XML" icon={<FileCode2 size={15} />}>
+                    Accounting XML
+                  </Button>
+                  <Button variant="outline" onClick={() => navigate('/tools/invoices?tab=proposals')} icon={<ArrowRight size={15} />}>
+                    Client Proposal &amp; Invoice
+                  </Button>
                 </div>
               </div>
             )}
             {quote && (
-              <div className="commercial-empty" style={{ marginTop: 20, background: '#fdfbf7', border: '1.5px solid #ebdccb', borderRadius: 10, padding: 18 }}>
-                <FileText size={32} style={{ color: 'var(--gold)' }} />
-                <h3 style={{ margin: '8px 0 4px', fontSize: 20, color: 'var(--text-primary)' }}>Grand Total: INR {quote.grandTotalInr.toLocaleString('en-IN')}</h3>
-                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
+              <div className="commercial-empty" style={{ marginTop: 20, background: '#fdfbf7', border: '1px solid var(--gold-border)', borderRadius: 10, padding: 20 }}>
+                <FileText size={28} style={{ color: 'var(--gold)' }} />
+                <h3 style={{ margin: '8px 0 4px', fontSize: 20, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>
+                  Grand Total: INR {quote.grandTotalInr.toLocaleString('en-IN')}
+                </h3>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
                   Subtotal: INR {quote.subtotalInr.toLocaleString('en-IN')} · GST (18%): INR {quote.gstInr.toLocaleString('en-IN')}
                 </p>
-                <button
-                  type="button"
+                <Button
+                  variant="gold"
+                  size="sm"
                   onClick={() => navigate('/tools/invoices?tab=proposals')}
-                  style={{
-                    marginTop: 12,
-                    padding: '9px 18px',
-                    borderRadius: 8,
-                    border: 'none',
-                    background: 'linear-gradient(135deg, #1c1917 0%, #292524 100%)',
-                    color: '#c59c2d',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
+                  style={{ marginTop: 12 }}
+                  icon={<ArrowRight size={14} />}
                 >
-                  ✨ Open in Client Proposal &amp; Sign-Off Studio &rarr;
-                </button>
+                  Open in Client Proposal &amp; Sign-Off Studio
+                </Button>
               </div>
             )}
-            <p className="inline-message" style={{ marginTop: 12 }}>{quoteState}</p>
+            <p role="status" style={{ marginTop: 14, fontSize: 12.5, color: 'var(--text-secondary)', background: 'var(--surface-subtle)', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--line)' }}>
+              {quoteState}
+            </p>
           </CardContent>
         </Card>
         <Card className="commercial-side">
@@ -380,63 +304,63 @@ export function CommercialWorkspace({ projectId, briefSaved, planApproved, scene
               <small>ITEMIZED SCHEDULE</small>
               <h3>Bill of Materials Preview</h3>
             </div>
-            <LockKeyhole size={20} />
+            <LockKeyhole size={18} style={{ color: 'var(--gold-dim)' }} />
           </CardHeader>
           <CardContent>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6, fontVariantNumeric: 'tabular-nums' }}>
               {presetMode === 'villa' ? (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0eae1' }}>
-                    <span>📺 5030mm TV Media Wall Suite</span>
-                    <strong>INR 1,67,000</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>5,030mm TV Media Wall Suite</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>INR 1,67,000</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0eae1' }}>
-                    <span>🚪 2977mm Master Wardrobe Suite</span>
-                    <strong>INR 2,13,000</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>2,977mm Master Wardrobe Suite</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>INR 2,13,000</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0eae1' }}>
-                    <span>🛕 1775mm Sacred Walk-In Mandir</span>
-                    <strong>INR 1,13,000</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>1,775mm Walk-In Mandir Suite</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>INR 1,13,000</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0eae1' }}>
-                    <span>🍳 6669mm Gourmet Show Kitchen</span>
-                    <strong>INR 3,00,000</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>6,669mm Gourmet Show Kitchen</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>INR 3,00,000</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0eae1' }}>
-                    <span>🔩 Blum Obsidian Hardware ({Math.max(1, moduleCount)} sets)</span>
-                    <strong>INR {(15000 * Math.max(1, moduleCount)).toLocaleString('en-IN')}</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>System 32 Hardware ({Math.max(1, moduleCount)} sets)</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>INR {(15000 * Math.max(1, moduleCount)).toLocaleString('en-IN')}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0eae1' }}>
-                    <span>🏛 Botticino Marble &amp; Civil Trims</span>
-                    <strong>INR 1,10,000</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>Botticino Marble &amp; Civil Trims</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>INR 1,10,000</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0eae1' }}>
-                    <span>📦 White-Glove Factory Crating</span>
-                    <strong>INR 50,000</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>Factory Crating &amp; Site Logistics</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>INR 50,000</strong>
                   </div>
                 </>
               ) : (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0eae1' }}>
-                    <span>🪵 Modular Cabinetry ({moduleCount} units)</span>
-                    <strong>INR {((Number(unitRate) || 24500) * Math.max(1, moduleCount)).toLocaleString('en-IN')}</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>Modular Cabinetry ({moduleCount} units)</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>INR {((Number(unitRate) || 24500) * Math.max(1, moduleCount)).toLocaleString('en-IN')}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0eae1' }}>
-                    <span>🔩 Hardware &amp; Blum Tandembox</span>
-                    <strong>INR {(6800 * Math.max(1, moduleCount)).toLocaleString('en-IN')}</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>System 32 Hardware &amp; Tandembox</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>INR {(6800 * Math.max(1, moduleCount)).toLocaleString('en-IN')}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0eae1' }}>
-                    <span>🔨 Factory Fabrication &amp; Labour</span>
-                    <strong>INR {(((Number(labour) || 4200) + 1200) * Math.max(1, moduleCount)).toLocaleString('en-IN')}</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>Factory Fabrication &amp; Site Erection</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>INR {(((Number(labour) || 4200) + 1200) * Math.max(1, moduleCount)).toLocaleString('en-IN')}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f0eae1' }}>
-                    <span>📦 Crating &amp; Site Logistics</span>
-                    <strong>INR 26,000</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                    <span>Crating &amp; Site Logistics</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>INR 26,000</strong>
                   </div>
                 </>
               )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', marginTop: 6, fontWeight: 700, color: 'var(--text-primary)' }}>
-                <span>Estimated Turnkey Cost:</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 4px', marginTop: 6, fontWeight: 800, fontSize: 14, color: 'var(--text-primary)' }}>
+                <span>Estimated Turnkey Total:</span>
                 <span>INR {quote ? quote.grandTotalInr.toLocaleString('en-IN') : gstBoqSummary.grandTotalWithGstInr.toLocaleString('en-IN')}</span>
               </div>
             </div>

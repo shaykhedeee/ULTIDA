@@ -18,6 +18,7 @@ type ModuleInput = {
 export default function SupplierCatalogExplorer({ modules }: { modules: ModuleInput[] }) {
   const [tab, setTab] = useState<'merino' | 'ikea' | 'composer'>('merino');
   const [search, setSearch] = useState('');
+  const [productCategory, setProductCategory] = useState('all');
   const [family, setFamily] = useState('kitchen-base');
   const [wallLength, setWallLength] = useState('3000');
   const [aisle, setAisle] = useState('900');
@@ -29,7 +30,10 @@ export default function SupplierCatalogExplorer({ modules }: { modules: ModuleIn
   const families = useMemo(() => [...new Set(modules.filter(m => m.production.panelBased).map(m => m.family))].sort(), [modules]);
   const matches = (term: string) => term.toLowerCase().includes(search.trim().toLowerCase());
   const merino = VERIFIED_MERINO_REFERENCES.filter(m => matches(`${m.name} ${m.decorCode} ${m.productLine}`));
-  const ikea = VERIFIED_IKEA_REFERENCES.filter(p => matches(`${p.name} ${p.productNumber} ${p.category}`));
+  const ikeaCategories = [...new Set(VERIFIED_IKEA_REFERENCES.map(item => item.category))].sort();
+  const ikea = VERIFIED_IKEA_REFERENCES.filter(p =>
+    (productCategory === 'all' || p.category === productCategory) &&
+    matches(`${p.name} ${p.productNumber} ${p.category}`));
   const runInput = useMemo(() => {
     const restriction = protectedSpan.trim();
     const pieces = restriction.split('-').map(x => Number(x.trim()));
@@ -75,6 +79,12 @@ export default function SupplierCatalogExplorer({ modules }: { modules: ModuleIn
         <>
           <label className="ult-supplier-search-label" htmlFor="ult-supplier-search">Search verified {tab==='merino'?'decors and ranges':'product names and SKUs'}</label>
           <input id="ult-supplier-search" className="ult-supplier-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder={tab==='merino'?'Search 14149, Oak, Walnut, Senses…':'Search BILLY, BESTÅ, 102.945.25…'}/>
+          {tab === 'ikea' && <label className="ult-supplier-search-label">Furniture category
+            <select className="ult-supplier-search" value={productCategory} onChange={event => setProductCategory(event.target.value)}>
+              <option value="all">All categories</option>
+              {ikeaCategories.map(category => <option key={category} value={category}>{category.replaceAll('-', ' ')} ({VERIFIED_IKEA_REFERENCES.filter(item => item.category === category).length})</option>)}
+            </select>
+          </label>}
           <div className="ult-supplier-cards">
             {tab==='merino' && merino.map(item=>(
               <article key={item.id} className="ult-supplier-card">

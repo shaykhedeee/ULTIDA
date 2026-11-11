@@ -103,69 +103,25 @@ export function BriefWorkspace({ projectId, initialBrief, fileName, status, onSa
 
   return (
     <section className="brief-workspace">
-      {/* Fast Track to 3D & AI Render Banner */}
-      <div
-        className="quick-start-3d-banner"
-        style={{
-          background: 'linear-gradient(135deg, #2a221b 0%, #1c1815 100%)',
-          border: '1px solid rgba(197, 156, 45, 0.45)',
-          borderRadius: 12,
-          padding: '14px 20px',
-          marginBottom: 20,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 12,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ background: 'rgba(197, 156, 45, 0.2)', padding: 8, borderRadius: 8, color: '#eab308' }}>
-            <Sparkles size={20} />
-          </div>
-          <div>
-            <h4 style={{ margin: 0, color: '#f5f5f4', fontSize: 14, fontWeight: 800 }}>
-              ⚡ Fast Track: Instant 3D Scene &amp; Photorealistic AI Render
-            </h4>
-            <p style={{ margin: '2px 0 0', color: '#a8a29e', fontSize: 12 }}>
-              Ready-to-render modular suite is preloaded. Jump straight into the 3D scene and generate photorealistic interior proposals immediately.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            if (projectId) {
-              navigate(`/projects/${projectId}/3d?tab=render`);
-            }
-          }}
-          style={{
-            background: 'linear-gradient(135deg, #c59c2d, #a88220)',
-            color: '#1c1917',
-            border: 0,
-            borderRadius: 8,
-            padding: '10px 20px',
-            fontWeight: 800,
-            fontSize: 13,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            boxShadow: '0 2px 10px rgba(197, 156, 45, 0.35)',
-          }}
-        >
-          <Sparkles size={15} /> Jump to 3D &amp; AI Render <ArrowRight size={15} />
-        </button>
-      </div>
-
       <div className="workspace-heading">
         <div>
           <small>CLIENT BRIEF / PROJECT CONTEXT</small>
           <h2>Capture the decisions that guide the design.</h2>
           <p>A concise brief keeps the plan, scene, visuals and production outputs aligned.</p>
         </div>
-        <Badge tone={valid ? 'success' : 'accent'}>{valid ? 'Ready to save' : 'Incomplete'}</Badge>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {projectId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/projects/${projectId}/3d?tab=render`)}
+              icon={<Sparkles size={14} />}
+            >
+              Open 3D &amp; AI Render
+            </Button>
+          )}
+          <Badge tone={valid ? 'success' : 'accent'}>{valid ? 'Ready to save' : 'Incomplete'}</Badge>
+        </div>
       </div>
       <div className="content-grid">
         <Card className="workflow">
@@ -207,30 +163,35 @@ export function BriefWorkspace({ projectId, initialBrief, fileName, status, onSa
           </CardContent>
         </Card>
         <Card className="side-panel">
-          <small>ATTACHMENT</small>
-          <FileUp size={24}/>
-          <h2>Attach Floor Plan</h2>
-          <p>Attach the source, then open Guided Plan to calibrate or outline rough rooms before analysis.</p>
-          <div 
-            onClick={() => fileInputRef.current?.click()} 
-            className="dropzone" 
-            style={{ cursor: 'pointer', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', border: '2px dashed #bfae9c', borderRadius: '8px', background: '#fbf6ef' }}
+          <CardHeader style={{ padding: 0, borderBottom: '1px solid var(--line)', paddingBottom: 14, marginBottom: 16 }}>
+            <div>
+              <small>FLOOR PLAN SOURCE</small>
+              <h3 style={{ margin: '4px 0 0', fontSize: 16 }}>Attach Measured Plan</h3>
+            </div>
+            <FileUp size={20} style={{ color: 'var(--gold-dim)' }} />
+          </CardHeader>
+          <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginBottom: 14 }}>
+            Attach the architectural plan, then open Guided Plan to calibrate scale and room boundaries before modular placement.
+          </p>
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            className="dropzone"
           >
-            <Upload size={24} style={{ color: '#8a7762' }} />
-            <strong style={{ color: '#4d3428' }}>{fileName ? fileName : 'Click to select floor plan'}</strong>
-            <span style={{ fontSize: '12px', color: '#746b62' }}>Images, SVG and PDF (up to 25 MB)</span>
-            <input 
+            <Upload size={22} style={{ color: 'var(--gold-dim)' }} />
+            <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>{fileName ? fileName : 'Click to select floor plan'}</strong>
+            <span>Images, SVG, CAD or PDF (up to 25 MB)</span>
+            <input
               ref={fileInputRef}
-              type="file" 
-              accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/avif,image/heic,image/heif,image/svg+xml,application/pdf,.tif,.tiff,.heic,.heif" 
-              onChange={onFile} 
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/avif,image/heic,image/heif,image/svg+xml,application/pdf,.tif,.tiff,.heic,.heif"
+              onChange={onFile}
               style={{ display: 'none' }}
             />
           </div>
-          {status && <p className="inline-message" role="status" style={{ fontSize: '12px', margin: '8px 0' }}>{status}</p>}
+          {status && <p className="inline-message" role="status" style={{ fontSize: 12, marginTop: 12 }}>{status}</p>}
           {onAnalyze && fileName && (
-            <Button variant="outline" className="full" onClick={onAnalyze} style={{ marginTop: '8px' }}>
-              Open Guided Plan
+            <Button variant="outline" className="full" onClick={onAnalyze} style={{ marginTop: 12 }}>
+              Open Guided Plan <ArrowRight size={14} />
             </Button>
           )}
         </Card>
