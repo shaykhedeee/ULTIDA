@@ -127,3 +127,104 @@ test('validateServerEnvironment accepts both COMFYUI_BASE_URL and COMFYUI_URL', 
     else process.env.COMFYUI_URL = prevUrl;
   }
 });
+
+test('two editors retain the approved file and cannot overwrite a competing room revision', async () => {
+  const { registerPipelineRoutes } = await import('../src/pipeline-routes.js');
+  const now = '2026-11-27T10:00:00.000Z';
+  const previous = {
+    id: 'approved', projectId: 'project', roomId: 'kitchen', title: 'Elevation',
+    category: 'Working Drawing', approvalStatus: 'Approved', sourceType: 'external_drive_link',
+    externalUrl: 'https://example.com/approved.pdf', owner: 'Designer', createdAt: now, updatedAt: now,
+  };
+  let project = { id: 'project', name: 'Test project', assigned_designer: 'Designer', updated_at: now,
+    delivery_records: { pipeline: { version: 0, tasks: [], files: [previous] } } };
+  const handlers = new Map<string, (...args: any[]) => Promise<unknown>>();
+  const app = { get() {}, put(path: string, _auth: unknown, handler: (...args: any[]) => Promise<unknown>) { handlers.set(path, handler); } };
+  const getClient = (() => ({
+    from(table: string) {
+      const filters = new Map<string, unknown>();
+      let patch: typeof project | undefined;
+      const query = {
+        select() { return query; },
+        eq(column: string, value: unknown) { filters.set(column, value); return query; },
+        update(value: typeof project) { patch = value; return query; },
+        async maybeSingle() {
+          if (table === 'organization_members') return { data: { role: filters.get('user_id') === 'viewer' ? 'viewer' : 'designer' } };
+          if (table === 'spaces') {
+            const id = String(filters.get('id'));
+            return { data: { id, name: id, space_id: id.replace(/^db-/, '').replace(/-old$/, ''), floor_plan_version_id: id.endsWith('-old') ? 'old-plan' : 'render-plan' } };
+          }
+          if (table === 'project_assets') return { data: filters.get('id') === 'generated-render'
+            ? { id: 'generated-render', kind: 'render', storage_path: 'private/render.png', mime_type: 'image/png' }
+            : { id: filters.get('id'), kind: 'upload', storage_path: 'private/revised.pdf', mime_type: 'application/pdf' } };
+          if (table === 'artifacts') return { data: { id: 'artifact', scene_version_id: 'scene', job_id: 'job' } };
+          if (table === 'jobs') return { data: { input: { roomId: 'bedroom', cameraId: 'saved-camera' } } };
+          if (table === 'scene_versions') return { data: { floor_plan_version_id: 'render-plan' } };
+          if (patch) {
+            assert.equal(filters.get('organization_id'), 'studio');
+            if (filters.get('updated_at') !== project.updated_at) return { data: null };
+            project = { ...project, ...patch };
+          }
+          return { data: structuredClone(project) };
+        },
+      };
+      return query;
+    },
+  })) as never;
+  registerPipelineRoutes(app as never, getClient, getClient);
+  const write = async (editor: string, payload: unknown) => {
+    const request = { params: { projectId: 'project' }, ultidaUser: { id: editor, organizationId: 'studio' }, body: payload };
+    let status = 200;
+    let body: any;
+    const response = { status(value: number) { status = value; return response; }, json(value: unknown) { body = value; } };
+    await handlers.get('/api/projects/:projectId/pipeline')!(request, response);
+    return { status, body };
+  };
+  const save = (editor: string, roomId: string, parentId?: string) => write(editor, {
+    expectedVersion: 0, tasks: [], files: [previous, {
+      ...previous, id: editor, roomId, title: 'Renamed elevation', sourceType: 'uploaded_file',
+      approvalStatus: 'Draft', assetId: editor, parentId, round: 'R02', notes: 'Align lofts',
+      originalName: 'revised.pdf', nextAction: 'Review loft clearance',
+    }],
+  });
+  assert.equal((await save('wrong-room', 'bedroom', 'approved')).status, 422);
+  assert.equal((await save('viewer', 'bedroom')).status, 403);
+  const [first, second] = await Promise.all([save('editor-one', 'kitchen', 'approved'), save('editor-two', 'bedroom')]);
+  assert.deepEqual([first.status, second.status].sort(), [200, 409]);
+  const files = project.delivery_records.pipeline.files as Array<Record<string, unknown>>;
+  assert.equal(files.length, 2);
+  const original = files.find(file => file.id === 'approved')!;
+  assert.equal(original.approvalStatus, 'Approved');
+  assert.equal(original.externalUrl, previous.externalUrl);
+  const revision = files.find(file => file.id !== 'approved')!;
+  assert.equal(revision.nextAction, 'Review loft clearance');
+  if (revision.roomId === 'kitchen') {
+    assert.equal(revision.familyId, original.familyId);
+    assert.equal(revision.sequence, 2);
+  }
+  const updates = files.map(file => file.id === revision.id ? { ...file,
+    notes: 'Attempted to overwrite artifact history', nextAction: 'Verify the pencil drawers',
+    nextActionHistory: [{ action: 'Spoofed event', authorId: 'other-user', changedAt: now }],
+  } : file);
+  assert.equal((await write('editor-two', { tasks: [], files: updates })).status, 422);
+  assert.equal((await write('editor-two', { expectedVersion: 0, tasks: [], files: updates })).status, 409);
+  const next = await write('editor-two', { expectedVersion: 1, tasks: [], files: updates });
+  assert.equal(next.status, 200);
+  assert.equal(next.body.pipeline.files[1].notes, 'Align lofts');
+  assert.deepEqual(next.body.pipeline.files[1].nextActionHistory.map((event: { action: string }) => event.action),
+    ['Review loft clearance', 'Verify the pencil drawers']);
+  assert.equal(next.body.pipeline.files[1].nextActionHistory[1].authorId, 'editor-two');
+
+  const generatedRevision = { ...previous, id: 'render-version', sourceType: 'uploaded_file', assetId: 'generated-render',
+    roomId: 'kitchen', category: '3D Render', round: 'R03', nextAction: 'Review finishes', notes: 'Revised laminate' };
+  assert.equal((await write('editor-two', { expectedVersion: 2, tasks: [], files: [...next.body.pipeline.files, generatedRevision] })).status, 422);
+  const oldRoom = await write('editor-two', { expectedVersion: 2, tasks: [], files: [...next.body.pipeline.files, { ...generatedRevision, roomId: 'db-bedroom-old' }] });
+  assert.equal(oldRoom.status, 422);
+  assert.match(oldRoom.body.message, /plan revision/);
+  const attached = await write('editor-two', { expectedVersion: 2, tasks: [],
+    files: [...next.body.pipeline.files, { ...generatedRevision, roomId: 'db-bedroom' }] });
+  assert.equal(attached.status, 200);
+  assert.deepEqual(attached.body.pipeline.files[2].renderSource, {
+    artifactId: 'artifact', jobId: 'job', sceneVersionId: 'scene', cameraId: 'saved-camera',
+  });
+});

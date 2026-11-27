@@ -1,0 +1,18 @@
+# Project Progress handoff verification
+
+The implementation starts from main at 7cba9e11c86e03c56d7d83c7b7e9d6e4cec75964. The Vercel API reports its last ready production deployment as dpl_6zrE16xZMdWcyXoXfWQfGKBoTocf. PR #4 at 7f8e73b0d4f10f83c15ff929b7bca2abd917b997 adds a separate window bridge. It remains open. Its Reliability check failed and its Vercel status reports Account is blocked.
+
+| Check | Evidence |
+| --- | --- |
+| Revision round | The API test uses two editors and two rooms. It verifies that a viewer cannot edit, a cross-room parent is rejected, one concurrent save wins, and the approved file is retained. The write checks the editor’s organization role before updating the exact project and version. |
+| Designer journey | The mobile Chromium fixture fails a save after upload. On reload, the revision details, room filter and uploaded asset return for the same editor. A second editor in the same browser sees a clean draft. The retry reuses the uploaded PDF and saves the new version alongside its approved predecessor. |
+| Existing assets and AURA | A designer can attach a generated render to a revision. The API verifies its project, source room and plan revision and takes the scene, camera, artifact and job IDs from existing records. AURA and the form use the same version-checked save for editing a revision’s next action. Confirmation is explicit and the server records the action history. The Chromium fixture confirms the second editor’s update appears for the first editor on focus and after reload. |
+| Offline rendering | The measured kitchen fixture includes an opening and a saved camera. The job executes the deterministic pass and QA, writes to fixture storage, registers the asset and artifact, then reloads the image link through the gallery. A missing camera returns RENDER_CAMERA_NOT_IN_SCENE before the provider call. An offline finish edit changes pixels only in the selected unit mask, passes QA, and reloads alongside the original from the same scene revision. |
+| First hosted failure | GET https://ultida.vercel.app/api/health returned HTTP 402, DEPLOYMENT_DISABLED, request cle1::5fgvg-1795806022956-92b37256651f. The request stopped before authentication, scene lookup or job creation, so there is no hosted job ID or scene revision to report. |
+| Release gate regression | Local reliability on 41bbe43 failed in catalog-construction.test.ts because the retail IKEA 880 mm unit received a 900 mm fabricated carcass. The retail catalog envelope fix passed the targeted construction suite. |
+
+The production rollback reference is the last ready deployment above. This candidate uses the existing project pipeline and asset schemas. A second check on 27 November still found the Vercel project marked offline and the public health URL returning HTTP 402 with `DEPLOYMENT_DISABLED` (request `cle1::slwzw-1795807909463-6cc2682a3c78`). The Supabase migration-history request returned `28P01` for the PostgreSQL connection. Hosted acceptance needs a working Vercel project, an isolated writable environment, authenticated designer walkthroughs and an agreed render budget.
+
+The browser saves revision details and completed upload references in local storage by editor and project. A file that was selected but never uploaded must be selected again after reload. Project Progress checks for newer versions on window focus and every 15 seconds while visible and idle.
+
+Remaining handoff scope includes first-class round records and a full activity log, automatic artifact registration, additional AURA commands, legacy D1 import mapping, hosted verification and pilot metrics.

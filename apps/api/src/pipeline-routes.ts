@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Express, Request } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
@@ -19,6 +20,9 @@ export const PipelineStageSchema = z.enum([
   '3d',
   'drawings',
   'estimate',
+  'laminate',
+  'final',
+  'production',
 ]);
 
 export const PipelineTaskPrioritySchema = z.enum(['high', 'medium', 'low']);
@@ -62,6 +66,25 @@ export const PipelineFileItemSchema = z.object({
     'Reference / Moodboard',
   ]),
   revision: z.string().min(1).max(40).default('REV-1'),
+  familyId: z.string().uuid().optional(),
+  parentId: z.string().max(120).optional(),
+  sequence: z.number().int().positive().optional(),
+  round: z.string().trim().min(1).max(80).optional(),
+  nextAction: z.string().trim().min(1).max(400).optional(),
+  nextActionHistory: z.array(z.object({
+    action: z.string().max(400),
+    changedAt: z.string().max(40),
+    authorId: z.string().optional(),
+  })).optional(),
+  originalName: z.string().max(255).optional(),
+  authorId: z.string().optional(),
+  renderSource: z.object({
+    artifactId: z.string(),
+    sceneVersionId: z.string(),
+    jobId: z.string().optional(),
+    cameraId: z.string().optional(),
+  }).optional(),
+
   sourceType: z.enum(['uploaded_file', 'external_drive_link']),
   externalUrl: z.string().url().max(1000).nullable().optional(),
   assetId: z.string().max(120).nullable().optional(),
@@ -77,6 +100,11 @@ export const PipelineFileItemSchema = z.object({
   updatedAt: z.string().max(40),
 });
 
+function deterministicFamilyId(id: string) {
+  const hex = createHash('sha256').update(id).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 export type PipelineTask = z.infer<typeof PipelineTaskSchema>;
 export type PipelineFileItem = z.infer<typeof PipelineFileItemSchema>;
 
@@ -88,7 +116,7 @@ export type ProjectPipelineDocument = {
 };
 
 const SaveProjectPipelineSchema = z.object({
-  expectedVersion: z.number().int().min(0).optional(),
+  expectedVersion: z.number().int().min(0),
   tasks: z.array(PipelineTaskSchema).max(300),
   files: z.array(PipelineFileItemSchema).max(300),
 });
@@ -262,11 +290,15 @@ export function normalizePipelineDocument(
     version,
     updatedAt,
     tasks,
-    files: parsedFiles,
+    files: parsedFiles.map(file => ({ ...file, familyId: file.familyId ?? deterministicFamilyId(file.id) })),
   };
 }
 
-export function registerPipelineRoutes(app: Express, getClient: (request: Request) => SupabaseClient) {
+export function registerPipelineRoutes(
+  app: Express,
+  getClient: (request: Request) => SupabaseClient,
+  getWriteClient: (request: Request) => SupabaseClient,
+) {
   // Studio-wide pipeline & daily session planner across all active organization projects
   app.get('/api/studio/pipeline', requireStudioUser, async (request, response) => {
     const authReq = request as AuthenticatedRequest;
@@ -349,10 +381,11 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
       });
     }
 
-    const [spacesRes, scenesRes, plansRes] = await Promise.all([
+    const [spacesRes, scenesRes, plansRes, assetsRes] = await Promise.all([
       client.from('spaces').select('id,name,room_type,ceiling_height_mm,status').eq('project_id', projectId),
       client.from('scene_versions').select('id,version_number,status,created_at,change_reason').eq('project_id', projectId).order('version_number', { ascending: false }).limit(10),
       client.from('floor_plan_versions').select('id,version_number,status,review_status,approved_at,created_at').eq('project_id', projectId).order('version_number', { ascending: false }).limit(10),
+      client.from('project_assets').select('id,kind,storage_path,mime_type').eq('project_id', projectId).order('created_at', { ascending: false }).limit(100),
     ]);
 
     const spaces = (spacesRes.data ?? []) as Array<{ id: string; name?: string | null; room_type?: string | null; ceiling_height_mm?: number | null; status?: string | null }>;
@@ -362,17 +395,6 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
       String(projRes.data.name || 'Untitled Project'),
       String(projRes.data.assigned_designer || ''),
       spaces,
-    );
-
-    // Attach signed download URLs for any uploaded studio assets referenced by pipeline files
-    const filesWithUrls = await Promise.all(
-      doc.files.map(async (file) => {
-        if (file.sourceType === 'uploaded_file' && file.storagePath) {
-          const signed = await client.storage.from('project-assets').createSignedUrl(file.storagePath, 3600);
-          return { ...file, signedDownloadUrl: signed.data?.signedUrl ?? null };
-        }
-        return { ...file, signedDownloadUrl: null };
-      }),
     );
 
     return response.json({
@@ -391,14 +413,27 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
         ceilingHeightMm: s.ceiling_height_mm ?? 2700,
         status: s.status ?? 'pending',
       })),
+      assets: (assetsRes.data ?? []).map(asset => ({ id: asset.id, kind: asset.kind, name: asset.storage_path?.split('/').pop() ?? asset.kind })),
       planVersions: plansRes.data ?? [],
       sceneVersions: scenesRes.data ?? [],
-      pipeline: {
-        ...doc,
-        files: filesWithUrls,
-      },
+      pipeline: doc,
       authorityGuarantee: 'Saving tasks, files, or external Drive links never automatically approves floor plans, layouts, 3D scenes, or production cutlists.',
     });
+  });
+
+  app.get('/api/projects/:projectId/pipeline/files/:fileId/download', requireProjectUser, async (request, response) => {
+    const projectId = String(request.params.projectId);
+    const client = getClient(request);
+    const project = await client.from('projects').select('delivery_records').eq('id', projectId).maybeSingle();
+    if (project.error || !project.data) return response.status(404).json({ message: 'Project could not be loaded.' });
+    const pipeline = normalizePipelineDocument(project.data.delivery_records, projectId, '', '', []);
+    const file = pipeline.files.find(item => item.id === request.params.fileId);
+    if (!file?.assetId || file.sourceType !== 'uploaded_file') return response.status(404).json({ message: 'No private file is linked to this version.' });
+    const asset = await client.from('project_assets').select('storage_path').eq('project_id', projectId).eq('id', file.assetId).maybeSingle();
+    if (asset.error || !asset.data) return response.status(404).json({ message: 'The saved asset could not be found.' });
+    const signed = await client.storage.from('project-assets').createSignedUrl(asset.data.storage_path, 300, { download: file.originalName || true });
+    if (signed.error) return response.status(503).json({ message: 'The private download link could not be created. Try again.' });
+    return response.json({ url: signed.data.signedUrl });
   });
 
   // Optimistic-concurrency save for project pipeline tasks & file/link revisions
@@ -415,10 +450,19 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
     }
 
     const client = getClient(request);
+    const actor = (request as AuthenticatedRequest).ultidaUser;
+    if (!actor?.organizationId) return response.status(403).json({ success: false, message: 'Choose an authorized studio project.' });
+    const membership = await client.from('organization_members').select('role')
+      .eq('organization_id', actor.organizationId).eq('user_id', actor.id).maybeSingle();
+    if (membership.error) return response.status(503).json({ success: false, message: 'Editor permission could not be verified. Retry the save.' });
+    if (!['owner', 'admin', 'designer', 'production'].includes(membership.data?.role)) {
+      return response.status(403).json({ success: false, message: 'Project Progress can only be edited by studio editors.' });
+    }
     const projRes = await client
       .from('projects')
-      .select('id,name,assigned_designer,delivery_records')
+      .select('id,name,assigned_designer,delivery_records,updated_at')
       .eq('id', projectId)
+      .eq('organization_id', actor.organizationId)
       .maybeSingle();
 
     if (projRes.error || !projRes.data) {
@@ -440,11 +484,7 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
       [],
     );
 
-    if (
-      typeof parsed.data.expectedVersion === 'number' &&
-      existingPipeline.version > 0 &&
-      parsed.data.expectedVersion !== existingPipeline.version
-    ) {
+    if (parsed.data.expectedVersion !== existingPipeline.version) {
       return response.status(409).json({
         success: false,
         code: 'PIPELINE_VERSION_CONFLICT',
@@ -466,13 +506,99 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
       }
     }
 
+    const priorById = new Map(existingPipeline.files.map(file => [file.id, file]));
+    const incomingIds = new Set(parsed.data.files.map(file => file.id));
+    if (incomingIds.size !== parsed.data.files.length || existingPipeline.files.some(file => !incomingIds.has(file.id))) {
+      return response.status(422).json({ success: false, message: 'File history must be retained and each version must have a unique ID.' });
+    }
+    const files: PipelineFileItem[] = [];
+    const usedAssets = new Set(existingPipeline.files.map(file => file.assetId).filter(Boolean));
+    const authorId = actor.id;
+    const changedAt = new Date().toISOString();
+    for (const file of parsed.data.files) {
+      const prior = priorById.get(file.id);
+      if (prior) {
+        const nextAction = file.nextAction ?? prior.nextAction;
+        const actionChanged = nextAction !== prior.nextAction;
+        const reviewChanged = file.approvalStatus !== prior.approvalStatus || file.decisionNotes !== prior.decisionNotes;
+        const nextActionHistory = actionChanged && nextAction ? [
+          ...(prior.nextActionHistory ?? (prior.nextAction ? [{ action: prior.nextAction, changedAt: prior.createdAt, authorId: prior.authorId }] : [])),
+          { action: nextAction, changedAt, authorId },
+        ] : prior.nextActionHistory;
+        files.push({ ...prior, approvalStatus: file.approvalStatus, decisionNotes: file.decisionNotes,
+          approvedBy: file.approvalStatus === 'Approved' ? prior.approvedBy ?? authorId : prior.approvedBy,
+          approvedAt: file.approvalStatus === 'Approved' ? prior.approvedAt ?? changedAt : prior.approvedAt,
+          nextAction, nextActionHistory, updatedAt: actionChanged || reviewChanged ? changedAt : prior.updatedAt });
+        continue;
+      }
+      const parent = file.parentId ? priorById.get(file.parentId) : undefined;
+      if (file.parentId && (!parent || parent.roomId !== file.roomId || parent.category !== file.category)) {
+        return response.status(422).json({ success: false, message: 'Choose a previous version from the same room and file category.' });
+      }
+      if (file.round && (!file.notes.trim() || !file.nextAction || !file.assetId || !file.roomId)) {
+        return response.status(422).json({ success: false, message: 'A revision round needs a room, an uploaded file, a change summary and a next action.' });
+      }
+      let room: { id: string; space_id: string | null; floor_plan_version_id: string | null } | undefined;
+      if (file.roomId) {
+        const lookup = await client.from('spaces').select('id,name,space_id,floor_plan_version_id').eq('project_id', projectId).eq('id', file.roomId).maybeSingle();
+        if (lookup.error || !lookup.data) return response.status(422).json({ success: false, message: 'Choose a room belonging to this project.' });
+        room = lookup.data;
+        file.roomName = lookup.data.name;
+      }
+      if (file.assetId) {
+        if (usedAssets.has(file.assetId)) return response.status(409).json({ success: false, message: 'This asset is already recorded in Project Progress.' });
+        usedAssets.add(file.assetId);
+        const asset = await client.from('project_assets').select('id,kind,storage_path,mime_type').eq('project_id', projectId).eq('id', file.assetId).maybeSingle();
+        if (asset.error || !asset.data) return response.status(422).json({ success: false, message: 'Choose an uploaded asset belonging to this project.' });
+        file.storagePath = asset.data.storage_path;
+        file.mimeType = asset.data.mime_type;
+        file.renderSource = undefined;
+        if (asset.data.kind === 'render') {
+          const artifact = await client.from('artifacts').select('id,scene_version_id,job_id')
+            .eq('project_id', projectId).eq('kind', 'photoreal_render').eq('storage_path', file.storagePath).maybeSingle();
+          if (artifact.error) return response.status(503).json({ success: false, message: 'Render lineage could not be loaded. Retry the save.' });
+          if (artifact.data?.scene_version_id) {
+            const { id, scene_version_id, job_id } = artifact.data;
+            file.renderSource = { artifactId: id, sceneVersionId: scene_version_id, jobId: job_id ?? undefined };
+            if (job_id) {
+              const job = await client.from('jobs').select('input').eq('project_id', projectId).eq('id', job_id).maybeSingle();
+              if (job.error) return response.status(503).json({ success: false, message: 'Render job lineage could not be loaded. Retry the save.' });
+              const input = job.data?.input;
+              if (typeof input?.roomId === 'string' && room?.id !== input.roomId) {
+                if (!room || room.space_id !== input.roomId || !room.floor_plan_version_id) {
+                  return response.status(422).json({ success: false, message: 'Choose the room used to generate this render.' });
+                }
+                const scene = await client.from('scene_versions').select('floor_plan_version_id')
+                  .eq('project_id', projectId).eq('id', scene_version_id).maybeSingle();
+                if (scene.error) return response.status(503).json({ success: false, message: 'Render plan lineage could not be loaded. Retry the save.' });
+                if (scene.data?.floor_plan_version_id !== room.floor_plan_version_id) {
+                  return response.status(422).json({ success: false, message: 'Choose the room from the plan revision used to generate this render.' });
+                }
+              }
+              if (typeof input?.cameraId === 'string') file.renderSource.cameraId = input.cameraId;
+            }
+          }
+        }
+      } else if (file.sourceType === 'uploaded_file') {
+        return response.status(422).json({ success: false, message: 'An uploaded revision requires a saved file.' });
+      } else {
+        file.renderSource = undefined;
+      }
+      const familyId = parent?.familyId ?? deterministicFamilyId(file.id);
+      const family = [...existingPipeline.files, ...files].filter(item => item.familyId === familyId);
+      const sequence = Math.max(0, ...family.map(item => item.sequence ?? 1)) + 1;
+      files.push({ ...file, projectId, familyId, sequence, approvalStatus: 'Draft', approvedAt: null, approvedBy: null,
+        nextActionHistory: file.nextAction ? [{ action: file.nextAction, changedAt, authorId }] : undefined,
+        authorId, createdAt: changedAt, updatedAt: changedAt });
+    }
+
     const nextVersion = existingPipeline.version + 1;
-    const now = new Date().toISOString();
+    const now = new Date(Math.max(Date.now(), Date.parse(projRes.data.updated_at) + 1)).toISOString();
     const updatedPipeline: ProjectPipelineDocument = {
       version: nextVersion,
       updatedAt: now,
       tasks: parsed.data.tasks.map((t) => ({ ...t, projectId })),
-      files: parsed.data.files.map((f) => ({ ...f, projectId })),
+      files,
     };
 
     const nextDeliveryRecords = {
@@ -480,15 +606,19 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
       pipeline: updatedPipeline,
     };
 
-    const updateRes = await client
+    // Only this project write needs the trusted client. Historical project RLS
+    // restricts updates to the original creator even for authorized editors.
+    const updateRes = await getWriteClient(request)
       .from('projects')
       .update({
         delivery_records: nextDeliveryRecords,
         updated_at: now,
       })
       .eq('id', projectId)
+      .eq('organization_id', actor.organizationId)
+      .eq('updated_at', projRes.data.updated_at)
       .select('id,updated_at')
-      .single();
+      .maybeSingle();
 
     if (updateRes.error) {
       return response.status(500).json({
@@ -497,6 +627,11 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
         message: updateRes.error.message,
       });
     }
+
+    if (!updateRes.data) return response.status(409).json({
+      success: false, code: 'PIPELINE_VERSION_CONFLICT',
+      message: 'Another editor updated this project. Reload the latest records and retry your draft.',
+    });
 
     return response.json({
       success: true,
