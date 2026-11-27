@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import sharp from 'sharp';
 import { createVisualJob, listProjectRenders } from '../src/visual-jobs.js';
 
 test('measured kitchen uses a saved camera and reloads the stored offline render from its gallery', async () => {
@@ -15,6 +16,7 @@ test('measured kitchen uses a saved camera and reloads the stored offline render
   const rows: Record<string, any[]> = {
     projects: [{ id: projectId, organization_id: 'studio' }],
     scene_versions: [{ id: 'scene-1', project_id: projectId, status: 'approved', scene }],
+    material_library_items: [{ id: 'oak', organization_id: 'studio', name: 'Oak', metadata: { colourHex: '#bf9163' } }],
   };
   const objects = new Map<string, Buffer>();
   const client = {
@@ -53,8 +55,25 @@ test('measured kitchen uses a saved camera and reloads the stored offline render
   const gateway = { async createVisualProposal(request: any) {
     providerCalls++;
     assert.equal(request.cameraId, 'saved-camera');
+    let data = request.sourceAssets[0].split(',')[1];
+    if (request.operation === 'material-swap') {
+      const base = await sharp(Buffer.from(data, 'base64')).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      const mask = await sharp(Buffer.from(request.conditioningMaps.materialKeyMapUrl.split(',')[1], 'base64'))
+        .greyscale().raw().toBuffer();
+      let changed = 0;
+      for (let pixel = 0; pixel < mask.length; pixel++) {
+        if (mask[pixel] < 128) continue;
+        const offset = pixel * base.info.channels;
+        base.data[offset] = 191;
+        base.data[offset + 1] = 145;
+        base.data[offset + 2] = 99;
+        changed++;
+      }
+      assert.ok(changed > 0, 'The measured unit has a visible edit region.');
+      data = (await sharp(base.data, { raw: base.info }).png().toBuffer()).toString('base64');
+    }
     return { status: 'succeeded', provider: 'offline-fixture', operation: request.operation,
-      image: { encoding: 'base64', mimeType: 'image/png', data: request.sourceAssets[0].split(',')[1] } };
+      image: { encoding: 'base64', mimeType: 'image/png', data } };
   } };
   const request = { projectId, sceneVersionId: 'scene-1', roomId: room.id, cameraId: 'saved-camera', operation: 'render', style: 'neutral', quality: 'review' };
   const invalidCamera = await createVisualJob({}, gateway as never, { ...request, cameraId: 'missing' } as never, 'designer', client as never);
@@ -72,4 +91,14 @@ test('measured kitchen uses a saved camera and reloads the stored offline render
   assert.equal(gallery.renders?.length, 1);
   assert.equal(gallery.renders?.[0].scene_version_id, 'scene-1');
   assert.ok(gallery.renders?.[0].signedUrl);
+  const edited = await createVisualJob({}, gateway as never, {
+    ...request, operation: 'material-swap', targetModuleId: scene.modules[0].id, targetMaterialId: 'oak',
+  } as never, 'designer', client as never);
+  assert.equal(edited.status, 'succeeded', JSON.stringify({ code: edited.code, message: edited.message, jobId: edited.jobId }));
+  assert.equal(providerCalls, 2);
+  assert.equal(rows.project_assets[1].metadata.materialRevision.targetMaterialId, 'oak');
+  const updatedGallery = await listProjectRenders({}, projectId, client as never);
+  assert.equal(updatedGallery.renders?.length, 2);
+  assert.ok(updatedGallery.renders?.every(item => item.signedUrl && item.scene_version_id === 'scene-1'));
+  assert.notDeepEqual(objects.get(rows.project_assets[0].storage_path), objects.get(rows.project_assets[1].storage_path));
 });
