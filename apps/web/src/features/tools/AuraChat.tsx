@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Bot, CheckCircle2, Compass, Loader2, MessageSquareText, Send, ShieldCheck, Sparkles } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getApiBase } from '../../lib/api-base';
@@ -29,6 +29,18 @@ export function AuraChat() {
   const [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState<Message[]>([{ role: 'aura', text: 'I am AURA, ULTIDA’s supervised project assistant. I can inspect workflow state and prepare reviewable proposals for modules, materials and renders. I never change geometry, quotes, cutlists, or production status on my own.' }]);
 
+  const [crmMode,setCrmMode] = useState(false);
+  const crmWindow = useRef<Window | null>(null);
+  const crmOrigin = 'https://ultida-design-workspace.zebbroka.chatgpt.site';
+  useEffect(() => {
+    const reply = (event: MessageEvent) => {
+      if (event.origin === crmOrigin && event.source === crmWindow.current &&
+          event.data?.type === 'ultida.aura.reply' && event.data.projectId === projectId &&
+          typeof event.data.answer === 'string') setMessages(current => [...current,{role:'aura',text:event.data.answer}]);
+    };
+    window.addEventListener('message', reply);
+    return () => window.removeEventListener('message', reply);
+  }, [projectId]);
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projects, projectId]);
 
   useEffect(() => {
@@ -43,6 +55,20 @@ export function AuraChat() {
   async function send(requestText = input) {
     const text = requestText.trim();
     if (!text || !projectId || busy) return;
+    if (crmMode && selectedProject) {
+      const handoff = new URLSearchParams({ultidaId:projectId,project:selectedProject.name,
+        return:new URL('/projects/' + encodeURIComponent(projectId) + '/brief',window.location.origin).href,
+        aura:'1',draft:text});
+      const opened = window.open(crmOrigin + '/#' + handoff.toString(),'_blank');
+      if (!opened) {
+        setMessages(current=>[...current,{role:'aura',text:'Allow the private CRM window to open and send your request again.'}]);
+        return;
+      }
+      crmWindow.current = opened;
+      setInput('');
+      setMessages(current=>[...current,{role:'designer',text},{role:'aura',text:'Your request is ready in project chat. Send it there to read or update the saved CRM record.'}]);
+      return;
+    }
     setInput('');
     setMessages((current) => [...current, { role: 'designer', text }]);
     setBusy(true);
@@ -83,14 +109,14 @@ export function AuraChat() {
       <div>
         <p><Sparkles size={14} /> SUPERVISED DESIGN AGENT</p>
         <h1>AURA workspace</h1>
-        <span>Ask for guidance, not automation. Every proposal stays attached to project context and awaits designer approval.</span>
+        <span>Ask for design guidance or update the selected project’s CRM records.</span>
       </div>
       <div className="aura-safety-card"><ShieldCheck size={19} /><div><strong>Review-gated</strong><small>scene.v1 remains authoritative</small></div></div>
     </header>
 
     <section className="aura-context" aria-label="AURA project context">
       <div><Compass size={17} /><div><small>WORKING PROJECT</small><strong>{selectedProject?.name ?? 'Choose a project'}</strong></div></div>
-      <label>Project<select value={projectId} onChange={(event) => setProjectId(event.target.value)} disabled={busy}>{!projects.length && <option value="">Create a project first</option>}{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+      <label>Project<select value={projectId} onChange={(event) => { setProjectId(event.target.value); setMessages([]); setInput(''); crmWindow.current=null; }} disabled={busy}>{!projects.length && <option value="">Create a project first</option>}{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
     </section>
 
     <section className="aura-layout">
@@ -117,6 +143,7 @@ export function AuraChat() {
           </article>)}
           {busy ? <div className="aura-working"><Loader2 size={15} className="ultida-spinner" /> AURA is reading the permitted project context…</div> : null}
         </div>
+        <label><input type="checkbox" checked={crmMode} onChange={event=>setCrmMode(event.target.checked)} disabled={busy}/> Project CRM · progress, notes and next actions</label>
         <div className="aura-suggestions" aria-label="Suggested AURA requests">{prompts.map((prompt) => <button key={prompt.label} type="button" onClick={() => void send(prompt.text)} disabled={!projectId || busy}>{prompt.label}</button>)}</div>
         <form className="aura-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={projectId ? 'Ask AURA about this project…' : 'Select a project to begin'} disabled={!projectId || busy} /><button type="submit" disabled={!projectId || !input.trim() || busy}><Send size={16} /><span>Send</span></button></form>
       </section>
