@@ -185,6 +185,7 @@ export function PipelineWorkspace() {
   const [sessionOwnerFilter, setSessionOwnerFilter] = useState<string>('all');
 
   // New Task Form
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskStage, setNewTaskStage] = useState<PipelineStage>('spaces');
   const [newTaskRoomId, setNewTaskRoomId] = useState<string>('');
@@ -511,13 +512,20 @@ export function PipelineWorkspace() {
       updatedAt: now,
     };
 
-    const nextTasks = [newTask, ...activeProject.pipeline.tasks];
-    await persistProjectPipeline(
+    const prior = activeProject.pipeline.tasks.find(task => task.id === editingTaskId);
+    const nextTasks = prior ? activeProject.pipeline.tasks.map(task => task.id === prior.id ? {
+      ...newTask, id: prior.id, status: prior.status, completedAt: prior.completedAt,
+      dependencies: newTaskDependencyId === (prior.dependencies[0] ?? '') ? prior.dependencies : newTask.dependencies,
+      approvedBy: prior.approvedBy, approvedAt: prior.approvedAt, decisionNotes: prior.decisionNotes,
+    } : task) : [newTask, ...activeProject.pipeline.tasks];
+    const saved = await persistProjectPipeline(
       activeProject,
       nextTasks,
       activeProject.pipeline.files,
-      `Created task "${newTask.title}" in Pending status.`,
+      `Saved progress for "${newTask.title}".`,
     );
+    if (!saved) return;
+    setEditingTaskId(null);
     setNewTaskTitle('');
     setNewTaskNextAction('');
     setNewTaskAssumptions('');
@@ -702,6 +710,22 @@ export function PipelineWorkspace() {
     );
   }
 
+  function editTask(task: PipelineTask) {
+    setEditingTaskId(task.id);
+    setNewTaskTitle(task.title);
+    setNewTaskStage(task.stage);
+    setNewTaskRoomId(task.roomId ?? '');
+    setNewTaskOwner(task.owner);
+    setNewTaskPriority(task.priority);
+    setNewTaskMinutes(task.estimatedMinutes?.toString() ?? '');
+    setNewTaskDueDate(task.dueDate ?? '');
+    setNewTaskNextAction(task.nextAction);
+    setNewTaskAssumptions(task.assumptions);
+    setNewTaskMissingInfo(task.missingInformation);
+    setNewTaskDependencyId(task.dependencies[0] ?? '');
+    document.getElementById('progress-task-form')?.scrollIntoView({ block: 'center' });
+  }
+
   function openProjectStage(projectId: string, stage: PipelineStage, roomId?: string | null) {
     const suffix = STAGE_META[stage].routeSuffix;
     const query = roomId ? `?roomId=${encodeURIComponent(roomId)}` : '';
@@ -781,6 +805,7 @@ export function PipelineWorkspace() {
         </div>
       )}
 
+      {!routeProjectId && <>
       {/* Section 6: Studio Overview & 120-Minute Daily Session Planner */}
       <section
         style={{
@@ -937,6 +962,8 @@ export function PipelineWorkspace() {
         )}
       </section>
 
+      </>}
+
       {/* Project & Room Selector + Direct Stage Shortcuts */}
       <section
         style={{
@@ -1085,7 +1112,7 @@ export function PipelineWorkspace() {
           </div>
 
           {/* Add Task Form */}
-          <form onSubmit={(e) => void handleAddTask(e)} style={{ padding: 14, borderRadius: 10, background: 'var(--surface-2, #f9fafb)', border: '1px solid var(--line, #e5e7eb)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <form id="progress-task-form" onSubmit={(e) => void handleAddTask(e)} style={{ padding: 14, borderRadius: 10, background: 'var(--surface-2, #f9fafb)', border: '1px solid var(--line, #e5e7eb)', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <strong style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Plus size={14} /> Add Pipeline Task (starts Pending)
             </strong>
@@ -1274,6 +1301,7 @@ export function PipelineWorkspace() {
                       </select>
                     </div>
 
+                    <button type="button" onClick={() => editTask(task)}>Edit progress</button>
                     {task.nextAction && (
                       <div style={{ fontSize: 12, color: 'var(--text-secondary, #374151)' }}>
                         <strong>Next action:</strong> {task.nextAction}
@@ -1387,7 +1415,7 @@ export function PipelineWorkspace() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px 90px', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 130px), 1fr))', gap: 8 }}>
               <input
                 type="text"
                 placeholder="Document title (e.g. Kitchen GFC Elevation & Cutlist Pack)"
@@ -1460,7 +1488,8 @@ export function PipelineWorkspace() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <input
                 type="text"
-                placeholder="Revision notes (e.g. Updated Merino laminate codes & 50 mm left filler)"
+                aria-label="What changed"
+                placeholder="What changed in this version?"
                 value={fileNotes}
                 onChange={(e) => setFileNotes(e.target.value)}
                 style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line, #d1d5db)', fontSize: 12, flex: 1 }}
@@ -1529,7 +1558,7 @@ export function PipelineWorkspace() {
                       </div>
 
                       <select
-                        value={file.approvalStatus}
+                        value={file.approvalStatus ?? 'Draft'}
                         disabled={saving}
                         onChange={(e) =>
                           void handleFileApprovalDecision(

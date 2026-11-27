@@ -105,6 +105,11 @@ export function compileStoredModuleForScene(
   if (!wall) return { ok: false, code: 'MODULE_WALL_NOT_FOUND', message: `Module ${module.id} references a wall outside the active plan.` };
   if (!Number.isFinite(wall.heightMm) || Number(wall.heightMm) <= 0) return { ok: false, code: 'ROOM_CEILING_UNCONFIRMED', message: 'Confirm the measured wall and ceiling height before compiling this room.' };
   if (zMm + heightMm > Number(wall.heightMm)) return { ok: false, code: 'MODULE_EXCEEDS_HEIGHT', message: `Module ${module.id} reaches ${zMm + heightMm} mm but the measured ceiling is ${wall.heightMm} mm. Reduce its height or mounting level.` };
+  // Purchased retail units use their catalog envelope in the scene. Their
+  // proprietary construction is not a fabrication template.
+  if (catalogModule?.tags.includes('retail-procurement-only')) {
+    return { ok: true, module: moduleEnvelope, parts: [] };
+  }
   const compiler = category === 'catalog_unit' ? compileCatalogUnit : COMPILER_REGISTRY[category];
   const configuration = typeof config.configuration === 'object' && config.configuration ? config.configuration as Record<string, unknown> : {};
   const parameters = typeof config.parameters === 'object' && config.parameters ? config.parameters as Record<string, unknown> : {};

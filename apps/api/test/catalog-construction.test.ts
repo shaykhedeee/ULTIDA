@@ -47,6 +47,10 @@ test('all catalog entries compile or resolve cleanly, and all cutlist-supported 
     assert.equal(result.ok, true, `Failed to compile ${entry.id} (${entry.family}): ${!result.ok ? result.message : ''}`);
     if (!result.ok) continue;
 
+    if (entry.tags.includes('retail-procurement-only')) {
+      assert.equal(result.parts.length, 0);
+      assert.equal(result.module.heightMm, entry.heightMm);
+    }
     if (entry.production.cutlistSupported) {
       assert.ok(
         result.parts.length > 0,
