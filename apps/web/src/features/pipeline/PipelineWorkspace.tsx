@@ -256,6 +256,53 @@ export function PipelineWorkspace() {
     void loadPipelineData(routeProjectId);
   }, [routeProjectId]);
 
+
+  // Share a read-only file index with the studio's private CRM. Authentication
+  // stays inside ULTIDA; the CRM receives titles and revision metadata only.
+  useEffect(() => {
+    const crmOrigin = 'https://ultida-design-workspace.zebbroka.chatgpt.site';
+    let pending = false;
+    let disposed = false;
+    async function respond(event: MessageEvent) {
+      if (event.origin !== crmOrigin || !window.opener || event.source !== window.opener ||
+          event.data?.type !== 'ultida.crm.request' || !routeProjectId ||
+          event.data.projectId !== routeProjectId || pending) return;
+      pending = true;
+      try {
+        const response = await fetch(`${getApiBase()}/projects/${encodeURIComponent(routeProjectId)}/pipeline`, { headers: await getAuthHeaders() });
+        if (!response.ok || !supabase) throw new Error('Sign in to ULTIDA to sync this project.');
+        const detail = await response.json();
+        const files = (detail.pipeline.files as PipelineFileItem[]).map(f => ({
+          id: 'pipeline:' + f.id, title: f.title, category: f.category, revision: f.revision,
+          status: f.approvalStatus, room: f.roomName || '', assetId: f.assetId
+        }));
+        const linked = new Set(files.map(f => f.assetId).filter(Boolean));
+        const artifacts: {id:string; title:string; category:string; revision:string; status:string; room:string}[] = [];
+        for (let offset = 0; ; offset += 500) {
+          const {data, error} = await supabase.from('project_assets')
+            .select('id,kind,storage_path').eq('project_id', routeProjectId)
+            .order('id').range(offset, offset + 499);
+          if (error) throw new Error('Project assets could not be read.');
+          for (const a of data || []) {
+            if (!linked.has(a.id)) artifacts.push({id:'asset:' + a.id, title:String(a.storage_path || a.kind).split('/').pop() || a.kind,
+              category:String(a.kind), revision:'', status:'Recorded', room:''});
+          }
+          if (!data || data.length < 500) break;
+        }
+        for (const [kind, versions] of [['Floor Plan', detail.planVersions], ['3D scene', detail.sceneVersions]] as const) {
+          for (const v of versions || []) artifacts.push({id:kind + ':' + v.id, title:kind + ' v' + v.version_number,
+            category:kind, revision:String(v.version_number), status:v.review_status || v.status || 'Recorded', room:''});
+        }
+        if (!disposed) window.opener?.postMessage({type:'ultida.crm.index', projectId:routeProjectId, files:[...files,...artifacts]}, crmOrigin);
+      } catch (error) {
+        if (!disposed) window.opener?.postMessage({type:'ultida.crm.error',projectId:routeProjectId,
+          message:error instanceof Error ? error.message : 'Sync unavailable.'}, crmOrigin);
+      } finally { pending = false; }
+    }
+    window.addEventListener('message', respond);
+    return () => { disposed = true; window.removeEventListener('message', respond); };
+  }, [routeProjectId]);
+
   const activeProject = useMemo(
     () => projects.find((p) => p.projectId === selectedProjectId) ?? projects[0] ?? null,
     [projects, selectedProjectId],
