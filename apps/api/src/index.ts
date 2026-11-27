@@ -267,7 +267,7 @@ app.get('/api/research/ikea-stock', requireStudioUser, async (request, response)
 });
 
 registerMoodboardRoutes(app, getRequestSupabaseClient);
-registerPipelineRoutes(app, getRequestSupabaseClient);
+registerPipelineRoutes(app, getRequestSupabaseClient, getAuthorizedProjectPersistenceClient);
 
 app.get('/api/catalog/verified-suppliers', (request, response) => {
   const kind = String(request.query.kind ?? 'all');

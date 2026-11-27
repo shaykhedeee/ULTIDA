@@ -140,7 +140,7 @@ test('two editors retain the approved file and cannot overwrite a competing room
     delivery_records: { pipeline: { version: 0, tasks: [], files: [previous] } } };
   const handlers = new Map<string, (...args: any[]) => Promise<unknown>>();
   const app = { get() {}, put(path: string, _auth: unknown, handler: (...args: any[]) => Promise<unknown>) { handlers.set(path, handler); } };
-  registerPipelineRoutes(app as never, (() => ({
+  const getClient = (() => ({
     from(table: string) {
       const filters = new Map<string, unknown>();
       let patch: typeof project | undefined;
@@ -149,6 +149,7 @@ test('two editors retain the approved file and cannot overwrite a competing room
         eq(column: string, value: unknown) { filters.set(column, value); return query; },
         update(value: typeof project) { patch = value; return query; },
         async maybeSingle() {
+          if (table === 'organization_members') return { data: { role: filters.get('user_id') === 'viewer' ? 'viewer' : 'designer' } };
           if (table === 'spaces') {
             const id = String(filters.get('id'));
             return { data: { id, name: id, space_id: id.replace(/^db-/, '').replace(/-old$/, ''), floor_plan_version_id: id.endsWith('-old') ? 'old-plan' : 'render-plan' } };
@@ -160,6 +161,7 @@ test('two editors retain the approved file and cannot overwrite a competing room
           if (table === 'jobs') return { data: { input: { roomId: 'bedroom', cameraId: 'saved-camera' } } };
           if (table === 'scene_versions') return { data: { floor_plan_version_id: 'render-plan' } };
           if (patch) {
+            assert.equal(filters.get('organization_id'), 'studio');
             if (filters.get('updated_at') !== project.updated_at) return { data: null };
             project = { ...project, ...patch };
           }
@@ -168,9 +170,10 @@ test('two editors retain the approved file and cannot overwrite a competing room
       };
       return query;
     },
-  })) as never);
+  })) as never;
+  registerPipelineRoutes(app as never, getClient, getClient);
   const write = async (editor: string, payload: unknown) => {
-    const request = { params: { projectId: 'project' }, ultidaUser: { id: editor }, body: payload };
+    const request = { params: { projectId: 'project' }, ultidaUser: { id: editor, organizationId: 'studio' }, body: payload };
     let status = 200;
     let body: any;
     const response = { status(value: number) { status = value; return response; }, json(value: unknown) { body = value; } };
@@ -185,6 +188,7 @@ test('two editors retain the approved file and cannot overwrite a competing room
     }],
   });
   assert.equal((await save('wrong-room', 'bedroom', 'approved')).status, 422);
+  assert.equal((await save('viewer', 'bedroom')).status, 403);
   const [first, second] = await Promise.all([save('editor-one', 'kitchen', 'approved'), save('editor-two', 'bedroom')]);
   assert.deepEqual([first.status, second.status].sort(), [200, 409]);
   const files = project.delivery_records.pipeline.files as Array<Record<string, unknown>>;

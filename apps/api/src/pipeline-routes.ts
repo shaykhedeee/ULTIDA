@@ -294,7 +294,11 @@ export function normalizePipelineDocument(
   };
 }
 
-export function registerPipelineRoutes(app: Express, getClient: (request: Request) => SupabaseClient) {
+export function registerPipelineRoutes(
+  app: Express,
+  getClient: (request: Request) => SupabaseClient,
+  getWriteClient: (request: Request) => SupabaseClient,
+) {
   // Studio-wide pipeline & daily session planner across all active organization projects
   app.get('/api/studio/pipeline', requireStudioUser, async (request, response) => {
     const authReq = request as AuthenticatedRequest;
@@ -446,10 +450,19 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
     }
 
     const client = getClient(request);
+    const actor = (request as AuthenticatedRequest).ultidaUser;
+    if (!actor?.organizationId) return response.status(403).json({ success: false, message: 'Choose an authorized studio project.' });
+    const membership = await client.from('organization_members').select('role')
+      .eq('organization_id', actor.organizationId).eq('user_id', actor.id).maybeSingle();
+    if (membership.error) return response.status(503).json({ success: false, message: 'Editor permission could not be verified. Retry the save.' });
+    if (!['owner', 'admin', 'designer', 'production'].includes(membership.data?.role)) {
+      return response.status(403).json({ success: false, message: 'Project Progress can only be edited by studio editors.' });
+    }
     const projRes = await client
       .from('projects')
       .select('id,name,assigned_designer,delivery_records,updated_at')
       .eq('id', projectId)
+      .eq('organization_id', actor.organizationId)
       .maybeSingle();
 
     if (projRes.error || !projRes.data) {
@@ -500,7 +513,7 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
     }
     const files: PipelineFileItem[] = [];
     const usedAssets = new Set(existingPipeline.files.map(file => file.assetId).filter(Boolean));
-    const authorId = (request as AuthenticatedRequest).ultidaUser?.id;
+    const authorId = actor.id;
     const changedAt = new Date().toISOString();
     for (const file of parsed.data.files) {
       const prior = priorById.get(file.id);
@@ -593,13 +606,16 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
       pipeline: updatedPipeline,
     };
 
-    const updateRes = await client
+    // Only this project write needs the trusted client. Historical project RLS
+    // restricts updates to the original creator even for authorized editors.
+    const updateRes = await getWriteClient(request)
       .from('projects')
       .update({
         delivery_records: nextDeliveryRecords,
         updated_at: now,
       })
       .eq('id', projectId)
+      .eq('organization_id', actor.organizationId)
       .eq('updated_at', projRes.data.updated_at)
       .select('id,updated_at')
       .maybeSingle();
