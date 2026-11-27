@@ -23,6 +23,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getApiBase } from '../../lib/api-base';
 import { supabase } from '../../lib/supabase';
+import { loadProjectProgress, saveProjectProgress } from './project-progress-api';
 
 export type PipelineTaskStatus =
   | 'Pending'
@@ -90,6 +91,8 @@ export type PipelineFileItem = {
   sequence?: number;
   round?: string;
   nextAction?: string;
+  nextActionHistory?: Array<{ action: string; changedAt: string; authorId?: string }>;
+  renderSource?: { artifactId: string; sceneVersionId: string; jobId?: string; cameraId?: string };
   originalName?: string;
   sourceType: 'uploaded_file' | 'external_drive_link';
   externalUrl?: string | null;
@@ -115,6 +118,13 @@ type RoomSummary = {
   status?: string;
 };
 
+export type ProjectPipeline = {
+  version: number;
+  updatedAt: string;
+  tasks: PipelineTask[];
+  files: PipelineFileItem[];
+};
+
 type ProjectPipelineSummary = {
   projectId: string;
   projectName: string;
@@ -123,12 +133,7 @@ type ProjectPipelineSummary = {
   assignedDesigner: string;
   rooms: RoomSummary[];
   assets?: Array<{id: string; kind: string; name: string}>;
-  pipeline: {
-    version: number;
-    updatedAt: string;
-    tasks: PipelineTask[];
-    files: PipelineFileItem[];
-  };
+  pipeline: ProjectPipeline;
 };
 
 const STAGE_META: Record<PipelineStage, { label: string; routeSuffix: string; color: string }> = {
@@ -211,12 +216,72 @@ export function PipelineWorkspace() {
   const [fileParentId, setFileParentId] = useState('');
   const [fileRound, setFileRound] = useState('');
   const [fileNextAction, setFileNextAction] = useState('');
-  const [uploadedDraft, setUploadedDraft] = useState<{ projectId: string; file: File; assetId: string; storagePath: string; mimeType: string; url: string | null } | null>(null);
   const [uploadingFile, setUploadingFile] = useState<File | null>(null);
+  const [draftFileName, setDraftFileName] = useState('');
+  const [draftEditorId, setDraftEditorId] = useState('');
+  const [hydratedDraftKey, setHydratedDraftKey] = useState<string | null>(null);
+  const [editingNextAction, setEditingNextAction] = useState<{ id: string; value: string } | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'error' | 'warn'; text: string } | null>(null);
+  const draftKey = routeProjectId && draftEditorId ? `ultida:revision:v1:${encodeURIComponent(draftEditorId)}:${encodeURIComponent(routeProjectId)}` : '';
+
+  useEffect(() => {
+    let active = true;
+    void supabase?.auth.getSession().then(({ data }) => {
+      if (active) setDraftEditorId(data.session?.user?.id ?? '');
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!draftKey) return;
+    let fields: Record<string, unknown> = {};
+    try {
+      const raw = JSON.parse(localStorage.getItem(draftKey) ?? '{}');
+      if (raw && typeof raw === 'object') fields = raw;
+    } catch {
+      // The form can still be used if browser storage is unavailable.
+    }
+    const field = (name: string, fallback = '') => typeof fields[name] === 'string' ? String(fields[name]) : fallback;
+    const category = field('category') as PipelineFileCategory;
+    setFileCategory(FILE_CATEGORIES.includes(category) ? category : 'Working Drawing');
+    setFileSourceType(field('source') === 'uploaded_file' ? 'uploaded_file' : 'external_drive_link');
+    setFileTitle(field('title'));
+    setFileRevision(field('revision', 'REV-1'));
+    setFileRoomId(field('roomId'));
+    setFileExternalUrl(field('url'));
+    setFileOwner(field('owner', 'Lead Designer'));
+    setFileNotes(field('notes'));
+    setExistingAssetId(field('assetId'));
+    setFileParentId(field('parentId'));
+    setFileRound(field('round'));
+    setFileNextAction(field('nextAction'));
+    setDraftFileName(field('fileName'));
+    setUploadingFile(null);
+    setEditingNextAction(null);
+    setSelectedRoomId(field('roomFilter', 'all'));
+    setSelectedStageFilter(field('stageFilter', 'all'));
+    setSelectedStatusFilter(field('statusFilter', 'all'));
+    setHydratedDraftKey(draftKey);
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!draftKey || draftKey !== hydratedDraftKey) return;
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({
+        source: fileSourceType, title: fileTitle, category: fileCategory, revision: fileRevision, roomId: fileRoomId,
+        url: fileExternalUrl, owner: fileOwner, notes: fileNotes, assetId: existingAssetId, parentId: fileParentId,
+        round: fileRound, nextAction: fileNextAction, fileName: draftFileName,
+        roomFilter: selectedRoomId, stageFilter: selectedStageFilter, statusFilter: selectedStatusFilter,
+      }));
+    } catch {
+      // Leave the draft in memory if storage is unavailable.
+    }
+  }, [draftKey, hydratedDraftKey, fileSourceType, fileTitle, fileCategory, fileRevision, fileRoomId, fileExternalUrl,
+    fileOwner, fileNotes, existingAssetId, fileParentId, fileRound, fileNextAction, draftFileName, selectedRoomId,
+    selectedStageFilter, selectedStatusFilter]);
 
   async function getAuthHeaders(): Promise<Record<string, string>> {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -277,6 +342,32 @@ export function PipelineWorkspace() {
   useEffect(() => {
     void loadPipelineData(routeProjectId);
   }, [routeProjectId]);
+
+  useEffect(() => {
+    if (!routeProjectId || loading || saving || editingTaskId || editingNextAction) return;
+    let active = true;
+    let refreshing = false;
+    async function catchUp() {
+      if (refreshing || document.visibilityState === 'hidden' || !routeProjectId) return;
+      refreshing = true;
+      try {
+        const pipeline = await loadProjectProgress(routeProjectId, await getAuthHeaders());
+        if (active) setProjects(current => current.map(project =>
+          project.projectId === routeProjectId && pipeline.version > project.pipeline.version ? { ...project, pipeline } : project));
+      } catch {
+        // Keep the last saved view. The next focus or interval will retry.
+      } finally {
+        refreshing = false;
+      }
+    }
+    window.addEventListener('focus', catchUp);
+    const timer = window.setInterval(catchUp, 15_000);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', catchUp);
+      window.clearInterval(timer);
+    };
+  }, [routeProjectId, loading, saving, editingTaskId, editingNextAction]);
 
   const activeProject = useMemo(
     () => projects.find((p) => p.projectId === (routeProjectId ?? selectedProjectId)) ?? (routeProjectId ? null : projects[0] ?? null),
@@ -422,28 +513,13 @@ export function PipelineWorkspace() {
     setFeedback(null);
     try {
       const headers = await getAuthHeaders();
-      const res = await fetch(`${getApiBase()}/projects/${encodeURIComponent(targetProject.projectId)}/pipeline`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
-          expectedVersion: targetProject.pipeline.version,
-          tasks: nextTasks,
-          files: nextFiles,
-        }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.success) {
-        throw new Error(
-          data?.message ||
-            (res.status === 409
-              ? 'Concurrent edit detected: reload the pipeline before saving.'
-              : `Pipeline save failed (${res.status}).`),
-        );
-      }
+      const pipeline = await saveProjectProgress(targetProject.projectId, {
+        ...targetProject.pipeline, tasks: nextTasks, files: nextFiles,
+      }, headers);
       setProjects((prev) =>
         prev.map((p) =>
           p.projectId === targetProject.projectId
-            ? { ...p, pipeline: data.pipeline }
+            ? { ...p, pipeline }
             : p,
         ),
       );
@@ -560,8 +636,6 @@ export function PipelineWorkspace() {
       }
     } else if (existingAssetId) {
       uploadedAssetId = existingAssetId;
-    } else if (uploadedDraft && uploadedDraft.projectId === activeProject.projectId && uploadedDraft.file === uploadingFile) {
-      ({ assetId: uploadedAssetId, storagePath: uploadedStoragePath, mimeType: uploadedMimeType, url: signedPreviewUrl } = uploadedDraft);
     } else {
       if (!uploadingFile) {
         setFeedback({
@@ -621,8 +695,10 @@ export function PipelineWorkspace() {
         uploadedStoragePath = initData.storagePath;
         uploadedMimeType = uploadingFile.type || 'image/png';
         signedPreviewUrl = completeData.item?.metadata?.previewUrl ?? null;
-        setUploadedDraft({ projectId: activeProject.projectId, file: uploadingFile, assetId: initData.assetId,
-          storagePath: initData.storagePath, mimeType: uploadingFile.type || 'image/png', url: signedPreviewUrl });
+        setExistingAssetId(initData.assetId);
+        setProjects(current => current.map(project => project.projectId === activeProject.projectId ? {
+          ...project, assets: [...(project.assets ?? []), { id: initData.assetId, name: uploadingFile.name, kind: 'upload' }],
+        } : project));
       } catch (err) {
         setSaving(false);
         setFeedback({
@@ -640,7 +716,7 @@ export function PipelineWorkspace() {
       parentId: fileParentId || undefined,
       round: fileRound.trim() || undefined,
       nextAction: fileNextAction.trim() || undefined,
-      originalName: fileSourceType === 'uploaded_file' ? uploadingFile?.name ?? activeProject.assets?.find(asset => asset.id === existingAssetId)?.name : undefined,
+      originalName: fileSourceType === 'uploaded_file' ? uploadingFile?.name ?? activeProject.assets?.find(asset => asset.id === existingAssetId)?.name ?? draftFileName : undefined,
       projectId: activeProject.projectId,
       roomId: matchedRoom ? matchedRoom.id : null,
       roomName: matchedRoom ? matchedRoom.name : 'All Rooms',
@@ -664,7 +740,10 @@ export function PipelineWorkspace() {
     };
 
     const nextFiles = [newFileItem, ...activeProject.pipeline.files];
-    const saved = await persistProjectPipeline(
+    const alreadySaved = uploadedAssetId && activeProject.pipeline.files.some(file =>
+      file.assetId === uploadedAssetId && file.title === newFileItem.title && file.roomId === newFileItem.roomId &&
+      file.round === newFileItem.round && file.notes === newFileItem.notes && file.parentId === newFileItem.parentId);
+    const saved = alreadySaved || await persistProjectPipeline(
       activeProject,
       activeProject.pipeline.tasks,
       nextFiles,
@@ -674,12 +753,13 @@ export function PipelineWorkspace() {
     setFileParentId('');
     setFileRound('');
     setFileNextAction('');
-    setUploadedDraft(null);
     setExistingAssetId('');
+    setDraftFileName('');
     setFileTitle('');
     setFileExternalUrl('');
     setFileNotes('');
     setUploadingFile(null);
+    if (alreadySaved) setFeedback({ type: 'ok', text: 'This revision is already saved in Project Progress.' });
   }
 
   async function handleFileApprovalDecision(
@@ -1002,6 +1082,7 @@ export function PipelineWorkspace() {
             <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
               Room:
               <select
+                aria-label="Filter by room"
                 value={selectedRoomId}
                 onChange={(e) => setSelectedRoomId(e.target.value)}
                 style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--line, #d1d5db)', fontSize: 12 }}
@@ -1351,7 +1432,14 @@ export function PipelineWorkspace() {
             <label>Existing project asset
               <select value={existingAssetId} onChange={event => {
                 setExistingAssetId(event.target.value);
-                if (event.target.value) { setFileSourceType('uploaded_file'); setUploadingFile(null); }
+                if (event.target.value) {
+                  setFileSourceType('uploaded_file');
+                  setUploadingFile(null);
+                  setDraftFileName('');
+                  if (!fileParentId && activeProject?.assets?.find(asset => asset.id === event.target.value)?.kind === 'render') {
+                    setFileCategory('3D Render');
+                  }
+                }
               }}>
                 <option value="">Upload a new file</option>
                 {activeProject?.assets?.filter(asset => !activeProject.pipeline.files.some(file => file.assetId === asset.id))
@@ -1447,6 +1535,7 @@ export function PipelineWorkspace() {
 
             {fileSourceType === 'external_drive_link' ? (
               <input
+                key="external-link"
                 type="url"
                 placeholder="https://drive.google.com/drive/folders/... or https://docs.google.com/..."
                 value={fileExternalUrl}
@@ -1456,12 +1545,20 @@ export function PipelineWorkspace() {
               />
             ) : (
               <input
+                key="private-file"
                 type="file"
                 accept=".pdf,.png,.jpg,.jpeg,.webp"
-                onChange={(e) => { setExistingAssetId(''); setUploadingFile(e.target.files?.[0] ?? null); }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  setExistingAssetId('');
+                  setUploadingFile(file);
+                  setDraftFileName(file?.name ?? '');
+                }}
                 style={{ fontSize: 12 }}
               />
             )}
+            {fileSourceType === 'uploaded_file' && draftFileName && !uploadingFile && !existingAssetId &&
+              <small role="status">Select {draftFileName} again to finish this draft.</small>}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <select
@@ -1590,10 +1687,38 @@ export function PipelineWorkspace() {
                     {file.round && <div><strong>{file.round} · v{file.sequence}</strong>
                       {file.originalName && <span> · {file.originalName}</span>}
                       <p>Next action: {file.nextAction}</p>
+                      {editingNextAction?.id === file.id ?
+                        <form onSubmit={async event => {
+                          event.preventDefault();
+                          const value = editingNextAction.value.trim();
+                          if (!activeProject || !value || saving) return;
+                          const files = activeProject.pipeline.files.map(item => item.id === file.id ? { ...item, nextAction: value } : item);
+                          if (await persistProjectPipeline(activeProject, activeProject.pipeline.tasks, files, 'Next action saved.')) {
+                            setEditingNextAction(null);
+                          }
+                        }}>
+                          <label>Updated next action <input required maxLength={400} value={editingNextAction.value}
+                            onChange={event => setEditingNextAction({ id: file.id, value: event.target.value })} /></label>
+                          <button type="submit" disabled={saving}>Save next action</button>
+                          <button type="button" onClick={() => setEditingNextAction(null)}>Cancel</button>
+                        </form> :
+                        <button type="button" disabled={saving} onClick={() => setEditingNextAction({ id: file.id, value: file.nextAction ?? '' })}>Edit next action</button>}
+                      {file.nextActionHistory && file.nextActionHistory.length > 1 && <details>
+                        <summary>Next action history</summary>
+                        <ol>{file.nextActionHistory.map(({ action, changedAt }, index) =>
+                          <li key={index}><time dateTime={changedAt}>{changedAt.slice(0, 10)}</time> · {action}</li>)}</ol>
+                      </details>}
                     </div>}
                     {file.notes && (
                       <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary, #4b5563)' }}>{file.notes}</p>
                     )}
+                    {file.renderSource && <details>
+                      <summary>Render source</summary>
+                      <dl><dt>Scene revision</dt><dd>{file.renderSource.sceneVersionId}</dd>
+                        {file.renderSource.cameraId && <><dt>Camera</dt><dd>{file.renderSource.cameraId}</dd></>}
+                        {file.renderSource.jobId && <><dt>Render job</dt><dd>{file.renderSource.jobId}</dd></>}
+                        <dt>Artifact</dt><dd>{file.renderSource.artifactId}</dd></dl>
+                    </details>}
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--text-secondary, #6b7280)', paddingTop: 4, borderTop: '1px solid #f3f4f6' }}>
                       <span>

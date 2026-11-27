@@ -71,8 +71,19 @@ export const PipelineFileItemSchema = z.object({
   sequence: z.number().int().positive().optional(),
   round: z.string().trim().min(1).max(80).optional(),
   nextAction: z.string().trim().min(1).max(400).optional(),
+  nextActionHistory: z.array(z.object({
+    action: z.string().max(400),
+    changedAt: z.string().max(40),
+    authorId: z.string().optional(),
+  })).optional(),
   originalName: z.string().max(255).optional(),
   authorId: z.string().optional(),
+  renderSource: z.object({
+    artifactId: z.string(),
+    sceneVersionId: z.string(),
+    jobId: z.string().optional(),
+    cameraId: z.string().optional(),
+  }).optional(),
 
   sourceType: z.enum(['uploaded_file', 'external_drive_link']),
   externalUrl: z.string().url().max(1000).nullable().optional(),
@@ -105,7 +116,7 @@ export type ProjectPipelineDocument = {
 };
 
 const SaveProjectPipelineSchema = z.object({
-  expectedVersion: z.number().int().min(0).optional(),
+  expectedVersion: z.number().int().min(0),
   tasks: z.array(PipelineTaskSchema).max(300),
   files: z.array(PipelineFileItemSchema).max(300),
 });
@@ -460,10 +471,7 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
       [],
     );
 
-    if (
-      typeof parsed.data.expectedVersion === 'number' &&
-      parsed.data.expectedVersion !== existingPipeline.version
-    ) {
+    if (parsed.data.expectedVersion !== existingPipeline.version) {
       return response.status(409).json({
         success: false,
         code: 'PIPELINE_VERSION_CONFLICT',
@@ -492,13 +500,22 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
     }
     const files: PipelineFileItem[] = [];
     const usedAssets = new Set(existingPipeline.files.map(file => file.assetId).filter(Boolean));
+    const authorId = (request as AuthenticatedRequest).ultidaUser?.id;
+    const changedAt = new Date().toISOString();
     for (const file of parsed.data.files) {
       const prior = priorById.get(file.id);
       if (prior) {
+        const nextAction = file.nextAction ?? prior.nextAction;
+        const actionChanged = nextAction !== prior.nextAction;
+        const reviewChanged = file.approvalStatus !== prior.approvalStatus || file.decisionNotes !== prior.decisionNotes;
+        const nextActionHistory = actionChanged && nextAction ? [
+          ...(prior.nextActionHistory ?? (prior.nextAction ? [{ action: prior.nextAction, changedAt: prior.createdAt, authorId: prior.authorId }] : [])),
+          { action: nextAction, changedAt, authorId },
+        ] : prior.nextActionHistory;
         files.push({ ...prior, approvalStatus: file.approvalStatus, decisionNotes: file.decisionNotes,
-          approvedBy: file.approvalStatus === 'Approved' ? prior.approvedBy ?? (request as AuthenticatedRequest).ultidaUser?.id : prior.approvedBy,
-          approvedAt: file.approvalStatus === 'Approved' ? prior.approvedAt ?? new Date().toISOString() : prior.approvedAt,
-          updatedAt: file.updatedAt });
+          approvedBy: file.approvalStatus === 'Approved' ? prior.approvedBy ?? authorId : prior.approvedBy,
+          approvedAt: file.approvalStatus === 'Approved' ? prior.approvedAt ?? changedAt : prior.approvedAt,
+          nextAction, nextActionHistory, updatedAt: actionChanged || reviewChanged ? changedAt : prior.updatedAt });
         continue;
       }
       const parent = file.parentId ? priorById.get(file.parentId) : undefined;
@@ -516,19 +533,40 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
       if (file.assetId) {
         if (usedAssets.has(file.assetId)) return response.status(409).json({ success: false, message: 'This asset is already recorded in Project Progress.' });
         usedAssets.add(file.assetId);
-        const asset = await client.from('project_assets').select('id,storage_path,mime_type').eq('project_id', projectId).eq('id', file.assetId).maybeSingle();
+        const asset = await client.from('project_assets').select('id,kind,storage_path,mime_type').eq('project_id', projectId).eq('id', file.assetId).maybeSingle();
         if (asset.error || !asset.data) return response.status(422).json({ success: false, message: 'Choose an uploaded asset belonging to this project.' });
         file.storagePath = asset.data.storage_path;
         file.mimeType = asset.data.mime_type;
+        file.renderSource = undefined;
+        if (asset.data.kind === 'render') {
+          const artifact = await client.from('artifacts').select('id,scene_version_id,job_id')
+            .eq('project_id', projectId).eq('kind', 'photoreal_render').eq('storage_path', file.storagePath).maybeSingle();
+          if (artifact.error) return response.status(503).json({ success: false, message: 'Render lineage could not be loaded. Retry the save.' });
+          if (artifact.data?.scene_version_id) {
+            const { id, scene_version_id, job_id } = artifact.data;
+            file.renderSource = { artifactId: id, sceneVersionId: scene_version_id, jobId: job_id ?? undefined };
+            if (job_id) {
+              const job = await client.from('jobs').select('input').eq('project_id', projectId).eq('id', job_id).maybeSingle();
+              if (job.error) return response.status(503).json({ success: false, message: 'Render job lineage could not be loaded. Retry the save.' });
+              const input = job.data?.input;
+              if (typeof input?.roomId === 'string' && file.roomId !== input.roomId) {
+                return response.status(422).json({ success: false, message: 'Choose the room used to generate this render.' });
+              }
+              if (typeof input?.cameraId === 'string') file.renderSource.cameraId = input.cameraId;
+            }
+          }
+        }
       } else if (file.sourceType === 'uploaded_file') {
         return response.status(422).json({ success: false, message: 'An uploaded revision requires a saved file.' });
+      } else {
+        file.renderSource = undefined;
       }
       const familyId = parent?.familyId ?? deterministicFamilyId(file.id);
       const family = [...existingPipeline.files, ...files].filter(item => item.familyId === familyId);
       const sequence = Math.max(0, ...family.map(item => item.sequence ?? 1)) + 1;
-      const now = new Date().toISOString();
       files.push({ ...file, projectId, familyId, sequence, approvalStatus: 'Draft', approvedAt: null, approvedBy: null,
-        authorId: (request as AuthenticatedRequest).ultidaUser?.id, createdAt: now, updatedAt: now });
+        nextActionHistory: file.nextAction ? [{ action: file.nextAction, changedAt, authorId }] : undefined,
+        authorId, createdAt: changedAt, updatedAt: changedAt });
     }
 
     const nextVersion = existingPipeline.version + 1;
