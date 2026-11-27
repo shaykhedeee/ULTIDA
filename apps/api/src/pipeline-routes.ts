@@ -525,10 +525,12 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
       if (file.round && (!file.notes.trim() || !file.nextAction || !file.assetId || !file.roomId)) {
         return response.status(422).json({ success: false, message: 'A revision round needs a room, an uploaded file, a change summary and a next action.' });
       }
+      let room: { id: string; space_id: string | null; floor_plan_version_id: string | null } | undefined;
       if (file.roomId) {
-        const room = await client.from('spaces').select('id,name').eq('project_id', projectId).eq('id', file.roomId).maybeSingle();
-        if (room.error || !room.data) return response.status(422).json({ success: false, message: 'Choose a room belonging to this project.' });
-        file.roomName = room.data.name;
+        const lookup = await client.from('spaces').select('id,name,space_id,floor_plan_version_id').eq('project_id', projectId).eq('id', file.roomId).maybeSingle();
+        if (lookup.error || !lookup.data) return response.status(422).json({ success: false, message: 'Choose a room belonging to this project.' });
+        room = lookup.data;
+        file.roomName = lookup.data.name;
       }
       if (file.assetId) {
         if (usedAssets.has(file.assetId)) return response.status(409).json({ success: false, message: 'This asset is already recorded in Project Progress.' });
@@ -549,8 +551,16 @@ export function registerPipelineRoutes(app: Express, getClient: (request: Reques
               const job = await client.from('jobs').select('input').eq('project_id', projectId).eq('id', job_id).maybeSingle();
               if (job.error) return response.status(503).json({ success: false, message: 'Render job lineage could not be loaded. Retry the save.' });
               const input = job.data?.input;
-              if (typeof input?.roomId === 'string' && file.roomId !== input.roomId) {
-                return response.status(422).json({ success: false, message: 'Choose the room used to generate this render.' });
+              if (typeof input?.roomId === 'string' && room?.id !== input.roomId) {
+                if (!room || room.space_id !== input.roomId || !room.floor_plan_version_id) {
+                  return response.status(422).json({ success: false, message: 'Choose the room used to generate this render.' });
+                }
+                const scene = await client.from('scene_versions').select('floor_plan_version_id')
+                  .eq('project_id', projectId).eq('id', scene_version_id).maybeSingle();
+                if (scene.error) return response.status(503).json({ success: false, message: 'Render plan lineage could not be loaded. Retry the save.' });
+                if (scene.data?.floor_plan_version_id !== room.floor_plan_version_id) {
+                  return response.status(422).json({ success: false, message: 'Choose the room from the plan revision used to generate this render.' });
+                }
               }
               if (typeof input?.cameraId === 'string') file.renderSource.cameraId = input.cameraId;
             }

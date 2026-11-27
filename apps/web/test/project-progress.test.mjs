@@ -39,7 +39,7 @@ test('two editors recover a failed revision upload and share a confirmed AURA up
     const routeApi = async route => {
       const request = route.request();
       const path = new URL(request.url()).pathname;
-      if (path.endsWith('/studio/pipeline')) return route.fulfill({ json: { projects: [{ projectId: 'project', projectName: 'Test project', rooms, pipeline }] } });
+      if (path.endsWith('/studio/pipeline')) return route.fulfill({ status: 403, json: { message: 'Project links must work independently of the studio index.' } });
       if (path.endsWith('/initiate')) {
         uploads += 1;
         return route.fulfill({ json: { success: true, assetId: 'pdf-asset', storagePath: 'private/revised.pdf', token: 'fixture' } });
@@ -58,7 +58,8 @@ test('two editors recover a failed revision upload and share a confirmed AURA up
         pipeline = { version: pipeline.version + 1, tasks: body.tasks, files: [{ ...body.files[0], sequence: 2 }, ...body.files.slice(1)] };
         return route.fulfill({ json: { success: true, pipeline } });
       }
-      return route.fulfill({ json: { rooms, pipeline, assets: uploads ? [{ id: 'pdf-asset', name: 'revised.pdf', kind: 'upload' }] : [] } });
+      return route.fulfill({ json: { project: { id: 'project', name: 'Test project', assignedDesigner: 'Editor one' },
+        rooms, pipeline, assets: uploads ? [{ id: 'pdf-asset', name: 'revised.pdf', kind: 'upload' }] : [] } });
     };
     await page.route('**/api/**', routeApi);
     const url = 'http://127.0.0.1:' + vite.httpServer.address().port + '/__progress';

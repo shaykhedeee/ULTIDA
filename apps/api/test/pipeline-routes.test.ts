@@ -149,12 +149,16 @@ test('two editors retain the approved file and cannot overwrite a competing room
         eq(column: string, value: unknown) { filters.set(column, value); return query; },
         update(value: typeof project) { patch = value; return query; },
         async maybeSingle() {
-          if (table === 'spaces') return { data: { id: filters.get('id'), name: filters.get('id') } };
+          if (table === 'spaces') {
+            const id = String(filters.get('id'));
+            return { data: { id, name: id, space_id: id.replace(/^db-/, '').replace(/-old$/, ''), floor_plan_version_id: id.endsWith('-old') ? 'old-plan' : 'render-plan' } };
+          }
           if (table === 'project_assets') return { data: filters.get('id') === 'generated-render'
             ? { id: 'generated-render', kind: 'render', storage_path: 'private/render.png', mime_type: 'image/png' }
             : { id: filters.get('id'), kind: 'upload', storage_path: 'private/revised.pdf', mime_type: 'application/pdf' } };
           if (table === 'artifacts') return { data: { id: 'artifact', scene_version_id: 'scene', job_id: 'job' } };
           if (table === 'jobs') return { data: { input: { roomId: 'bedroom', cameraId: 'saved-camera' } } };
+          if (table === 'scene_versions') return { data: { floor_plan_version_id: 'render-plan' } };
           if (patch) {
             if (filters.get('updated_at') !== project.updated_at) return { data: null };
             project = { ...project, ...patch };
@@ -210,8 +214,11 @@ test('two editors retain the approved file and cannot overwrite a competing room
   const generatedRevision = { ...previous, id: 'render-version', sourceType: 'uploaded_file', assetId: 'generated-render',
     roomId: 'kitchen', category: '3D Render', round: 'R03', nextAction: 'Review finishes', notes: 'Revised laminate' };
   assert.equal((await write('editor-two', { expectedVersion: 2, tasks: [], files: [...next.body.pipeline.files, generatedRevision] })).status, 422);
+  const oldRoom = await write('editor-two', { expectedVersion: 2, tasks: [], files: [...next.body.pipeline.files, { ...generatedRevision, roomId: 'db-bedroom-old' }] });
+  assert.equal(oldRoom.status, 422);
+  assert.match(oldRoom.body.message, /plan revision/);
   const attached = await write('editor-two', { expectedVersion: 2, tasks: [],
-    files: [...next.body.pipeline.files, { ...generatedRevision, roomId: 'bedroom' }] });
+    files: [...next.body.pipeline.files, { ...generatedRevision, roomId: 'db-bedroom' }] });
   assert.equal(attached.status, 200);
   assert.deepEqual(attached.body.pipeline.files[2].renderSource, {
     artifactId: 'artifact', jobId: 'job', sceneVersionId: 'scene', cameraId: 'saved-camera',

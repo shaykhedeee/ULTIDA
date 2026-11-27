@@ -299,6 +299,22 @@ export function PipelineWorkspace() {
     setFeedback(null);
     try {
       const headers = await getAuthHeaders();
+      if (routeProjectId) {
+        const res = await fetch(`${getApiBase()}/projects/${encodeURIComponent(routeProjectId)}/pipeline`, { headers });
+        const detail = await res.json().catch(() => null);
+        if (!res.ok || !detail?.project) throw new Error(detail?.message || `Project Progress could not be loaded (${res.status}).`);
+        setProjects([{
+          projectId: detail.project.id,
+          projectName: detail.project.name,
+          clientName: detail.project.clientName,
+          workflowStage: detail.project.workflowStage,
+          assignedDesigner: detail.project.assignedDesigner,
+          rooms: detail.rooms,
+          assets: detail.assets,
+          pipeline: detail.pipeline,
+        }]);
+        return;
+      }
       const res = await fetch(`${getApiBase()}/studio/pipeline`, { headers });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
@@ -308,7 +324,7 @@ export function PipelineWorkspace() {
       const loadedProjects: ProjectPipelineSummary[] = Array.isArray(payload.projects) ? payload.projects : [];
       setProjects(loadedProjects);
 
-      const initialPid = targetProjectId || routeProjectId || selectedProjectId || loadedProjects[0]?.projectId || '';
+      const initialPid = targetProjectId || selectedProjectId || loadedProjects[0]?.projectId || '';
       if (initialPid) {
         setSelectedProjectId(initialPid);
         // Fetch detailed project pipeline (with signed asset URLs)
