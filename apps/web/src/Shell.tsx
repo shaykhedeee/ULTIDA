@@ -35,23 +35,10 @@ type Props = {
 const PRIMARY_NAV = [
   { id: 'dashboard', label: 'Dashboard',        path: '/',          icon: LayoutDashboard },
   { id: 'projects',  label: 'Projects',         path: '/projects',  icon: FolderKanban },
-  { id: 'pipeline',  label: 'Pipeline & Files', path: '/pipeline',  icon: ClipboardList },
   { id: 'library',   label: 'Design Library',   path: '/library',   icon: Library },
   { id: 'team',      label: 'Team',             path: '/team',      icon: Users },
   { id: 'settings',  label: 'Settings & Rules', path: '/settings',  icon: Settings },
 ];
-
-const STUDIO_WORKSPACE_URL = 'https://ultida-design-workspace.zebbroka.chatgpt.site';
-
-function studioWorkspaceLink(projectId?: string | null, projectName?: string | null) {
-  if (!projectId || !projectName || projectName === 'Loading…') return STUDIO_WORKSPACE_URL;
-  const handoff = new URLSearchParams({
-    ultidaId: projectId,
-    project: projectName,
-    return: new URL(`/projects/${encodeURIComponent(projectId)}/brief`, window.location.origin).href,
-  });
-  return `${STUDIO_WORKSPACE_URL}/#${handoff}`;
-}
 
 const TOOL_NAV = [
   { label: 'Design Tools', items: [
@@ -146,7 +133,7 @@ export function Shell({
             return (
               <Link
                 key={item.id}
-                to={item.id === 'library' && projectId ? `/projects/${projectId}/library` : item.id === 'pipeline' && projectId ? `/projects/${projectId}/pipeline` : item.path}
+                to={item.id === 'library' && projectId ? `/projects/${projectId}/library` : item.path}
                 className={`nav-item${isActive ? ' active' : ''}`}
                 onClick={() => setMobileOpen(false)}
                 title={collapsed ? item.label : undefined}
@@ -157,18 +144,17 @@ export function Shell({
               </Link>
             );
           })}
-          <a
-            className="nav-item"
-            href={studioWorkspaceLink(projectId, projectName)}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => setMobileOpen(false)}
-            title={collapsed ? 'Studio Workspace' : undefined}
-            data-tooltip="Studio Workspace"
-          >
-            <span className="nav-icon"><ClipboardList size={16} /></span>
-            <span className="nav-label-text">Studio Workspace</span>
-          </a>
+          {projectId ? (
+            <Link className="nav-item" to={`/projects/${projectId}/pipeline`} onClick={() => setMobileOpen(false)}>
+              <span className="nav-icon"><ClipboardList size={16} /></span>
+              <span className="nav-label-text">Project Progress</span>
+            </Link>
+          ) : (
+            <Link className="nav-item" to="/pipeline" onClick={() => setMobileOpen(false)}>
+              <span className="nav-icon"><ClipboardList size={16} /></span>
+              <span className="nav-label-text">Studio Planner</span>
+            </Link>
+          )}
         </div>
 
         {/* Active project summary card */}

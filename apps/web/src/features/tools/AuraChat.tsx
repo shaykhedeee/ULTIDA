@@ -47,6 +47,19 @@ export function AuraChat() {
     setMessages((current) => [...current, { role: 'designer', text }]);
     setBusy(true);
     try {
+      if (/^what changed in project progress\??$/i.test(text)) {
+        const response = await fetch(`${apiBase}/projects/${encodeURIComponent(projectId)}/pipeline`, { headers: await authHeaders() });
+        if (!response.ok) throw new Error('Project Progress is unavailable.');
+        const { pipeline } = await response.json();
+        const recent = pipeline.files
+          .filter((file: { round?: string }) => file.round)
+          .sort((a: { createdAt: string }, b: { createdAt: string }) => b.createdAt.localeCompare(a.createdAt))
+          .slice(0, 5)
+          .map((file: { roomName: string; title: string; round: string; sequence: number; notes: string; nextAction: string }) =>
+            `${file.roomName} / ${file.title} · ${file.round} v${file.sequence} — ${file.notes} Next: ${file.nextAction}`);
+        setMessages(current => [...current, { role: 'aura', text: recent.join('\n') || 'This project has no recorded revision rounds yet.' }]);
+        return;
+      }
       const response = await fetch(`${apiBase}/projects/${projectId}/aura/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ message: text }) });
       const payload = await response.json().catch(() => ({}));
       setMessages((current) => [...current, {
@@ -117,7 +130,7 @@ export function AuraChat() {
           </article>)}
           {busy ? <div className="aura-working"><Loader2 size={15} className="ultida-spinner" /> AURA is reading the permitted project context…</div> : null}
         </div>
-        <div className="aura-suggestions" aria-label="Suggested AURA requests">{prompts.map((prompt) => <button key={prompt.label} type="button" onClick={() => void send(prompt.text)} disabled={!projectId || busy}>{prompt.label}</button>)}</div>
+        <div className="aura-suggestions" aria-label="Suggested AURA requests"><button type="button" disabled={!projectId || busy} onClick={() => void send('What changed in Project Progress?')}>Recent project revisions</button>{prompts.map((prompt) => <button key={prompt.label} type="button" onClick={() => void send(prompt.text)} disabled={!projectId || busy}>{prompt.label}</button>)}</div>
         <form className="aura-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={projectId ? 'Ask AURA about this project…' : 'Select a project to begin'} disabled={!projectId || busy} /><button type="submit" disabled={!projectId || !input.trim() || busy}><Send size={16} /><span>Send</span></button></form>
       </section>
     </section>

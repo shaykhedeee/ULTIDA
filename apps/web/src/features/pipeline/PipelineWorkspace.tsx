@@ -38,7 +38,10 @@ export type PipelineStage =
   | 'spaces'
   | '3d'
   | 'drawings'
-  | 'estimate';
+  | 'estimate'
+  | 'laminate'
+  | 'final'
+  | 'production';
 
 export type PipelineTaskPriority = 'high' | 'medium' | 'low';
 
@@ -82,6 +85,12 @@ export type PipelineFileItem = {
   title: string;
   category: PipelineFileCategory;
   revision: string;
+  familyId?: string;
+  parentId?: string;
+  sequence?: number;
+  round?: string;
+  nextAction?: string;
+  originalName?: string;
   sourceType: 'uploaded_file' | 'external_drive_link';
   externalUrl?: string | null;
   assetId?: string | null;
@@ -113,6 +122,7 @@ type ProjectPipelineSummary = {
   workflowStage: string;
   assignedDesigner: string;
   rooms: RoomSummary[];
+  assets?: Array<{id: string; kind: string; name: string}>;
   pipeline: {
     version: number;
     updatedAt: string;
@@ -122,12 +132,15 @@ type ProjectPipelineSummary = {
 };
 
 const STAGE_META: Record<PipelineStage, { label: string; routeSuffix: string; color: string }> = {
-  brief: { label: '1. Brief', routeSuffix: 'brief', color: '#0284c7' },
-  plan: { label: '2. Floor Plan', routeSuffix: 'plan', color: '#4f46e5' },
+  brief: { label: 'Design discussion', routeSuffix: 'brief', color: '#0284c7' },
+  plan: { label: 'Site measurement', routeSuffix: 'plan', color: '#4f46e5' },
   spaces: { label: '3. Rooms & Furniture', routeSuffix: 'spaces', color: '#0d9488' },
-  '3d': { label: '4. 3D & Render', routeSuffix: '3d', color: '#9333ea' },
-  drawings: { label: '5. Drawings & Cutlist', routeSuffix: 'drawings', color: '#d97706' },
-  estimate: { label: '6. Estimate & BOQ', routeSuffix: 'estimate', color: '#16a34a' },
+  '3d': { label: '3D render file', routeSuffix: '3d', color: '#9333ea' },
+  drawings: { label: '2D file', routeSuffix: 'drawings', color: '#d97706' },
+  estimate: { label: 'Estimate & BOQ', routeSuffix: 'estimate', color: '#16a34a' },
+  laminate: { label: 'Laminate selection', routeSuffix: '3d', color: '#0d9488' },
+  final: { label: 'Final file', routeSuffix: 'drawings', color: '#0d9488' },
+  production: { label: 'Production', routeSuffix: 'drawings', color: '#0d9488' },
 };
 
 const ALL_STATUSES: PipelineTaskStatus[] = [
@@ -148,6 +161,8 @@ const FILE_CATEGORIES: PipelineFileCategory[] = [
   'Client Approval',
   'Reference / Moodboard',
 ];
+
+const progressPhases: PipelineStage[] = ['brief', 'plan', '3d', 'drawings', 'laminate', 'final', 'production'];
 
 function priorityRank(priority: PipelineTaskPriority): number {
   if (priority === 'high') return 0;
@@ -191,6 +206,11 @@ export function PipelineWorkspace() {
   const [fileExternalUrl, setFileExternalUrl] = useState('');
   const [fileOwner, setFileOwner] = useState('Lead Designer');
   const [fileNotes, setFileNotes] = useState('');
+  const [existingAssetId, setExistingAssetId] = useState('');
+  const [fileParentId, setFileParentId] = useState('');
+  const [fileRound, setFileRound] = useState('');
+  const [fileNextAction, setFileNextAction] = useState('');
+  const [uploadedDraft, setUploadedDraft] = useState<{ projectId: string; file: File; assetId: string; storagePath: string; mimeType: string; url: string | null } | null>(null);
   const [uploadingFile, setUploadingFile] = useState<File | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -236,6 +256,7 @@ export function PipelineWorkspace() {
                     ...p,
                     rooms: Array.isArray(detail.rooms) ? detail.rooms : p.rooms,
                     pipeline: detail.pipeline ?? p.pipeline,
+                    assets: detail.assets ?? [],
                   }
                 : p,
             ),
@@ -257,8 +278,8 @@ export function PipelineWorkspace() {
   }, [routeProjectId]);
 
   const activeProject = useMemo(
-    () => projects.find((p) => p.projectId === selectedProjectId) ?? projects[0] ?? null,
-    [projects, selectedProjectId],
+    () => projects.find((p) => p.projectId === (routeProjectId ?? selectedProjectId)) ?? (routeProjectId ? null : projects[0] ?? null),
+    [projects, selectedProjectId, routeProjectId],
   );
 
   const allStudioTasks = useMemo(
@@ -426,11 +447,13 @@ export function PipelineWorkspace() {
         ),
       );
       setFeedback({ type: 'ok', text: successMsg });
+      return true;
     } catch (error) {
       setFeedback({
         type: 'error',
         text: error instanceof Error ? error.message : 'Pipeline save failed.',
       });
+      return false;
     } finally {
       setSaving(false);
     }
@@ -509,6 +532,11 @@ export function PipelineWorkspace() {
     const now = new Date().toISOString();
     const matchedRoom = activeProject.rooms.find((r) => r.id === fileRoomId);
 
+    if (fileRound.trim() && (!matchedRoom || (!uploadingFile && !existingAssetId) || fileSourceType !== 'uploaded_file' || !fileNotes.trim() || !fileNextAction.trim())) {
+      setFeedback({ type: 'error', text: 'Choose a room and revised file, then enter what changed and the next action.' });
+      return;
+    }
+
     let uploadedAssetId: string | null = null;
     let uploadedStoragePath: string | null = null;
     let uploadedMimeType: string | null = null;
@@ -522,6 +550,10 @@ export function PipelineWorkspace() {
         });
         return;
       }
+    } else if (existingAssetId) {
+      uploadedAssetId = existingAssetId;
+    } else if (uploadedDraft && uploadedDraft.projectId === activeProject.projectId && uploadedDraft.file === uploadingFile) {
+      ({ assetId: uploadedAssetId, storagePath: uploadedStoragePath, mimeType: uploadedMimeType, url: signedPreviewUrl } = uploadedDraft);
     } else {
       if (!uploadingFile) {
         setFeedback({
@@ -540,6 +572,7 @@ export function PipelineWorkspace() {
             headers,
             body: JSON.stringify({
               fileName: uploadingFile.name,
+              purpose: 'pipeline_revision',
               mimeType: uploadingFile.type || 'image/png',
               fileSize: uploadingFile.size,
             }),
@@ -563,6 +596,7 @@ export function PipelineWorkspace() {
               assetId: initData.assetId,
               storagePath: initData.storagePath,
               fileName: uploadingFile.name,
+              purpose: 'pipeline_revision',
               mimeType: uploadingFile.type || 'image/png',
               fileSize: uploadingFile.size,
               title: fileTitle.trim(),
@@ -579,6 +613,8 @@ export function PipelineWorkspace() {
         uploadedStoragePath = initData.storagePath;
         uploadedMimeType = uploadingFile.type || 'image/png';
         signedPreviewUrl = completeData.item?.metadata?.previewUrl ?? null;
+        setUploadedDraft({ projectId: activeProject.projectId, file: uploadingFile, assetId: initData.assetId,
+          storagePath: initData.storagePath, mimeType: uploadingFile.type || 'image/png', url: signedPreviewUrl });
       } catch (err) {
         setSaving(false);
         setFeedback({
@@ -591,7 +627,12 @@ export function PipelineWorkspace() {
 
     // Store new revisions separately while marking older approved revisions of the same title + room as kept in history
     const newFileItem: PipelineFileItem = {
-      id: `${activeProject.projectId}-file-${Date.now()}`,
+      id: uploadedAssetId ?? crypto.randomUUID(),
+      familyId: crypto.randomUUID(),
+      parentId: fileParentId || undefined,
+      round: fileRound.trim() || undefined,
+      nextAction: fileNextAction.trim() || undefined,
+      originalName: fileSourceType === 'uploaded_file' ? uploadingFile?.name ?? activeProject.assets?.find(asset => asset.id === existingAssetId)?.name : undefined,
       projectId: activeProject.projectId,
       roomId: matchedRoom ? matchedRoom.id : null,
       roomName: matchedRoom ? matchedRoom.name : 'All Rooms',
@@ -615,12 +656,18 @@ export function PipelineWorkspace() {
     };
 
     const nextFiles = [newFileItem, ...activeProject.pipeline.files];
-    await persistProjectPipeline(
+    const saved = await persistProjectPipeline(
       activeProject,
       activeProject.pipeline.tasks,
       nextFiles,
       `Saved ${fileSourceType === 'external_drive_link' ? 'external Drive/HTTPS link' : 'uploaded studio file'} "${newFileItem.title}" (${newFileItem.revision}) as Draft.`,
     );
+    if (!saved) return;
+    setFileParentId('');
+    setFileRound('');
+    setFileNextAction('');
+    setUploadedDraft(null);
+    setExistingAssetId('');
     setFileTitle('');
     setFileExternalUrl('');
     setFileNotes('');
@@ -687,7 +734,7 @@ export function PipelineWorkspace() {
             <FolderGit2 size={14} /> Native Studio Pipeline, Revisions & Daily Session Planner
           </div>
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: 'var(--text, #111827)' }}>
-            Project Pipeline & Files
+            Project Progress
           </h1>
           <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-secondary, #4b5563)', lineHeight: 1.5 }}>
             Track project deliverables from measured floor plan to workshop cutlists, link Google Drive folders alongside private studio uploads, and plan focused daily work sessions.
@@ -708,6 +755,14 @@ export function PipelineWorkspace() {
           </button>
         </div>
       </section>
+
+      {routeProjectId && <nav aria-label="Project phases" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {progressPhases.map(phase => <button key={phase} type="button" aria-pressed={selectedStageFilter === phase}
+          onClick={() => { setSelectedStageFilter(phase); setNewTaskStage(phase); }}>
+          {STAGE_META[phase].label}
+        </button>)}
+        <button type="button" onClick={() => setSelectedStageFilter('all')}>All tasks</button>
+      </nav>}
 
       {feedback && (
         <div
@@ -900,6 +955,7 @@ export function PipelineWorkspace() {
             <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
               Project:
               <select
+                disabled={Boolean(routeProjectId) || saving}
                 value={activeProject?.projectId ?? ''}
                 onChange={(e) => {
                   setSelectedProjectId(e.target.value);
@@ -1013,7 +1069,7 @@ export function PipelineWorkspace() {
       </section>
 
       {/* Two-Column Main Workspace: Pipeline Tasks (Left) + Files, Revisions & Google Drive Links (Right) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 480px), 1fr))', gap: 20, alignItems: 'start' }}>
         {/* Column 1: Project Pipeline Tasks */}
         <section style={{ padding: 20, borderRadius: 14, border: '1px solid var(--line, #e5e7eb)', background: 'var(--surface, #ffffff)', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1264,6 +1320,35 @@ export function PipelineWorkspace() {
           </div>
 
           <form onSubmit={(e) => void handleAddFileOrLink(e)} style={{ padding: 14, borderRadius: 10, background: 'var(--surface-2, #f9fafb)', border: '1px solid var(--line, #e5e7eb)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <label>Existing project asset
+              <select value={existingAssetId} onChange={event => {
+                setExistingAssetId(event.target.value);
+                if (event.target.value) { setFileSourceType('uploaded_file'); setUploadingFile(null); }
+              }}>
+                <option value="">Upload a new file</option>
+                {activeProject?.assets?.filter(asset => !activeProject.pipeline.files.some(file => file.assetId === asset.id))
+                  .map(asset => <option key={asset.id} value={asset.id}>{asset.name} · {asset.kind}</option>)}
+              </select>
+            </label>
+            <label>Previous version
+              <select value={fileParentId} onChange={event => {
+                const parent = activeProject?.pipeline.files.find(file => file.id === event.target.value);
+                setFileParentId(event.target.value);
+                if (parent) {
+                  setFileTitle(parent.title);
+                  setFileCategory(parent.category);
+                  setFileRoomId(parent.roomId ?? '');
+                  setFileSourceType('uploaded_file');
+                }
+              }}>
+                <option value="">New file family</option>
+                {activeProject?.pipeline.files.map(file => <option key={file.id} value={file.id}>
+                  {file.roomName} / {file.title} · {file.revision}{file.sequence ? ` v${file.sequence}` : ''}
+                </option>)}
+              </select>
+            </label>
+            <label>Revision round <input value={fileRound} onChange={event => setFileRound(event.target.value)} maxLength={80} placeholder="R02" /></label>
+            <label>Next action <input value={fileNextAction} onChange={event => setFileNextAction(event.target.value)} maxLength={400} /></label>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <strong style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <HardDrive size={14} /> Add Revision Record (File Upload or Drive Link)
@@ -1344,8 +1429,8 @@ export function PipelineWorkspace() {
             ) : (
               <input
                 type="file"
-                accept=".png,.jpg,.jpeg,.webp"
-                onChange={(e) => setUploadingFile(e.target.files?.[0] ?? null)}
+                accept=".pdf,.png,.jpg,.jpeg,.webp"
+                onChange={(e) => { setExistingAssetId(''); setUploadingFile(e.target.files?.[0] ?? null); }}
                 style={{ fontSize: 12 }}
               />
             )}
@@ -1399,7 +1484,7 @@ export function PipelineWorkspace() {
             ) : (
               filteredFiles.map((file) => {
                 const isDrive = file.sourceType === 'external_drive_link';
-                const openHref = isDrive ? file.externalUrl : file.signedDownloadUrl;
+                const openHref = isDrive ? file.externalUrl : null;
                 return (
                   <article
                     key={file.id}
@@ -1473,6 +1558,10 @@ export function PipelineWorkspace() {
                       </select>
                     </div>
 
+                    {file.round && <div><strong>{file.round} · v{file.sequence}</strong>
+                      {file.originalName && <span> · {file.originalName}</span>}
+                      <p>Next action: {file.nextAction}</p>
+                    </div>}
                     {file.notes && (
                       <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary, #4b5563)' }}>{file.notes}</p>
                     )}
@@ -1491,6 +1580,20 @@ export function PipelineWorkspace() {
                         >
                           {isDrive ? 'Open External Link' : 'Download Signed File'} <ExternalLink size={12} />
                         </a>
+                      ) : file.assetId ? (
+                        <button type="button" onClick={async () => {
+                          try {
+                            const endpoint = getApiBase() + '/projects/' + encodeURIComponent(file.projectId) + '/pipeline/files/' + encodeURIComponent(file.id) + '/download';
+                            const response = await fetch(endpoint, { headers: await getAuthHeaders() });
+                            const result = await response.json();
+                            if (!response.ok || !result.url) throw new Error(result.message || 'Download unavailable.');
+                            const link = document.createElement('a');
+                            link.href = result.url;
+                            link.click();
+                          } catch (error) {
+                            setFeedback({ type: 'error', text: error instanceof Error ? error.message : 'Download unavailable.' });
+                          }
+                        }}>Download file</button>
                       ) : (
                         <span style={{ fontSize: 11, color: '#9ca3af' }}>No link available</span>
                       )}

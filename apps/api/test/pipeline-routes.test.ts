@@ -127,3 +127,65 @@ test('validateServerEnvironment accepts both COMFYUI_BASE_URL and COMFYUI_URL', 
     else process.env.COMFYUI_URL = prevUrl;
   }
 });
+
+test('two editors retain the approved file and cannot overwrite a competing room revision', async () => {
+  const { registerPipelineRoutes } = await import('../src/pipeline-routes.js');
+  const now = '2026-11-27T10:00:00.000Z';
+  const previous = {
+    id: 'approved', projectId: 'project', roomId: 'kitchen', title: 'Elevation',
+    category: 'Working Drawing', approvalStatus: 'Approved', sourceType: 'external_drive_link',
+    externalUrl: 'https://example.com/approved.pdf', owner: 'Designer', createdAt: now, updatedAt: now,
+  };
+  let project = { id: 'project', name: 'Test project', assigned_designer: 'Designer', updated_at: now,
+    delivery_records: { pipeline: { version: 0, tasks: [], files: [previous] } } };
+  const handlers = new Map<string, (...args: any[]) => Promise<unknown>>();
+  const app = { get() {}, put(path: string, _auth: unknown, handler: (...args: any[]) => Promise<unknown>) { handlers.set(path, handler); } };
+  registerPipelineRoutes(app as never, (() => ({
+    from(table: string) {
+      const filters = new Map<string, unknown>();
+      let patch: typeof project | undefined;
+      const query = {
+        select() { return query; },
+        eq(column: string, value: unknown) { filters.set(column, value); return query; },
+        update(value: typeof project) { patch = value; return query; },
+        async maybeSingle() {
+          if (table === 'spaces') return { data: { id: filters.get('id'), name: filters.get('id') } };
+          if (table === 'project_assets') return { data: { id: filters.get('id'), storage_path: 'private/revised.pdf', mime_type: 'application/pdf' } };
+          if (patch) {
+            if (filters.get('updated_at') !== project.updated_at) return { data: null };
+            project = { ...project, ...patch };
+          }
+          return { data: structuredClone(project) };
+        },
+      };
+      return query;
+    },
+  })) as never);
+  const save = async (editor: string, roomId: string, parentId?: string, expectedVersion = 0) => {
+    const request = { params: { projectId: 'project' }, ultidaUser: { id: editor },
+      body: { expectedVersion, tasks: [], files: [previous, {
+        ...previous, id: editor, roomId, title: 'Renamed elevation', sourceType: 'uploaded_file',
+        approvalStatus: 'Draft', assetId: editor, parentId, round: 'R02', notes: 'Align lofts',
+        originalName: 'revised.pdf', nextAction: 'Review loft clearance',
+      }] } };
+    let status = 200;
+    let body: any;
+    const response = { status(value: number) { status = value; return response; }, json(value: unknown) { body = value; } };
+    await handlers.get('/api/projects/:projectId/pipeline')!(request, response);
+    return { status, body };
+  };
+  assert.equal((await save('wrong-room', 'bedroom', 'approved')).status, 422);
+  const [first, second] = await Promise.all([save('editor-one', 'kitchen', 'approved'), save('editor-two', 'bedroom')]);
+  assert.deepEqual([first.status, second.status].sort(), [200, 409]);
+  const files = project.delivery_records.pipeline.files as Array<Record<string, unknown>>;
+  assert.equal(files.length, 2);
+  const original = files.find(file => file.id === 'approved')!;
+  assert.equal(original.approvalStatus, 'Approved');
+  assert.equal(original.externalUrl, previous.externalUrl);
+  const revision = files.find(file => file.id !== 'approved')!;
+  assert.equal(revision.nextAction, 'Review loft clearance');
+  if (revision.roomId === 'kitchen') {
+    assert.equal(revision.familyId, original.familyId);
+    assert.equal(revision.sequence, 2);
+  }
+});

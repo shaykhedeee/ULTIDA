@@ -1510,20 +1510,21 @@ app.post('/api/projects/:projectId/floor-plans/complete', requireProjectUser, as
 app.post('/api/projects/:projectId/references/initiate', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const projectId = String(request.params.projectId);
-  const { fileName, mimeType, fileSize } = request.body ?? {};
+  const { fileName, mimeType, fileSize, purpose } = request.body ?? {};
   if (typeof fileName !== 'string' || !Number.isFinite(fileSize) || fileSize <= 0) {
     return response.status(400).json({ success: false, code: 'INVALID_REFERENCE_INITIATE_PAYLOAD', message: 'A reference file name and size are required.' });
   }
   if (fileSize > 25 * 1024 * 1024) return response.status(413).json({ success: false, code: 'REFERENCE_TOO_LARGE', message: 'Reference images must be 25 MB or smaller.' });
   const ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
-  const allowedExts = ['.png', '.jpg', '.jpeg', '.webp'];
-  const allowedMimes = ['image/png', 'image/jpeg', 'image/webp'];
+  const revision = purpose === 'pipeline_revision';
+  const allowedExts = ['.png', '.jpg', '.jpeg', '.webp', ...(revision ? ['.pdf'] : [])];
+  const allowedMimes = ['image/png', 'image/jpeg', 'image/webp', ...(revision ? ['application/pdf'] : [])];
   if (!allowedExts.includes(ext) || !allowedMimes.includes(mimeType)) {
-    return response.status(415).json({ success: false, code: 'UNSUPPORTED_REFERENCE_FORMAT', message: 'Use a PNG, JPEG, or WebP reference image.' });
+    return response.status(415).json({ success: false, code: 'UNSUPPORTED_REFERENCE_FORMAT', message: revision ? 'Use a PDF, PNG, JPEG, or WebP file.' : 'Use a PNG, JPEG, or WebP reference image.' });
   }
   const assetId = crypto.randomUUID();
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').slice(-120);
-  const storagePath = `${authReq.ultidaUser!.organizationId}/${projectId}/references/${assetId}-${safeName}`;
+  const storagePath = `${authReq.ultidaUser!.organizationId}/${projectId}/${revision ? 'revisions' : 'references'}/${assetId}-${safeName}`;
   try {
     const storageClient = getServerSupabaseClient();
     if (!storageClient) return response.status(503).json({ success: false, code: 'STORAGE_SIGNING_UNAVAILABLE', message: 'Secure file storage is not configured on the server yet.' });
@@ -1538,12 +1539,13 @@ app.post('/api/projects/:projectId/references/initiate', requireProjectUser, asy
 app.post('/api/projects/:projectId/references/complete', requireProjectUser, async (request, response) => {
   const authReq = request as import('./api-auth.js').AuthenticatedRequest;
   const projectId = String(request.params.projectId);
-  const { assetId, storagePath, fileName, mimeType, fileSize, title, tags, notes } = request.body ?? {};
+  const { assetId, storagePath, fileName, mimeType, fileSize, title, tags, notes, purpose } = request.body ?? {};
   if (![assetId, storagePath, fileName].every((value) => typeof value === 'string' && value.length)) {
     return response.status(400).json({ success: false, code: 'INVALID_REFERENCE_COMPLETE_PAYLOAD', message: 'assetId, storagePath, and fileName are required.' });
   }
   const organizationId = authReq.ultidaUser!.organizationId;
-  const requiredPrefix = `${organizationId}/${projectId}/references/`;
+  const revision = purpose === 'pipeline_revision';
+  const requiredPrefix = `${organizationId}/${projectId}/${revision ? 'revisions' : 'references'}/`;
   const safeReferenceName = fileName.replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').slice(-120);
   const expectedReferencePath = `${requiredPrefix}${assetId}-${safeReferenceName}`;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assetId) || storagePath !== expectedReferencePath) return response.status(403).json({ success: false, code: 'INVALID_STORAGE_PATH', message: 'Use the exact asset identity and path returned by reference upload initiation.' });
@@ -1554,6 +1556,24 @@ app.post('/api/projects/:projectId/references/complete', requireProjectUser, asy
     if (downloaded.error || !downloaded.data) return response.status(409).json({ success: false, code: 'UPLOAD_NOT_FOUND', message: downloaded.error?.message ?? 'The uploaded reference could not be verified.' });
     if (downloaded.data.size > 25 * 1024 * 1024) return response.status(413).json({ success: false, code: 'REFERENCE_TOO_LARGE' });
     const referenceBytes = Buffer.from(await downloaded.data.arrayBuffer());
+    if (revision) {
+      try {
+        if (mimeType === 'application/pdf') {
+          if (!fileName.toLowerCase().endsWith('.pdf') || referenceBytes.length !== fileSize || !(await PDFDocument.load(referenceBytes)).getPageCount()) throw new Error('Invalid PDF');
+        } else {
+          await validateReferenceImage(referenceBytes, mimeType, fileSize);
+        }
+      } catch {
+        return response.status(422).json({ success: false, message: 'The file must match its declared format and size.' });
+      }
+      const saved = await client.from('project_assets').insert({
+        id: assetId, organization_id: organizationId, project_id: projectId, kind: 'studio_revision',
+        storage_path: storagePath, mime_type: mimeType, created_by: authReq.ultidaUser!.id,
+        metadata: { originalName: fileName, size: fileSize, sha256: createHash('sha256').update(referenceBytes).digest('hex') },
+      }).select('id').single();
+      if (saved.error) return response.status(500).json({ success: false, message: 'The revision file could not be registered.' });
+      return response.status(201).json({ success: true, assetId: saved.data.id });
+    }
     let verifiedImage;
     try { verifiedImage = await validateReferenceImage(referenceBytes, mimeType, fileSize); }
     catch { return response.status(422).json({ success: false, code: 'INVALID_REFERENCE_IMAGE', message: 'The uploaded bytes must match a single PNG, JPEG or WebP image and the declared file size.' }); }
